@@ -35,7 +35,10 @@ export interface EvictionNotice {
  * announce; a `refused` RECEIVED payment is the settlement spec's row 1
  * (reversed credit) and belongs here too.
  */
-export function evictionsFrom(rows: readonly TokenActivityRow[] | null, alreadySeen: readonly string[]): EvictionNotice[] {
+export function evictionsFrom(
+  rows: readonly TokenActivityRow[] | null,
+  alreadySeen: readonly string[]
+): EvictionNotice[] {
   if (!rows) return []
   return rows
     .filter(r => r.role === 'received' && (r.status === 'reversed' || r.status === 'refused'))

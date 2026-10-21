@@ -60,17 +60,17 @@ so none of these exact byte counts were ever realized in a stored record. Skip t
 (2026-08-18, post-review): v2 header, vendored template, Uint8Array cache" for the
 current, implemented numbers.
 
-| | verbatim | compressed (v1, superseded) |
-|---|---|---|
-| deposit `rawTx` | 959,836 B | 251 B |
-| deposit as a backup record (base64) | 1,279,784 B | 336 B |
-| `outputs.lockingScript` | 959,632 B | 47 B |
-| R1 preimage | 959,733 B | 188 B |
-| R1 unlocking script | 959,871 B | 323 B |
-| withdrawal tx, 1 vault input | 960,075 B | 527 B |
-| withdrawal tx, 2 vault inputs | 1,919,946 B | 850 B |
-| DB per vault tx (stored twice) | 1,919,468 B | 298 B |
-| backup per user per year (1 vault tx/month) | 15.4 MB | 3.9 KB |
+|                                             | verbatim    | compressed (v1, superseded) |
+| ------------------------------------------- | ----------- | --------------------------- |
+| deposit `rawTx`                             | 959,836 B   | 251 B                       |
+| deposit as a backup record (base64)         | 1,279,784 B | 336 B                       |
+| `outputs.lockingScript`                     | 959,632 B   | 47 B                        |
+| R1 preimage                                 | 959,733 B   | 188 B                       |
+| R1 unlocking script                         | 959,871 B   | 323 B                       |
+| withdrawal tx, 1 vault input                | 960,075 B   | 527 B                       |
+| withdrawal tx, 2 vault inputs               | 1,919,946 B | 850 B                       |
+| DB per vault tx (stored twice)              | 1,919,468 B | 298 B                       |
+| backup per user per year (1 vault tx/month) | 15.4 MB     | 3.9 KB                      |
 
 Roughly 3,824x on a deposit and 1,822x on a withdrawal (v1; superseded).
 
@@ -91,7 +91,7 @@ evaluates as a no-op, so a script left in template form could pass evaluation an
 chain. `0xff` is not a defined opcode and is invalid in every context, so a compressed script
 fails closed: it can never be spent, mined, or accepted, and any code that mistakenly treats
 a compressed script as real gets an immediate, loud failure rather than silent wrong money.
-(This guarantee is about *spending*, not *mining* — output scripts are never executed at
+(This guarantee is about _spending_, not _mining_ — output scripts are never executed at
 creation, so a compressed blob can still be mined into a real output and burn the funds it
 holds. That's still true in v2, unchanged.)
 
@@ -157,7 +157,7 @@ unrecoverable deposit record, with no error anywhere. v2 adds a 4-byte checksum 
 0xff (1) ‖ version (1) ‖ region (1) ‖ originalLength (4, big-endian) ‖ checksum (4) ‖ payload
 ```
 
-`expandScript` verifies the checksum only *after* splicing the payload into the reference
+`expandScript` verifies the checksum only _after_ splicing the payload into the reference
 template, against the full reconstructed result — reconstruct, hash, compare, then return,
 never the reverse. v1 never shipped (nothing has ever called this codec outside its own
 tests), so there is no v1 record to keep reading and no migration to perform; an
@@ -177,7 +177,7 @@ bytes themselves were rebuilt from whatever `@bsv/templates` was installed
 (`package.json` pins `^1.10.0`). A routine `npm i` that drifted the template even one byte
 made every previously-compressed record permanently unexpandable — not because the bytes
 needed to reconstruct it were gone (they were sitting right there in the compressed blob),
-but because the *reference* they'd be spliced into had silently changed underneath them.
+but because the _reference_ they'd be spliced into had silently changed underneath them.
 The template is now vendored: gzip-compressed, base64-encoded, committed to
 `services/vault/vaultTemplateArtifact.ts` (8,059 gzipped bytes for the 959,632-byte raw
 template, both variable runs zeroed before compression). Reconstruction reads only this
@@ -206,8 +206,7 @@ the whole batch and release once at the end, not per record.
 
 ### Savings, recomputed for v2
 
-Same derivation chain as the original table, with the v1 compressed component sizes (47,
-27) replaced by the v2 ones (51, 31 — the 4-byte checksum added to each): deposit `rawTx` =
+Same derivation chain as the original table, with the v1 compressed component sizes (47, 27) replaced by the v2 ones (51, 31 — the 4-byte checksum added to each): deposit `rawTx` =
 204 + lockingScript; R1 preimage = 161 + scriptCode; R1 unlocking script =
 65 + 34 + 33 + (pushPrefix + preimage) + 1; withdrawal tx = 204 + unlock × inputs; base64
 backup record = ⌈n/3⌉ × 4; DB per vault tx = rawTx + lockingScript. (204 and 161 are the
@@ -220,17 +219,17 @@ which fits in 255 bytes, but 5 bytes (`OP_PUSHDATA4` + a 4-byte length) for the 
 the table, and 65+34+33+(5+959733)+1 = 959,871 verbatim, also matching the table — the two
 cases need different `pushPrefix` values, not the same one.
 
-| | verbatim | compressed (v2) |
-|---|---|---|
-| deposit `rawTx` | 959,836 B | 255 B |
-| deposit as a backup record (base64) | 1,279,784 B | 340 B |
-| `outputs.lockingScript` | 959,632 B | 51 B |
-| R1 preimage | 959,733 B | 192 B |
-| R1 unlocking script | 959,871 B | 327 B |
-| withdrawal tx, 1 vault input | 960,075 B | 531 B |
-| withdrawal tx, 2 vault inputs | 1,919,946 B | 858 B |
-| DB per vault tx (stored twice) | 1,919,468 B | 306 B |
-| backup per user per year (1 vault tx/month) | 15.4 MB | ~4.0 KB |
+|                                             | verbatim    | compressed (v2) |
+| ------------------------------------------- | ----------- | --------------- |
+| deposit `rawTx`                             | 959,836 B   | 255 B           |
+| deposit as a backup record (base64)         | 1,279,784 B | 340 B           |
+| `outputs.lockingScript`                     | 959,632 B   | 51 B            |
+| R1 preimage                                 | 959,733 B   | 192 B           |
+| R1 unlocking script                         | 959,871 B   | 327 B           |
+| withdrawal tx, 1 vault input                | 960,075 B   | 531 B           |
+| withdrawal tx, 2 vault inputs               | 1,919,946 B | 858 B           |
+| DB per vault tx (stored twice)              | 1,919,468 B | 306 B           |
+| backup per user per year (1 vault tx/month) | 15.4 MB     | ~4.0 KB         |
 
 Roughly 3,764x on a deposit and 1,808x on a withdrawal (1 vault input) — down slightly
 from v1's 3,824x/1,822x, the cost of trading an unauthenticated payload for one a bit flip

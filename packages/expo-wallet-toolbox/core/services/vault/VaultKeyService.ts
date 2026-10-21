@@ -787,7 +787,8 @@ export async function resumeEnrollmentDraft(args: {
     const scope = vaultStore.getScope()
     const tag = scope ? await vaultStore.getEnrollmentDraftTag(stored.record.serial, scopeToken) : null
     const authentic =
-      scope !== null && (await verifyVaultDraftAuthorityTag(args.wallet, args.adminOriginator, stored.record, scope, tag))
+      scope !== null &&
+      (await verifyVaultDraftAuthorityTag(args.wallet, args.adminOriginator, stored.record, scope, tag))
     if (authentic) {
       args.onPhase('done')
       return { ...stored.record }

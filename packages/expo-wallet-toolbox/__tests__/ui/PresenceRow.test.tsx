@@ -3,7 +3,7 @@ jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(() => Promise.resolve()),
   notificationAsync: jest.fn(() => Promise.resolve()),
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
-  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
+  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' }
 }))
 
 // @expo/vector-icons reaches expo-font, which this repo's transformIgnorePatterns
@@ -96,10 +96,7 @@ describe('PresenceRow', () => {
       const { getByText } = draw(state, 'x')
       return getByText('x')
         .props.style.flat()
-        .reduce(
-          (acc: string | undefined, s: { fontWeight?: string } | undefined) => s?.fontWeight ?? acc,
-          undefined
-        )
+        .reduce((acc: string | undefined, s: { fontWeight?: string } | undefined) => s?.fontWeight ?? acc, undefined)
     }
     expect(weightOf('linked')).toBe('600')
     expect(weightOf('paid')).toBe('600')

@@ -2,11 +2,19 @@ import { Platform } from 'react-native'
 import { BLE_CONNECT_TIMEOUT_MS, bleTransport } from '../../core/localpay/transport/ble'
 import { AckError } from '../../core/localpay/types'
 import { mintSession, instanceName, CAP_BLE_SCAN } from '../../core/localpay/session'
-import { CodecError, FRAME_VERSION, SEAL_VERSION, encodeFrame, sealFrame, unsealFrame, type PaymentFrame } from '../../core/localpay/codec'
+import {
+  CodecError,
+  FRAME_VERSION,
+  SEAL_VERSION,
+  encodeFrame,
+  sealFrame,
+  unsealFrame,
+  type PaymentFrame
+} from '../../core/localpay/codec'
 import type { LocalPayBleTransport } from '@bsv/react-native-localpay-transport'
 
 jest.mock('@bsv/react-native-localpay-transport', () => ({
-  getLocalPayBleTransport: jest.fn(),
+  getLocalPayBleTransport: jest.fn()
 }))
 
 const { getLocalPayBleTransport } = jest.requireMock('@bsv/react-native-localpay-transport') as {
@@ -25,7 +33,7 @@ function fakeNative(overrides: Partial<LocalPayBleTransport> = {}) {
     sendFrame: jest.fn(),
     startScanning: jest.fn().mockResolvedValue(undefined),
     sendFrameAdvertising: jest.fn(),
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -35,7 +43,7 @@ const session = mintSession({
   derivationPrefix: 'cA',
   derivationSuffix: 'cw',
   supportsAwdl: false,
-  supportsBle: true,
+  supportsBle: true
 })
 
 const frame: PaymentFrame = {
@@ -45,7 +53,7 @@ const frame: PaymentFrame = {
   outputIndex: 0,
   derivationPrefix: 'cA',
   derivationSuffix: 'cw',
-  transaction: new Uint8Array([1, 2, 3]),
+  transaction: new Uint8Array([1, 2, 3])
 }
 
 function toAckBase64(payload: unknown): string {
@@ -110,7 +118,7 @@ describe('bleTransport.send', () => {
   // action. The wrapper must forward it untouched.
   it('rejects with the native connect-timeout message so NearbyFlow falls back to the QR', async () => {
     const native = fakeNative({
-      sendFrame: jest.fn().mockRejectedValue(new Error('connect timeout: no route to peer')),
+      sendFrame: jest.fn().mockRejectedValue(new Error('connect timeout: no route to peer'))
     })
     getLocalPayBleTransport.mockReturnValue(native)
 
@@ -124,7 +132,7 @@ describe('bleTransport.send', () => {
   // AckError — an AckError would suggest the payee answered.
   it('propagates the oversize rejection as a plain radio failure, not an AckError', async () => {
     const native = fakeNative({
-      sendFrame: jest.fn().mockRejectedValue(new Error('frame too large for a BLE payload')),
+      sendFrame: jest.fn().mockRejectedValue(new Error('frame too large for a BLE payload'))
     })
     getLocalPayBleTransport.mockReturnValue(native)
 
@@ -149,12 +157,14 @@ describe('bleTransport.send', () => {
 
   it('resolves a genuine peer decline rather than throwing', async () => {
     const native = fakeNative({
-      sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: false, error: 'declined' })),
+      sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: false, error: 'declined' }))
     })
     getLocalPayBleTransport.mockReturnValue(native)
 
-    await expect(bleTransport.send(session, frame, new AbortController().signal))
-      .resolves.toEqual({ ok: false, error: 'declined' })
+    await expect(bleTransport.send(session, frame, new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      error: 'declined'
+    })
   })
 
   it('seals outgoing frames: sendFrame carries ciphertext the session PSK opens', async () => {
@@ -296,7 +306,7 @@ describe('bleTransport.receive', () => {
     })
     const native = fakeNative({
       startListening: startListening as never,
-      confirmFrame: jest.fn().mockRejectedValue(new Error('peer disconnected before acking')) as never,
+      confirmFrame: jest.fn().mockRejectedValue(new Error('peer disconnected before acking')) as never
     })
     getLocalPayBleTransport.mockReturnValue(native)
 
@@ -316,9 +326,10 @@ describe('bleTransport.receive', () => {
 
     let timer: ReturnType<typeof setTimeout> | undefined
     const outcome = await Promise.race([
-      bleTransport
-        .receive(session, new AbortController().signal)
-        .then(() => 'resolved' as const, () => 'rejected' as const),
+      bleTransport.receive(session, new AbortController().signal).then(
+        () => 'resolved' as const,
+        () => 'rejected' as const
+      ),
       new Promise<'hung'>(resolve => {
         timer = setTimeout(() => resolve('hung'), 500)
       })
@@ -398,7 +409,7 @@ describe('bleTransport reversed role', () => {
   it('send() advertises on Android when the payee scans', async () => {
     Platform.OS = 'android'
     const native = fakeNative({
-      sendFrameAdvertising: jest.fn().mockResolvedValue(toAckBase64({ ok: true })) as never,
+      sendFrameAdvertising: jest.fn().mockResolvedValue(toAckBase64({ ok: true })) as never
     })
     getLocalPayBleTransport.mockReturnValue(native)
     await expect(bleTransport.send(scanning, frame, new AbortController().signal)).resolves.toEqual({ ok: true })
@@ -445,7 +456,10 @@ describe('bleTransport reversed role', () => {
   it('receive() never scans on Android', async () => {
     Platform.OS = 'android'
     const startScanning = jest.fn(() => Promise.resolve())
-    const native = fakeNative({ startListening: jest.fn(() => Promise.resolve()) as never, startScanning: startScanning as never })
+    const native = fakeNative({
+      startListening: jest.fn(() => Promise.resolve()) as never,
+      startScanning: startScanning as never
+    })
     getLocalPayBleTransport.mockReturnValue(native)
     const controller = new AbortController()
     const pending = bleTransport.receive(session, controller.signal)
@@ -455,27 +469,30 @@ describe('bleTransport reversed role', () => {
     await expect(pending).rejects.toThrow('cancelled')
   })
 
-  it.each(['throw', 'reject'] as const)('a scan start failure by %s keeps the advertised listener active', async mode => {
-    Platform.OS = 'ios'
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    const startListening = jest.fn((_n: string, _p: string, onFrame: (f: string) => void) => {
-      setTimeout(() => onFrame(toBase64(sealFrame(frame, session.psk))), 0)
-      return Promise.resolve()
-    })
-    const native = fakeNative({
-      startListening: startListening as never,
-      startScanning: jest.fn().mockImplementation(() => {
-        const error = new Error('bluetooth unavailable')
-        if (mode === 'throw') throw error
-        return Promise.reject(error)
-      }) as never,
-    })
-    getLocalPayBleTransport.mockReturnValue(native)
-    const received = await bleTransport.receive(session, new AbortController().signal)
-    expect(received.frame.transaction).toEqual(frame.transaction)
-    expect(warn).toHaveBeenCalledWith('[localpay] ble scan unavailable:', 'bluetooth unavailable')
-    warn.mockRestore()
-  })
+  it.each(['throw', 'reject'] as const)(
+    'a scan start failure by %s keeps the advertised listener active',
+    async mode => {
+      Platform.OS = 'ios'
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      const startListening = jest.fn((_n: string, _p: string, onFrame: (f: string) => void) => {
+        setTimeout(() => onFrame(toBase64(sealFrame(frame, session.psk))), 0)
+        return Promise.resolve()
+      })
+      const native = fakeNative({
+        startListening: startListening as never,
+        startScanning: jest.fn().mockImplementation(() => {
+          const error = new Error('bluetooth unavailable')
+          if (mode === 'throw') throw error
+          return Promise.reject(error)
+        }) as never
+      })
+      getLocalPayBleTransport.mockReturnValue(native)
+      const received = await bleTransport.receive(session, new AbortController().signal)
+      expect(received.frame.transaction).toEqual(frame.transaction)
+      expect(warn).toHaveBeenCalledWith('[localpay] ble scan unavailable:', 'bluetooth unavailable')
+      warn.mockRestore()
+    }
+  )
 
   // Regression: startScanning() being CALLED before settle is not the same as
   // its eventual rejection being LOGGED before settle. Here the advertised
@@ -510,7 +527,10 @@ describe('bleTransport reversed role', () => {
       setTimeout(() => onFrame(toBase64(sealFrame(frame, session.psk))), 0)
       return Promise.resolve()
     })
-    const native = fakeNative({ startListening: jest.fn(() => Promise.resolve()) as never, startScanning: startScanning as never })
+    const native = fakeNative({
+      startListening: jest.fn(() => Promise.resolve()) as never,
+      startScanning: startScanning as never
+    })
     getLocalPayBleTransport.mockReturnValue(native)
     const received = await bleTransport.receive(session, new AbortController().signal)
     await received.confirm(true)

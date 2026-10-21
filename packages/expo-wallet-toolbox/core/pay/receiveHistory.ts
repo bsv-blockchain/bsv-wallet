@@ -32,8 +32,8 @@ export const RECEIVE_HISTORY_KEY = 'pay_receive_issued_dates'
 export const MAX_RECEIVE_HISTORY = 3650
 
 export interface KVStorage {
-  getKeyValue (k: string): Promise<string | undefined>
-  setKeyValue (k: string, v: string): Promise<void>
+  getKeyValue(k: string): Promise<string | undefined>
+  setKeyValue(k: string, v: string): Promise<void>
 }
 
 // Same discipline as localpay/pending.ts and pay/watchlist.ts: every read-modify-write on
@@ -41,13 +41,13 @@ export interface KVStorage {
 // silently drops an entry.
 let queueLock: Promise<unknown> = Promise.resolve()
 
-function withQueueLock<T> (fn: () => Promise<T>): Promise<T> {
+function withQueueLock<T>(fn: () => Promise<T>): Promise<T> {
   const run = queueLock.then(fn, fn)
   queueLock = run.catch(() => undefined)
   return run
 }
 
-async function readAll (storage: KVStorage): Promise<string[]> {
+async function readAll(storage: KVStorage): Promise<string[]> {
   const raw = await storage.getKeyValue(RECEIVE_HISTORY_KEY)
   if (!raw) return []
   try {
@@ -58,7 +58,7 @@ async function readAll (storage: KVStorage): Promise<string[]> {
   }
 }
 
-function normalise (dates: Iterable<string>): string[] {
+function normalise(dates: Iterable<string>): string[] {
   return [...new Set(dates)].sort().slice(-MAX_RECEIVE_HISTORY)
 }
 
@@ -68,7 +68,7 @@ function normalise (dates: Iterable<string>): string[] {
  * remembered here too, independent of whether that address also survives the watchlist's
  * own 7-day prune.
  */
-export async function recordIssuedDate (storage: KVStorage, date: string): Promise<void> {
+export async function recordIssuedDate(storage: KVStorage, date: string): Promise<void> {
   return withQueueLock(async () => {
     const all = await readAll(storage)
     if (all.includes(date)) return
@@ -77,7 +77,7 @@ export async function recordIssuedDate (storage: KVStorage, date: string): Promi
 }
 
 /** Every recorded date, deduplicated and sorted ascending. */
-export async function getIssuedDates (storage: KVStorage): Promise<string[]> {
+export async function getIssuedDates(storage: KVStorage): Promise<string[]> {
   return normalise(await readAll(storage))
 }
 
@@ -86,7 +86,7 @@ export async function getIssuedDates (storage: KVStorage): Promise<string[]> {
  * already merged every device's own history into one deduplicated, capped list and wants a
  * single write rather than N individual `recordIssuedDate` inserts.
  */
-export async function setIssuedDates (storage: KVStorage, dates: string[]): Promise<void> {
+export async function setIssuedDates(storage: KVStorage, dates: string[]): Promise<void> {
   return withQueueLock(async () => {
     await storage.setKeyValue(RECEIVE_HISTORY_KEY, JSON.stringify(normalise(dates)))
   })

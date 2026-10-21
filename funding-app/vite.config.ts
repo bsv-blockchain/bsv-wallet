@@ -8,7 +8,7 @@ export default defineConfig({
     outDir: path.resolve(__dirname, '../docs'),
     emptyOutDir: false,
     rollupOptions: {
-      input: 'fund.html',
+      input: 'fund.html'
     }
   }
 })

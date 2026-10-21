@@ -115,7 +115,7 @@ peerpay:<identityKey>[?sats=<n>][&url=<encodeURIComponent(host)>]
 - The key in a link is accepted in either hex case and normalised to lowercase (tolerance on input; the app still emits lowercase per BRC-125). Anything else — `http:`, a bare host, whitespace, empty — is **ignored**, not an error: BRC-125 says extension params are ignorable, and a bad hint must not block a payment whose key is fine. The overlay lookup is the fallback. Result type gains `messageBoxUrl?: string`.
 - Only `https:` because the payer will authenticate (BRC-103) against whatever host this names, and a QR is an untrusted input.
 
-**Send** — `sendViaHandle` gains `recipientHost?: string`. It is passed as the second argument to `client.sendMessage(message, recipientHost)`, and persisted on the outbox entry as `recipientHost`. `OutboxEntry` gains `recipientHost?: string`; `saveOutboxEntry` accepts it. `retryDelivery` passes `entry.recipientHost` to `sendMessage`. The drain task's re-send path (whatever calls `retryDelivery` or `sendMessage` for an outbox entry from `TaskDrainOutbox`) passes the same field — verified at implementation time; the invariant is *every re-send of an entry goes to the host it was minted for*. Entries without the field behave exactly as today.
+**Send** — `sendViaHandle` gains `recipientHost?: string`. It is passed as the second argument to `client.sendMessage(message, recipientHost)`, and persisted on the outbox entry as `recipientHost`. `OutboxEntry` gains `recipientHost?: string`; `saveOutboxEntry` accepts it. `retryDelivery` passes `entry.recipientHost` to `sendMessage`. The drain task's re-send path (whatever calls `retryDelivery` or `sendMessage` for an outbox entry from `TaskDrainOutbox`) passes the same field — verified at implementation time; the invariant is _every re-send of an entry goes to the host it was minted for_. Entries without the field behave exactly as today.
 
 `Pick<PeerPayClient, 'sendMessage'>` already types the second parameter, so no client-shape changes.
 
@@ -154,14 +154,14 @@ export interface UniversalSendProps {
 
 **Form composition** by `target?.kind`:
 
-| Element | none | `handle` | `address` |
-|---|---|---|---|
-| Amount field | yes | yes | yes |
-| Note field | no | yes | no |
-| Consequence note | no | no (dropped) | `CONSEQUENCE_KEYS.address` |
-| Message-box-off hint | no | when server is Off | no |
-| Stuck-outbox hint + section | if entries | if entries | section only; does not block |
-| CTA enabled | no | key ∧ amount>0 ∧ configured ∧ outbox empty ∧ !sending | address ∧ amount>0 ∧ !sending |
+| Element                     | none       | `handle`                                              | `address`                     |
+| --------------------------- | ---------- | ----------------------------------------------------- | ----------------------------- |
+| Amount field                | yes        | yes                                                   | yes                           |
+| Note field                  | no         | yes                                                   | no                            |
+| Consequence note            | no         | no (dropped)                                          | `CONSEQUENCE_KEYS.address`    |
+| Message-box-off hint        | no         | when server is Off                                    | no                            |
+| Stuck-outbox hint + section | if entries | if entries                                            | section only; does not block  |
+| CTA enabled                 | no         | key ∧ amount>0 ∧ configured ∧ outbox empty ∧ !sending | address ∧ amount>0 ∧ !sending |
 
 **Send** dispatches on kind: `handle` → `sendViaHandle({…, recipient, recipientHost: target.messageBoxUrl, note, recipientName})`; `address` → `sendToAddress({…, address})`. Success overlay shows the resolved name for a handle (as today) and the address string for an address (as today). Errors follow each rail's existing handling (`userFacingPayError`, `promptCheckWallet`, `isMessageBoxNetworkError`).
 
@@ -177,7 +177,7 @@ export interface UniversalSendProps {
 
 ```ts
 export interface RequestHubProps {
-  requestSats: string                  // raw satoshi string, '' = open request
+  requestSats: string // raw satoshi string, '' = open request
   onChangeRequestSats: (v: string) => void
   onPick: (cell: 'get-nearby' | 'get-handle' | 'get-address') => void
   online: boolean
@@ -189,11 +189,11 @@ Layout, top to bottom, in a `ScrollView` with `keyboardShouldPersistTaps="handle
 1. `PayAmountField value={requestSats} onChangeText showMax={false} showBalance={false}`. No subtitle. Blank or zero means "payer decides"; the design says it by not gating anything on the figure.
 2. `PayField labelKey="pay_method"` wrapping three `PayCellRow`s:
 
-| Row | title key | subtitle key | icon | offline |
-|---|---|---|---|---|
-| Nearby | `pay_method_nearby` | `pay_cell_nearby_get_sub` ("Show your payment code") | `qr-code-outline` | enabled |
-| Share remote link | `pay_method_remote_link` | `pay_cell_handle_get_sub` ("Share your handle") | `share-outline` | disabled, subtitle `pay_offline_needs_internet` |
-| To an address | `pay_method_address` | `pay_cell_address_get_sub` ("Show an address") | `wallet-outline` | disabled, subtitle `pay_offline_needs_internet` |
+| Row               | title key                | subtitle key                                         | icon              | offline                                         |
+| ----------------- | ------------------------ | ---------------------------------------------------- | ----------------- | ----------------------------------------------- |
+| Nearby            | `pay_method_nearby`      | `pay_cell_nearby_get_sub` ("Show your payment code") | `qr-code-outline` | enabled                                         |
+| Share remote link | `pay_method_remote_link` | `pay_cell_handle_get_sub` ("Share your handle")      | `share-outline`   | disabled, subtitle `pay_offline_needs_internet` |
+| To an address     | `pay_method_address`     | `pay_cell_address_get_sub` ("Show an address")       | `wallet-outline`  | disabled, subtitle `pay_offline_needs_internet` |
 
 `PayScreen` owns `requestSats` state so it survives into the method and is passed as `initialSats = satsFrom(requestSats) || undefined`.
 
@@ -248,17 +248,17 @@ The bare figure is only honest beside an `AmountInput`, whose suffix names the u
 
 New keys, all twelve locales:
 
-| key | en |
-|---|---|
-| `recipient_placeholder` | Handle, pubkey, or address... |
-| `valid_bsv_address` | Valid address entered |
-| `scan_recipient_hint` | Point the camera at a payment code |
-| `message_box_off_hint` | Message box server is off. Turn it on in Settings › Advanced. |
-| `message_box_off` | Off |
-| `pay_method` | Method |
-| `pay_method_nearby` | Nearby |
-| `pay_method_remote_link` | Share remote link |
-| `pay_method_address` | To an address |
+| key                      | en                                                            |
+| ------------------------ | ------------------------------------------------------------- |
+| `recipient_placeholder`  | Handle, pubkey, or address...                                 |
+| `valid_bsv_address`      | Valid address entered                                         |
+| `scan_recipient_hint`    | Point the camera at a payment code                            |
+| `message_box_off_hint`   | Message box server is off. Turn it on in Settings › Advanced. |
+| `message_box_off`        | Off                                                           |
+| `pay_method`             | Method                                                        |
+| `pay_method_nearby`      | Nearby                                                        |
+| `pay_method_remote_link` | Share remote link                                             |
+| `pay_method_address`     | To an address                                                 |
 
 Removed keys (all locales): `local_pay_amount_optional_hint`, `search_name_or_key`, and `scan_identity_key_hint` / `scan_bsv_address_hint` if no other caller remains. `pay_conseq_handle` stays in the file and in `CONSEQUENCE_KEYS` (the rails test asserts every rail has one) but is no longer rendered. `pay_cell_*_pay` keys stay: `pay_cell_nearby_pay` is still the nearby header title, and the others are cheap to keep as deep-link vocabulary.
 
@@ -318,14 +318,14 @@ Manual, on device (no unit coverage possible): scanning each of the four code ki
 
 ## Decisions log
 
-| # | Decision | Chosen |
-|---|---|---|
-| a | Get-paid side | Redesigned as amount-first hub (superseded the "keep chooser" pick) |
-| b | Message-box bar on `HandleReceive` | Removed; Settings › Advanced is the one home |
-| c | Unrecognised QR | Silent, keep scanning |
-| d | Balance line glyph | Dropped |
-| e | `HandleSend`/`AddressSend` in package barrel | Removed |
-| f | Back from a receive method | Wallet, not hub |
-| g | Handle QR payload | Always the `peerpay:` link |
-| h | Address receive with an amount | Figure shown above QR; QR stays bare |
-| i | BRC-125 params | `sats` for amount, `url` as extension, scheme `peerpay:` (no `//`), `//` tolerated on parse |
+| #   | Decision                                     | Chosen                                                                                      |
+| --- | -------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| a   | Get-paid side                                | Redesigned as amount-first hub (superseded the "keep chooser" pick)                         |
+| b   | Message-box bar on `HandleReceive`           | Removed; Settings › Advanced is the one home                                                |
+| c   | Unrecognised QR                              | Silent, keep scanning                                                                       |
+| d   | Balance line glyph                           | Dropped                                                                                     |
+| e   | `HandleSend`/`AddressSend` in package barrel | Removed                                                                                     |
+| f   | Back from a receive method                   | Wallet, not hub                                                                             |
+| g   | Handle QR payload                            | Always the `peerpay:` link                                                                  |
+| h   | Address receive with an amount               | Figure shown above QR; QR stays bare                                                        |
+| i   | BRC-125 params                               | `sats` for amount, `url` as extension, scheme `peerpay:` (no `//`), `//` tolerated on parse |

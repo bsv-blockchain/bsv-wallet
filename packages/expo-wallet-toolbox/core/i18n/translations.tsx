@@ -392,9 +392,11 @@ const resources = {
       vault_key_pending_removal: 'Removed — re-lock to finish',
       vault_key_removal_awaiting_network: 'Removing — waiting for the network to accept the re-lock',
       vault_removal_awaiting_network: 'Re-lock sent. Deposits and withdrawals open again once the network accepts it.',
-      vault_err_too_many_active_keys: 'The vault locks to at most five keys. Remove one before depositing, re-locking or withdrawing part of the balance.',
+      vault_err_too_many_active_keys:
+        'The vault locks to at most five keys. Remove one before depositing, re-locking or withdrawing part of the balance.',
       vault_key_section_over_limit: 'Security keys ({{count}}, remove one)',
-      vault_add_key_done_over_limit: '{{nickname}} is added. The vault locks to at most five keys, so remove the key this one replaces, then re-lock once.',
+      vault_add_key_done_over_limit:
+        '{{nickname}} is added. The vault locks to at most five keys, so remove the key this one replaces, then re-lock once.',
       vault_relock_done: 'Vault re-locked to your current keys',
       vault_relock_capped: '{{count}} more deposits remain — re-lock again to move them.',
       vault_relock_unreachable:
@@ -546,8 +548,10 @@ const resources = {
       vault_err_enrollment_partial:
         'YubiKey setup stopped after changing the key. Follow the retry instructions; this key was not added to the Vault.',
       vault_restore_with_key: 'Restore with a YubiKey',
-      vault_restore_with_key_body: 'Enter this YubiKey\'s PIN, then tap it when asked. The wallet finds your vault deposits on the blockchain and restores the ones this key can open.',
-      vault_err_key_opens_nothing: 'This YubiKey can\'t open any vault deposit on the blockchain. Its key was probably replaced by a later setup.',
+      vault_restore_with_key_body:
+        "Enter this YubiKey's PIN, then tap it when asked. The wallet finds your vault deposits on the blockchain and restores the ones this key can open.",
+      vault_err_key_opens_nothing:
+        "This YubiKey can't open any vault deposit on the blockchain. Its key was probably replaced by a later setup.",
       vault_err_key_not_adopted:
         'Verify possession of this recovered YubiKey on this device before using it to withdraw.',
       vault_err_too_many_inputs:
@@ -591,7 +595,8 @@ const resources = {
         'This will permanently delete your wallet keys from this device. If you have not backed up your recovery phrase or printed recovery shares, you will lose access to your wallet forever.',
       delete_wallet_confirm: 'Delete Wallet',
       delete_wallet_failed_title: 'Delete Wallet Failed',
-      delete_wallet_failed_body: 'Your wallet could not be fully erased from this device. Some key material may still be present. Please try again.',
+      delete_wallet_failed_body:
+        'Your wallet could not be fully erased from this device. Some key material may still be present. Please try again.',
       bsv_network: 'BSV Network',
       arc_endpoint: 'ARC Endpoint',
       arc_api_token: 'API Token',
@@ -1240,7 +1245,7 @@ const resources = {
       direct_pay_failed_no_message_box: 'Connect your message box in Settings to pay a wallet identity.',
       direct_pay_fallback_title: 'Not online right now',
       direct_pay_fallback_send: 'Send to message box',
-      direct_pay_sent_live: 'Paid live: it\'s already in their wallet.',
+      direct_pay_sent_live: "Paid live: it's already in their wallet.",
       direct_pay_kept_needs_attention:
         'A direct payment of {{amount}} sats from {{name}} needs attention: your wallet could not add it. It stays on this device.'
     }
@@ -1524,7 +1529,8 @@ const resources = {
       vault_removal_awaiting_network: '重新锁定已发送。网络接受后即可再次存入和提取。',
       vault_err_too_many_active_keys: '保险库最多锁定到五把密钥。请先移除一把，再存入、重新锁定或提取部分余额。',
       vault_key_section_over_limit: '安全密钥（{{count}}，请移除一把）',
-      vault_add_key_done_over_limit: '已添加 {{nickname}}。保险库最多锁定到五把密钥，请移除它所替换的那把，然后重新锁定一次。',
+      vault_add_key_done_over_limit:
+        '已添加 {{nickname}}。保险库最多锁定到五把密钥，请移除它所替换的那把，然后重新锁定一次。',
       vault_relock_done: '保险库已重新锁定到当前密钥',
       vault_relock_capped: '还剩 {{count}} 笔存入 — 再次重新锁定以移动它们。',
       vault_relock_unreachable: '{{count}} 笔存入只能由 {{names}} 打开。请用其中一把密钥再次重新锁定。',
@@ -1532,7 +1538,8 @@ const resources = {
       vault_badge_removed: '{{count}} 笔存入仍可由已移除的密钥打开',
       vault_badge_unreachable: '{{count}} 笔存入无法用此列表中的任何密钥打开',
       vault_forget_unreachable_title: '忘记无法打开的存入',
-      vault_forget_unreachable_message: '{{count}} 笔存入只锁定在不在此列表中的密钥上，通常来自你的 YubiKey 之前的一次设置。你的任何密钥都无法花费它们。忘记后，它们会从本钱包及其备份中移除，不会再出现。币仍留在区块链上。',
+      vault_forget_unreachable_message:
+        '{{count}} 笔存入只锁定在不在此列表中的密钥上，通常来自你的 YubiKey 之前的一次设置。你的任何密钥都无法花费它们。忘记后，它们会从本钱包及其备份中移除，不会再出现。币仍留在区块链上。',
       vault_forget_unreachable_confirm: '忘记',
       vault_forget_unreachable_done: '已忘记 {{count}} 笔存入',
       vault_restore_unreachable: '已跳过 {{count}} 笔来自之前设置的存入，你持有的任何密钥都无法打开它们。',
@@ -1656,8 +1663,10 @@ const resources = {
       vault_resume_draft_confirm_discard: '丢弃它',
       vault_err_enrollment_partial: '更改密钥后 YubiKey 设置中断。请按照重试说明操作；此密钥尚未添加到保险库。',
       vault_restore_with_key: '用 YubiKey 恢复',
-      vault_restore_with_key_body: '输入这把 YubiKey 的 PIN，然后在提示时轻触它。钱包会在区块链上查找你的保险库存入，并恢复这把密钥能打开的那些。',
-      vault_err_key_opens_nothing: '这把 YubiKey 无法打开区块链上的任何保险库存入。它的密钥很可能已被之后的一次设置替换。',
+      vault_restore_with_key_body:
+        '输入这把 YubiKey 的 PIN，然后在提示时轻触它。钱包会在区块链上查找你的保险库存入，并恢复这把密钥能打开的那些。',
+      vault_err_key_opens_nothing:
+        '这把 YubiKey 无法打开区块链上的任何保险库存入。它的密钥很可能已被之后的一次设置替换。',
       vault_err_key_not_adopted: '在使用这把恢复的 YubiKey 提款前，请先在此设备上验证您持有它。',
       vault_err_too_many_inputs:
         '一次要移动的保险库存入过多。请先提取较小金额 — 每次提取也会整合保险库，下次即可移动更多。',
@@ -2084,7 +2093,8 @@ const resources = {
       local_pay_decline_broadcast_title: '一笔被拒绝的付款已经上链',
       local_pay_decline_broadcast_body: '一笔已被拒绝的付款后来出现在网络上。请勿再次发送——请查看"动态"。',
       local_pay_pending_abort_dropped_title: '已忽略一条未经验证的释放请求',
-      local_pay_pending_abort_dropped_body: '一条已保存的付款释放记录无法验证，因此未释放任何内容。如果某笔付款仍显示卡住，请在"动态"中取消它。',
+      local_pay_pending_abort_dropped_body:
+        '一条已保存的付款释放记录无法验证，因此未释放任何内容。如果某笔付款仍显示卡住，请在"动态"中取消它。',
       local_pay_cancel_unverifiable_title: '离线状态下无法核实此付款',
       local_pay_cancel_unverifiable_body:
         '如果对方已经扫描过此付款，取消会让这些币被双重花费。只有在确定它从未被扫描过时才能取消。',
@@ -2111,8 +2121,7 @@ const resources = {
       local_pay_declined_not_covered: '收款方无法根据发行方的记录核验这笔付款。本次未发送任何款项。',
       local_pay_declined_root_unverified:
         '收款方的设备无法在区块链上核验这笔付款。本次未发送任何款项。如果对方处于离线状态，请让其短暂联网后再试一次。',
-      local_pay_root_unverified:
-        '本设备无法在区块链上核验这笔付款，因此未接受。请短暂连接互联网，然后让付款方重试。',
+      local_pay_root_unverified: '本设备无法在区块链上核验这笔付款，因此未接受。请短暂连接互联网，然后让付款方重试。',
       local_pay_broadcast_pending: '已发送。本设备暂时无法完成处理 — 收款方会完成。',
       local_pay_any_amount: '任意金额',
       local_pay_choose_amount: '选择金额',
@@ -2194,16 +2203,19 @@ const resources = {
       profile_removing: '正在移除 {{profile}}…',
       profile_removed: '已移除 {{profile}}',
       profile_remove_confirm_title: '移除 {{profile}}？',
-      profile_remove_confirm_body: '{{profile}} 将从这台设备上移除，此处的数据也会被删除。它里面没有任何资产，您的恢复短语可以在新安装的应用中重新创建它。',
+      profile_remove_confirm_body:
+        '{{profile}} 将从这台设备上移除，此处的数据也会被删除。它里面没有任何资产，您的恢复短语可以在新安装的应用中重新创建它。',
       profile_remove_confirm_handle: '您的用户名 {{handle}} 将被释放。30 天内其他人无法注册，之后任何人都可以注册。',
       profile_remove_confirm_action: '移除',
       profile_remove_problem_title: '暂时无法移除 {{profile}}',
       profile_remove_blocked_funds: '它仍持有资金或代币。请先将它们转到另一个个人资料。',
       profile_remove_blocked_pending: '有一笔付款仍在处理中，或正在等待发送或入账。请在全部完成后再试。',
       profile_remove_blocked_check: '无法检查此个人资料，因此未移除任何内容。请重试。',
-      profile_remove_blocked_network: '它在另一个网络上还有资金或未完成的付款。请将此个人资料切换到该网络，在那里处理完毕后再试。',
+      profile_remove_blocked_network:
+        '它在另一个网络上还有资金或未完成的付款。请将此个人资料切换到该网络，在那里处理完毕后再试。',
       profile_remove_offline: '请连接互联网后再移除个人资料。',
-      profile_remove_failed_handle: '无法释放您的用户名，或对它的更改仍在完成中。请检查网络连接后重试。未移除任何内容。',
+      profile_remove_failed_handle:
+        '无法释放您的用户名，或对它的更改仍在完成中。请检查网络连接后重试。未移除任何内容。',
       profile_remove_failed: '无法移除此个人资料。请重试。',
       profile_display_name: '显示名称',
       profile_display_name_hint: '会公开显示在你的用户名旁边。任何查找你的人都能看到。',
@@ -2288,7 +2300,8 @@ const resources = {
       direct_pay_fallback_title: '对方当前不在线',
       direct_pay_fallback_send: '发送到消息箱',
       direct_pay_sent_live: '已实时付款：款项已到对方钱包。',
-      direct_pay_kept_needs_attention: '来自 {{name}} 的 {{amount}} sats 直接付款需要处理：你的钱包无法添加它。它仍保存在此设备上。'
+      direct_pay_kept_needs_attention:
+        '来自 {{name}} 的 {{amount}} sats 直接付款需要处理：你的钱包无法添加它。它仍保存在此设备上。'
     }
   },
   hi: {
@@ -2595,10 +2608,13 @@ const resources = {
       vault_relock_reason_remaining: 'केवल आपकी शेष कुंजियों पर री-लॉक करें: {{names}}।',
       vault_key_pending_removal: 'हटाया गया — पूरा करने के लिए री-लॉक करें',
       vault_key_removal_awaiting_network: 'हटाया जा रहा है — नेटवर्क द्वारा री-लॉक स्वीकारे जाने की प्रतीक्षा',
-      vault_removal_awaiting_network: 'री-लॉक भेज दिया गया। नेटवर्क के स्वीकार करते ही जमा और निकासी फिर से खुल जाएँगी।',
-      vault_err_too_many_active_keys: 'वॉल्ट अधिकतम पाँच कुंजियों पर लॉक होता है। जमा करने, री-लॉक करने या शेष राशि का कुछ हिस्सा निकालने से पहले एक कुंजी हटाएँ।',
+      vault_removal_awaiting_network:
+        'री-लॉक भेज दिया गया। नेटवर्क के स्वीकार करते ही जमा और निकासी फिर से खुल जाएँगी।',
+      vault_err_too_many_active_keys:
+        'वॉल्ट अधिकतम पाँच कुंजियों पर लॉक होता है। जमा करने, री-लॉक करने या शेष राशि का कुछ हिस्सा निकालने से पहले एक कुंजी हटाएँ।',
       vault_key_section_over_limit: 'सुरक्षा कुंजियाँ ({{count}}, एक हटाएँ)',
-      vault_add_key_done_over_limit: '{{nickname}} जोड़ दी गई। वॉल्ट अधिकतम पाँच कुंजियों पर लॉक होता है, इसलिए जिस कुंजी की जगह यह आई है उसे हटाएँ, फिर एक बार री-लॉक करें।',
+      vault_add_key_done_over_limit:
+        '{{nickname}} जोड़ दी गई। वॉल्ट अधिकतम पाँच कुंजियों पर लॉक होता है, इसलिए जिस कुंजी की जगह यह आई है उसे हटाएँ, फिर एक बार री-लॉक करें।',
       vault_relock_done: 'वॉल्ट आपकी वर्तमान कुंजियों पर री-लॉक हो गया',
       vault_relock_capped: '{{count}} और जमा बाकी हैं — उन्हें ले जाने के लिए फिर री-लॉक करें।',
       vault_relock_unreachable:
@@ -2607,7 +2623,8 @@ const resources = {
       vault_badge_removed: '{{count}} जमा अभी भी हटाई गई कुंजी से खुल सकती हैं',
       vault_badge_unreachable: '{{count}} जमा इस सूची की किसी भी कुंजी से नहीं खुल सकतीं',
       vault_forget_unreachable_title: 'न खुलने वाली जमा भूलें',
-      vault_forget_unreachable_message: '{{count}} जमा केवल उन कुंजियों पर लॉक हैं जो इस सूची में नहीं हैं, आमतौर पर आपकी YubiKey के किसी पिछले सेटअप से। आपकी कोई भी कुंजी उन्हें खर्च नहीं कर सकती। भूलने से वे इस वॉलेट और इसके बैकअप से हट जाती हैं, ताकि वे दोबारा न दिखें। सिक्के ब्लॉकचेन पर बने रहते हैं।',
+      vault_forget_unreachable_message:
+        '{{count}} जमा केवल उन कुंजियों पर लॉक हैं जो इस सूची में नहीं हैं, आमतौर पर आपकी YubiKey के किसी पिछले सेटअप से। आपकी कोई भी कुंजी उन्हें खर्च नहीं कर सकती। भूलने से वे इस वॉलेट और इसके बैकअप से हट जाती हैं, ताकि वे दोबारा न दिखें। सिक्के ब्लॉकचेन पर बने रहते हैं।',
       vault_forget_unreachable_confirm: 'भूलें',
       vault_forget_unreachable_done: '{{count}} जमा भुला दी गईं',
       vault_restore_unreachable: 'पिछले सेटअप की {{count}} जमा छोड़ दी गईं, जिन्हें आपकी कोई भी कुंजी नहीं खोल सकती।',
@@ -2741,8 +2758,10 @@ const resources = {
       vault_err_enrollment_partial:
         'कुंजी बदलने के बाद YubiKey सेटअप रुक गया। पुनः प्रयास के निर्देश मानें; यह कुंजी वॉल्ट में नहीं जोड़ी गई।',
       vault_restore_with_key: 'YubiKey से पुनर्स्थापित करें',
-      vault_restore_with_key_body: 'इस YubiKey का PIN दर्ज करें, फिर कहे जाने पर इसे टैप करें। वॉलेट ब्लॉकचेन पर आपकी वॉल्ट जमा ढूँढता है और वे जमा पुनर्स्थापित करता है जिन्हें यह कुंजी खोल सकती है।',
-      vault_err_key_opens_nothing: 'यह YubiKey ब्लॉकचेन पर किसी भी वॉल्ट जमा को नहीं खोल सकती। इसकी कुंजी शायद बाद के किसी सेटअप ने बदल दी है।',
+      vault_restore_with_key_body:
+        'इस YubiKey का PIN दर्ज करें, फिर कहे जाने पर इसे टैप करें। वॉलेट ब्लॉकचेन पर आपकी वॉल्ट जमा ढूँढता है और वे जमा पुनर्स्थापित करता है जिन्हें यह कुंजी खोल सकती है।',
+      vault_err_key_opens_nothing:
+        'यह YubiKey ब्लॉकचेन पर किसी भी वॉल्ट जमा को नहीं खोल सकती। इसकी कुंजी शायद बाद के किसी सेटअप ने बदल दी है।',
       vault_err_key_not_adopted:
         'इस पुनर्प्राप्त YubiKey से निकासी करने से पहले इस डिवाइस पर इसका कब्ज़ा सत्यापित करें।',
       vault_err_too_many_inputs:
@@ -2783,7 +2802,8 @@ const resources = {
         'यह इस डिवाइस से आपकी वॉलेट कुंजियाँ स्थायी रूप से हटा देगा। यदि आपने अपना रिकवरी फ्रेज़ बैकअप नहीं किया है या रिकवरी शेयर प्रिंट नहीं किए हैं, तो आप अपने वॉलेट तक हमेशा के लिए पहुँच खो देंगे।',
       delete_wallet_confirm: 'वॉलेट हटाएं',
       delete_wallet_failed_title: 'वॉलेट हटाना विफल रहा',
-      delete_wallet_failed_body: 'आपका वॉलेट इस डिवाइस से पूरी तरह हटाया नहीं जा सका। कुछ कुंजी सामग्री अभी भी मौजूद हो सकती है। कृपया पुनः प्रयास करें।',
+      delete_wallet_failed_body:
+        'आपका वॉलेट इस डिवाइस से पूरी तरह हटाया नहीं जा सका। कुछ कुंजी सामग्री अभी भी मौजूद हो सकती है। कृपया पुनः प्रयास करें।',
       bsv_network: 'BSV नेटवर्क',
       arc_endpoint: 'ARC एंडपॉइंट',
       arc_api_token: 'API टोकन',
@@ -3046,7 +3066,8 @@ const resources = {
       reconnect_failed: 'पुनः कनेक्ट विफल',
       reconnect_confirm_title: 'इस साइट से पुनः कनेक्ट करें?',
       reconnect_confirm_message: '{{origin}} फिर से आपके वॉलेट तक पहुंच पाएगी।',
-      reconnect_needs_reapproval: 'इस कनेक्शन को सत्यापित नहीं किया जा सका। पुनः कनेक्ट करने के लिए नया क्यूआर कोड स्कैन करें।',
+      reconnect_needs_reapproval:
+        'इस कनेक्शन को सत्यापित नहीं किया जा सका। पुनः कनेक्ट करने के लिए नया क्यूआर कोड स्कैन करें।',
       scan_qr_code: 'QR कोड स्कैन करें',
       paste_uri: 'URI पेस्ट करें',
       invalid_qr_code: 'अमान्य QR कोड',
@@ -3722,10 +3743,13 @@ const resources = {
       vault_relock_reason_remaining: 'Vuelve a bloquear solo con tus claves restantes: {{names}}.',
       vault_key_pending_removal: 'Eliminada: vuelve a bloquear para terminar',
       vault_key_removal_awaiting_network: 'Eliminándose: esperando a que la red acepte el nuevo bloqueo',
-      vault_removal_awaiting_network: 'Nuevo bloqueo enviado. Los depósitos y retiros vuelven a estar disponibles cuando la red lo acepte.',
-      vault_err_too_many_active_keys: 'La caja fuerte se bloquea con cinco llaves como máximo. Quita una antes de depositar, volver a bloquear o retirar parte del saldo.',
+      vault_removal_awaiting_network:
+        'Nuevo bloqueo enviado. Los depósitos y retiros vuelven a estar disponibles cuando la red lo acepte.',
+      vault_err_too_many_active_keys:
+        'La caja fuerte se bloquea con cinco llaves como máximo. Quita una antes de depositar, volver a bloquear o retirar parte del saldo.',
       vault_key_section_over_limit: 'Llaves de seguridad ({{count}}, quita una)',
-      vault_add_key_done_over_limit: '{{nickname}} se ha añadido. La caja fuerte se bloquea con cinco llaves como máximo: quita la llave a la que sustituye y vuelve a bloquear una vez.',
+      vault_add_key_done_over_limit:
+        '{{nickname}} se ha añadido. La caja fuerte se bloquea con cinco llaves como máximo: quita la llave a la que sustituye y vuelve a bloquear una vez.',
       vault_relock_done: 'Caja fuerte bloqueada de nuevo con tus llaves actuales',
       vault_relock_capped: 'Quedan {{count}} depósitos más: vuelve a bloquear otra vez para moverlos.',
       vault_relock_unreachable:
@@ -3734,10 +3758,12 @@ const resources = {
       vault_badge_removed: '{{count}} depósitos aún abiertos para una llave eliminada',
       vault_badge_unreachable: '{{count}} depósitos que ninguna llave de esta lista puede abrir',
       vault_forget_unreachable_title: 'Olvidar depósitos que no se pueden abrir',
-      vault_forget_unreachable_message: '{{count}} depósitos están bloqueados solo con llaves que no están en esta lista, normalmente de una configuración anterior de tus YubiKeys. Ninguna de tus llaves puede gastarlos. Al olvidarlos se quitan de esta billetera y de su copia de seguridad para que no vuelvan a aparecer. Las monedas siguen en la blockchain.',
+      vault_forget_unreachable_message:
+        '{{count}} depósitos están bloqueados solo con llaves que no están en esta lista, normalmente de una configuración anterior de tus YubiKeys. Ninguna de tus llaves puede gastarlos. Al olvidarlos se quitan de esta billetera y de su copia de seguridad para que no vuelvan a aparecer. Las monedas siguen en la blockchain.',
       vault_forget_unreachable_confirm: 'Olvidar',
       vault_forget_unreachable_done: 'Se olvidaron {{count}} depósitos',
-      vault_restore_unreachable: 'Se omitieron {{count}} depósitos de una configuración anterior que ninguna de tus llaves puede abrir.',
+      vault_restore_unreachable:
+        'Se omitieron {{count}} depósitos de una configuración anterior que ninguna de tus llaves puede abrir.',
       vault_key_action_rename: 'Renombrar',
       vault_key_action_remove: 'Eliminar',
       vault_rename_title: 'Renombrar {{nickname}}',
@@ -3874,8 +3900,10 @@ const resources = {
       vault_err_enrollment_partial:
         'La configuración de la YubiKey se detuvo después de modificarla. Sigue las instrucciones para reintentar; la llave no se añadió a la caja fuerte.',
       vault_restore_with_key: 'Restaurar con una YubiKey',
-      vault_restore_with_key_body: 'Introduce el PIN de esta YubiKey y acércala cuando se te pida. La billetera busca tus depósitos de la caja fuerte en la blockchain y restaura los que esta llave puede abrir.',
-      vault_err_key_opens_nothing: 'Esta YubiKey no puede abrir ningún depósito de la caja fuerte en la blockchain. Probablemente su llave fue reemplazada por una configuración posterior.',
+      vault_restore_with_key_body:
+        'Introduce el PIN de esta YubiKey y acércala cuando se te pida. La billetera busca tus depósitos de la caja fuerte en la blockchain y restaura los que esta llave puede abrir.',
+      vault_err_key_opens_nothing:
+        'Esta YubiKey no puede abrir ningún depósito de la caja fuerte en la blockchain. Probablemente su llave fue reemplazada por una configuración posterior.',
       vault_err_key_not_adopted:
         'Verifica que tienes esta YubiKey recuperada en este dispositivo antes de usarla para retirar.',
       vault_err_too_many_inputs:
@@ -3916,7 +3944,8 @@ const resources = {
         'Esto eliminará permanentemente las claves de tu billetera de este dispositivo. Si no has guardado tu frase de recuperación ni impreso las partes de recuperación, perderás el acceso a tu billetera para siempre.',
       delete_wallet_confirm: 'Eliminar',
       delete_wallet_failed_title: 'Error al eliminar la billetera',
-      delete_wallet_failed_body: 'No se pudo eliminar completamente tu billetera de este dispositivo. Es posible que parte del material de la clave aún esté presente. Vuelve a intentarlo.',
+      delete_wallet_failed_body:
+        'No se pudo eliminar completamente tu billetera de este dispositivo. Es posible que parte del material de la clave aún esté presente. Vuelve a intentarlo.',
       bsv_network: 'Red BSV',
       arc_endpoint: 'Endpoint ARC',
       arc_api_token: 'Token API',
@@ -4259,7 +4288,8 @@ const resources = {
       home_payments_unsent: '{{count}} pagos sin entregar',
       pay_copy: 'Copiar',
       pay_share_link: 'Compartir enlace',
-      pay_address_watching: 'El dinero enviado aquí se añade a tu billetera automáticamente, pero solo mientras la app está abierta.',
+      pay_address_watching:
+        'El dinero enviado aquí se añade a tu billetera automáticamente, pero solo mientras la app está abierta.',
       pay_address_earlier_day: 'Ir a un día anterior',
       pay_address_sweep_now: 'Comprobar esta dirección BSV ahora',
       pay_address_swept: 'Recibido {{amount}}',
@@ -4872,11 +4902,15 @@ const resources = {
         'Tenez votre YubiKey ici pour signer — reverrouiller le coffre avec vos clés actuelles',
       vault_relock_reason_remaining: 'Re-verrouillez uniquement avec vos clés restantes : {{names}}.',
       vault_key_pending_removal: 'Retirée — re-verrouillez pour terminer',
-      vault_key_removal_awaiting_network: 'Retrait en cours — en attente de l’acceptation du reverrouillage par le réseau',
-      vault_removal_awaiting_network: 'Reverrouillage envoyé. Les dépôts et retraits reprennent dès que le réseau l’accepte.',
-      vault_err_too_many_active_keys: 'Le coffre se verrouille avec cinq clés au plus. Retirez-en une avant de déposer, de reverrouiller ou de retirer une partie du solde.',
+      vault_key_removal_awaiting_network:
+        'Retrait en cours — en attente de l’acceptation du reverrouillage par le réseau',
+      vault_removal_awaiting_network:
+        'Reverrouillage envoyé. Les dépôts et retraits reprennent dès que le réseau l’accepte.',
+      vault_err_too_many_active_keys:
+        'Le coffre se verrouille avec cinq clés au plus. Retirez-en une avant de déposer, de reverrouiller ou de retirer une partie du solde.',
       vault_key_section_over_limit: 'Clés de sécurité ({{count}}, retirez-en une)',
-      vault_add_key_done_over_limit: '{{nickname}} a été ajoutée. Le coffre se verrouille avec cinq clés au plus : retirez la clé qu’elle remplace, puis reverrouillez une fois.',
+      vault_add_key_done_over_limit:
+        '{{nickname}} a été ajoutée. Le coffre se verrouille avec cinq clés au plus : retirez la clé qu’elle remplace, puis reverrouillez une fois.',
       vault_relock_done: 'Coffre reverrouillé avec vos clés actuelles',
       vault_relock_capped: 'Il reste {{count}} dépôts — reverrouillez à nouveau pour les déplacer.',
       vault_relock_unreachable:
@@ -4885,10 +4919,12 @@ const resources = {
       vault_badge_removed: '{{count}} dépôts encore ouverts à une clé retirée',
       vault_badge_unreachable: '{{count}} dépôts qu’aucune clé de cette liste ne peut ouvrir',
       vault_forget_unreachable_title: 'Oublier les dépôts impossibles à ouvrir',
-      vault_forget_unreachable_message: '{{count}} dépôts sont verrouillés uniquement sur des clés absentes de cette liste, généralement issues d’une configuration précédente de vos YubiKey. Aucune de vos clés ne peut les dépenser. Les oublier les retire de ce portefeuille et de sa sauvegarde pour qu’ils ne reviennent plus. Les pièces restent sur la blockchain.',
+      vault_forget_unreachable_message:
+        '{{count}} dépôts sont verrouillés uniquement sur des clés absentes de cette liste, généralement issues d’une configuration précédente de vos YubiKey. Aucune de vos clés ne peut les dépenser. Les oublier les retire de ce portefeuille et de sa sauvegarde pour qu’ils ne reviennent plus. Les pièces restent sur la blockchain.',
       vault_forget_unreachable_confirm: 'Oublier',
       vault_forget_unreachable_done: '{{count}} dépôts oubliés',
-      vault_restore_unreachable: '{{count}} dépôts d’une configuration précédente ignorés : aucune de vos clés ne peut les ouvrir.',
+      vault_restore_unreachable:
+        '{{count}} dépôts d’une configuration précédente ignorés : aucune de vos clés ne peut les ouvrir.',
       vault_key_action_rename: 'Renommer',
       vault_key_action_remove: 'Retirer',
       vault_rename_title: 'Renommer {{nickname}}',
@@ -5024,8 +5060,10 @@ const resources = {
       vault_err_enrollment_partial:
         "La configuration de la YubiKey s'est arrêtée après sa modification. Suivez les instructions de nouvel essai ; cette clé n'a pas été ajoutée au coffre.",
       vault_restore_with_key: 'Restaurer avec une YubiKey',
-      vault_restore_with_key_body: 'Saisissez le code PIN de cette YubiKey, puis approchez-la lorsque cela vous est demandé. Le portefeuille retrouve vos dépôts du coffre sur la blockchain et restaure ceux que cette clé peut ouvrir.',
-      vault_err_key_opens_nothing: 'Cette YubiKey ne peut ouvrir aucun dépôt du coffre sur la blockchain. Sa clé a probablement été remplacée lors d’une configuration ultérieure.',
+      vault_restore_with_key_body:
+        'Saisissez le code PIN de cette YubiKey, puis approchez-la lorsque cela vous est demandé. Le portefeuille retrouve vos dépôts du coffre sur la blockchain et restaure ceux que cette clé peut ouvrir.',
+      vault_err_key_opens_nothing:
+        'Cette YubiKey ne peut ouvrir aucun dépôt du coffre sur la blockchain. Sa clé a probablement été remplacée lors d’une configuration ultérieure.',
       vault_err_key_not_adopted:
         'Vérifiez que vous possédez cette YubiKey récupérée sur cet appareil avant de l’utiliser pour retirer.',
       vault_err_too_many_inputs:
@@ -5067,7 +5105,8 @@ const resources = {
         "Cela supprimera définitivement les clés de votre portefeuille de cet appareil. Si vous n'avez pas sauvegardé votre phrase de récupération ou imprimé les parts de récupération, vous perdrez l'accès à votre portefeuille pour toujours.",
       delete_wallet_confirm: 'Supprimer',
       delete_wallet_failed_title: 'Échec de la suppression du portefeuille',
-      delete_wallet_failed_body: 'Votre portefeuille n\'a pas pu être entièrement supprimé de cet appareil. Certaines données de clé peuvent encore être présentes. Veuillez réessayer.',
+      delete_wallet_failed_body:
+        "Votre portefeuille n'a pas pu être entièrement supprimé de cet appareil. Certaines données de clé peuvent encore être présentes. Veuillez réessayer.",
       bsv_network: 'Réseau BSV',
       arc_endpoint: 'Point de terminaison ARC',
       arc_api_token: "Jeton d'API",
@@ -5333,7 +5372,8 @@ const resources = {
       reconnect_failed: 'Reconnexion échouée',
       reconnect_confirm_title: 'Se reconnecter à ce site ?',
       reconnect_confirm_message: '{{origin}} pourra à nouveau accéder à votre portefeuille.',
-      reconnect_needs_reapproval: 'Cette connexion n\'a pas pu être vérifiée. Scannez un nouveau code QR pour vous reconnecter.',
+      reconnect_needs_reapproval:
+        "Cette connexion n'a pas pu être vérifiée. Scannez un nouveau code QR pour vous reconnecter.",
       scan_qr_code: 'Scanner le code QR',
       paste_uri: "Coller l'URI",
       invalid_qr_code: 'Code QR invalide',
@@ -5411,7 +5451,8 @@ const resources = {
       home_payments_unsent: '{{count}} paiements non remis',
       pay_copy: 'Copier',
       pay_share_link: 'Partager le lien',
-      pay_address_watching: 'L’argent envoyé ici est ajouté automatiquement à votre portefeuille, mais uniquement lorsque l’app est ouverte.',
+      pay_address_watching:
+        'L’argent envoyé ici est ajouté automatiquement à votre portefeuille, mais uniquement lorsque l’app est ouverte.',
       pay_address_earlier_day: 'Revenir à un jour précédent',
       pay_address_sweep_now: 'Vérifier cette adresse BSV maintenant',
       pay_address_swept: '{{amount}} reçu',
@@ -5712,7 +5753,7 @@ const resources = {
         'Connectez votre boîte aux lettres dans les réglages pour payer une identité de portefeuille.',
       direct_pay_fallback_title: 'Pas en ligne pour le moment',
       direct_pay_fallback_send: 'Envoyer à la boîte aux lettres',
-      direct_pay_sent_live: 'Payé en direct : c\'est déjà dans son portefeuille.',
+      direct_pay_sent_live: "Payé en direct : c'est déjà dans son portefeuille.",
       direct_pay_kept_needs_attention:
         "Un paiement direct de {{amount}} sats de {{name}} demande votre attention : votre portefeuille n'a pas pu l'ajouter. Il reste sur cet appareil."
     }
@@ -5998,9 +6039,11 @@ const resources = {
       vault_key_pending_removal: 'تمت الإزالة — أعد القفل لإتمامها',
       vault_key_removal_awaiting_network: 'جارٍ الإزالة — بانتظار قبول الشبكة لإعادة القفل',
       vault_removal_awaiting_network: 'أُرسلت إعادة القفل. يُتاح الإيداع والسحب مجددًا بعد أن تقبلها الشبكة.',
-      vault_err_too_many_active_keys: 'تُقفل الخزنة بخمسة مفاتيح كحدّ أقصى. أزل مفتاحًا قبل الإيداع أو إعادة القفل أو سحب جزء من الرصيد.',
+      vault_err_too_many_active_keys:
+        'تُقفل الخزنة بخمسة مفاتيح كحدّ أقصى. أزل مفتاحًا قبل الإيداع أو إعادة القفل أو سحب جزء من الرصيد.',
       vault_key_section_over_limit: 'مفاتيح الأمان ({{count}}، أزل واحدًا)',
-      vault_add_key_done_over_limit: 'أُضيف {{nickname}}. تُقفل الخزنة بخمسة مفاتيح كحدّ أقصى، لذا أزل المفتاح الذي يحلّ هذا محلّه، ثم أعد القفل مرة واحدة.',
+      vault_add_key_done_over_limit:
+        'أُضيف {{nickname}}. تُقفل الخزنة بخمسة مفاتيح كحدّ أقصى، لذا أزل المفتاح الذي يحلّ هذا محلّه، ثم أعد القفل مرة واحدة.',
       vault_relock_done: 'أُعيد قفل الخزنة على مفاتيحك الحالية',
       vault_relock_capped: 'بقي {{count}} إيداعًا — أعد القفل مجددًا لنقلها.',
       vault_relock_unreachable: '{{count}} إيداعًا لا يفتحها سوى {{names}}. أعد القفل مجددًا بأحد تلك المفاتيح.',
@@ -6008,7 +6051,8 @@ const resources = {
       vault_badge_removed: '{{count}} إيداعًا ما زال مفتوحًا لمفتاح تمت إزالته',
       vault_badge_unreachable: '{{count}} إيداعًا لا يمكن لأي مفتاح في هذه القائمة فتحه',
       vault_forget_unreachable_title: 'نسيان الإيداعات التي لا يمكن فتحها',
-      vault_forget_unreachable_message: '{{count}} إيداعًا مقفلة فقط بمفاتيح غير موجودة في هذه القائمة، وغالبًا ما تكون من إعداد سابق لمفاتيح YubiKey لديك. لا يمكن لأي من مفاتيحك إنفاقها. يؤدي نسيانها إلى إزالتها من هذه المحفظة ومن نسختها الاحتياطية حتى لا تعود للظهور. تبقى العملات على البلوكتشين.',
+      vault_forget_unreachable_message:
+        '{{count}} إيداعًا مقفلة فقط بمفاتيح غير موجودة في هذه القائمة، وغالبًا ما تكون من إعداد سابق لمفاتيح YubiKey لديك. لا يمكن لأي من مفاتيحك إنفاقها. يؤدي نسيانها إلى إزالتها من هذه المحفظة ومن نسختها الاحتياطية حتى لا تعود للظهور. تبقى العملات على البلوكتشين.',
       vault_forget_unreachable_confirm: 'نسيان',
       vault_forget_unreachable_done: 'تم نسيان {{count}} إيداعًا',
       vault_restore_unreachable: 'تم تخطي {{count}} إيداعًا من إعداد سابق لا يمكن لأي مفتاح تملكه فتحه.',
@@ -6141,8 +6185,10 @@ const resources = {
       vault_err_enrollment_partial:
         'توقف إعداد YubiKey بعد تغيير المفتاح. اتبع تعليمات إعادة المحاولة؛ لم تتم إضافة هذا المفتاح إلى الخزنة.',
       vault_restore_with_key: 'الاستعادة باستخدام YubiKey',
-      vault_restore_with_key_body: 'أدخل رمز PIN لمفتاح YubiKey هذا، ثم المسه عند الطلب. تبحث المحفظة عن إيداعات الخزنة على البلوكتشين وتستعيد تلك التي يستطيع هذا المفتاح فتحها.',
-      vault_err_key_opens_nothing: 'لا يستطيع مفتاح YubiKey هذا فتح أي إيداع للخزنة على البلوكتشين. على الأرجح استُبدل مفتاحه في إعداد لاحق.',
+      vault_restore_with_key_body:
+        'أدخل رمز PIN لمفتاح YubiKey هذا، ثم المسه عند الطلب. تبحث المحفظة عن إيداعات الخزنة على البلوكتشين وتستعيد تلك التي يستطيع هذا المفتاح فتحها.',
+      vault_err_key_opens_nothing:
+        'لا يستطيع مفتاح YubiKey هذا فتح أي إيداع للخزنة على البلوكتشين. على الأرجح استُبدل مفتاحه في إعداد لاحق.',
       vault_err_key_not_adopted: 'تحقق من حيازتك لمفتاح YubiKey المستعاد على هذا الجهاز قبل استخدامه للسحب.',
       vault_err_too_many_inputs:
         'عدد إيداعات الخزنة كبير جداً للنقل مرة واحدة. اسحب مبلغاً أصغر أولاً — كل عملية سحب تدمج الخزنة أيضاً، فيصبح بالإمكان نقل مبلغ أكبر لاحقاً.',
@@ -6180,7 +6226,8 @@ const resources = {
         'سيؤدي هذا إلى حذف مفاتيح محفظتك بشكل دائم من هذا الجهاز. إذا لم تقم بعمل نسخة احتياطية لعبارة الاسترداد أو طباعة حصص الاسترداد، فستفقد الوصول إلى محفظتك إلى الأبد.',
       delete_wallet_confirm: 'حذف المحفظة',
       delete_wallet_failed_title: 'فشل حذف المحفظة',
-      delete_wallet_failed_body: 'تعذّر حذف محفظتك بالكامل من هذا الجهاز. قد تظل بعض بيانات المفتاح موجودة. يرجى المحاولة مرة أخرى.',
+      delete_wallet_failed_body:
+        'تعذّر حذف محفظتك بالكامل من هذا الجهاز. قد تظل بعض بيانات المفتاح موجودة. يرجى المحاولة مرة أخرى.',
       bsv_network: 'شبكة BSV',
       arc_endpoint: 'نقطة نهاية ARC',
       arc_api_token: 'رمز API',
@@ -7106,10 +7153,13 @@ const resources = {
       vault_relock_reason_remaining: 'Bloqueie novamente apenas com as suas chaves restantes: {{names}}.',
       vault_key_pending_removal: 'Removida — bloqueie novamente para concluir',
       vault_key_removal_awaiting_network: 'Removendo — aguardando a rede aceitar o novo bloqueio',
-      vault_removal_awaiting_network: 'Novo bloqueio enviado. Depósitos e retiradas voltam a funcionar assim que a rede o aceitar.',
-      vault_err_too_many_active_keys: 'O cofre é bloqueado com no máximo cinco chaves. Remova uma antes de depositar, bloquear novamente ou retirar parte do saldo.',
+      vault_removal_awaiting_network:
+        'Novo bloqueio enviado. Depósitos e retiradas voltam a funcionar assim que a rede o aceitar.',
+      vault_err_too_many_active_keys:
+        'O cofre é bloqueado com no máximo cinco chaves. Remova uma antes de depositar, bloquear novamente ou retirar parte do saldo.',
       vault_key_section_over_limit: 'Chaves de segurança ({{count}}, remova uma)',
-      vault_add_key_done_over_limit: '{{nickname}} foi adicionada. O cofre é bloqueado com no máximo cinco chaves: remova a chave que ela substitui e bloqueie novamente uma vez.',
+      vault_add_key_done_over_limit:
+        '{{nickname}} foi adicionada. O cofre é bloqueado com no máximo cinco chaves: remova a chave que ela substitui e bloqueie novamente uma vez.',
       vault_relock_done: 'Cofre retrancado com as suas chaves atuais',
       vault_relock_capped: 'Restam {{count}} depósitos — retranque de novo para movê-los.',
       vault_relock_unreachable:
@@ -7118,10 +7168,12 @@ const resources = {
       vault_badge_removed: '{{count}} depósitos ainda abertos para uma chave removida',
       vault_badge_unreachable: '{{count}} depósitos que nenhuma chave desta lista consegue abrir',
       vault_forget_unreachable_title: 'Esquecer depósitos que não podem ser abertos',
-      vault_forget_unreachable_message: '{{count}} depósitos estão bloqueados apenas com chaves que não estão nesta lista, normalmente de uma configuração anterior das suas YubiKeys. Nenhuma das suas chaves pode gastá-los. Esquecê-los remove-os desta carteira e do respetivo backup para que não voltem a aparecer. As moedas continuam na blockchain.',
+      vault_forget_unreachable_message:
+        '{{count}} depósitos estão bloqueados apenas com chaves que não estão nesta lista, normalmente de uma configuração anterior das suas YubiKeys. Nenhuma das suas chaves pode gastá-los. Esquecê-los remove-os desta carteira e do respetivo backup para que não voltem a aparecer. As moedas continuam na blockchain.',
       vault_forget_unreachable_confirm: 'Esquecer',
       vault_forget_unreachable_done: '{{count}} depósitos esquecidos',
-      vault_restore_unreachable: 'Foram ignorados {{count}} depósitos de uma configuração anterior que nenhuma das suas chaves consegue abrir.',
+      vault_restore_unreachable:
+        'Foram ignorados {{count}} depósitos de uma configuração anterior que nenhuma das suas chaves consegue abrir.',
       vault_key_action_rename: 'Renomear',
       vault_key_action_remove: 'Remover',
       vault_rename_title: 'Renomear {{nickname}}',
@@ -7255,8 +7307,10 @@ const resources = {
       vault_err_enrollment_partial:
         'A configuração da YubiKey parou depois de alterá-la. Siga as instruções para tentar novamente; esta chave não foi adicionada ao cofre.',
       vault_restore_with_key: 'Restaurar com uma YubiKey',
-      vault_restore_with_key_body: 'Introduza o PIN desta YubiKey e aproxime-a quando lhe for pedido. A carteira procura os seus depósitos do cofre na blockchain e restaura os que esta chave consegue abrir.',
-      vault_err_key_opens_nothing: 'Esta YubiKey não consegue abrir nenhum depósito do cofre na blockchain. A chave dela foi provavelmente substituída por uma configuração posterior.',
+      vault_restore_with_key_body:
+        'Introduza o PIN desta YubiKey e aproxime-a quando lhe for pedido. A carteira procura os seus depósitos do cofre na blockchain e restaura os que esta chave consegue abrir.',
+      vault_err_key_opens_nothing:
+        'Esta YubiKey não consegue abrir nenhum depósito do cofre na blockchain. A chave dela foi provavelmente substituída por uma configuração posterior.',
       vault_err_key_not_adopted:
         'Verifique que possui esta YubiKey recuperada neste dispositivo antes de usá-la para retirar.',
       vault_err_too_many_inputs:
@@ -7298,7 +7352,8 @@ const resources = {
         'Isso excluirá permanentemente as chaves da sua carteira deste dispositivo. Se você não fez backup da sua frase de recuperação ou imprimiu as partes de recuperação, você perderá o acesso à sua carteira para sempre.',
       delete_wallet_confirm: 'Excluir carteira',
       delete_wallet_failed_title: 'Falha ao excluir carteira',
-      delete_wallet_failed_body: 'Não foi possível excluir totalmente sua carteira deste dispositivo. Parte do material da chave pode ainda estar presente. Tente novamente.',
+      delete_wallet_failed_body:
+        'Não foi possível excluir totalmente sua carteira deste dispositivo. Parte do material da chave pode ainda estar presente. Tente novamente.',
       bsv_network: 'Rede BSV',
       arc_endpoint: 'Endpoint ARC',
       arc_api_token: 'Token de API',
@@ -7640,7 +7695,8 @@ const resources = {
       home_payments_unsent: '{{count}} pagamentos não entregues',
       pay_copy: 'Copiar',
       pay_share_link: 'Compartilhar link',
-      pay_address_watching: 'O dinheiro enviado para cá é adicionado à sua carteira automaticamente, mas só enquanto o app estiver aberto.',
+      pay_address_watching:
+        'O dinheiro enviado para cá é adicionado à sua carteira automaticamente, mas só enquanto o app estiver aberto.',
       pay_address_earlier_day: 'Voltar para um dia anterior',
       pay_address_sweep_now: 'Verificar este endereço BSV agora',
       pay_address_swept: '{{amount}} recebido',
@@ -8243,9 +8299,11 @@ const resources = {
       vault_key_pending_removal: 'সরানো হয়েছে — শেষ করতে পুনরায় লক করুন',
       vault_key_removal_awaiting_network: 'সরানো হচ্ছে — নেটওয়ার্ক পুনরায় লক গ্রহণ করার অপেক্ষায়',
       vault_removal_awaiting_network: 'পুনরায় লক পাঠানো হয়েছে। নেটওয়ার্ক গ্রহণ করলেই জমা ও উত্তোলন আবার চালু হবে।',
-      vault_err_too_many_active_keys: 'ভল্ট সর্বোচ্চ পাঁচটি কী দিয়ে লক হয়। জমা, পুনরায় লক বা ব্যালান্সের কিছু অংশ উত্তোলনের আগে একটি কী সরান।',
+      vault_err_too_many_active_keys:
+        'ভল্ট সর্বোচ্চ পাঁচটি কী দিয়ে লক হয়। জমা, পুনরায় লক বা ব্যালান্সের কিছু অংশ উত্তোলনের আগে একটি কী সরান।',
       vault_key_section_over_limit: 'সিকিউরিটি কী ({{count}}, একটি সরান)',
-      vault_add_key_done_over_limit: '{{nickname}} যোগ করা হয়েছে। ভল্ট সর্বোচ্চ পাঁচটি কী দিয়ে লক হয়, তাই এটি যে কী-এর জায়গা নিচ্ছে সেটি সরান, তারপর একবার পুনরায় লক করুন।',
+      vault_add_key_done_over_limit:
+        '{{nickname}} যোগ করা হয়েছে। ভল্ট সর্বোচ্চ পাঁচটি কী দিয়ে লক হয়, তাই এটি যে কী-এর জায়গা নিচ্ছে সেটি সরান, তারপর একবার পুনরায় লক করুন।',
       vault_relock_done: 'ভল্ট আপনার বর্তমান কী-গুলিতে পুনরায় লক হয়েছে',
       vault_relock_capped: 'আরও {{count}}টি জমা বাকি — সরাতে আবার পুনরায় লক করুন।',
       vault_relock_unreachable:
@@ -8254,10 +8312,12 @@ const resources = {
       vault_badge_removed: '{{count}}টি জমা এখনও একটি সরানো কী দিয়ে খোলা যায়',
       vault_badge_unreachable: '{{count}}টি জমা এই তালিকার কোনো কী দিয়েই খোলা যায় না',
       vault_forget_unreachable_title: 'খোলা যায় না এমন জমা ভুলে যান',
-      vault_forget_unreachable_message: '{{count}}টি জমা কেবল এমন কী-তে লক করা যা এই তালিকায় নেই, সাধারণত আপনার YubiKey-এর আগের কোনো সেটআপ থেকে। আপনার কোনো কী দিয়েই এগুলো খরচ করা যায় না। ভুলে গেলে এগুলো এই ওয়ালেট ও এর ব্যাকআপ থেকে সরে যায়, যাতে আর ফিরে না আসে। কয়েনগুলো ব্লকচেইনেই থেকে যায়।',
+      vault_forget_unreachable_message:
+        '{{count}}টি জমা কেবল এমন কী-তে লক করা যা এই তালিকায় নেই, সাধারণত আপনার YubiKey-এর আগের কোনো সেটআপ থেকে। আপনার কোনো কী দিয়েই এগুলো খরচ করা যায় না। ভুলে গেলে এগুলো এই ওয়ালেট ও এর ব্যাকআপ থেকে সরে যায়, যাতে আর ফিরে না আসে। কয়েনগুলো ব্লকচেইনেই থেকে যায়।',
       vault_forget_unreachable_confirm: 'ভুলে যান',
       vault_forget_unreachable_done: '{{count}}টি জমা ভুলে যাওয়া হয়েছে',
-      vault_restore_unreachable: 'আগের সেটআপের {{count}}টি জমা বাদ দেওয়া হয়েছে, যা আপনার কোনো কী দিয়েই খোলা যায় না।',
+      vault_restore_unreachable:
+        'আগের সেটআপের {{count}}টি জমা বাদ দেওয়া হয়েছে, যা আপনার কোনো কী দিয়েই খোলা যায় না।',
       vault_key_action_rename: 'নাম বদলান',
       vault_key_action_remove: 'সরান',
       vault_rename_title: '{{nickname}}-এর নাম বদলান',
@@ -8388,8 +8448,10 @@ const resources = {
       vault_err_enrollment_partial:
         'কী পরিবর্তনের পরে YubiKey সেটআপ থেমেছে। পুনরায় চেষ্টার নির্দেশ মানুন; এই কী ভল্টে যোগ হয়নি।',
       vault_restore_with_key: 'YubiKey দিয়ে পুনরুদ্ধার করুন',
-      vault_restore_with_key_body: 'এই YubiKey-এর PIN লিখুন, তারপর বলা হলে এটি ট্যাপ করুন। ওয়ালেট ব্লকচেইনে আপনার ভল্টের জমাগুলো খুঁজে পায় এবং এই কী যেগুলো খুলতে পারে সেগুলো পুনরুদ্ধার করে।',
-      vault_err_key_opens_nothing: 'এই YubiKey ব্লকচেইনে ভল্টের কোনো জমাই খুলতে পারে না। সম্ভবত পরের কোনো সেটআপে এর কী বদলে গেছে।',
+      vault_restore_with_key_body:
+        'এই YubiKey-এর PIN লিখুন, তারপর বলা হলে এটি ট্যাপ করুন। ওয়ালেট ব্লকচেইনে আপনার ভল্টের জমাগুলো খুঁজে পায় এবং এই কী যেগুলো খুলতে পারে সেগুলো পুনরুদ্ধার করে।',
+      vault_err_key_opens_nothing:
+        'এই YubiKey ব্লকচেইনে ভল্টের কোনো জমাই খুলতে পারে না। সম্ভবত পরের কোনো সেটআপে এর কী বদলে গেছে।',
       vault_err_key_not_adopted:
         'উত্তোলনে ব্যবহার করার আগে এই ডিভাইসে উদ্ধার করা YubiKey আপনার কাছে আছে তা যাচাই করুন।',
       vault_err_too_many_inputs:
@@ -8428,7 +8490,8 @@ const resources = {
         'এটি এই ডিভাইস থেকে আপনার ওয়ালেট কী স্থায়ীভাবে মুছে ফেলবে। যদি আপনি আপনার রিকভারি ফ্রেজ ব্যাকআপ না করেন বা রিকভারি শেয়ার প্রিন্ট না করেন, তাহলে আপনি চিরতরে আপনার ওয়ালেটে অ্যাক্সেস হারাবেন।',
       delete_wallet_confirm: 'ওয়ালেট মুছুন',
       delete_wallet_failed_title: 'ওয়ালেট মোছা ব্যর্থ হয়েছে',
-      delete_wallet_failed_body: 'আপনার ওয়ালেটটি এই ডিভাইস থেকে সম্পূর্ণভাবে মোছা যায়নি। কিছু কী-উপাদান এখনও থাকতে পারে। অনুগ্রহ করে আবার চেষ্টা করুন।',
+      delete_wallet_failed_body:
+        'আপনার ওয়ালেটটি এই ডিভাইস থেকে সম্পূর্ণভাবে মোছা যায়নি। কিছু কী-উপাদান এখনও থাকতে পারে। অনুগ্রহ করে আবার চেষ্টা করুন।',
       bsv_network: 'BSV নেটওয়ার্ক',
       arc_endpoint: 'ARC এন্ডপয়েন্ট',
       arc_api_token: 'API টোকেন',
@@ -8767,7 +8830,8 @@ const resources = {
       home_payments_unsent: '{{count}}টি পেমেন্ট পৌঁছায়নি',
       pay_copy: 'কপি',
       pay_share_link: 'লিঙ্ক শেয়ার করুন',
-      pay_address_watching: 'এই ঠিকানায় পাঠানো অর্থ স্বয়ংক্রিয়ভাবে আপনার ওয়ালেটে যোগ হয়, তবে শুধু অ্যাপ খোলা থাকলে।',
+      pay_address_watching:
+        'এই ঠিকানায় পাঠানো অর্থ স্বয়ংক্রিয়ভাবে আপনার ওয়ালেটে যোগ হয়, তবে শুধু অ্যাপ খোলা থাকলে।',
       pay_address_earlier_day: 'আগের কোনো দিনে যান',
       pay_address_sweep_now: 'এই BSV ঠিকানাটি এখনই যাচাই করুন',
       pay_address_swept: '{{amount}} পাওয়া গেছে',
@@ -9368,10 +9432,13 @@ const resources = {
       vault_relock_reason_remaining: 'Перезаприте только на оставшиеся ключи: {{names}}.',
       vault_key_pending_removal: 'Удалён — перезаприте, чтобы завершить',
       vault_key_removal_awaiting_network: 'Удаляется — ждём, пока сеть примет перезапирание',
-      vault_removal_awaiting_network: 'Перезапирание отправлено. Пополнение и вывод снова станут доступны, как только сеть его примет.',
-      vault_err_too_many_active_keys: 'Хранилище запирается не более чем пятью ключами. Удалите один, прежде чем пополнять, перезапирать или выводить часть баланса.',
+      vault_removal_awaiting_network:
+        'Перезапирание отправлено. Пополнение и вывод снова станут доступны, как только сеть его примет.',
+      vault_err_too_many_active_keys:
+        'Хранилище запирается не более чем пятью ключами. Удалите один, прежде чем пополнять, перезапирать или выводить часть баланса.',
       vault_key_section_over_limit: 'Ключи безопасности ({{count}}, удалите один)',
-      vault_add_key_done_over_limit: '{{nickname}} добавлен. Хранилище запирается не более чем пятью ключами: удалите ключ, который он заменяет, затем перезаприте один раз.',
+      vault_add_key_done_over_limit:
+        '{{nickname}} добавлен. Хранилище запирается не более чем пятью ключами: удалите ключ, который он заменяет, затем перезаприте один раз.',
       vault_relock_done: 'Хранилище перезаперто на текущие ключи',
       vault_relock_capped: 'Осталось ещё {{count}} пополнений — перезапирайте снова, чтобы перенести их.',
       vault_relock_unreachable:
@@ -9380,10 +9447,12 @@ const resources = {
       vault_badge_removed: '{{count}} пополнений всё ещё открыты для удалённого ключа',
       vault_badge_unreachable: '{{count}} пополнений не открывает ни один ключ из этого списка',
       vault_forget_unreachable_title: 'Забыть пополнения, которые нельзя открыть',
-      vault_forget_unreachable_message: '{{count}} пополнений заблокированы только ключами, которых нет в этом списке, — обычно от прежней настройки ваших YubiKey. Ни один из ваших ключей не может их потратить. Если их забыть, они удаляются из этого кошелька и его резервной копии и больше не появятся. Монеты остаются в блокчейне.',
+      vault_forget_unreachable_message:
+        '{{count}} пополнений заблокированы только ключами, которых нет в этом списке, — обычно от прежней настройки ваших YubiKey. Ни один из ваших ключей не может их потратить. Если их забыть, они удаляются из этого кошелька и его резервной копии и больше не появятся. Монеты остаются в блокчейне.',
       vault_forget_unreachable_confirm: 'Забыть',
       vault_forget_unreachable_done: 'Забыто пополнений: {{count}}',
-      vault_restore_unreachable: 'Пропущено пополнений прежней настройки: {{count}} — ни один из ваших ключей их не открывает.',
+      vault_restore_unreachable:
+        'Пропущено пополнений прежней настройки: {{count}} — ни один из ваших ключей их не открывает.',
       vault_key_action_rename: 'Переименовать',
       vault_key_action_remove: 'Удалить',
       vault_rename_title: 'Переименовать {{nickname}}',
@@ -9516,8 +9585,10 @@ const resources = {
       vault_err_enrollment_partial:
         'Настройка YubiKey остановилась после изменения ключа. Следуйте указаниям для повтора; этот ключ не добавлен в хранилище.',
       vault_restore_with_key: 'Восстановить с помощью YubiKey',
-      vault_restore_with_key_body: 'Введите PIN этого YubiKey, затем приложите его, когда появится запрос. Кошелёк найдёт пополнения хранилища в блокчейне и восстановит те, которые открывает этот ключ.',
-      vault_err_key_opens_nothing: 'Этот YubiKey не открывает ни одного пополнения хранилища в блокчейне. Вероятно, его ключ заменила более поздняя настройка.',
+      vault_restore_with_key_body:
+        'Введите PIN этого YubiKey, затем приложите его, когда появится запрос. Кошелёк найдёт пополнения хранилища в блокчейне и восстановит те, которые открывает этот ключ.',
+      vault_err_key_opens_nothing:
+        'Этот YubiKey не открывает ни одного пополнения хранилища в блокчейне. Вероятно, его ключ заменила более поздняя настройка.',
       vault_err_key_not_adopted:
         'Подтвердите владение восстановленным YubiKey на этом устройстве перед выводом средств с его помощью.',
       vault_err_too_many_inputs:
@@ -9559,7 +9630,8 @@ const resources = {
         'Это безвозвратно удалит ключи вашего кошелька с этого устройства. Если вы не создали резервную копию фразы восстановления или не распечатали доли восстановления, вы навсегда потеряете доступ к кошельку.',
       delete_wallet_confirm: 'Удалить кошелёк',
       delete_wallet_failed_title: 'Не удалось удалить кошелёк',
-      delete_wallet_failed_body: 'Не удалось полностью удалить ваш кошелёк с этого устройства. Часть ключевых данных может всё ещё оставаться. Пожалуйста, попробуйте снова.',
+      delete_wallet_failed_body:
+        'Не удалось полностью удалить ваш кошелёк с этого устройства. Часть ключевых данных может всё ещё оставаться. Пожалуйста, попробуйте снова.',
       bsv_network: 'Сеть BSV',
       arc_endpoint: 'Конечная точка ARC',
       arc_api_token: 'API-токен',
@@ -9822,7 +9894,8 @@ const resources = {
       reconnect_failed: 'Ошибка переподключения',
       reconnect_confirm_title: 'Переподключиться к этому сайту?',
       reconnect_confirm_message: '{{origin}} снова сможет получить доступ к вашему кошельку.',
-      reconnect_needs_reapproval: 'Не удалось проверить это подключение. Отсканируйте новый QR-код, чтобы переподключиться.',
+      reconnect_needs_reapproval:
+        'Не удалось проверить это подключение. Отсканируйте новый QR-код, чтобы переподключиться.',
       scan_qr_code: 'Сканировать QR-код',
       paste_uri: 'Вставить URI',
       invalid_qr_code: 'Неверный QR-код',
@@ -9898,7 +9971,8 @@ const resources = {
       home_payments_unsent: 'Недоставленных платежей: {{count}}',
       pay_copy: 'Копировать',
       pay_share_link: 'Поделиться ссылкой',
-      pay_address_watching: 'Деньги, отправленные на этот адрес, добавляются в ваш кошелёк автоматически, но только пока приложение открыто.',
+      pay_address_watching:
+        'Деньги, отправленные на этот адрес, добавляются в ваш кошелёк автоматически, но только пока приложение открыто.',
       pay_address_earlier_day: 'Перейти к более раннему дню',
       pay_address_sweep_now: 'Проверить этот BSV-адрес сейчас',
       pay_address_swept: 'Получено {{amount}}',
@@ -10506,10 +10580,13 @@ const resources = {
       vault_relock_reason_remaining: 'Kunci ulang hanya ke kunci Anda yang tersisa: {{names}}.',
       vault_key_pending_removal: 'Dihapus — kunci ulang untuk menyelesaikan',
       vault_key_removal_awaiting_network: 'Sedang dihapus — menunggu jaringan menerima kunci ulang',
-      vault_removal_awaiting_network: 'Kunci ulang terkirim. Setoran dan penarikan terbuka lagi setelah jaringan menerimanya.',
-      vault_err_too_many_active_keys: 'Brankas dikunci dengan paling banyak lima kunci. Hapus satu sebelum menyetor, mengunci ulang, atau menarik sebagian saldo.',
+      vault_removal_awaiting_network:
+        'Kunci ulang terkirim. Setoran dan penarikan terbuka lagi setelah jaringan menerimanya.',
+      vault_err_too_many_active_keys:
+        'Brankas dikunci dengan paling banyak lima kunci. Hapus satu sebelum menyetor, mengunci ulang, atau menarik sebagian saldo.',
       vault_key_section_over_limit: 'Kunci keamanan ({{count}}, hapus satu)',
-      vault_add_key_done_over_limit: '{{nickname}} ditambahkan. Brankas dikunci dengan paling banyak lima kunci, jadi hapus kunci yang digantikannya, lalu kunci ulang sekali.',
+      vault_add_key_done_over_limit:
+        '{{nickname}} ditambahkan. Brankas dikunci dengan paling banyak lima kunci, jadi hapus kunci yang digantikannya, lalu kunci ulang sekali.',
       vault_relock_done: 'Brankas dikunci ulang ke kunci Anda saat ini',
       vault_relock_capped: '{{count}} setoran lagi tersisa — kunci ulang lagi untuk memindahkannya.',
       vault_relock_unreachable:
@@ -10518,10 +10595,12 @@ const resources = {
       vault_badge_removed: '{{count}} setoran masih terbuka untuk kunci yang dihapus',
       vault_badge_unreachable: '{{count}} setoran tidak dapat dibuka oleh kunci mana pun di daftar ini',
       vault_forget_unreachable_title: 'Lupakan setoran yang tidak dapat dibuka',
-      vault_forget_unreachable_message: '{{count}} setoran hanya terkunci ke kunci yang tidak ada di daftar ini, biasanya dari penyiapan YubiKey Anda sebelumnya. Tidak ada kunci Anda yang dapat membelanjakannya. Melupakannya akan menghapusnya dari dompet ini dan cadangannya agar tidak muncul lagi. Koinnya tetap ada di blockchain.',
+      vault_forget_unreachable_message:
+        '{{count}} setoran hanya terkunci ke kunci yang tidak ada di daftar ini, biasanya dari penyiapan YubiKey Anda sebelumnya. Tidak ada kunci Anda yang dapat membelanjakannya. Melupakannya akan menghapusnya dari dompet ini dan cadangannya agar tidak muncul lagi. Koinnya tetap ada di blockchain.',
       vault_forget_unreachable_confirm: 'Lupakan',
       vault_forget_unreachable_done: '{{count}} setoran telah dilupakan',
-      vault_restore_unreachable: '{{count}} setoran dari penyiapan sebelumnya dilewati karena tidak ada kunci Anda yang dapat membukanya.',
+      vault_restore_unreachable:
+        '{{count}} setoran dari penyiapan sebelumnya dilewati karena tidak ada kunci Anda yang dapat membukanya.',
       vault_key_action_rename: 'Ubah nama',
       vault_key_action_remove: 'Hapus',
       vault_rename_title: 'Ubah nama {{nickname}}',
@@ -10653,8 +10732,10 @@ const resources = {
       vault_err_enrollment_partial:
         'Penyiapan YubiKey berhenti setelah kunci diubah. Ikuti petunjuk mencoba lagi; kunci ini belum ditambahkan ke brankas.',
       vault_restore_with_key: 'Pulihkan dengan YubiKey',
-      vault_restore_with_key_body: 'Masukkan PIN YubiKey ini, lalu tempelkan saat diminta. Dompet mencari setoran brankas Anda di blockchain dan memulihkan setoran yang dapat dibuka oleh kunci ini.',
-      vault_err_key_opens_nothing: 'YubiKey ini tidak dapat membuka setoran brankas mana pun di blockchain. Kuncinya kemungkinan telah diganti oleh penyiapan berikutnya.',
+      vault_restore_with_key_body:
+        'Masukkan PIN YubiKey ini, lalu tempelkan saat diminta. Dompet mencari setoran brankas Anda di blockchain dan memulihkan setoran yang dapat dibuka oleh kunci ini.',
+      vault_err_key_opens_nothing:
+        'YubiKey ini tidak dapat membuka setoran brankas mana pun di blockchain. Kuncinya kemungkinan telah diganti oleh penyiapan berikutnya.',
       vault_err_key_not_adopted:
         'Verifikasi kepemilikan YubiKey yang dipulihkan ini di perangkat sebelum menggunakannya untuk penarikan.',
       vault_err_too_many_inputs:
@@ -10693,7 +10774,8 @@ const resources = {
         'Ini akan menghapus kunci dompet Anda secara permanen dari perangkat ini. Jika Anda belum mencadangkan frasa pemulihan atau mencetak bagian pemulihan, Anda akan kehilangan akses ke dompet Anda selamanya.',
       delete_wallet_confirm: 'Hapus Dompet',
       delete_wallet_failed_title: 'Gagal Menghapus Dompet',
-      delete_wallet_failed_body: 'Dompet Anda tidak dapat sepenuhnya dihapus dari perangkat ini. Sebagian materi kunci mungkin masih ada. Silakan coba lagi.',
+      delete_wallet_failed_body:
+        'Dompet Anda tidak dapat sepenuhnya dihapus dari perangkat ini. Sebagian materi kunci mungkin masih ada. Silakan coba lagi.',
       bsv_network: 'Jaringan BSV',
       arc_endpoint: 'Endpoint ARC',
       arc_api_token: 'Token API',
@@ -10956,7 +11038,8 @@ const resources = {
       reconnect_failed: 'Gagal Menghubungkan Kembali',
       reconnect_confirm_title: 'Sambungkan kembali ke situs ini?',
       reconnect_confirm_message: '{{origin}} akan dapat mengakses dompet Anda lagi.',
-      reconnect_needs_reapproval: 'Koneksi ini tidak dapat diverifikasi. Pindai kode QR baru untuk menghubungkan kembali.',
+      reconnect_needs_reapproval:
+        'Koneksi ini tidak dapat diverifikasi. Pindai kode QR baru untuk menghubungkan kembali.',
       scan_qr_code: 'Pindai Kode QR',
       paste_uri: 'Tempel URI',
       invalid_qr_code: 'Kode QR Tidak Valid',
@@ -11033,7 +11116,8 @@ const resources = {
       home_payments_unsent: '{{count}} pembayaran belum terkirim',
       pay_copy: 'Salin',
       pay_share_link: 'Bagikan tautan',
-      pay_address_watching: 'Uang yang dikirim ke sini otomatis ditambahkan ke dompet Anda, tetapi hanya saat aplikasi terbuka.',
+      pay_address_watching:
+        'Uang yang dikirim ke sini otomatis ditambahkan ke dompet Anda, tetapi hanya saat aplikasi terbuka.',
       pay_address_earlier_day: 'Buka hari sebelumnya',
       pay_address_sweep_now: 'Periksa alamat BSV ini sekarang',
       pay_address_swept: 'Diterima {{amount}}',
@@ -11640,9 +11724,11 @@ const resources = {
       vault_key_pending_removal: '削除済み — 完了するには再ロック',
       vault_key_removal_awaiting_network: '削除中 — ネットワークによる再ロックの受理待ち',
       vault_removal_awaiting_network: '再ロックを送信しました。ネットワークに受理されると入金と出金を再開できます。',
-      vault_err_too_many_active_keys: '保管庫をロックできる鍵は最大 5 本です。入金、再ロック、残高の一部の出金の前に、鍵を 1 本削除してください。',
+      vault_err_too_many_active_keys:
+        '保管庫をロックできる鍵は最大 5 本です。入金、再ロック、残高の一部の出金の前に、鍵を 1 本削除してください。',
       vault_key_section_over_limit: 'セキュリティキー（{{count}}、1 本削除してください）',
-      vault_add_key_done_over_limit: '{{nickname}} を追加しました。保管庫をロックできる鍵は最大 5 本なので、この鍵で置き換える鍵を削除してから、再ロックを 1 回行ってください。',
+      vault_add_key_done_over_limit:
+        '{{nickname}} を追加しました。保管庫をロックできる鍵は最大 5 本なので、この鍵で置き換える鍵を削除してから、再ロックを 1 回行ってください。',
       vault_relock_done: '保管庫を現在の鍵に再ロックしました',
       vault_relock_capped: 'あと {{count}} 件の入金が残っています — 移動するには再度再ロックしてください。',
       vault_relock_unreachable:
@@ -11651,10 +11737,12 @@ const resources = {
       vault_badge_removed: '{{count}} 件の入金がまだ削除済みの鍵で開けられます',
       vault_badge_unreachable: '{{count}} 件の入金はこのリストのどの鍵でも開けられません',
       vault_forget_unreachable_title: '開けられない入金を削除',
-      vault_forget_unreachable_message: '{{count}} 件の入金は、このリストにない鍵だけにロックされています。多くは YubiKey の以前のセットアップによるものです。お持ちのどの鍵でも使えません。削除すると、このウォレットとそのバックアップから取り除かれ、再び表示されなくなります。コインはブロックチェーン上に残ります。',
+      vault_forget_unreachable_message:
+        '{{count}} 件の入金は、このリストにない鍵だけにロックされています。多くは YubiKey の以前のセットアップによるものです。お持ちのどの鍵でも使えません。削除すると、このウォレットとそのバックアップから取り除かれ、再び表示されなくなります。コインはブロックチェーン上に残ります。',
       vault_forget_unreachable_confirm: '削除',
       vault_forget_unreachable_done: '{{count}} 件の入金を削除しました',
-      vault_restore_unreachable: '以前のセットアップの入金 {{count}} 件は、お持ちのどの鍵でも開けられないためスキップしました。',
+      vault_restore_unreachable:
+        '以前のセットアップの入金 {{count}} 件は、お持ちのどの鍵でも開けられないためスキップしました。',
       vault_key_action_rename: '名前を変更',
       vault_key_action_remove: '削除',
       vault_rename_title: '{{nickname}} の名前を変更',
@@ -11787,8 +11875,10 @@ const resources = {
       vault_err_enrollment_partial:
         '鍵の変更後に YubiKey の設定が停止しました。再試行の案内に従ってください。この鍵は保管庫に追加されていません。',
       vault_restore_with_key: 'YubiKey で復元',
-      vault_restore_with_key_body: 'この YubiKey の PIN を入力し、求められたらタップしてください。ウォレットがブロックチェーン上の保管庫の入金を探し、この鍵で開けられるものを復元します。',
-      vault_err_key_opens_nothing: 'この YubiKey では、ブロックチェーン上のどの保管庫の入金も開けられません。その後のセットアップで鍵が置き換えられた可能性があります。',
+      vault_restore_with_key_body:
+        'この YubiKey の PIN を入力し、求められたらタップしてください。ウォレットがブロックチェーン上の保管庫の入金を探し、この鍵で開けられるものを復元します。',
+      vault_err_key_opens_nothing:
+        'この YubiKey では、ブロックチェーン上のどの保管庫の入金も開けられません。その後のセットアップで鍵が置き換えられた可能性があります。',
       vault_err_key_not_adopted: '復元したこの YubiKey を出金に使う前に、このデバイスで所持を確認してください。',
       vault_err_too_many_inputs:
         '一度に移動する保管庫の預入が多すぎます。まず少額を引き出してください — 引き出しごとに保管庫が統合されるため、次はより多く移動できます。',
@@ -11828,7 +11918,8 @@ const resources = {
         'このデバイスからウォレットの鍵が完全に削除されます。リカバリーフレーズのバックアップまたはリカバリーシェアの印刷を行っていない場合、ウォレットへのアクセスを永久に失います。',
       delete_wallet_confirm: 'ウォレットを削除',
       delete_wallet_failed_title: 'ウォレットの削除に失敗しました',
-      delete_wallet_failed_body: 'このデバイスからウォレットを完全に削除できませんでした。一部の鍵データが残っている可能性があります。もう一度お試しください。',
+      delete_wallet_failed_body:
+        'このデバイスからウォレットを完全に削除できませんでした。一部の鍵データが残っている可能性があります。もう一度お試しください。',
       bsv_network: 'BSVネットワーク',
       arc_endpoint: 'ARC エンドポイント',
       arc_api_token: 'API トークン',
@@ -12103,7 +12194,8 @@ const resources = {
       reconnect_failed: '再接続に失敗しました',
       reconnect_confirm_title: 'このサイトに再接続しますか？',
       reconnect_confirm_message: '{{origin}} が再びウォレットにアクセスできるようになります。',
-      reconnect_needs_reapproval: 'この接続を確認できませんでした。再接続するには新しいQRコードをスキャンしてください。',
+      reconnect_needs_reapproval:
+        'この接続を確認できませんでした。再接続するには新しいQRコードをスキャンしてください。',
       scan_qr_code: 'QRコードをスキャン',
       paste_uri: 'URIをペースト',
       invalid_qr_code: '無効なQRコード',
@@ -12362,16 +12454,22 @@ const resources = {
       profile_removing: '{{profile}} を削除しています…',
       profile_removed: '{{profile}} を削除しました',
       profile_remove_confirm_title: '{{profile}} を削除しますか？',
-      profile_remove_confirm_body: '{{profile}} はこの端末から外され、ここにあるデータは削除されます。中身は空で、復元フレーズがあれば新しくインストールした端末で再作成できます。',
-      profile_remove_confirm_handle: 'あなたのハンドル {{handle}} は解放されます。30 日間は他の誰も取得できず、その後は誰でも取得できます。',
+      profile_remove_confirm_body:
+        '{{profile}} はこの端末から外され、ここにあるデータは削除されます。中身は空で、復元フレーズがあれば新しくインストールした端末で再作成できます。',
+      profile_remove_confirm_handle:
+        'あなたのハンドル {{handle}} は解放されます。30 日間は他の誰も取得できず、その後は誰でも取得できます。',
       profile_remove_confirm_action: '削除',
       profile_remove_problem_title: '{{profile}} はまだ削除できません',
       profile_remove_blocked_funds: 'まだ資金またはトークンが残っています。先に別のプロフィールへ送ってください。',
-      profile_remove_blocked_pending: '支払いが処理中、または送信や入金の待機中です。すべて完了してからもう一度お試しください。',
-      profile_remove_blocked_check: 'このプロフィールを確認できなかったため、何も削除されていません。もう一度お試しください。',
-      profile_remove_blocked_network: '別のネットワークにも資金または未完了の支払いが残っています。このプロフィールをそのネットワークに切り替え、そこで空にしてから、もう一度お試しください。',
+      profile_remove_blocked_pending:
+        '支払いが処理中、または送信や入金の待機中です。すべて完了してからもう一度お試しください。',
+      profile_remove_blocked_check:
+        'このプロフィールを確認できなかったため、何も削除されていません。もう一度お試しください。',
+      profile_remove_blocked_network:
+        '別のネットワークにも資金または未完了の支払いが残っています。このプロフィールをそのネットワークに切り替え、そこで空にしてから、もう一度お試しください。',
       profile_remove_offline: 'プロフィールを削除するにはインターネットに接続してください。',
-      profile_remove_failed_handle: 'ハンドルを解放できなかったか、その変更がまだ完了していません。接続を確認してもう一度お試しください。何も削除されていません。',
+      profile_remove_failed_handle:
+        'ハンドルを解放できなかったか、その変更がまだ完了していません。接続を確認してもう一度お試しください。何も削除されていません。',
       profile_remove_failed: 'このプロフィールを削除できませんでした。もう一度お試しください。',
       profile_display_name: '表示名',
       profile_display_name_hint: 'ハンドルの横に公開表示されます。あなたを検索した人は誰でも見られます。',
@@ -12465,7 +12563,8 @@ const resources = {
       direct_pay_fallback_title: '現在オンラインではありません',
       direct_pay_fallback_send: 'メッセージボックスに送る',
       direct_pay_sent_live: 'ライブで支払い済み：すでに相手のウォレットに入っています。',
-      direct_pay_kept_needs_attention: '{{name}} からの {{amount}} sats のダイレクト支払いに対応が必要です。ウォレットに追加できませんでした。この端末に保存されています。'
+      direct_pay_kept_needs_attention:
+        '{{name}} からの {{amount}} sats のダイレクト支払いに対応が必要です。ウォレットに追加できませんでした。この端末に保存されています。'
     }
   },
   pl: {
@@ -12779,9 +12878,11 @@ const resources = {
       vault_key_pending_removal: 'Usunięty — zablokuj ponownie, aby zakończyć',
       vault_key_removal_awaiting_network: 'Usuwanie — czekamy, aż sieć przyjmie ponowną blokadę',
       vault_removal_awaiting_network: 'Ponowna blokada wysłana. Wpłaty i wypłaty wrócą, gdy sieć ją przyjmie.',
-      vault_err_too_many_active_keys: 'Sejf można zablokować najwyżej pięcioma kluczami. Usuń jeden, zanim wpłacisz, zablokujesz ponownie lub wypłacisz część salda.',
+      vault_err_too_many_active_keys:
+        'Sejf można zablokować najwyżej pięcioma kluczami. Usuń jeden, zanim wpłacisz, zablokujesz ponownie lub wypłacisz część salda.',
       vault_key_section_over_limit: 'Klucze bezpieczeństwa ({{count}}, usuń jeden)',
-      vault_add_key_done_over_limit: 'Dodano {{nickname}}. Sejf można zablokować najwyżej pięcioma kluczami, więc usuń klucz, który zastępuje, a potem zablokuj ponownie raz.',
+      vault_add_key_done_over_limit:
+        'Dodano {{nickname}}. Sejf można zablokować najwyżej pięcioma kluczami, więc usuń klucz, który zastępuje, a potem zablokuj ponownie raz.',
       vault_relock_done: 'Sejf zablokowany ponownie na obecne klucze',
       vault_relock_capped: 'Pozostało jeszcze {{count}} wpłat — zablokuj ponownie, aby je przenieść.',
       vault_relock_unreachable:
@@ -12790,10 +12891,12 @@ const resources = {
       vault_badge_removed: '{{count}} wpłat nadal otwartych dla usuniętego klucza',
       vault_badge_unreachable: '{{count}} wpłat, których nie otwiera żaden klucz z tej listy',
       vault_forget_unreachable_title: 'Zapomnij wpłaty, których nie da się otworzyć',
-      vault_forget_unreachable_message: '{{count}} wpłat jest zablokowanych wyłącznie kluczami spoza tej listy, zwykle z wcześniejszej konfiguracji Twoich kluczy YubiKey. Żaden z Twoich kluczy nie może ich wydać. Zapomnienie usuwa je z tego portfela i jego kopii zapasowej, aby już nie wracały. Monety pozostają w blockchainie.',
+      vault_forget_unreachable_message:
+        '{{count}} wpłat jest zablokowanych wyłącznie kluczami spoza tej listy, zwykle z wcześniejszej konfiguracji Twoich kluczy YubiKey. Żaden z Twoich kluczy nie może ich wydać. Zapomnienie usuwa je z tego portfela i jego kopii zapasowej, aby już nie wracały. Monety pozostają w blockchainie.',
       vault_forget_unreachable_confirm: 'Zapomnij',
       vault_forget_unreachable_done: 'Zapomniano wpłat: {{count}}',
-      vault_restore_unreachable: 'Pominięto wpłaty z wcześniejszej konfiguracji ({{count}}), których nie otwiera żaden z Twoich kluczy.',
+      vault_restore_unreachable:
+        'Pominięto wpłaty z wcześniejszej konfiguracji ({{count}}), których nie otwiera żaden z Twoich kluczy.',
       vault_key_action_rename: 'Zmień nazwę',
       vault_key_action_remove: 'Usuń',
       vault_rename_title: 'Zmień nazwę {{nickname}}',
@@ -12926,8 +13029,10 @@ const resources = {
       vault_err_enrollment_partial:
         'Konfiguracja YubiKey zatrzymała się po zmianie klucza. Postępuj zgodnie z instrukcją ponowienia; klucz nie został dodany do sejfu.',
       vault_restore_with_key: 'Przywróć za pomocą YubiKey',
-      vault_restore_with_key_body: 'Wpisz PIN tego klucza YubiKey, a potem przyłóż go, gdy pojawi się prośba. Portfel znajdzie wpłaty sejfu w blockchainie i przywróci te, które ten klucz może otworzyć.',
-      vault_err_key_opens_nothing: 'Ten klucz YubiKey nie otwiera żadnej wpłaty sejfu w blockchainie. Jego klucz prawdopodobnie zastąpiła późniejsza konfiguracja.',
+      vault_restore_with_key_body:
+        'Wpisz PIN tego klucza YubiKey, a potem przyłóż go, gdy pojawi się prośba. Portfel znajdzie wpłaty sejfu w blockchainie i przywróci te, które ten klucz może otworzyć.',
+      vault_err_key_opens_nothing:
+        'Ten klucz YubiKey nie otwiera żadnej wpłaty sejfu w blockchainie. Jego klucz prawdopodobnie zastąpiła późniejsza konfiguracja.',
       vault_err_key_not_adopted:
         'Zweryfikuj posiadanie odzyskanego klucza YubiKey na tym urządzeniu przed użyciem go do wypłaty.',
       vault_err_too_many_inputs:
@@ -12969,7 +13074,8 @@ const resources = {
         'Spowoduje to trwałe usunięcie kluczy portfela z tego urządzenia. Jeśli nie wykonałeś kopii zapasowej frazy odzyskiwania ani nie wydrukowałeś udziałów odzyskiwania, utracisz dostęp do portfela na zawsze.',
       delete_wallet_confirm: 'Usuń portfel',
       delete_wallet_failed_title: 'Nie udało się usunąć portfela',
-      delete_wallet_failed_body: 'Nie udało się całkowicie usunąć portfela z tego urządzenia. Część danych klucza może nadal być obecna. Spróbuj ponownie.',
+      delete_wallet_failed_body:
+        'Nie udało się całkowicie usunąć portfela z tego urządzenia. Część danych klucza może nadal być obecna. Spróbuj ponownie.',
       bsv_network: 'Sieć BSV',
       arc_endpoint: 'Punkt końcowy ARC',
       arc_api_token: 'Token API',
@@ -13246,7 +13352,8 @@ const resources = {
       reconnect_failed: 'Ponowne połączenie nie powiodło się',
       reconnect_confirm_title: 'Połączyć ponownie z tą witryną?',
       reconnect_confirm_message: '{{origin}} będzie ponownie mieć dostęp do Twojego portfela.',
-      reconnect_needs_reapproval: 'Nie można zweryfikować tego połączenia. Zeskanuj nowy kod QR, aby połączyć się ponownie.',
+      reconnect_needs_reapproval:
+        'Nie można zweryfikować tego połączenia. Zeskanuj nowy kod QR, aby połączyć się ponownie.',
       scan_qr_code: 'Skanuj kod QR',
       paste_uri: 'Wklej URI',
       invalid_qr_code: 'Nieprawidłowy kod QR',
@@ -13324,7 +13431,8 @@ const resources = {
       home_payments_unsent: 'Niedostarczone płatności: {{count}}',
       pay_copy: 'Kopiuj',
       pay_share_link: 'Udostępnij link',
-      pay_address_watching: 'Pieniądze wysłane na ten adres są automatycznie dodawane do Twojego portfela, ale tylko gdy aplikacja jest otwarta.',
+      pay_address_watching:
+        'Pieniądze wysłane na ten adres są automatycznie dodawane do Twojego portfela, ale tylko gdy aplikacja jest otwarta.',
       pay_address_earlier_day: 'Wróć do wcześniejszego dnia',
       pay_address_sweep_now: 'Sprawdź teraz ten adres BSV',
       pay_address_swept: 'Otrzymano {{amount}}',

@@ -23,6 +23,7 @@
 - Prettier only on the files you touched. Never `npm run fix`.
 
 **Spec deviations (deliberate, simpler, same behaviour):**
+
 1. Per-profile AsyncStorage keys use a profile-index suffix rather than an identity-key suffix. The index is known synchronously before any build, and logout sweeps every suffix.
 2. ARC URL, MessageBox URL and auto-approve threshold keep their existing keys through `profileScopedKey`, instead of moving into `ProfileRecord`. Only `network` (needed before build), `identityKey` (needed for logout purge) and `needsRestore` live on the record.
 
@@ -39,12 +40,14 @@
 ### Task 1: Per-profile key derivation
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/mnemonicWallet.ts`
 - Modify: `packages/expo-wallet-toolbox/core/context/WalletContext.tsx` (buildWalletFromMnemonic, ~:2529-2539)
 - Modify mocks: `__tests__/context/deleteWalletVerifiedErasure.test.tsx:68-72`, `__tests__/context/walletBuildRestore.test.tsx:67-71`, `__tests__/context/refreshProofImportHold.test.tsx:73-77` (rename `rootKey` to `privilegedKey`)
 - Test: `packages/expo-wallet-toolbox/__tests__/profiles/derivation.test.ts`
 
 **Interfaces produced:**
+
 ```ts
 export interface MnemonicWalletResult {
   mnemonic: string
@@ -67,30 +70,41 @@ export function profilePaths(n: number): { primary: string; privileged: string }
 ### Task 2: Profile store
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/core/profiles/profileStore.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/profiles/profileStore.test.ts`
 
 **Interfaces produced:**
+
 ```ts
 export const PROFILES_STORAGE_KEY = 'wallet_profiles_v1'
-export interface ProfileRecord { index: number; network: AppChain; identityKey?: string; needsRestore?: boolean }
-export interface ProfilesState { active: number; profiles: ProfileRecord[] }
-export function defaultProfilesState(): ProfilesState            // { active: 0, profiles: [{ index: 0, network: DEFAULT_CHAIN }] }
-export function parseProfilesState(raw: string | null): ProfilesState   // tolerant: corrupt → default, clamp active, dense indices
-export async function loadProfiles(): Promise<ProfilesState>    // reads AsyncStorage into memory, notifies
-export function getProfilesState(): ProfilesState               // sync snapshot
+export interface ProfileRecord {
+  index: number
+  network: AppChain
+  identityKey?: string
+  needsRestore?: boolean
+}
+export interface ProfilesState {
+  active: number
+  profiles: ProfileRecord[]
+}
+export function defaultProfilesState(): ProfilesState // { active: 0, profiles: [{ index: 0, network: DEFAULT_CHAIN }] }
+export function parseProfilesState(raw: string | null): ProfilesState // tolerant: corrupt → default, clamp active, dense indices
+export async function loadProfiles(): Promise<ProfilesState> // reads AsyncStorage into memory, notifies
+export function getProfilesState(): ProfilesState // sync snapshot
 export function getActiveProfileIndex(): number
 export function getActiveProfile(): ProfileRecord
 export async function setActiveProfile(n: number): Promise<void>
 export async function appendProfile(network?: AppChain, opts?: { needsRestore?: boolean }): Promise<ProfileRecord>
 export async function updateProfile(n: number, patch: Partial<Omit<ProfileRecord, 'index'>>): Promise<void>
-export async function resetProfiles(): Promise<void>            // removes the key, memory → default
+export async function resetProfiles(): Promise<void> // removes the key, memory → default
 export function subscribeProfiles(l: () => void): () => void
-export function useProfiles(): ProfilesState                    // useSyncExternalStore
+export function useProfiles(): ProfilesState // useSyncExternalStore
 export function useActiveProfileIndex(): number
-export function profileScopedKey(base: string, index?: number): string  // index ?? active; 0 → base; n → `${base}__p${n}`
-export const PROFILE_KEY_SUFFIX_RE: RegExp                     // /__p\d+$/
+export function profileScopedKey(base: string, index?: number): string // index ?? active; 0 → base; n → `${base}__p${n}`
+export const PROFILE_KEY_SUFFIX_RE: RegExp // /__p\d+$/
 ```
+
 Writes update memory synchronously (listeners fire), then persist with a best-effort AsyncStorage write.
 
 - [ ] Step 1: Write the tests:
@@ -112,6 +126,7 @@ Writes update memory synchronously (listeners fire), then persist with a best-ef
 ### Task 3: Scope per-profile device state
 
 **Files (each read and write goes through `profileScopedKey`):**
+
 - `core/services/arcTokenStorage.ts`: the key becomes `profileScopedKey(arcApiTokenStorageKey(network))`. Add `clearArcApiTokensForProfile(index)` covering every chain.
 - `core/context/WalletContext.tsx`:
   - `arc_custom_url_${chain}` (:1267)
@@ -135,10 +150,12 @@ Writes update memory synchronously (listeners fire), then persist with a best-ef
 ### Task 4: WalletContext profile lifecycle
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/context/WalletContext.tsx`
 - Test: `packages/expo-wallet-toolbox/__tests__/context/switchProfile.test.tsx`. Model it on `walletBuildRestore.test.tsx`'s harness.
 
 **Interfaces produced (added to the WalletContext value type):**
+
 ```ts
 activeProfile: number
 profiles: ProfileRecord[]
@@ -148,6 +165,7 @@ addProfile: () => Promise<void>
 ```
 
 Changes:
+
 1. Startup config effect (:1181): `await loadProfiles()` first. Then call `finalizeConfig({...config, network: getActiveProfile().network})`. If `finalConfig` had a network and the store was just defaulted, seed profile 0's network from it.
 2. Extract the shared teardown from `rebuildWallet` as `teardownBuiltWallet()`. It covers vault scope clear, ceremony cancel, push detach, monitor drain, chaintracks/header refs, storage destroy, mandala and PSK clear, managers and flags. `rebuildWallet`, `switchNetwork` and `switchProfile` all call it after bumping `buildGenRef`.
 3. `buildWalletFromMnemonic`:
@@ -175,6 +193,7 @@ Changes:
   - the second switch's build replays the backup only when `needsRestore` is set
 
   Run and confirm FAIL.
+
 - [ ] Step 2: Implement items 1–7.
 - [ ] Step 3: Run the new test plus the whole `__tests__/context` directory. Expect PASS.
 - [ ] Step 4: Commit `feat(profiles): switchProfile/addProfile in WalletContext`.
@@ -182,6 +201,7 @@ Changes:
 ### Task 5: Vault only on profile 0
 
 **Files:**
+
 - `core/toolboxConfig.ts`: `isVaultAvailable(chain: AppChain, profileIndex: number): boolean` returns `isVaultEnabled() && chain === 'main' && profileIndex === 0`. The parameter is required.
 - Callers pass `useActiveProfileIndex()`, and each one gates the whole expression including `hasVaultMeta`:
   - `ui/screens/WalletHomeScreen.tsx:1797`: `activeProfile === 0 && (isVaultAvailable(selectedNetwork, activeProfile) || hasVaultMeta)`. Add `activeProfile` to the memo deps.
@@ -200,19 +220,23 @@ Changes:
 ### Task 6: Restore discovery and delete-all-profiles
 
 **Files:**
+
 - Create: `core/profiles/discovery.ts`
+
 ```ts
 export type ProfileProbe = (primaryKey: number[], chain: BackupChain) => Promise<boolean>
 export async function discoverProfiles(deps: {
   mnemonic: string
   probe: ProfileProbe
   register: (index: number, network: AppChain) => Promise<void>
-  startIndex?: number   // default 1
-  maxProfiles?: number  // hard stop, default 50
-}): Promise<number>      // count registered
-export function backupProbe(baseUrl: string): ProfileProbe   // listBackups({ primaryKey, chain, baseUrl }).length > 0
+  startIndex?: number // default 1
+  maxProfiles?: number // hard stop, default 50
+}): Promise<number> // count registered
+export function backupProbe(baseUrl: string): ProfileProbe // listBackups({ primaryKey, chain, baseUrl }).length > 0
 ```
-  For each index n: derive with `recoverMnemonicWallet(mnemonic, '', n)`, probe every `BACKUP_CHAINS` entry, and pick `main` if found, else the first hit. Stop at the first index with no hits. A probe error stops discovery and keeps the profiles already registered.
+
+For each index n: derive with `recoverMnemonicWallet(mnemonic, '', n)`, probe every `BACKUP_CHAINS` entry, and pick `main` if found, else the first hit. Stop at the first index with no hits. A probe error stops discovery and keeps the profiles already registered.
+
 - WalletContext wiring (Task 4 item 3):
   - `register` is `appendProfile(network, { needsRestore: true })`, but only if `index === getProfilesState().profiles.length`, so it is idempotent.
   - Skip when `getBackupUrl()` is empty.
@@ -242,6 +266,7 @@ export function backupProbe(baseUrl: string): ProfileProbe   // listBackups({ pr
 ### Task 7: Profile switcher popover
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/ui/components/wallet/ProfileSwitcherPopover.tsx`
   - React Native `Modal`, transparent, `animationType="fade"`. A full-screen `Pressable` backdrop closes it.
   - A card anchored top-left at `insets.top + 52` and `left: spacing.lg`, with width `min(280, screen - 2*spacing.lg)`. Card styling (radius 20, hairline border, `surfaceRaised`, shadow) copies `AssetSwitcherDropdown`.

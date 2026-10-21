@@ -98,7 +98,10 @@ describe('loadUsdFxRates', () => {
     }
     const rates = await loadUsdFxRates({ storage, fetchImpl, now })
     expect(fetchImpl).toHaveBeenCalledTimes(1)
-    expect(fetchImpl).toHaveBeenCalledWith(FRANKFURTER_RATES_URL, expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    expect(fetchImpl).toHaveBeenCalledWith(
+      FRANKFURTER_RATES_URL,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
     expect(storage.setItem).toHaveBeenCalledWith(FX_CACHE_KEY, expect.any(String))
     expect(rates.EUR).toBe(0.88)
     const persisted = JSON.parse(stored[FX_CACHE_KEY])

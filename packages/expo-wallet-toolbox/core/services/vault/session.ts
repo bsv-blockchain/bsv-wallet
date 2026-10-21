@@ -21,7 +21,11 @@
  * swallows several failure paths, so no delegate fix makes this redundant).
  */
 import { VaultDriver } from './driver'
-import { acquireVaultHardwareLease, currentVaultHardwareGeneration, isCurrentVaultHardwareGeneration } from './hardwareLease'
+import {
+  acquireVaultHardwareLease,
+  currentVaultHardwareGeneration,
+  isCurrentVaultHardwareGeneration
+} from './hardwareLease'
 import { VaultError } from './types'
 
 /**

@@ -9,10 +9,7 @@
  * -- before any reconnect/network step would ever run.
  */
 import { PrivateKey, ProtoWallet } from '@bsv/sdk'
-import {
-  computeConnectionAuthorityTag,
-  verifyConnectionAuthorityTag
-} from '../../core/services/connectionAuthority'
+import { computeConnectionAuthorityTag, verifyConnectionAuthorityTag } from '../../core/services/connectionAuthority'
 import { CONNECTION_AUTHORITY_PROTOCOL_ID } from '../../core/services/walletConnectionValidation'
 
 const ADMIN_ORIGINATOR = 'internal-admin.bsv-wallet.invalid'
@@ -44,9 +41,9 @@ describe('connection authority tag (real crypto)', () => {
   )
 
   it('never authenticates a missing tag (legacy/untagged record)', async () => {
-    await expect(
-      verifyConnectionAuthorityTag(adminWallet, ADMIN_ORIGINATOR, baseTuple(), undefined)
-    ).resolves.toBe(false)
+    await expect(verifyConnectionAuthorityTag(adminWallet, ADMIN_ORIGINATOR, baseTuple(), undefined)).resolves.toBe(
+      false
+    )
   })
 
   it('fails closed on a malformed/corrupted tag instead of throwing', async () => {

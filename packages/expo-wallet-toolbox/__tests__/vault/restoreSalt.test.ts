@@ -57,8 +57,22 @@ const NOW = '2026-09-10T00:00:00.000Z'
 // re-derives it and compares), so the fixture keys are actual compressed pubkeys for fixed
 // scalars rather than arbitrary hex — same pattern __tests__/vault/r1comb.test.ts uses.
 const PUBKEYS = [
-  Utils.toHex(Array.from(p256.getPublicKey(Uint8Array.from({ length: 32 }, () => 1), true))),
-  Utils.toHex(Array.from(p256.getPublicKey(Uint8Array.from({ length: 32 }, () => 2), true)))
+  Utils.toHex(
+    Array.from(
+      p256.getPublicKey(
+        Uint8Array.from({ length: 32 }, () => 1),
+        true
+      )
+    )
+  ),
+  Utils.toHex(
+    Array.from(
+      p256.getPublicKey(
+        Uint8Array.from({ length: 32 }, () => 2),
+        true
+      )
+    )
+  )
 ]
 
 const VAULT_ID = 'cd'.repeat(32)
@@ -99,8 +113,7 @@ function adapt(db: DatabaseSync) {
       db.exec(sql)
     },
     getAllAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).all(...(params as never[])),
-    getFirstAsync: async (sql: string, params: unknown[] = []) =>
-      db.prepare(sql).get(...(params as never[])) ?? null,
+    getFirstAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).get(...(params as never[])) ?? null,
     runAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).run(...(params as never[]))
   }
 }
@@ -315,11 +328,13 @@ describe('vault v7 records carry no salt at rest (INT-10)', () => {
     // The wrong root cannot decrypt the real descriptor ciphertext either —
     // BRC-2 AES-256-GCM authentication fails closed rather than returning
     // garbage plaintext.
-    await expect(differentRootWallet.decrypt({
-      ciphertext,
-      protocolID: [2, 'vault descriptor'],
-      keyID: keyId,
-      counterparty: 'self'
-    })).rejects.toThrow()
+    await expect(
+      differentRootWallet.decrypt({
+        ciphertext,
+        protocolID: [2, 'vault descriptor'],
+        keyID: keyId,
+        counterparty: 'self'
+      })
+    ).rejects.toThrow()
   })
 })

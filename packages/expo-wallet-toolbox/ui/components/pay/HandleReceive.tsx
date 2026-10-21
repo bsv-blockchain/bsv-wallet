@@ -690,9 +690,7 @@ export default function HandleReceive({
         // receipt says both rather than claiming a settlement nobody has.
         statusNote: arrival.status === 'settled' ? undefined : t('local_pay_token_not_cleared', { issuer }),
         // Disclosure at the one moment the user is definitely looking.
-        firstHoldNote: firstHold
-          ? t('token_first_hold', { ticker: arrival.asset.ticker, issuer })
-          : undefined
+        firstHoldNote: firstHold ? t('token_first_hold', { ticker: arrival.asset.ticker, issuer }) : undefined
       })
     } catch {
       // A drain that could not run is not news on this screen: the monitor task
@@ -995,11 +993,9 @@ export default function HandleReceive({
           would actually deliver. Advisory: the code below still works for
           every OTHER rail, and the mismatch may resolve itself (a Settings
           change, a fresh registry read) before anyone acts on it. */}
-      {asset &&
-        !admission &&
-        !!assetMessageBoxUrl &&
-        isConfigured &&
-        assetMessageBoxUrl !== messageBoxUrl && <ConsequenceNote textKey="token_messagebox_mismatch" />}
+      {asset && !admission && !!assetMessageBoxUrl && isConfigured && assetMessageBoxUrl !== messageBoxUrl && (
+        <ConsequenceNote textKey="token_messagebox_mismatch" />
+      )}
       {admission && asset ? (
         <AdmissionNotice
           ticker={asset.ticker}

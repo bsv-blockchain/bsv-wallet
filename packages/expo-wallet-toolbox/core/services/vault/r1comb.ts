@@ -13,7 +13,18 @@
  * SECURITY: nothing secret passes through this module — public keys, per-output
  * salts, signatures the card already produced, and script bytes.
  */
-import { Hash, LockingScript, OP, PrivateKey, Script, Spend, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'
+import {
+  Hash,
+  LockingScript,
+  OP,
+  PrivateKey,
+  Script,
+  Spend,
+  Transaction,
+  TransactionSignature,
+  UnlockingScript,
+  Utils
+} from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { VaultError } from './types'
 
@@ -112,7 +123,14 @@ export function pushData(data: number[]): number[] {
   if (d.length <= 75) return [d.length, ...d]
   if (d.length <= 0xff) return [OP.OP_PUSHDATA1, d.length, ...d]
   if (d.length <= 0xffff) return [OP.OP_PUSHDATA2, d.length & 0xff, d.length >>> 8, ...d]
-  return [OP.OP_PUSHDATA4, d.length & 0xff, (d.length >>> 8) & 0xff, (d.length >>> 16) & 0xff, (d.length >>> 24) & 0xff, ...d]
+  return [
+    OP.OP_PUSHDATA4,
+    d.length & 0xff,
+    (d.length >>> 8) & 0xff,
+    (d.length >>> 16) & 0xff,
+    (d.length >>> 24) & 0xff,
+    ...d
+  ]
 }
 
 /** Minimal script-number encoding (sign-magnitude little-endian) == BigNumber.toSm('little'). */
@@ -203,7 +221,10 @@ export function compressPubkey(sec1Hex: string): string {
 }
 
 // ───────────────────────── comb tables (spec §2.1) ─────────────────────────
-export interface AffinePoint { x: bigint; y: bigint }
+export interface AffinePoint {
+  x: bigint
+  y: bigint
+}
 type P256Point = ReturnType<typeof p256.Point.fromHex>
 
 /**
@@ -308,18 +329,22 @@ function emitHeaderBeforeSalt(): number[] {
   // H0: bind withdrawals to transaction version 1 at consensus level, then
   // e = unsigned-LE(hash256(preimage)); preimage -> alt. OP_PUSH_TX later binds
   // this exact preimage to the transaction being evaluated.
-  out.push(...asm(`
+  out.push(
+    ...asm(`
     OP_OVER 4 OP_SPLIT OP_DROP <01000000> OP_EQUALVERIFY
     OP_OVER OP_HASH256 <00> OP_CAT OP_BIN2NUM
     2 OP_ROLL OP_TOALTSTACK OP_SWAP OP_TOALTSTACK
-  `))
+  `)
+  )
   // H1: n -> alt; enforce canonical r, low-S s and sInv before any modular
   // arithmetic; s*sInv == 1; u1 = e*sInv; u2 = r*sInv. The r checks are
   // consensus-critical: without 1 <= r < p and r != n, CRT can give r one
   // residue modulo n for scalar multiplication and another modulo p for the
   // final affine-x check, permitting a signature-free spend.
   //     [.. s sInv u1]: u1(0) sInv(1) s(2) Q63(3) .. Q0(2+K) u1'(3+K) u2'(4+K) r(5+K)
-  out.push(...asm(`
+  out.push(
+    ...asm(
+      `
     {N} OP_TOALTSTACK
     2 OP_PICK 1 {HALFP1} OP_WITHIN OP_VERIFY
     OP_OVER 1 OP_FROMALTSTACK OP_DUP OP_TOALTSTACK OP_WITHIN OP_VERIFY
@@ -329,7 +354,10 @@ function emitHeaderBeforeSalt(): number[] {
     OP_OVER OP_MUL MODP
     {RDEPTH} OP_PICK 2 OP_PICK OP_MUL MODP
     2 OP_ROLL OP_DROP 2 OP_ROLL OP_DROP
-  `, { N: P256_N, HALFP1: P256_LOW_S_MAX + 1n, P: P256_P, RDEPTH: K_Q + 5 }))
+  `,
+      { N: P256_N, HALFP1: P256_LOW_S_MAX + 1n, P: P256_P, RDEPTH: K_Q + 5 }
+    )
+  )
   // H2: recode u2 then u1 -> [.. Q63 u1' u2']
   const one = 'OP_DUP 2 OP_MOD OP_NOTIF {N} OP_ADD OP_ENDIF {C} OP_ADD 2 OP_DIV OP_SWAP'
   out.push(...asm(`${one} ${one}`, { N: P256_N, C: RECODE_CONST }))
@@ -345,7 +373,11 @@ function emitHeaderAfterSalt(): number[] {
   if (headerAfterSaltCache !== null) return headerAfterSaltCache
   // alt enters [preimage salt n]. Preserve n above preimage for emitPreloop,
   // while returning salt to the main stack for its exact byte-length check.
-  const out: number[] = [...asm('OP_FROMALTSTACK OP_FROMALTSTACK OP_SWAP OP_TOALTSTACK OP_SIZE {SALT_BYTES} OP_NUMEQUALVERIFY', { SALT_BYTES })]
+  const out: number[] = [
+    ...asm('OP_FROMALTSTACK OP_FROMALTSTACK OP_SWAP OP_TOALTSTACK OP_SIZE {SALT_BYTES} OP_NUMEQUALVERIFY', {
+      SALT_BYTES
+    })
+  ]
   for (let m = 0; m < K_Q; m++) out.push(...asm('{D} OP_PICK {W} OP_NUM2BIN OP_CAT', { D: K_Q - m, W: COORD_WIDTH }))
   out.push(OP.OP_HASH160)
   headerAfterSaltCache = out
@@ -364,7 +396,8 @@ function emitH5(commitments: number[][]): number[] {
     out.push(...asm('{C} OP_EQUALVERIFY', { C: commitments[0] }))
     return out
   }
-  for (let i = 0; i < commitments.length - 1; i++) out.push(...asm('OP_DUP {C} OP_EQUAL OP_SWAP', { C: commitments[i] }))
+  for (let i = 0; i < commitments.length - 1; i++)
+    out.push(...asm('OP_DUP {C} OP_EQUAL OP_SWAP', { C: commitments[i] }))
   out.push(...asm('{C} OP_EQUAL', { C: commitments[commitments.length - 1] }))
   for (let i = 0; i < commitments.length - 1; i++) out.push(OP.OP_BOOLOR)
   out.push(OP.OP_VERIFY)
@@ -483,8 +516,8 @@ export function completeMixedAddScript(): number[] {
 }
 
 /** Stack layout beneath the accumulator: [r u2' u1' C[0..K-1]] with K = 128 table coordinates (Q[0..63] then G[0..63]). */
-const K_CONSTS = 2 * 2 * TABLE_SIZE            // 128
-const BELOW = 3 + K_CONSTS                     // 131 items under the accumulator (X Y Z)
+const K_CONSTS = 2 * 2 * TABLE_SIZE // 128
+const BELOW = 3 + K_CONSTS // 131 items under the accumulator (X Y Z)
 // With [.. X Y Z] on top (BELOW + 3 items): stack index 1 (= u2') is at depth 132, index 2 (= u1') at 131.
 const scalarDepth = (half: 0 | 1): number => BELOW + 1 - half
 // C[m] sits at depth 132 − m once [.. X Y Z sign j] is on top; half 0 -> C[0..63] (= Q), half 1 -> C[64..127] (= G).
@@ -494,7 +527,10 @@ export const shiftFor = (c: number, k: number): number => COMB_COLS * (COMB_ROWS
 
 function emitAdd(half: 0 | 1, c: number): number[] {
   const params: Record<string, AsmParam> = {
-    DEPTH0: scalarDepth(half), DEPTH1: scalarDepth(half) + 1, DEPTH2: scalarDepth(half) + 2, BASE: tableBase(half)
+    DEPTH0: scalarDepth(half),
+    DEPTH1: scalarDepth(half) + 1,
+    DEPTH2: scalarDepth(half) + 2,
+    BASE: tableBase(half)
   }
   for (let k = 0; k < COMB_ROWS; k++) params[`SHIFT${k}`] = shiftFor(c, k)
   return [...asm(DIGITS_AND_LOOKUP, params), ...completeMixedAddScript()]
@@ -505,8 +541,8 @@ function emitCombLoop(): number[] {
   const out: number[] = []
   for (let c = 0; c < COMB_COLS; c++) {
     out.push(...asm(DOUBLE))
-    out.push(...emitAdd(0, c))     // index-1 scalar (u2') with C[0..63] (Q)
-    out.push(...emitAdd(1, c))     // index-2 scalar (u1') with C[64..127] (G)
+    out.push(...emitAdd(0, c)) // index-1 scalar (u2') with C[0..63] (Q)
+    out.push(...emitAdd(1, c)) // index-2 scalar (u1') with C[64..127] (G)
   }
   return out
 }
@@ -548,14 +584,17 @@ function pushTxPubKey(constant: bigint): number[] {
  */
 function emitTail(): number[] {
   // r (item index 0) with [.. X Y Z Z^2] on top (BELOW + 4 items) is at depth BELOW + 3 = 134
-  const rCheck = asm(`
+  const rCheck = asm(
+    `
     OP_DUP 0 OP_NUMEQUAL OP_NOTIF
       OP_DUP OP_DUP OP_MUL MODP
       {RDEPTH} OP_PICK OP_OVER OP_MUL MODP
       4 OP_PICK OP_NUMEQUAL
     OP_ELSE 0 OP_ENDIF OP_VERIFY
     OP_FROMALTSTACK OP_DROP
-  `, { RDEPTH: BELOW + 3 })
+  `,
+    { RDEPTH: BELOW + 3 }
+  )
   // stack now holds BELOW + 4 items (r u2' u1' C[] X Y Z Z^2): drop them all
   const leftover = BELOW + 4
   const clear: number[] = [
@@ -565,7 +604,8 @@ function emitTail(): number[] {
   // e_k1 = BE(hash256(preimage)); normally s = lowS((e_k1 + C1) mod n_k1).
   // If that is zero, use C2 and its public key, for which s is exactly 1.
   const rev31 = new Array<string>(31).fill('OP_SWAP OP_CAT').join(' ')
-  const pushTx = asm(`
+  const pushTx = asm(
+    `
     OP_FROMALTSTACK {SIGHASH} OP_TOALTSTACK OP_HASH256
     ${new Array<string>(31).fill('1 OP_SPLIT').join(' ')}
     ${rev31}
@@ -585,19 +625,23 @@ function emitTail(): number[] {
     <30> OP_SWAP OP_CAT
     OP_FROMALTSTACK OP_CAT
     OP_SWAP OP_CODESEPARATOR OP_CHECKSIG
-  `, {
-    SIGHASH: [R1C_SIGHASH], NK: SECP_N,
-    DERPREFIX: [...derIntBytes(SECP_GX), 0x02],   // 02 20 <Gx> 02  (s INTEGER tag appended)
-    PUBKEY1: pushTxPubKey(PUSH_TX_C1),
-    PUBKEY2: pushTxPubKey(PUSH_TX_C2)
-  })
+  `,
+    {
+      SIGHASH: [R1C_SIGHASH],
+      NK: SECP_N,
+      DERPREFIX: [...derIntBytes(SECP_GX), 0x02], // 02 20 <Gx> 02  (s INTEGER tag appended)
+      PUBKEY1: pushTxPubKey(PUSH_TX_C1),
+      PUBKEY2: pushTxPubKey(PUSH_TX_C2)
+    }
+  )
   return [...rCheck, ...clear, ...pushTx]
 }
 
 let sharedSuffixCache: number[] | null = null
 /** G table + pre-loop + complete comb loop + total covenant tail: 44,388 B. Computed once. */
 export function sharedSuffix(): number[] {
-  if (sharedSuffixCache === null) sharedSuffixCache = [...emitGTable(), ...emitPreloop(), ...emitCombLoop(), ...emitTail()]
+  if (sharedSuffixCache === null)
+    sharedSuffixCache = [...emitGTable(), ...emitPreloop(), ...emitCombLoop(), ...emitTail()]
   return sharedSuffixCache.slice()
 }
 
@@ -607,7 +651,8 @@ function parseCommitments(commitments: unknown): number[][] {
     throw invalid(`buildLock: commitments must be 1..${R1C_MAX_KEYS} hash160 hex strings`)
   }
   const lower: string[] = commitments.map(c => {
-    if (typeof c !== 'string' || !/^[0-9a-fA-F]{40}$/.test(c)) throw invalid('buildLock: commitment must be 40 hex chars')
+    if (typeof c !== 'string' || !/^[0-9a-fA-F]{40}$/.test(c))
+      throw invalid('buildLock: commitment must be 40 hex chars')
     return c.toLowerCase()
   })
   if (new Set(lower).size !== lower.length) throw invalid('buildLock: duplicate commitment')
@@ -664,7 +709,8 @@ function requirePreimage(preimage: number[], where: string): void {
     throw invalid(`${where}: preimage must be ${R1C_PREIMAGE_LEN} bytes`)
   }
   const version = new Utils.Reader(preimage.slice(0, 4)).readUInt32LE()
-  if (version !== 1) throw invalid(`${where}: vault withdrawals require transaction version 1; this preimage carries version ${version}`)
+  if (version !== 1)
+    throw invalid(`${where}: vault withdrawals require transaction version 1; this preimage carries version ${version}`)
 }
 
 /** Version-1 BIP143 preimage, subscript `ac`, scope 0x41, for input `inputIndex` of `tx` whose source output carried `sourceSatoshis`. */
@@ -673,7 +719,8 @@ export function sighashPreimage(tx: Transaction, inputIndex: number, sourceSatos
   if (input === undefined) throw invalid(`sighashPreimage: input ${inputIndex} does not exist`)
   const sourceTXID = input.sourceTXID ?? input.sourceTransaction?.id('hex')
   if (sourceTXID === undefined) throw invalid('sighashPreimage: input needs sourceTXID or sourceTransaction')
-  if (!Number.isSafeInteger(sourceSatoshis) || sourceSatoshis < 0) throw invalid('sighashPreimage: sourceSatoshis must be a non-negative integer')
+  if (!Number.isSafeInteger(sourceSatoshis) || sourceSatoshis < 0)
+    throw invalid('sighashPreimage: sourceSatoshis must be a non-negative integer')
   const preimage = TransactionSignature.format({
     sourceTXID,
     sourceOutputIndex: input.sourceOutputIndex,
@@ -725,7 +772,9 @@ export function pushTxDerCheck(preimage: number[]): { ok: boolean; s: bigint } {
 // ───────────────────────── DER ─────────────────────────
 /** Strict DER `SEQUENCE { INTEGER r, INTEGER s }` → (r, s), both in [1, n−1]. Short-form lengths only (max 72 B). */
 export function decodeDerSignature(der: number[]): { r: bigint; s: bigint } {
-  const fail = (why: string): never => { throw invalid(`decodeDerSignature: ${why}`) }
+  const fail = (why: string): never => {
+    throw invalid(`decodeDerSignature: ${why}`)
+  }
   if (!Array.isArray(der) || der.length < 8 || der.length > 72) fail('length')
   if (der[0] !== 0x30) fail('not a SEQUENCE')
   if (der[1] !== der.length - 2) fail('bad SEQUENCE length')
@@ -779,7 +828,9 @@ export function fullR(a: { preimage: number[]; rSig: bigint; s: bigint; pubkeyHe
   const sInv = modinv(s, P256_N)
   const u1 = mod(e * sInv, P256_N)
   const u2 = mod(a.rSig * sInv, P256_N)
-  const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(u2 === 0n ? p256.Point.ZERO : Q.multiply(u2))
+  const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(
+    u2 === 0n ? p256.Point.ZERO : Q.multiply(u2)
+  )
   if (R.is0()) return null
   return R.toAffine().x
 }
@@ -791,7 +842,12 @@ export function fullR(a: { preimage: number[]; rSig: bigint; s: bigint; pubkeyHe
  * bad key / DER, R = O. It does NOT verify the signature against Q: the interpreter is the arbiter
  * (Plan 2 runs verifyVaultInput on every input before signAction).
  */
-export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex33: string; saltHex64: string }): UnlockingScript {
+export function buildUnlock(a: {
+  preimage: number[]
+  derSig: number[]
+  pubkeyHex33: string
+  saltHex64: string
+}): UnlockingScript {
   const { preimage } = a
   requirePreimage(preimage, 'buildUnlock')
   const key = compressPubkey(a.pubkeyHex33)
@@ -806,7 +862,7 @@ export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex
   const e = leToBig(Hash.hash256(preimage))
   const sInv = modinv(s, P256_N)
   const u1 = mod(e * sInv, P256_N)
-  const u2 = mod(Rx * sInv, P256_N)   // the lock derives u2 from the PUSHED r (≡ rSig mod n), so recode that
+  const u2 = mod(Rx * sInv, P256_N) // the lock derives u2 from the PUSHED r (≡ rSig mod n), so recode that
   const bytes: number[] = [...encNum(Rx), ...encNum(recode(u2)), ...encNum(recode(u1))]
   for (const { x, y } of combTable(key)) bytes.push(...encNum(x), ...encNum(y))
   bytes.push(...encNum(s), ...encNum(sInv), ...pushData(preimage), ...pushData(saltBytes(a.saltHex64)))
@@ -924,14 +980,12 @@ export function decodeVaultInstructionsV6(ci?: string): VaultInstructionsV6 | nu
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
   const p = parsed as Record<string, unknown>
-  if (!exactFields(p, ['v', 'type', 'salt', 'saltKeyId', 'chain', 'vaultId', 'revision', 'createdAt', 'keys'])) return null
+  if (!exactFields(p, ['v', 'type', 'salt', 'saltKeyId', 'chain', 'vaultId', 'revision', 'createdAt', 'keys']))
+    return null
   if (p.v !== 6 || p.type !== 'R1C') return null
   if (typeof p.salt !== 'string' || !/^[0-9a-f]{64}$/.test(p.salt)) return null
   if (typeof p.vaultId !== 'string' || !/^[0-9a-f]{64}$/.test(p.vaultId)) return null
-  if (
-    typeof p.saltKeyId !== 'string' ||
-    !/^[1-9][0-9]{0,15}$/.test(p.saltKeyId)
-  ) return null
+  if (typeof p.saltKeyId !== 'string' || !/^[1-9][0-9]{0,15}$/.test(p.saltKeyId)) return null
   if (p.chain !== 'main' && p.chain !== 'test' && p.chain !== 'teratest') return null
   const saltIndex = Number(p.saltKeyId)
   if (!positiveSafeInteger(saltIndex)) return null
@@ -946,9 +1000,13 @@ export function decodeVaultInstructionsV6(ci?: string): VaultInstructionsV6 | nu
     if (k.slot !== 0x82) return null
     if (typeof k.pubkey !== 'string' || !/^0[23][0-9a-f]{64}$/.test(k.pubkey)) return null
     if (
-      typeof k.nickname !== 'string' || k.nickname.length < 1 || k.nickname.length > 64 ||
-      k.nickname !== k.nickname.trim() || /[\u0000-\u001f\u007f]/.test(k.nickname)
-    ) return null
+      typeof k.nickname !== 'string' ||
+      k.nickname.length < 1 ||
+      k.nickname.length > 64 ||
+      k.nickname !== k.nickname.trim() ||
+      /[\u0000-\u001f\u007f]/.test(k.nickname)
+    )
+      return null
     if (!positiveSafeInteger(k.enrolledAt)) return null
     try {
       if (compressPubkey(k.pubkey) !== k.pubkey) return null
@@ -1002,7 +1060,8 @@ export function encodeVaultInstructions(i: VaultInstructionsV6): string {
       enrolledAt: k.enrolledAt
     }))
   })
-  if (decodeVaultInstructionsV6(s) === null) throw invalid('encodeVaultInstructions: record would not decode as canonical v6 vault metadata')
+  if (decodeVaultInstructionsV6(s) === null)
+    throw invalid('encodeVaultInstructions: record would not decode as canonical v6 vault metadata')
   return s
 }
 
@@ -1025,10 +1084,7 @@ export function decodeVaultInstructionsV7(ci?: string): VaultInstructionsV7 | nu
   if (!exactFields(p, ['v', 'type', 'saltKeyId', 'chain', 'vaultId', 'revision', 'createdAt', 'keys'])) return null
   if (p.v !== 7 || p.type !== 'R1C') return null
   if (typeof p.vaultId !== 'string' || !/^[0-9a-f]{64}$/.test(p.vaultId)) return null
-  if (
-    typeof p.saltKeyId !== 'string' ||
-    !/^[1-9][0-9]{0,15}$/.test(p.saltKeyId)
-  ) return null
+  if (typeof p.saltKeyId !== 'string' || !/^[1-9][0-9]{0,15}$/.test(p.saltKeyId)) return null
   if (p.chain !== 'main' && p.chain !== 'test' && p.chain !== 'teratest') return null
   const saltIndex = Number(p.saltKeyId)
   if (!positiveSafeInteger(saltIndex)) return null
@@ -1043,9 +1099,13 @@ export function decodeVaultInstructionsV7(ci?: string): VaultInstructionsV7 | nu
     if (k.slot !== 0x82) return null
     if (typeof k.pubkey !== 'string' || !/^0[23][0-9a-f]{64}$/.test(k.pubkey)) return null
     if (
-      typeof k.nickname !== 'string' || k.nickname.length < 1 || k.nickname.length > 64 ||
-      k.nickname !== k.nickname.trim() || /[\u0000-\u001f\u007f]/.test(k.nickname)
-    ) return null
+      typeof k.nickname !== 'string' ||
+      k.nickname.length < 1 ||
+      k.nickname.length > 64 ||
+      k.nickname !== k.nickname.trim() ||
+      /[\u0000-\u001f\u007f]/.test(k.nickname)
+    )
+      return null
     if (!positiveSafeInteger(k.enrolledAt)) return null
     try {
       if (compressPubkey(k.pubkey) !== k.pubkey) return null
@@ -1097,7 +1157,8 @@ export function encodeVaultInstructionsV7(i: VaultInstructionsV7): string {
       enrolledAt: k.enrolledAt
     }))
   })
-  if (decodeVaultInstructionsV7(s) === null) throw invalid('encodeVaultInstructionsV7: record would not decode as canonical v7 vault metadata')
+  if (decodeVaultInstructionsV7(s) === null)
+    throw invalid('encodeVaultInstructionsV7: record would not decode as canonical v7 vault metadata')
   return s
 }
 

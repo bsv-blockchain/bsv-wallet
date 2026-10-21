@@ -10,24 +10,24 @@ Plan: `docs/superpowers/plans/2026-07-28-payments-consolidation.md`
 
 The wallet menu offers three payment destinations named after **transports**:
 
-| Row | Route | What it really is |
-|---|---|---|
-| Payments | `/payments` | remote, async, addressed by identity key, delivered via MessageBox |
-| Legacy Bridge | `/legacy-payments` | conventional wallets, addressed by standard address, discovered by polling |
-| Local Payments | `/local-payments` | in-person, device-to-device over AWDL or QR |
+| Row            | Route              | What it really is                                                          |
+| -------------- | ------------------ | -------------------------------------------------------------------------- |
+| Payments       | `/payments`        | remote, async, addressed by identity key, delivered via MessageBox         |
+| Legacy Bridge  | `/legacy-payments` | conventional wallets, addressed by standard address, discovered by polling |
+| Local Payments | `/local-payments`  | in-person, device-to-device over AWDL or QR                                |
 
 Plus a fourth row, **Identity Key**, which is a QR modal — an addressing detail promoted to a destination.
 
-This makes the user route themselves. To pay a person they must already know that "identity keys" versus "standard addresses" versus "standing next to each other" maps onto their situation. The UX guide argues the opposite: *match language to the interaction model*, and *prefer established high-adoption terms* (recommendations 2 and 3). Nobody's mental model is "which transport".
+This makes the user route themselves. To pay a person they must already know that "identity keys" versus "standard addresses" versus "standing next to each other" maps onto their situation. The UX guide argues the opposite: _match language to the interaction model_, and _prefer established high-adoption terms_ (recommendations 2 and 3). Nobody's mental model is "which transport".
 
 ## The structure
 
 Two axes. The primary one is **direction**, because that is the first thing a user knows about their own situation. The secondary one is **who the counterparty is**, which is what actually determines the rail.
 
-|  | **Pay** | **Get paid** |
-|---|---|---|
-| **Someone nearby** | scan their code | show your payment code |
-| **Someone with this app** | pick or search a handle | share your handle |
+|                           | **Pay**                  | **Get paid**                   |
+| ------------------------- | ------------------------ | ------------------------------ |
+| **Someone nearby**        | scan their code          | show your payment code         |
+| **Someone with this app** | pick or search a handle  | share your handle              |
 | **A conventional wallet** | paste or scan an address | show an address, then sweep it |
 
 Six cells, one screen, one route. The user picks a row; **the transport is inferred, never chosen**.
@@ -40,7 +40,7 @@ An earlier draft of this design used "one Pay screen, two situations" and ignore
 
 ### Naming
 
-- **"Nearby"**, not "Local", not "P2P", not "Device to Device". Established by Nearby Share, AirDrop's "People Nearby", Apple Tap to Cash. The guide's recommendation 2 warns against inventing vocabulary where muscle memory exists. "Local" reads as *local network* to a technical user and as nothing to anyone else; "P2P" and "Device to Device" are engineering words.
+- **"Nearby"**, not "Local", not "P2P", not "Device to Device". Established by Nearby Share, AirDrop's "People Nearby", Apple Tap to Cash. The guide's recommendation 2 warns against inventing vocabulary where muscle memory exists. "Local" reads as _local network_ to a technical user and as nothing to anyone else; "P2P" and "Device to Device" are engineering words.
 - **"Legacy Bridge" disappears as a user-facing term.** The user pastes an address; the app knows what that means. The functionality is fully retained — it is the only way to move money between this wallet and conventional ones.
 - Transport names survive only in **explanatory subtitles and support docs**, never on buttons.
 - Success reads **"Paid"**, not "Payment sent" (guide, Quick Reference).
@@ -50,11 +50,11 @@ An earlier draft of this design used "one Pay screen, two situations" and ignore
 
 Not the transport — the **precondition and the consequence**. One line each, at the point of choosing and again at confirm:
 
-| Cell | Precondition | Consequence at confirm |
-|---|---|---|
-| Pay nearby | you are both here | settles in seconds |
-| Pay a handle | they use this app | lands when their wallet next checks |
-| Pay an address | you have their address | sent — they are not notified |
+| Cell           | Precondition           | Consequence at confirm              |
+| -------------- | ---------------------- | ----------------------------------- |
+| Pay nearby     | you are both here      | settles in seconds                  |
+| Pay a handle   | they use this app      | lands when their wallet next checks |
+| Pay an address | you have their address | sent — they are not notified        |
 
 The third is the one that must never be implicit. A user who pastes an address expecting Venmo-like delivery has effectively posted cash. Guide recommendation 6 puts the amount and an explicit button at the confirm step; the consequence line belongs there too.
 
@@ -95,7 +95,7 @@ Behaviour that exists today and must not be lost, because losing it strands user
 
 1. **Legacy send** — pay to a standard address. The only route between this wallet and conventional ones.
 2. **Legacy receive, including the date-keyed derivation.** `getCurrentDate(daysOffset)` as the derivation prefix, and the ability to reach previous days' addresses. A user given yesterday's address must still be able to sweep it — this is why the offset control survives even after same-day sweeping becomes automatic.
-3. **The sweep itself** — the balance check and the UTXO import. The *mechanism* must survive verbatim; only its trigger changes, from a user tapping to the background poll described below.
+3. **The sweep itself** — the balance check and the UTXO import. The _mechanism_ must survive verbatim; only its trigger changes, from a user tapping to the background poll described below.
 4. **PeerPay incoming** — list, accept, internalize.
 5. **Identity search** and PeerPay URI scanning (`validatePeerPayURI`).
 6. **Everything in `local-payments.tsx`**, unchanged in behaviour.
@@ -132,13 +132,13 @@ Open question 3 below still stands; the address-history question is now downgrad
 
 ## Risks
 
-| Risk | Severity | Handling |
-|---|---|---|
-| Losing legacy send strands the only bridge to conventional wallets | high | Explicit survival requirement 1; needs a device test paying a real external address |
-| Date-keyed receive logic mis-ported, so a previously-issued address becomes unreachable and its funds unsweepable | high | Port with tests over `getCurrentDate`/offset before any UI work |
-| A 5,000-line merge regresses a money path | high | Task-by-task with review gates; `utils/localpay/*` untouched |
-| Six cells on one screen becomes a worse maze than three rows | medium | One focal element per cell; the picker is a row, not a grid |
-| Deep links break silently | medium | Redirects, and a test per legacy route |
+| Risk                                                                                                              | Severity | Handling                                                                            |
+| ----------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------- |
+| Losing legacy send strands the only bridge to conventional wallets                                                | high     | Explicit survival requirement 1; needs a device test paying a real external address |
+| Date-keyed receive logic mis-ported, so a previously-issued address becomes unreachable and its funds unsweepable | high     | Port with tests over `getCurrentDate`/offset before any UI work                     |
+| A 5,000-line merge regresses a money path                                                                         | high     | Task-by-task with review gates; `utils/localpay/*` untouched                        |
+| Six cells on one screen becomes a worse maze than three rows                                                      | medium   | One focal element per cell; the picker is a row, not a grid                         |
+| Deep links break silently                                                                                         | medium   | Redirects, and a test per legacy route                                              |
 
 ## Open questions
 

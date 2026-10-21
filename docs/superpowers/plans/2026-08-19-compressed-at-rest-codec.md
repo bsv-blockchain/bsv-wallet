@@ -4,7 +4,7 @@
 
 **Goal:** Store every R1-K1 script compressed everywhere it is stored, including inside transaction `rawTx`, and expand only where full bytes are genuinely required.
 
-**Architecture:** A span envelope whose first byte (`0xfe`) makes unexpanded bytes *unparseable* rather than plausibly wrong, carrying the transaction's real txid so every expansion self-verifies by hashing. Compression happens at two write hooks; expansion at seven enumerated read functions plus a runtime assert patched into the SDK's parse primitives, because a branded type is erased crossing into `node_modules`.
+**Architecture:** A span envelope whose first byte (`0xfe`) makes unexpanded bytes _unparseable_ rather than plausibly wrong, carrying the transaction's real txid so every expansion self-verifies by hashing. Compression happens at two write hooks; expansion at seven enumerated read functions plus a runtime assert patched into the SDK's parse primitives, because a branded type is erased crossing into `node_modules`.
 
 **Tech Stack:** TypeScript, `@bsv/templates` R1K1Wallet, `@bsv/sdk`, expo-sqlite, patch-package, Jest, `node:sqlite`.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Envelope magic is **`0xfe`** — distinct from the compressed-*script* marker `0xff`, and a value no rawTx (`01|02 00 00 00`), BEEF (`01|02 00 be ef`) or AtomicBEEF (`01 01 01 01`) can begin with. The two markers protect different things and must never be conflated.
+- Envelope magic is **`0xfe`** — distinct from the compressed-_script_ marker `0xff`, and a value no rawTx (`01|02 00 00 00`), BEEF (`01|02 00 be ef`) or AtomicBEEF (`01 01 01 01`) can begin with. The two markers protect different things and must never be conflated.
 - **In-place substitution with a rewritten length varint is forbidden.** It yields a syntactically valid transaction with a wrong txid, and nothing in the stack hashes stored bytes to notice.
 - Expansion is **self-verifying**: expand → `hash256` → compare to the recorded txid → throw on mismatch.
 - **Never compress** `proven_txs.rawTx` (until B5, behind its own flag), `proven_tx_reqs.rawTx` before B4, `merklePath`, or anything reached by `Beef.verifyBumpIndexLeaves` — once mined, the chain commits to `hash256(real bytes)`.
@@ -25,11 +25,13 @@
 ### Task 1: Append-only template registry
 
 **Files:**
+
 - Create: `services/vault/templateRegistry.ts`
 - Create: `__tests__/vault/templateRegistry.test.ts`
 - Modify: `services/vault/templateCodec.ts` (`describeVaultTemplate`, `referenceBytesFor`)
 
 **Interfaces:**
+
 - Produces: `TEMPLATE_REGISTRY: readonly RegistryEntry[]` where `RegistryEntry = { version: number; artifact: () => Promise<number[]>; regions: TemplateRegion[] }`
 - Produces: `registryDigest(): Promise<string>` — SHA-256 over the serialised entry list.
 - Produces: `entryForVersion(version: number): RegistryEntry | undefined`
@@ -70,10 +72,12 @@ git commit -m "feat(vault): append-only template registry so stored envelopes st
 ### Task 2: Codec to `Uint8Array` end to end
 
 **Files:**
+
 - Modify: `services/vault/templateCodec.ts` (`matchesTemplate`, `compressScript`, `compressScriptCode`, `expandScript`, `isCompressed`)
 - Modify: `__tests__/vault/templateCodec.test.ts`
 
 **Interfaces:**
+
 - Produces: the same five functions accepting and returning `Uint8Array`, plus thin `number[]` adapters (`compressScriptArray`, `expandScriptArray`) so existing callers and tests compile unchanged.
 
 `Array.from(reference)` is a **measured 13.16 MB per call** and every expansion pays it. `reference.slice()` on a `Uint8Array` is a single typed-array copy. This must land whole: a partial migration pays 24 ms per `Array.from` plus double hashing at every crossing.
@@ -93,10 +97,12 @@ git commit -m "perf(vault): run the template codec on Uint8Array end to end"
 ### Task 3: The span envelope
 
 **Files:**
+
 - Create: `services/vault/txEnvelope.ts`
 - Create: `__tests__/vault/txEnvelope.test.ts`
 
 **Interfaces:**
+
 - Produces: `ENVELOPE_MAGIC = 0xfe`, `ENVELOPE_VERSION = 1`
 - Produces: `isEnvelope(bytes: Uint8Array | number[]): boolean`
 - Produces: `compressTransaction(rawTx: Uint8Array, txid: string): Promise<Uint8Array>` — returns the input unchanged when nothing matched.
@@ -130,6 +136,7 @@ git commit -m "feat(vault): self-verifying span envelope for R1-K1 transactions"
 ### Task 4 (B3): Install the expansion boundary as a behavioural no-op
 
 **Files:**
+
 - Modify: `storage/StorageExpoSQLite.ts` — E1 `getProvenOrRawTx` (:1220), E2 `getRawTxOfKnownValidTransaction` (:1235), E3 `findOutputs` script loop (:785), E4 `findTransactions` (:864), E5 new `mergeReqToBeefToShareExternally` override
 - Create: `patches/@bsv+sdk+<version>.patch` additions — `assertExpanded` at the top of `Transaction.fromBinary`, `fromBinaryView`, `Beef.mergeRawTx`, `BeefTx.scanRawTransaction`, in **both** `dist/cjs` and `dist/esm`
 - Create: `patches/@bsv+wallet-toolbox-mobile+<version>.patch` additions — E6 `getBeefForTransaction.js:121,129`, E7 `TaskCheckForProofs.js:117`
@@ -137,7 +144,7 @@ git commit -m "feat(vault): self-verifying span envelope for R1-K1 transactions"
 
 Ships with nothing compressed, so behaviour is unchanged and the boundary can be proven before it matters.
 
-**E7 must split its outcome:** an *unexpandable* blob must NOT become `status='invalid'` — that transition is irreversible and cascades to every notified transaction. Only successfully-expanded bytes that hash wrong are genuinely invalid.
+**E7 must split its outcome:** an _unexpandable_ blob must NOT become `status='invalid'` — that transition is irreversible and cascades to every notified transaction. Only successfully-expanded bytes that hash wrong are genuinely invalid.
 
 **CI must fail hard when any patch does not apply.** A dropped patch degrades to today's behaviour, which is quieter than crashing and therefore worse.
 

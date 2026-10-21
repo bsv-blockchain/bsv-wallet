@@ -26,10 +26,12 @@
 ### Task 1: The limit table and the pure size check
 
 **Files:**
+
 - Create: `services/walletArgLimits.ts`
 - Create: `__tests__/walletArgLimits.test.ts`
 
 **Interfaces:**
+
 - Produces: `WalletArgLimits` — the numeric limits.
 - Produces: `limitsForTier(tier: DeviceTier): WalletArgLimits`
 - Produces: `type ArgRefusal = { field: string; limit: number; actual: number; message: string }`
@@ -51,9 +53,15 @@ describe('checkWalletArgs', () => {
   it('passes the payloads pages actually send', () => {
     // The largest legitimate page payload in this app: a localpay AtomicBEEF
     // (65,536 bytes) and a ~25-byte P2PKH script.
-    expect(checkWalletArgs('createAction', {
-      outputs: [{ lockingScript: hex(25) }]
-    }, L)).toBeNull()
+    expect(
+      checkWalletArgs(
+        'createAction',
+        {
+          outputs: [{ lockingScript: hex(25) }]
+        },
+        L
+      )
+    ).toBeNull()
     expect(checkWalletArgs('internalizeAction', { tx: new Array(65_536).fill(0) }, L)).toBeNull()
   })
 
@@ -67,9 +75,13 @@ describe('checkWalletArgs', () => {
     // The SDK only cross-checks this against a supplied script and never bounds
     // it, so a page can declare 959,871 per input with an empty payload and make
     // the wallet fund a ~1 MB-per-input transaction.
-    const r = checkWalletArgs('createAction', {
-      inputs: [{ outpoint: 'x', unlockingScriptLength: 959_871 }]
-    }, L)
+    const r = checkWalletArgs(
+      'createAction',
+      {
+        inputs: [{ outpoint: 'x', unlockingScriptLength: 959_871 }]
+      },
+      L
+    )
     expect(r?.field).toBe('inputs[0].unlockingScriptLength')
   })
 
@@ -88,25 +100,41 @@ describe('checkWalletArgs', () => {
   })
 
   it('caps inputBEEF and internalizeAction tx separately', () => {
-    expect(checkWalletArgs('createAction', { inputBEEF: new Array(3_000_000).fill(0) }, L)?.field)
-      .toBe('inputBEEF')
-    expect(checkWalletArgs('internalizeAction', { tx: new Array(2_000_000).fill(0) }, L)?.field)
-      .toBe('tx')
+    expect(checkWalletArgs('createAction', { inputBEEF: new Array(3_000_000).fill(0) }, L)?.field).toBe('inputBEEF')
+    expect(checkWalletArgs('internalizeAction', { tx: new Array(2_000_000).fill(0) }, L)?.field).toBe('tx')
   })
 
   it('caps array lengths and customInstructions', () => {
-    expect(checkWalletArgs('createAction', {
-      outputs: Array.from({ length: 1001 }, () => ({ lockingScript: '00' }))
-    }, L)?.field).toBe('outputs.length')
-    expect(checkWalletArgs('createAction', {
-      outputs: [{ lockingScript: '00', customInstructions: 'x'.repeat(5000) }]
-    }, L)?.field).toBe('outputs[0].customInstructions')
+    expect(
+      checkWalletArgs(
+        'createAction',
+        {
+          outputs: Array.from({ length: 1001 }, () => ({ lockingScript: '00' }))
+        },
+        L
+      )?.field
+    ).toBe('outputs.length')
+    expect(
+      checkWalletArgs(
+        'createAction',
+        {
+          outputs: [{ lockingScript: '00', customInstructions: 'x'.repeat(5000) }]
+        },
+        L
+      )?.field
+    ).toBe('outputs[0].customInstructions')
   })
 
   it('caps signAction spends', () => {
-    expect(checkWalletArgs('signAction', {
-      spends: { 0: { unlockingScript: hex(200_000) } }
-    }, L)?.field).toBe('spends[0].unlockingScript')
+    expect(
+      checkWalletArgs(
+        'signAction',
+        {
+          spends: { 0: { unlockingScript: hex(200_000) } }
+        },
+        L
+      )?.field
+    ).toBe('spends[0].unlockingScript')
   })
 
   it('halves the aggregate on a low-tier device', () => {
@@ -148,11 +176,13 @@ git commit -m "feat(wallet): size limits for wallet-interface arguments"
 ### Task 2: `capWalletArgs` Proxy, composed at every external call site
 
 **Files:**
+
 - Create: `services/capWalletArgs.ts`
 - Create: `__tests__/capWalletArgs.test.ts`
 - Modify: `app/index.tsx:729`, `app/pair.tsx:92`, `app/connections.tsx:123,137,175`
 
 **Interfaces:**
+
 - Consumes: `checkWalletArgs`, `limitsForTier` from Task 1.
 - Produces: `capWalletArgs<T extends WalletInterface>(wallet: T, limits?: WalletArgLimits): T`
 - Produces: `class WalletArgTooLarge extends Error { code = 6; field: string }`
@@ -238,10 +268,12 @@ git commit -m "feat(wallet): cap argument sizes on every external wallet surface
 ### Task 3: Pre-parse ceiling on the WebView message
 
 **Files:**
+
 - Modify: `app/index.tsx` (immediately before `JSON.parse(eventData)`)
 - Create: `__tests__/messageSizeCeiling.test.ts`
 
 **Interfaces:**
+
 - Produces: `MESSAGE_CHARS_MAX = 8_000_000`, `DOWNLOAD_BLOB_CHARS_MAX = 32_000_000`, `messageTooLarge(data: string): boolean` — exported from `utils/webview/messageSizeCeiling.ts` so it is testable.
 
 `FILE_DOWNLOAD_BLOB` posts an entire file as base64 and has no size limit today, so the ceiling is tiered on a prefix sniff. The app writes that message itself with `type` first, which is what makes the sniff reliable.
@@ -251,11 +283,7 @@ This tier is a **damage limiter, not a fix**, and the code comment must say so: 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-import {
-  DOWNLOAD_BLOB_CHARS_MAX,
-  MESSAGE_CHARS_MAX,
-  messageTooLarge
-} from '@/utils/webview/messageSizeCeiling'
+import { DOWNLOAD_BLOB_CHARS_MAX, MESSAGE_CHARS_MAX, messageTooLarge } from '@/utils/webview/messageSizeCeiling'
 
 describe('messageTooLarge', () => {
   it('allows an ordinary CWI message', () => {
@@ -298,11 +326,13 @@ git commit -m "feat(webview): drop oversize messages before parsing them"
 ### Task 4: Vault withdrawal input cap
 
 **Files:**
+
 - Modify: `services/vault/transfers.ts` (`spendVaultOutputs` selection, currently "spend EVERY output")
 - Modify: `services/vault/types.ts` (new `VaultErrorCode` member)
 - Modify: `__tests__/vault/transfers.test.ts`
 
 **Interfaces:**
+
 - Produces: `VAULT_MAX_INPUTS = 6`, `VAULT_HARD_MAX_INPUTS = 8` exported from `services/vault/transfers.ts`.
 - Produces: new `VaultErrorCode` value `'too-many-inputs'`.
 
@@ -351,12 +381,14 @@ git commit -m "feat(vault): cap withdrawal inputs so a large vault cannot OOM th
 ### Task 5: Refuse vault transfers while offline
 
 **Files:**
+
 - Modify: `services/vault/transfers.ts` (`depositToVault`, `withdrawFromVault`)
 - Modify: `services/vault/types.ts` (new `VaultErrorCode` member `'requires-online'`)
 - Modify: `context/i18n/translations.tsx` (12 locales)
 - Modify: `__tests__/vault/transfers.test.ts`
 
 **Interfaces:**
+
 - Consumes: `getOnline()` from `@/utils/net/online`, injected as an optional dependency so the tests do not need the native module.
 - Produces: new `VaultErrorCode` value `'requires-online'`.
 
@@ -366,16 +398,19 @@ The offline queue exists for small casual default-basket payments. A vault trans
 
 ```ts
 test('refuses a deposit while offline', async () => {
-  await expect(depositToVault(wallet, ADMIN, 300_000, { isOnline: async () => false }))
-    .rejects.toMatchObject({ code: 'requires-online' })
+  await expect(depositToVault(wallet, ADMIN, 300_000, { isOnline: async () => false })).rejects.toMatchObject({
+    code: 'requires-online'
+  })
   expect(wallet.createAction).not.toHaveBeenCalled()
 })
 
 test('refuses a withdrawal while offline, before arming the key', async () => {
   await seedVaultOutputs(1)
-  await expect(withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw all', undefined, {
-    isOnline: async () => false
-  })).rejects.toMatchObject({ code: 'requires-online' })
+  await expect(
+    withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw all', undefined, {
+      isOnline: async () => false
+    })
+  ).rejects.toMatchObject({ code: 'requires-online' })
   // No ceremony: the user is not asked to present a YubiKey for a transfer that
   // cannot proceed.
   expect(requestVaultSigner).not.toHaveBeenCalled()

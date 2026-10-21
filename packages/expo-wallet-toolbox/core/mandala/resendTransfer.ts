@@ -84,7 +84,10 @@ interface Marker extends Partial<TokenResendRecord> {
 }
 
 /** The payee output's `recipientCustomInstructions`, and which output carried it. */
-async function findMarker(action: TokenResendAction | undefined, decrypt?: (v: string) => Promise<string>): Promise<Marker | undefined> {
+async function findMarker(
+  action: TokenResendAction | undefined,
+  decrypt?: (v: string) => Promise<string>
+): Promise<Marker | undefined> {
   for (const output of action?.outputs ?? []) {
     const raw = output.customInstructions
     if (typeof raw !== 'string' || raw === '') continue

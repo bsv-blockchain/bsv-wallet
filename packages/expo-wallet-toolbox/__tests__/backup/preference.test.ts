@@ -14,21 +14,25 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import {
-  BACKUP_PUSH_ENABLED_KEY,
-  isBackupPushEnabled,
-  setBackupPushEnabled
-} from '../../core/backup/preference'
+import { BACKUP_PUSH_ENABLED_KEY, isBackupPushEnabled, setBackupPushEnabled } from '../../core/backup/preference'
 import { __resetProfilesForTests, appendProfile, setActiveProfile } from '../../core/profiles/profileStore'
 
 beforeEach(async () => {

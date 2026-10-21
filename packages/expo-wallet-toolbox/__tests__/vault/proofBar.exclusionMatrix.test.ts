@@ -35,11 +35,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -49,9 +57,15 @@ jest.mock('expo-secure-store', () => ({
     return {
       WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wutdo',
       getItemAsync: jest.fn(async (k: string) => store[k] ?? null),
-      setItemAsync: jest.fn(async (k: string, v: string) => { store[k] = v }),
-      deleteItemAsync: jest.fn(async (k: string) => { delete store[k] }),
-      __clear: () => { for (const k of Object.keys(store)) delete store[k] }
+      setItemAsync: jest.fn(async (k: string, v: string) => {
+        store[k] = v
+      }),
+      deleteItemAsync: jest.fn(async (k: string) => {
+        delete store[k]
+      }),
+      __clear: () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   })()
 }))
@@ -176,7 +190,11 @@ async function setupVault(tag: string, n = 2, satoshis = 500_000): Promise<Vault
   vaultStore.configureScope({ identityKey, chain: 'test' })
   const { mock, keys } = await buildKeyring(n)
   await seedOwnMeta(deviceA, {
-    v: 6, vaultId: hex(p256.utils.randomSecretKey()), revision: 1, createdAt: Date.now(), keys
+    v: 6,
+    vaultId: hex(p256.utils.randomSecretKey()),
+    revision: 1,
+    createdAt: Date.now(),
+    keys
   })
   armSigner(mock, keys[0].serial)
   const { txid } = await depositToVault(deviceA, ADMIN, satoshis)
@@ -188,13 +206,22 @@ async function setupVault(tag: string, n = 2, satoshis = 500_000): Promise<Vault
  * locking script. */
 async function readVaultOutput(w: FakeVaultWallet) {
   const { outputs } = await w.listOutputs({
-    basket: 'admin vault', include: 'locking scripts', includeCustomInstructions: true, limit: 10, offset: 0
+    basket: 'admin vault',
+    include: 'locking scripts',
+    includeCustomInstructions: true,
+    limit: 10,
+    offset: 0
   })
   expect(outputs).toHaveLength(1)
   const [row] = outputs
   const ci = decodeVaultInstructionsV7(row.customInstructions)
   if (!ci) throw new Error('vault output has no valid v7 record')
-  return { outpoint: row.outpoint, satoshis: row.satoshis, lockingScript: LockingScript.fromHex(row.lockingScript!), ci }
+  return {
+    outpoint: row.outpoint,
+    satoshis: row.satoshis,
+    lockingScript: LockingScript.fromHex(row.lockingScript!),
+    ci
+  }
 }
 
 /** A single-input spend transaction against `source`'s output `vout`, and the
@@ -203,13 +230,22 @@ async function readVaultOutput(w: FakeVaultWallet) {
  * so no retry loop is needed). */
 function spendAgainst(source: Transaction, vout: number, sourceSats: number): { tx: Transaction; preimage: number[] } {
   const tx = new Transaction(1)
-  tx.addInput({ sourceTransaction: source, sourceOutputIndex: vout, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
+  tx.addInput({
+    sourceTransaction: source,
+    sourceOutputIndex: vout,
+    sequence: 0xffffffff,
+    unlockingScript: new UnlockingScript([])
+  })
   tx.addOutput({ satoshis: sourceSats - 1000, lockingScript: p2pkhOut() })
   return { tx, preimage: sighashPreimage(tx, 0, sourceSats) }
 }
 
 function realDerSignature(priv: Uint8Array, preimage: number[]): number[] {
-  return Array.from(p256.Signature.fromBytes(p256.sign(digestBytes(signerDigest(preimage)), priv, { prehash: false, lowS: false })).toBytes('der'))
+  return Array.from(
+    p256.Signature.fromBytes(
+      p256.sign(digestBytes(signerDigest(preimage)), priv, { prehash: false, lowS: false })
+    ).toBytes('der')
+  )
 }
 
 beforeEach(async () => {
@@ -237,9 +273,9 @@ describe('I2 (a): mnemonic only, no committed key', () => {
 
     // Negative: mnemonic-only recovery never adopts a key — no physical key
     // has been presented — so withdrawal must refuse.
-    await expect(
-      withdrawFromVault(deviceB, ADMIN, 'all', 'no card presented', keys[0].serial)
-    ).rejects.toMatchObject({ code: 'key-not-adopted' })
+    await expect(withdrawFromVault(deviceB, ADMIN, 'all', 'no card presented', keys[0].serial)).rejects.toMatchObject({
+      code: 'key-not-adopted'
+    })
 
     // Positive control: the SAME device, the SAME recovered vault, spends
     // once the committed key actually proves possession.
@@ -264,7 +300,12 @@ describe('I2 (a): mnemonic only, no committed key', () => {
     const { outpoint, satoshis, lockingScript, ci } = await readVaultOutput(deviceB)
     // Correctly derived from the mnemonic alone — proving mnemonic knowledge
     // is not the missing factor here.
-    const salt = await deriveVaultSalt(deviceB, ADMIN, ci.saltKeyId, ci.keys.map(k => k.serial))
+    const salt = await deriveVaultSalt(
+      deviceB,
+      ADMIN,
+      ci.saltKeyId,
+      ci.keys.map(k => k.serial)
+    )
     const rebuilt = buildLock({ commitments: ci.keys.map(k => commitment(k.pubkey, salt)), saltHex64: salt })
     expect(rebuilt.toHex()).toBe(lockingScript.toHex())
 
@@ -276,14 +317,28 @@ describe('I2 (a): mnemonic only, no committed key', () => {
     // preimage with the correct salt.
     const outsiderPriv = p256.utils.randomSecretKey()
     const outsiderPub = hex(p256.getPublicKey(outsiderPriv, true))
-    const badUnlock = buildUnlock({ preimage, derSig: realDerSignature(outsiderPriv, preimage), pubkeyHex33: outsiderPub, saltHex64: salt })
-    expect(() => verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: satoshis, lockingScript, unlockingScript: badUnlock })).toThrow()
+    const badUnlock = buildUnlock({
+      preimage,
+      derSig: realDerSignature(outsiderPriv, preimage),
+      pubkeyHex33: outsiderPub,
+      saltHex64: salt
+    })
+    expect(() =>
+      verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: satoshis, lockingScript, unlockingScript: badUnlock })
+    ).toThrow()
 
     // Positive control: the real committed key, same tx, same salt.
     mock.insertKey(keys[0].serial)
     const { signature } = await mock.signEcdsa(keys[0].serial, '123456', signerDigest(preimage))
-    const goodUnlock = buildUnlock({ preimage, derSig: Utils.toArray(signature, 'hex') as number[], pubkeyHex33: keys[0].pubkey, saltHex64: salt })
-    expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: satoshis, lockingScript, unlockingScript: goodUnlock })).toBe(true)
+    const goodUnlock = buildUnlock({
+      preimage,
+      derSig: Utils.toArray(signature, 'hex') as number[],
+      pubkeyHex33: keys[0].pubkey,
+      saltHex64: salt
+    })
+    expect(
+      verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: satoshis, lockingScript, unlockingScript: goodUnlock })
+    ).toBe(true)
   })
 })
 
@@ -304,15 +359,24 @@ describe('I2 (b): committed key + correct PIN, NO mnemonic, stolen v7 DB/backup 
     let descriptorCiphertext: number[] | undefined
     for (const output of sourceTx.outputs) {
       const parsed = parseVaultDescriptorScript(output.lockingScript)
-      if (parsed) { descriptorCiphertext = parsed.ciphertext; break }
+      if (parsed) {
+        descriptorCiphertext = parsed.ciphertext
+        break
+      }
     }
     if (!descriptorCiphertext) throw new Error('no v7 descriptor output found in the deposit transaction')
 
     // Read the customInstructions the wallet actually attached to the vault
     // output, straight from device A's own basket (the "stolen SQLite row").
-    const row = (await deviceA.listOutputs({
-      basket: 'admin vault', includeCustomInstructions: true, include: 'locking scripts', limit: 1, offset: 0
-    })).outputs[0]
+    const row = (
+      await deviceA.listOutputs({
+        basket: 'admin vault',
+        includeCustomInstructions: true,
+        include: 'locking scripts',
+        limit: 1,
+        offset: 0
+      })
+    ).outputs[0]
     const stolenCi = decodeVaultInstructionsV7(row.customInstructions)
     if (!stolenCi) throw new Error('stolen record did not decode as v7')
     expect(JSON.parse(row.customInstructions!)).not.toHaveProperty('salt')
@@ -324,13 +388,38 @@ describe('I2 (b): committed key + correct PIN, NO mnemonic, stolen v7 DB/backup 
     mock.insertKey(keys[0].serial)
     const { signature } = await mock.signEcdsa(keys[0].serial, '123456', signerDigest(preimage))
     const guessedSalt = '00'.repeat(32)
-    const guessedUnlock = buildUnlock({ preimage, derSig: Utils.toArray(signature, 'hex') as number[], pubkeyHex33: keys[0].pubkey, saltHex64: guessedSalt })
-    expect(() => verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: raw.satoshis!, lockingScript, unlockingScript: guessedUnlock })).toThrow()
+    const guessedUnlock = buildUnlock({
+      preimage,
+      derSig: Utils.toArray(signature, 'hex') as number[],
+      pubkeyHex33: keys[0].pubkey,
+      saltHex64: guessedSalt
+    })
+    expect(() =>
+      verifyVaultInput({
+        tx,
+        inputIndex: 0,
+        sourceSatoshis: raw.satoshis!,
+        lockingScript,
+        unlockingScript: guessedUnlock
+      })
+    ).toThrow()
 
     // Positive control (same signature, real salt derived by the REAL root).
-    const realSalt = await deriveVaultSalt(deviceA, ADMIN, stolenCi.saltKeyId, stolenCi.keys.map(k => k.serial))
-    const realUnlock = buildUnlock({ preimage, derSig: Utils.toArray(signature, 'hex') as number[], pubkeyHex33: keys[0].pubkey, saltHex64: realSalt })
-    expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: raw.satoshis!, lockingScript, unlockingScript: realUnlock })).toBe(true)
+    const realSalt = await deriveVaultSalt(
+      deviceA,
+      ADMIN,
+      stolenCi.saltKeyId,
+      stolenCi.keys.map(k => k.serial)
+    )
+    const realUnlock = buildUnlock({
+      preimage,
+      derSig: Utils.toArray(signature, 'hex') as number[],
+      pubkeyHex33: keys[0].pubkey,
+      saltHex64: realSalt
+    })
+    expect(
+      verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: raw.satoshis!, lockingScript, unlockingScript: realUnlock })
+    ).toBe(true)
 
     // Negative (b): the encrypted descriptor cannot be decrypted by a
     // different-root wallet either.
@@ -340,7 +429,13 @@ describe('I2 (b): committed key + correct PIN, NO mnemonic, stolen v7 DB/backup 
     ).rejects.toThrow()
 
     // Positive control: the real root decrypts it back to the exact record.
-    const plaintext = await decryptVaultDescriptorPlaintext(deviceA, ADMIN, 'test', stolenCi.saltKeyId, descriptorCiphertext)
+    const plaintext = await decryptVaultDescriptorPlaintext(
+      deviceA,
+      ADMIN,
+      'test',
+      stolenCi.saltKeyId,
+      descriptorCiphertext
+    )
     expect(decodeVaultInstructionsV7(plaintext)).toEqual(stolenCi)
   })
 
@@ -379,9 +474,7 @@ describe('I2 (c): wrong PIN', () => {
     const { deviceA, mock, keys } = await setupVault('c1')
 
     armSigner(mock, keys[0].serial, '000000')
-    await expect(
-      withdrawFromVault(deviceA, ADMIN, 'all', 'wrong pin attempt', keys[0].serial)
-    ).rejects.toThrow()
+    await expect(withdrawFromVault(deviceA, ADMIN, 'all', 'wrong pin attempt', keys[0].serial)).rejects.toThrow()
 
     // Nothing was signed: the card's own retry counter shows exactly one
     // failed attempt, and the vault balance is untouched.
@@ -404,7 +497,7 @@ describe('I2 (d): an unenrolled key (outsider)', () => {
     await expect(
       withdrawFromVault(deviceA, ADMIN, 'all', 'outsider attempt', 'OUTSIDER-SERIAL-NEVER-ENROLLED')
     ).rejects.toMatchObject({ code: 'not-enrolled' })
-    expect((requestVaultSigner as jest.Mock)).not.toHaveBeenCalled()
+    expect(requestVaultSigner as jest.Mock).not.toHaveBeenCalled()
 
     armSigner(mock, keys[0].serial)
     const spend = await withdrawFromVault(deviceA, ADMIN, 'all', 'committed key', keys[0].serial)
@@ -427,22 +520,51 @@ describe('I2 (d): an unenrolled key (outsider)', () => {
     // actually have any way to learn it without the mnemonic (see case (a)),
     // but even granting it to them, the outsider's own key still fails.
     const row = await deviceA.listOutputs({
-      basket: 'admin vault', includeCustomInstructions: true, include: 'locking scripts', limit: 1, offset: 0
+      basket: 'admin vault',
+      includeCustomInstructions: true,
+      include: 'locking scripts',
+      limit: 1,
+      offset: 0
     })
     const ci = decodeVaultInstructionsV7(row.outputs[0].customInstructions)!
-    const salt = await deriveVaultSalt(deviceA, ADMIN, ci.saltKeyId, keys.map(k => k.serial))
+    const salt = await deriveVaultSalt(
+      deviceA,
+      ADMIN,
+      ci.saltKeyId,
+      keys.map(k => k.serial)
+    )
     const lockingScript = LockingScript.fromHex(row.outputs[0].lockingScript!)
 
     const { tx, preimage } = spendAgainst(sourceTx, vaultOutIndex, raw.satoshis!)
     const { signature } = await outsider.signEcdsa('OUTSIDER-CARD-1', '123456', signerDigest(preimage))
-    const outsiderUnlock = buildUnlock({ preimage, derSig: Utils.toArray(signature, 'hex') as number[], pubkeyHex33: compressPubkey(outsiderPub), saltHex64: salt })
-    expect(() => verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: raw.satoshis!, lockingScript, unlockingScript: outsiderUnlock })).toThrow()
+    const outsiderUnlock = buildUnlock({
+      preimage,
+      derSig: Utils.toArray(signature, 'hex') as number[],
+      pubkeyHex33: compressPubkey(outsiderPub),
+      saltHex64: salt
+    })
+    expect(() =>
+      verifyVaultInput({
+        tx,
+        inputIndex: 0,
+        sourceSatoshis: raw.satoshis!,
+        lockingScript,
+        unlockingScript: outsiderUnlock
+      })
+    ).toThrow()
 
     // Positive control: a committed key, same tx, same salt, same lock.
     mock.insertKey(keys[0].serial)
     const good = await mock.signEcdsa(keys[0].serial, '123456', signerDigest(preimage))
-    const goodUnlock = buildUnlock({ preimage, derSig: Utils.toArray(good.signature, 'hex') as number[], pubkeyHex33: keys[0].pubkey, saltHex64: salt })
-    expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: raw.satoshis!, lockingScript, unlockingScript: goodUnlock })).toBe(true)
+    const goodUnlock = buildUnlock({
+      preimage,
+      derSig: Utils.toArray(good.signature, 'hex') as number[],
+      pubkeyHex33: keys[0].pubkey,
+      saltHex64: salt
+    })
+    expect(
+      verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: raw.satoshis!, lockingScript, unlockingScript: goodUnlock })
+    ).toBe(true)
   })
 })
 
@@ -458,9 +580,7 @@ describe('I2 (e): DB + SecureStore (vault meta, drafts) without mnemonic and wit
     // No committed key at all is ever armed for `attacker` in this case.
 
     await expect(getVaultBalance(attacker, ADMIN)).rejects.toMatchObject({ code: 'template-invalid' })
-    await expect(
-      withdrawFromVault(attacker, ADMIN, 'all', 'no mnemonic, no key', keys[0].serial)
-    ).rejects.toThrow()
+    await expect(withdrawFromVault(attacker, ADMIN, 'all', 'no mnemonic, no key', keys[0].serial)).rejects.toThrow()
 
     expect(await getVaultBalance(deviceA, ADMIN)).toBe(500_000)
   })
@@ -504,7 +624,10 @@ describe('I2 (f): an external BRC-100 caller through guardVaultAccess', () => {
   const TXID = 'ab'.repeat(32)
   let cachedVaultLock: string | undefined
   const vaultLockHex = () =>
-    (cachedVaultLock ??= buildLock({ commitments: ['11'.repeat(20), '22'.repeat(20)], saltHex64: '33'.repeat(32) }).toHex())
+    (cachedVaultLock ??= buildLock({
+      commitments: ['11'.repeat(20), '22'.repeat(20)],
+      saltHex64: '33'.repeat(32)
+    }).toHex())
 
   function fakeWallet(storedActions: any[] = []) {
     const calls: { method: string; args: any; originator?: string }[] = []
@@ -515,9 +638,10 @@ describe('I2 (f): an external BRC-100 caller through guardVaultAccess', () => {
     const listActions = async (args: any, originator?: string) => {
       calls.push({ method: 'listActions', args, originator })
       const labels: string[] = args?.labels ?? []
-      const matching = labels.length === 0
-        ? storedActions
-        : storedActions.filter(item => labels.every((l: string) => item.labels?.includes(l)))
+      const matching =
+        labels.length === 0
+          ? storedActions
+          : storedActions.filter(item => labels.every((l: string) => item.labels?.includes(l)))
       const offset = args?.offset ?? 0
       const limit = args?.limit ?? 10
       return { totalActions: matching.length, actions: matching.slice(offset, offset + limit) }
@@ -547,7 +671,10 @@ describe('I2 (f): an external BRC-100 caller through guardVaultAccess', () => {
 
     await expect(
       guarded.createAction(
-        { description: 'app r1c output', outputs: [{ satoshis: 1, lockingScript: vaultLockHex(), outputDescription: 'x', basket: 'normal' }] } as any,
+        {
+          description: 'app r1c output',
+          outputs: [{ satoshis: 1, lockingScript: vaultLockHex(), outputDescription: 'x', basket: 'normal' }]
+        } as any,
         'app.example'
       )
     ).resolves.toBeTruthy()
@@ -559,11 +686,18 @@ describe('I2 (f): an external BRC-100 caller through guardVaultAccess', () => {
     const beefBytes = new Uint8Array(freshBeef.toBinaryAtomic(freshTx.id('hex')))
     await expect(
       guarded.internalizeAction(
-        { tx: beefBytes, outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'general' } }], description: 'app r1c receive' } as any,
+        {
+          tx: beefBytes,
+          outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'general' } }],
+          description: 'app r1c receive'
+        } as any,
         'app.example'
       )
     ).resolves.toBeTruthy()
-    expect(calls.filter(c => c.originator === 'app.example').map(c => c.method)).toEqual(['createAction', 'internalizeAction'])
+    expect(calls.filter(c => c.originator === 'app.example').map(c => c.method)).toEqual([
+      'createAction',
+      'internalizeAction'
+    ])
   })
 
   it('I2: createAction refuses to NAME an admin-basket outpoint as an input (positive control: an ordinary outpoint is accepted)', async () => {
@@ -577,12 +711,20 @@ describe('I2 (f): an external BRC-100 caller through guardVaultAccess', () => {
 
     await expect(
       guarded.createAction(
-        { description: 'attempt', inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'x', unlockingScriptLength: 100 }], outputs: [] } as any,
+        {
+          description: 'attempt',
+          inputs: [{ outpoint: `${TXID}.0`, inputDescription: 'x', unlockingScriptLength: 100 }],
+          outputs: []
+        } as any,
         'evil.com'
       )
     ).rejects.toBeInstanceOf(VaultAccessDenied)
     const okInput = await guarded.createAction(
-      { description: 'ordinary', inputs: [{ outpoint: `${'cd'.repeat(32)}.1`, inputDescription: 'x', unlockingScriptLength: 100 }], outputs: [] } as any,
+      {
+        description: 'ordinary',
+        inputs: [{ outpoint: `${'cd'.repeat(32)}.1`, inputDescription: 'x', unlockingScriptLength: 100 }],
+        outputs: []
+      } as any,
       'evil.com'
     )
     expect(okInput).toBeTruthy()
@@ -599,13 +741,19 @@ describe('I2 (f): an external BRC-100 caller through guardVaultAccess', () => {
       const { wallet, calls } = fakeWallet()
       const guarded = guardVaultAccess(wallet, ADMIN)
       await expect(
-        (guarded[method] as any)({ protocolID: [2, protocolName], keyID: 'k', counterparty: 'self', ciphertext: [1], data: [1] }, 'evil.com')
+        (guarded[method] as any)(
+          { protocolID: [2, protocolName], keyID: 'k', counterparty: 'self', ciphertext: [1], data: [1] },
+          'evil.com'
+        )
       ).rejects.toBeInstanceOf(VaultAccessDenied)
       expect(calls.find(c => c.method === method)).toBeUndefined()
 
       // Positive control: the admin originator IS allowed through the same
       // reserved namespace.
-      await (guarded[method] as any)({ protocolID: [2, protocolName], keyID: 'k', counterparty: 'self', ciphertext: [1], data: [1] }, ADMIN)
+      await (guarded[method] as any)(
+        { protocolID: [2, protocolName], keyID: 'k', counterparty: 'self', ciphertext: [1], data: [1] },
+        ADMIN
+      )
       expect(calls.find(c => c.method === method && c.originator === ADMIN)).toBeDefined()
     }
 
@@ -640,17 +788,35 @@ describe('I2 residual (v6 legacy): a stolen v6 output carries the salt', () => {
     vaultStore.clearScope()
     vaultStore.configureScope({ identityKey, chain: 'test' })
     const { mock, keys } = await buildKeyring(2)
-    await seedOwnMeta(deviceA, { v: 6, vaultId: hex(p256.utils.randomSecretKey()), revision: 1, createdAt: Date.now(), keys })
+    await seedOwnMeta(deviceA, {
+      v: 6,
+      vaultId: hex(p256.utils.randomSecretKey()),
+      revision: 1,
+      createdAt: Date.now(),
+      keys
+    })
 
     // A LEGACY v6 output: the salt lives INSIDE customInstructions
     // (encodeVaultInstructions), unlike every v7 output this file's other
     // cases exercise. Genuinely derived from device A's own root (as the real
     // app would when creating it), so device A's own later reads succeed.
-    const salt = await deriveVaultSalt(deviceA, ADMIN, '1', keys.map(k => k.serial))
+    const salt = await deriveVaultSalt(
+      deviceA,
+      ADMIN,
+      '1',
+      keys.map(k => k.serial)
+    )
     const lockingScript = buildLock({ commitments: keys.map(k => commitment(k.pubkey, salt)), saltHex64: salt })
     const v6: VaultInstructionsV6 = {
-      v: 6, type: 'R1C', salt, saltKeyId: '1', chain: 'test',
-      vaultId: hex(p256.utils.randomSecretKey()), revision: 1, createdAt: Date.now(), keys
+      v: 6,
+      type: 'R1C',
+      salt,
+      saltKeyId: '1',
+      chain: 'test',
+      vaultId: hex(p256.utils.randomSecretKey()),
+      revision: 1,
+      createdAt: Date.now(),
+      keys
     }
     const customInstructions = encodeVaultInstructions(v6)
     expect(JSON.parse(customInstructions)).toHaveProperty('salt', salt)
@@ -660,7 +826,13 @@ describe('I2 residual (v6 legacy): a stolen v6 output carries the salt', () => {
     chain.publish(fundingTx, { confirmed: true })
     await deviceA.internalizeAction({
       tx: fundingTx.toAtomicBEEF(),
-      outputs: [{ outputIndex: 0, protocol: 'basket insertion', insertionRemittance: { basket: 'admin vault', customInstructions, tags: ['vault'] } }],
+      outputs: [
+        {
+          outputIndex: 0,
+          protocol: 'basket insertion',
+          insertionRemittance: { basket: 'admin vault', customInstructions, tags: ['vault'] }
+        }
+      ],
       description: 'legacy v6 deposit fixture'
     })
     expect(await getVaultBalance(deviceA, ADMIN)).toBe(500_000)
@@ -672,23 +844,30 @@ describe('I2 residual (v6 legacy): a stolen v6 output carries the salt', () => {
     armSigner(mock, keys[0].serial)
 
     await expect(getVaultBalance(attacker, ADMIN)).rejects.toMatchObject({ code: 'template-invalid' })
-    await expect(
-      withdrawFromVault(attacker, ADMIN, 'all', 'app-level attempt', keys[0].serial)
-    ).rejects.toMatchObject({ code: 'template-invalid' })
+    await expect(withdrawFromVault(attacker, ADMIN, 'all', 'app-level attempt', keys[0].serial)).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
 
     // Positive control: the real owner is unaffected.
     expect(await getVaultBalance(deviceA, ADMIN)).toBe(500_000)
   })
 
-  it('I2 residual (v6 legacy): the R1C SCRIPT accepts a witness built straight from a v6 record\'s embedded salt — a raw-transaction attacker with the stolen DB, the committed key and its correct PIN needs no mnemonic and no app at all (positive control: the same witness shape is what the real owner would also produce)', async () => {
+  it("I2 residual (v6 legacy): the R1C SCRIPT accepts a witness built straight from a v6 record's embedded salt — a raw-transaction attacker with the stolen DB, the committed key and its correct PIN needs no mnemonic and no app at all (positive control: the same witness shape is what the real owner would also produce)", async () => {
     const chain = new FakeChain()
     const { mock, keys } = await buildKeyring(2)
 
     const salt = hex(p256.utils.randomSecretKey())
     const lockingScript = buildLock({ commitments: keys.map(k => commitment(k.pubkey, salt)), saltHex64: salt })
     const v6: VaultInstructionsV6 = {
-      v: 6, type: 'R1C', salt, saltKeyId: '1', chain: 'test',
-      vaultId: hex(p256.utils.randomSecretKey()), revision: 1, createdAt: Date.now(), keys
+      v: 6,
+      type: 'R1C',
+      salt,
+      saltKeyId: '1',
+      chain: 'test',
+      vaultId: hex(p256.utils.randomSecretKey()),
+      revision: 1,
+      createdAt: Date.now(),
+      keys
     }
     // The exact string a stolen SQLite outputs row / exported DB / backup
     // chunk would carry for this output — the salt is right there.

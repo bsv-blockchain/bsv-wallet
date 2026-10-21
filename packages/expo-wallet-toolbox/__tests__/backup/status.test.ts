@@ -13,12 +13,20 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
       multiGet: async (keys: string[]) => keys.map(k => [k, store[k] ?? null] as [string, string | null]),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -38,7 +46,7 @@ beforeEach(async () => {
 })
 
 describe('getBackupUploadState', () => {
-  it('XR-009: does not report a wallet backed up using a DIFFERENT identity\'s leftover cursor', async () => {
+  it("XR-009: does not report a wallet backed up using a DIFFERENT identity's leftover cursor", async () => {
     // Wallet A pushed a chunk and left its cursor behind (e.g. logout with no sweep).
     // Wallet B is a different identity on the same install/device id, never yet pushed.
     await AsyncStorage.setItem(cursorKey('main', PSEUDONYM_A, DEVICE), JSON.stringify({ seq: 3 }))

@@ -31,47 +31,47 @@
 
 **Created:**
 
-| File | Responsibility |
-| --- | --- |
-| `utils/localpay/fountain.ts` | Fountain codec: crc32, xorshift RNG, soliton degree, `FountainEncoder`/`FountainDecoder`, `bsvpayf2:` part encoding. Pure, no platform imports. |
-| `components/pay/PaymentQrDisplay.tsx` | Renders a `bsvpayf1:` payload as a static QR when it fits, or as an animated fountain when it does not. Used by NearbyFlow and the re-show modal. |
-| `utils/localpay/transport/socket.ts` | `makeSocketTransport(kind)` — the existing AWDL wrapper generalised so the same code drives the Kotlin Nearby backend. |
-| `utils/localpay/transport/nearby.ts` | `nearbyTransport = makeSocketTransport('nearby')`. |
-| `utils/localpay/transport/nearbyPermissions.ts` | Android runtime-permission request for Nearby Connections. |
-| `packages/react-native-localpay-transport/android/build.gradle` | Android library module for the Nitro backend + play-services-nearby dependency. |
-| `packages/react-native-localpay-transport/android/src/main/AndroidManifest.xml` | Package manifest with Nearby permissions. |
-| `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayTransport.kt` | Kotlin Nearby Connections implementation of the shared Nitro spec. |
-| `__tests__/localpayFountain.test.ts` | Fountain codec roundtrip/lossy/corruption tests. |
+| File                                                                                                                            | Responsibility                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `utils/localpay/fountain.ts`                                                                                                    | Fountain codec: crc32, xorshift RNG, soliton degree, `FountainEncoder`/`FountainDecoder`, `bsvpayf2:` part encoding. Pure, no platform imports.   |
+| `components/pay/PaymentQrDisplay.tsx`                                                                                           | Renders a `bsvpayf1:` payload as a static QR when it fits, or as an animated fountain when it does not. Used by NearbyFlow and the re-show modal. |
+| `utils/localpay/transport/socket.ts`                                                                                            | `makeSocketTransport(kind)` — the existing AWDL wrapper generalised so the same code drives the Kotlin Nearby backend.                            |
+| `utils/localpay/transport/nearby.ts`                                                                                            | `nearbyTransport = makeSocketTransport('nearby')`.                                                                                                |
+| `utils/localpay/transport/nearbyPermissions.ts`                                                                                 | Android runtime-permission request for Nearby Connections.                                                                                        |
+| `packages/react-native-localpay-transport/android/build.gradle`                                                                 | Android library module for the Nitro backend + play-services-nearby dependency.                                                                   |
+| `packages/react-native-localpay-transport/android/src/main/AndroidManifest.xml`                                                 | Package manifest with Nearby permissions.                                                                                                         |
+| `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayTransport.kt` | Kotlin Nearby Connections implementation of the shared Nitro spec.                                                                                |
+| `__tests__/localpayFountain.test.ts`                                                                                            | Fountain codec roundtrip/lossy/corruption tests.                                                                                                  |
 
 **Modified (by phase):**
 
-| File | Phase | Change |
-| --- | --- | --- |
-| `utils/monitor/TaskSendOffline.ts` | 1 | Periodic trigger with 10 s→5 min backoff, online gate, `noteConnectivity`/`noteEnqueued`/`requestNow`, `lastStall`. |
-| `context/WalletContext.tsx` | 1 | Reconnect listener → `noteConnectivity`; foreground re-arm; pessimistic `noteEnqueued` at build; `txStatusVersion` bump after a productive drain. |
-| `utils/offline/plan.ts` | 1 | `applyOutcome` returns per-subtree `blocked` instead of run-global `stop`. |
-| `storage/methods/processOfflineActions.ts` | 1 | Skip blocked subtrees, keep posting independent roots, accumulate stall notes. |
-| `storage/schema/createTables.ts` | 1 | `framePayload` column on `offline_actions` + `ensureOfflineActionsColumns` guarded ALTER. |
-| `storage/StorageExpoSQLite.ts` | 1 | Run the column migration in `migrate()`; `holdReqsOffline` calls `TaskSendOffline.noteEnqueued()`. |
-| `storage/methods/offlineActions.ts` | 1 | `framePayload` in row type + insert. |
-| `utils/offline/payerHold.ts` | 1 | `framePayload` passthrough + `noteEnqueued`. |
-| `components/pay/NearbyFlow.tsx` | 1, 2 | Done = real delivery (`completeQrDelivery`, `builtRef`); fountain rendering; part scanning; auto QR fallback. |
-| `components/pay/OfflineNotice.tsx` | 1 | "Send now" button, stall row, "show code again" per queued sent row. |
-| `app/pay.tsx` | 1 | Wire send-now/stall/re-show; `txStatusVersion` in queue-effect deps; re-show modal. |
-| `app/transactions.tsx` | 1 | Offline badge overlay from `offline_actions`. |
-| `context/i18n/translations.tsx` | 1, 2 | New keys, six locales. |
-| `utils/localpay/codec.ts` | 2 | `frameBytesFromQr` export. |
-| `utils/localpay/session.ts` | 2 | `CAP_NEARBY`, `os` field, `supportsNearby` mint arg. |
-| `utils/localpay/transport/select.ts` | 2 | Three-rung ladder + `localSupportsNearby`. |
-| `utils/localpay/transport/types.ts` | 2 | `kind` union gains `'nearby'`. |
-| `utils/localpay/transport/awdl.ts` | 2 | Becomes a re-export of `makeSocketTransport('awdl')`. |
-| `utils/pay/rails/nearby.ts` | 2 | Barrel re-exports the new symbols. |
-| `components/QRScanner.tsx` | 2 | `continuous` prop (no lock, no per-frame haptic). |
-| `packages/react-native-localpay-transport/src/specs/LocalPayTransport.nitro.ts` | 2, 3 | `connectTimeoutMs` param; platform union gains `android: 'kotlin'`. |
-| `packages/react-native-localpay-transport/ios/HybridLocalPayTransport.swift` | 2 | Connect-phase timeout in `sendFrame`. |
-| `packages/react-native-localpay-transport/nitro.json` | 3 | Android autolinking entry. |
-| `packages/react-native-localpay-transport/package.json` | 3 | Ship `android/` in files; drop "iOS only" from description. |
-| `app.json` | 3 | Android permissions for Nearby. |
+| File                                                                            | Phase | Change                                                                                                                                            |
+| ------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `utils/monitor/TaskSendOffline.ts`                                              | 1     | Periodic trigger with 10 s→5 min backoff, online gate, `noteConnectivity`/`noteEnqueued`/`requestNow`, `lastStall`.                               |
+| `context/WalletContext.tsx`                                                     | 1     | Reconnect listener → `noteConnectivity`; foreground re-arm; pessimistic `noteEnqueued` at build; `txStatusVersion` bump after a productive drain. |
+| `utils/offline/plan.ts`                                                         | 1     | `applyOutcome` returns per-subtree `blocked` instead of run-global `stop`.                                                                        |
+| `storage/methods/processOfflineActions.ts`                                      | 1     | Skip blocked subtrees, keep posting independent roots, accumulate stall notes.                                                                    |
+| `storage/schema/createTables.ts`                                                | 1     | `framePayload` column on `offline_actions` + `ensureOfflineActionsColumns` guarded ALTER.                                                         |
+| `storage/StorageExpoSQLite.ts`                                                  | 1     | Run the column migration in `migrate()`; `holdReqsOffline` calls `TaskSendOffline.noteEnqueued()`.                                                |
+| `storage/methods/offlineActions.ts`                                             | 1     | `framePayload` in row type + insert.                                                                                                              |
+| `utils/offline/payerHold.ts`                                                    | 1     | `framePayload` passthrough + `noteEnqueued`.                                                                                                      |
+| `components/pay/NearbyFlow.tsx`                                                 | 1, 2  | Done = real delivery (`completeQrDelivery`, `builtRef`); fountain rendering; part scanning; auto QR fallback.                                     |
+| `components/pay/OfflineNotice.tsx`                                              | 1     | "Send now" button, stall row, "show code again" per queued sent row.                                                                              |
+| `app/pay.tsx`                                                                   | 1     | Wire send-now/stall/re-show; `txStatusVersion` in queue-effect deps; re-show modal.                                                               |
+| `app/transactions.tsx`                                                          | 1     | Offline badge overlay from `offline_actions`.                                                                                                     |
+| `context/i18n/translations.tsx`                                                 | 1, 2  | New keys, six locales.                                                                                                                            |
+| `utils/localpay/codec.ts`                                                       | 2     | `frameBytesFromQr` export.                                                                                                                        |
+| `utils/localpay/session.ts`                                                     | 2     | `CAP_NEARBY`, `os` field, `supportsNearby` mint arg.                                                                                              |
+| `utils/localpay/transport/select.ts`                                            | 2     | Three-rung ladder + `localSupportsNearby`.                                                                                                        |
+| `utils/localpay/transport/types.ts`                                             | 2     | `kind` union gains `'nearby'`.                                                                                                                    |
+| `utils/localpay/transport/awdl.ts`                                              | 2     | Becomes a re-export of `makeSocketTransport('awdl')`.                                                                                             |
+| `utils/pay/rails/nearby.ts`                                                     | 2     | Barrel re-exports the new symbols.                                                                                                                |
+| `components/QRScanner.tsx`                                                      | 2     | `continuous` prop (no lock, no per-frame haptic).                                                                                                 |
+| `packages/react-native-localpay-transport/src/specs/LocalPayTransport.nitro.ts` | 2, 3  | `connectTimeoutMs` param; platform union gains `android: 'kotlin'`.                                                                               |
+| `packages/react-native-localpay-transport/ios/HybridLocalPayTransport.swift`    | 2     | Connect-phase timeout in `sendFrame`.                                                                                                             |
+| `packages/react-native-localpay-transport/nitro.json`                           | 3     | Android autolinking entry.                                                                                                                        |
+| `packages/react-native-localpay-transport/package.json`                         | 3     | Ship `android/` in files; drop "iOS only" from description.                                                                                       |
+| `app.json`                                                                      | 3     | Android permissions for Nearby.                                                                                                                   |
 
 ---
 
@@ -82,10 +82,12 @@ Fixes the stuck-money bug. Ships alone if needed.
 ### Task 1: TaskSendOffline retry machinery
 
 **Files:**
+
 - Modify: `utils/monitor/TaskSendOffline.ts` (full rewrite, currently 45 lines)
 - Test: `__tests__/taskSendOffline.test.ts` (full rewrite)
 
 **Interfaces:**
+
 - Consumes: `ProcessOfflineActionsResult` from `storage/methods/processOfflineActions.ts` (`{ sent: number; rejected: number; stopped: boolean; stalledOn?: string }`) — unchanged.
 - Produces (statics later tasks rely on):
   - `TaskSendOffline.noteConnectivity(online: boolean): void` — called by WalletContext's single reconnect listener.
@@ -201,7 +203,13 @@ describe('TaskSendOffline backoff', () => {
   it('a throwing release is a stopped run, not a dead task', async () => {
     const nowRef = { t: 0 }
     TaskSendOffline.noteConnectivity(true)
-    const t = new TaskSendOffline(monitor, async () => { throw new Error('boom') }, () => nowRef.t)
+    const t = new TaskSendOffline(
+      monitor,
+      async () => {
+        throw new Error('boom')
+      },
+      () => nowRef.t
+    )
     const log = await t.runTask()
     expect(log).toContain('boom')
     expect(TaskSendOffline.hasPending).toBe(true)
@@ -333,9 +341,7 @@ export class TaskSendOffline extends WalletMonitorTask {
   trigger(nowMsecsSinceEpoch: number): { run: boolean } {
     if (!TaskSendOffline.onlineNow) return { run: false }
     return {
-      run:
-        TaskSendOffline.checkNow ||
-        (TaskSendOffline.hasPending && nowMsecsSinceEpoch >= TaskSendOffline.nextDueAt)
+      run: TaskSendOffline.checkNow || (TaskSendOffline.hasPending && nowMsecsSinceEpoch >= TaskSendOffline.nextDueAt)
     }
   }
 
@@ -392,10 +398,12 @@ git commit -m "fix(pay): self-rearming offline drain — 10s backoff, online-gat
 ### Task 2: Wire the new trigger into WalletContext
 
 **Files:**
+
 - Modify: `context/WalletContext.tsx` — the reconnect effect at `:1529-1535`, the foreground handler at `:1538-1556`, the monitor build at `:915-917`
 - Test: none new (the statics are covered by Task 1; this is wiring). Full suite must stay green.
 
 **Interfaces:**
+
 - Consumes: `TaskSendOffline.noteConnectivity/noteEnqueued/requestNow/hasPending` (Task 1); `processOfflineActions`; `setTxStatusVersion` (existing state setter at `WalletContext.tsx:889`).
 - Produces: nothing new — behaviour only.
 
@@ -404,11 +412,11 @@ git commit -m "fix(pay): self-rearming offline drain — 10s backoff, online-gat
 At `context/WalletContext.tsx:1529-1535`, replace the effect body:
 
 ```ts
-  // Feed the drain's online gate and arm an immediate pass on reconnect.
-  useEffect(() => {
-    if (!walletBuilt) return
-    return subscribeOnline(online => TaskSendOffline.noteConnectivity(online))
-  }, [walletBuilt])
+// Feed the drain's online gate and arm an immediate pass on reconnect.
+useEffect(() => {
+  if (!walletBuilt) return
+  return subscribeOnline(online => TaskSendOffline.noteConnectivity(online))
+}, [walletBuilt])
 ```
 
 (NetInfo fires the listener once with the current state at subscription time, so an already-online cold start arms a first pass — same property the old code relied on.)
@@ -418,10 +426,10 @@ At `context/WalletContext.tsx:1529-1535`, replace the effect body:
 In the AppState handler at `:1538-1556`, inside the `wasBackground && isNowForeground` branch, after the `fetchSSEEvents` block, add:
 
 ```ts
-        // Reconnects that happened while backgrounded may not replay as a
-        // NetInfo event on resume; if work is pending, ask for a pass and let
-        // the trigger's online gate decide.
-        if (TaskSendOffline.hasPending) TaskSendOffline.requestNow()
+// Reconnects that happened while backgrounded may not replay as a
+// NetInfo event on resume; if work is pending, ask for a pass and let
+// the trigger's online gate decide.
+if (TaskSendOffline.hasPending) TaskSendOffline.requestNow()
 ```
 
 - [ ] **Step 3: Pessimistic pending at build + txStatusVersion after a productive drain**
@@ -429,21 +437,21 @@ In the AppState handler at `:1538-1556`, inside the `wasBackground && isNowForeg
 At `:915-917`, replace the `addTask` call:
 
 ```ts
-          if (phoneStorage) {
-            monitor.addTask(
-              new TaskSendOffline(monitor, async () => {
-                const r = await processOfflineActions({ storage: phoneStorage! })
-                // The drain writes transaction statuses directly, below the
-                // monitor's onTransactionStatusChanged callback — bump the
-                // version ourselves so the transactions screen re-fetches.
-                if (r.sent > 0 || r.rejected > 0) setTxStatusVersion(v => v + 1)
-                return r
-              })
-            )
-            // Rows may be sitting in offline_actions from a previous session.
-            // Pessimistic: one idle drain clears it the first time we are online.
-            TaskSendOffline.noteEnqueued()
-          }
+if (phoneStorage) {
+  monitor.addTask(
+    new TaskSendOffline(monitor, async () => {
+      const r = await processOfflineActions({ storage: phoneStorage! })
+      // The drain writes transaction statuses directly, below the
+      // monitor's onTransactionStatusChanged callback — bump the
+      // version ourselves so the transactions screen re-fetches.
+      if (r.sent > 0 || r.rejected > 0) setTxStatusVersion(v => v + 1)
+      return r
+    })
+  )
+  // Rows may be sitting in offline_actions from a previous session.
+  // Pessimistic: one idle drain clears it the first time we are online.
+  TaskSendOffline.noteEnqueued()
+}
 ```
 
 - [ ] **Step 4: Verify**
@@ -465,10 +473,12 @@ git commit -m "fix(pay): arm the offline drain from reconnect, foreground, and w
 ### Task 3: Per-subtree failure isolation in the release engine
 
 **Files:**
+
 - Modify: `utils/offline/plan.ts:71-107` (`applyOutcome`), `storage/methods/processOfflineActions.ts:140-198` (driver loop)
 - Test: `__tests__/offlinePlan.test.ts` (update `applyOutcome` shape), `__tests__/processOfflineActions.test.ts` (new isolation cases + update stop-semantics cases)
 
 **Interfaces:**
+
 - Consumes: `descendantsOf(txid, txs)` from `utils/offline/order.ts` (existing).
 - Produces: `applyOutcome(args): { sent: string[]; rejected: {txid,reason,poisonedByTxid}[]; blocked: string[] }` — the `stop` boolean is GONE; `blocked` lists txids (the failed one plus its descendants) that must be skipped for the rest of this run and left queued. `ProcessOfflineActionsResult` shape is unchanged; `stopped` now means "at least one subtree could not finish".
 
@@ -480,19 +490,19 @@ In `__tests__/offlinePlan.test.ts`, the `applyOutcome` describe block (starts `:
 
 - `outcome: 'success'` cases: `expect(r.stop).toBe(false)` → `expect(r.blocked).toEqual([])`
 - `outcome: 'serviceError'` case (`:76`): `expect(r.stop).toBe(true)` → `expect(r.blocked).toEqual(['A'])` (plus, in a new case, descendants)
-- `invalidTx`/`doubleSpend` cases: `expect(r.stop).toBe(true)` → `expect(r.blocked).toEqual([])` (the subtree is *rejected*, not blocked — nothing is left to skip)
+- `invalidTx`/`doubleSpend` cases: `expect(r.stop).toBe(true)` → `expect(r.blocked).toEqual([])` (the subtree is _rejected_, not blocked — nothing is left to skip)
 
 Add one new case to the same describe:
 
 ```ts
-  it('a serviceError blocks the failed transaction and every descendant, nothing else', () => {
-    // A ← B ← C, plus independent D
-    const txs = [tx('A'), tx('B', ['A']), tx('C', ['B']), tx('D')]
-    const r = applyOutcome({ txid: 'A', outcome: 'serviceError', txs, rows: [row('A'), row('D')] })
-    expect(r.sent).toEqual([])
-    expect(r.rejected).toEqual([])
-    expect([...r.blocked].sort()).toEqual(['A', 'B', 'C'])
-  })
+it('a serviceError blocks the failed transaction and every descendant, nothing else', () => {
+  // A ← B ← C, plus independent D
+  const txs = [tx('A'), tx('B', ['A']), tx('C', ['B']), tx('D')]
+  const r = applyOutcome({ txid: 'A', outcome: 'serviceError', txs, rows: [row('A'), row('D')] })
+  expect(r.sent).toEqual([])
+  expect(r.rejected).toEqual([])
+  expect([...r.blocked].sort()).toEqual(['A', 'B', 'C'])
+})
 ```
 
 (`tx()` and `row()` helpers already exist at the top of the file; `tx(id, inputTxids?)` builds an `OrderableTx`.)
@@ -543,72 +553,72 @@ and at the cascade's return (`:106`): `return { sent: [], rejected, blocked: [] 
 In `storage/methods/processOfflineActions.ts`, replace the loop body (`:140-197`) with:
 
 ```ts
-  let sent = 0
-  let rejected = 0
-  const resolved = new Set<string>()
-  const skip = new Set<string>()
-  const stallNotes: string[] = blocked.length > 0 ? [...blocked] : []
+let sent = 0
+let rejected = 0
+const resolved = new Set<string>()
+const skip = new Set<string>()
+const stallNotes: string[] = blocked.length > 0 ? [...blocked] : []
 
-  for (const step of plan) {
-    if (skip.has(step.txid)) continue
-    const action = step.owned ? held.get(step.txid) : undefined
-    if (step.owned && !action) {
-      // Its request is gone, so it can never be posted — and nothing downstream
-      // of it may go out either, or it becomes an orphan. Skip the subtree and
-      // keep releasing independent roots: this is a local anomaly, not a
-      // network verdict, and 'failed' is not reversible.
-      skip.add(step.txid)
-      for (const d of descendantsOf(step.txid, txs)) skip.add(d)
-      stallNotes.push(`${step.txid} has no request to release it with`)
-      continue
-    }
-    if (action) await updateOfflineAction(db, step.txid, { status: 'posting' })
+for (const step of plan) {
+  if (skip.has(step.txid)) continue
+  const action = step.owned ? held.get(step.txid) : undefined
+  if (step.owned && !action) {
+    // Its request is gone, so it can never be posted — and nothing downstream
+    // of it may go out either, or it becomes an orphan. Skip the subtree and
+    // keep releasing independent roots: this is a local anomaly, not a
+    // network verdict, and 'failed' is not reversible.
+    skip.add(step.txid)
+    for (const d of descendantsOf(step.txid, txs)) skip.add(d)
+    stallNotes.push(`${step.txid} has no request to release it with`)
+    continue
+  }
+  if (action) await updateOfflineAction(db, step.txid, { status: 'posting' })
 
-    const outcome = action ? await postOwned(storage, action.api) : await postForeign(storage, merged, step.txid)
-    // A cascade needs to see what spends the refused transaction, and beefs only
-    // reach backwards, so the graph the queue built cannot contain a spender that
-    // is not itself queued. Widened only when a cascade is actually about to run,
-    // because that widening reads every undecided request in the wallet.
-    const cascadeTxs = outcome === 'success' || outcome === 'serviceError' ? txs : await withLocalSpenders(storage, txs)
-    const result = applyOutcome({ txid: step.txid, outcome, txs: cascadeTxs, rows })
+  const outcome = action ? await postOwned(storage, action.api) : await postForeign(storage, merged, step.txid)
+  // A cascade needs to see what spends the refused transaction, and beefs only
+  // reach backwards, so the graph the queue built cannot contain a spender that
+  // is not itself queued. Widened only when a cascade is actually about to run,
+  // because that widening reads every undecided request in the wallet.
+  const cascadeTxs = outcome === 'success' || outcome === 'serviceError' ? txs : await withLocalSpenders(storage, txs)
+  const result = applyOutcome({ txid: step.txid, outcome, txs: cascadeTxs, rows })
 
-    for (const txid of result.sent) {
-      resolved.add(txid)
-      if (held.has(txid)) {
-        await updateOfflineAction(db, txid, { status: 'sent' })
-        sent++
-      } else {
-        devLog(`[processOfflineActions] foreign ancestor broadcast: ${txid}`)
-      }
-    }
-    for (const r of result.rejected) {
-      resolved.add(r.txid)
-      try {
-        if (await rejectOne(storage, db, held.get(r.txid)?.row, r)) rejected++
-      } catch (e) {
-        // The walk must reach the parent. A child's failure has already released
-        // the parent's outputs back to spendable, so abandoning the cascade here
-        // would leave refused money spendable — the exact outcome children-first
-        // ordering exists to prevent.
-        devLog(`[processOfflineActions] could not record the rejection of ${r.txid}:`, e)
-      }
-    }
-    for (const b of result.blocked) skip.add(b)
-    if (result.blocked.length > 0 && !action) {
-      // A foreign ancestor no service would take blocks everything behind it and
-      // retrying will not change that, whereas our own failed post is the
-      // ordinary "signal went away" case the next run picks up.
-      stallNotes.push(`${step.txid} is an ancestor from another wallet's beef that no service would accept`)
+  for (const txid of result.sent) {
+    resolved.add(txid)
+    if (held.has(txid)) {
+      await updateOfflineAction(db, txid, { status: 'sent' })
+      sent++
+    } else {
+      devLog(`[processOfflineActions] foreign ancestor broadcast: ${txid}`)
     }
   }
-
-  await requeue(db, plan, resolved)
-  return {
-    sent,
-    rejected,
-    stopped: skip.size > 0,
-    stalledOn: stallNotes.length > 0 ? stallNotes.join('; ') : undefined
+  for (const r of result.rejected) {
+    resolved.add(r.txid)
+    try {
+      if (await rejectOne(storage, db, held.get(r.txid)?.row, r)) rejected++
+    } catch (e) {
+      // The walk must reach the parent. A child's failure has already released
+      // the parent's outputs back to spendable, so abandoning the cascade here
+      // would leave refused money spendable — the exact outcome children-first
+      // ordering exists to prevent.
+      devLog(`[processOfflineActions] could not record the rejection of ${r.txid}:`, e)
+    }
   }
+  for (const b of result.blocked) skip.add(b)
+  if (result.blocked.length > 0 && !action) {
+    // A foreign ancestor no service would take blocks everything behind it and
+    // retrying will not change that, whereas our own failed post is the
+    // ordinary "signal went away" case the next run picks up.
+    stallNotes.push(`${step.txid} is an ancestor from another wallet's beef that no service would accept`)
+  }
+}
+
+await requeue(db, plan, resolved)
+return {
+  sent,
+  rejected,
+  stopped: skip.size > 0,
+  stalledOn: stallNotes.length > 0 ? stallNotes.join('; ') : undefined
+}
 ```
 
 Add `descendantsOf` to the existing import from `@/utils/offline/order` at the top of the file, and delete the now-unused `stalledOn` const at `:135` (its `blocked` array feeds `stallNotes` instead). The early-return for `rows.length === 0` (`:78`) and the offline probe (`:80-83`) are untouched.
@@ -618,14 +628,14 @@ Add `descendantsOf` to the existing import from `@/utils/offline/order` at the t
 In `__tests__/processOfflineActions.test.ts`: any case pinning "one serviceError requeues everything and stops" changes to expect independent roots still posting. Add one new case:
 
 ```ts
-  it('a failed root does not block an independent root in the same run', async () => {
-    // Two unrelated queued transactions A and D. Posting A fails with a
-    // service error; D must still be posted and marked sent in the SAME run.
-    // Build with the suite's existing fake storage/db helpers: enqueue A and D,
-    // make the post path fail for A (serviceError) and succeed for D.
-    // Assert: result.sent === 1, result.stopped === true,
-    // A's row status === 'queued', D's row status === 'sent'.
-  })
+it('a failed root does not block an independent root in the same run', async () => {
+  // Two unrelated queued transactions A and D. Posting A fails with a
+  // service error; D must still be posted and marked sent in the SAME run.
+  // Build with the suite's existing fake storage/db helpers: enqueue A and D,
+  // make the post path fail for A (serviceError) and succeed for D.
+  // Assert: result.sent === 1, result.stopped === true,
+  // A's row status === 'queued', D's row status === 'sent'.
+})
 ```
 
 Write it against the suite's existing fakes (the file already builds fake reqs and a fake db for its ordering tests — follow the pattern of the adjacent cases; the new case differs only in which txids the fake post rejects).
@@ -650,10 +660,12 @@ git commit -m "fix(pay): a failed subtree no longer blocks independent queued pa
 ### Task 4: The framePayload column
 
 **Files:**
+
 - Modify: `storage/schema/createTables.ts` (`offline_actions` DDL at `:341-355` + new helper), `storage/StorageExpoSQLite.ts:87-90` (`migrate`), `storage/methods/offlineActions.ts` (row type + insert), `utils/offline/payerHold.ts`
 - Test: `__tests__/payerHold.test.ts` (framePayload passthrough), `__tests__/processOfflineActions.test.ts` or a small new block in it (ensureColumns behaviour with a fake db)
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces:
   - `offline_actions.framePayload TEXT` — the payer's full `bsvpayf1:` QR string, persisted so the code can be re-shown after an app restart. Null for received rows and for AWDL sends.
@@ -668,13 +680,13 @@ git commit -m "fix(pay): a failed subtree no longer blocks independent queued pa
 Append to `__tests__/payerHold.test.ts` (follow the file's existing fake-storage pattern — it already stubs `sqliteDb`, `findTransactions`, `updateTransactionStatus`):
 
 ```ts
-  it('persists the frame payload on the queue row when given one', async () => {
-    // Use the suite's existing fake storage; capture insert params.
-    // holdSentPaymentOffline({ storage, txid: 'T', framePayload: 'bsvpayf1:abc' })
-    // Assert the INSERT received 'bsvpayf1:abc' in the framePayload position and
-    // that TaskSendOffline.hasPending flipped true (reset it in beforeEach via
-    // TaskSendOffline.resetForTests()).
-  })
+it('persists the frame payload on the queue row when given one', async () => {
+  // Use the suite's existing fake storage; capture insert params.
+  // holdSentPaymentOffline({ storage, txid: 'T', framePayload: 'bsvpayf1:abc' })
+  // Assert the INSERT received 'bsvpayf1:abc' in the framePayload position and
+  // that TaskSendOffline.hasPending flipped true (reset it in beforeEach via
+  // TaskSendOffline.resetForTests()).
+})
 ```
 
 Write it concretely against the file's fake db (the fake's `runAsync` already records `(sql, params)` pairs for the existing assertions — assert `params` contains the payload and `sql` names the `framePayload` column).
@@ -690,7 +702,9 @@ describe('ensureOfflineActionsColumns', () => {
     return {
       executed,
       getAllAsync: async () => columns.map(name => ({ name })),
-      execAsync: async (sql: string) => { executed.push(sql) }
+      execAsync: async (sql: string) => {
+        executed.push(sql)
+      }
     }
   }
 
@@ -744,7 +758,7 @@ export async function ensureOfflineActionsColumns(db: {
 In `storage/StorageExpoSQLite.ts` `migrate()` (`:87-90`), after `await createTables(this.db)`:
 
 ```ts
-    await ensureOfflineActionsColumns(this.db)
+await ensureOfflineActionsColumns(this.db)
 ```
 
 (add the import next to the existing `createTables` import at `:3`).
@@ -752,20 +766,27 @@ In `storage/StorageExpoSQLite.ts` `migrate()` (`:87-90`), after `await createTab
 - [ ] **Step 4: Mapper + payer hold**
 
 `storage/methods/offlineActions.ts`:
+
 - `OfflineActionRow` gains `framePayload: string | null` (after `poisonedByTxid`).
 - `NewOfflineAction` gains `framePayload?: string`.
 - `insertOfflineAction`'s SQL becomes:
 
 ```ts
-  await db.runAsync(
-    `INSERT OR IGNORE INTO offline_actions
+await db.runAsync(
+  `INSERT OR IGNORE INTO offline_actions
        (created_at, updated_at, userId, txid, seq, role, senderIdentityKey, receivedVia, status, framePayload)
      VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM offline_actions), ?, ?, ?, 'queued', ?)`,
-    [
-      now, now, entry.userId, entry.txid, entry.role,
-      entry.senderIdentityKey ?? null, entry.receivedVia ?? null, entry.framePayload ?? null
-    ]
-  )
+  [
+    now,
+    now,
+    entry.userId,
+    entry.txid,
+    entry.role,
+    entry.senderIdentityKey ?? null,
+    entry.receivedVia ?? null,
+    entry.framePayload ?? null
+  ]
+)
 ```
 
 `utils/offline/payerHold.ts` — widen the signature and arm the drain (the long ORDER MATTERS comment stays):
@@ -810,43 +831,45 @@ git commit -m "feat(pay): persist the payer's QR payload on the queue row (first
 ### Task 5: Done becomes a real delivery decision
 
 **Files:**
+
 - Modify: `components/pay/NearbyFlow.tsx` — `executeSend`'s qr branch (`:995-1008`) and AWDL-catch (`:1010-1028`), the send_qr Done button (`:1596-1605`), `reset()` (`:468-491`)
 - Test: none new — `finalizeDelivery`'s online/offline/hold behaviour is already pinned by `__tests__/localpayBuild.test.ts`, and Task 4 pinned the framePayload passthrough. Device step in Task 17 validates the UI path.
 
 **Interfaces:**
+
 - Consumes: `finalizeDelivery(wallet, built, ack, originator, { hold })` (`utils/localpay/build.ts:263`) — called with a synthetic positive ack `{ ok: true }`; `holdSentPaymentOffline` with `framePayload` (Task 4); `frameToQr` (existing).
 - Produces: `completeQrDelivery()` callback inside NearbyFlow; `builtRef` holding the built payment while the QR is on screen.
 
-Today Done on the shown payment QR does nothing (`NearbyFlow.tsx:1587-1605` — deliberate at the time), which leaves the payer's transaction at `nosend` with no queue row: the exact stuck state reported from device testing. New semantics: Done asserts delivery. Online it broadcasts (identical to a positive AWDL ack); offline it holds + enqueues with the frame persisted for re-show. A payee who scans *after* the broadcast still internalizes fine — the forced broadcast finds the txid already in the mempool, which the provider chain reads as success.
+Today Done on the shown payment QR does nothing (`NearbyFlow.tsx:1587-1605` — deliberate at the time), which leaves the payer's transaction at `nosend` with no queue row: the exact stuck state reported from device testing. New semantics: Done asserts delivery. Online it broadcasts (identical to a positive AWDL ack); offline it holds + enqueues with the frame persisted for re-show. A payee who scans _after_ the broadcast still internalizes fine — the forced broadcast finds the txid already in the mempool, which the provider chain reads as success.
 
 - [ ] **Step 1: Hold the built payment while the QR is up**
 
 Near the other refs (`:395-399`) add:
 
 ```ts
-  /**
-   * The built payment behind the QR currently on screen. Done routes it
-   * through finalizeDelivery; without it Done can only guess. Cleared by
-   * reset() and consumed (nulled) by completeQrDelivery.
-   */
-  const builtRef = useRef<Awaited<ReturnType<typeof buildPaymentFrame>> | null>(null)
+/**
+ * The built payment behind the QR currently on screen. Done routes it
+ * through finalizeDelivery; without it Done can only guess. Cleared by
+ * reset() and consumed (nulled) by completeQrDelivery.
+ */
+const builtRef = useRef<Awaited<ReturnType<typeof buildPaymentFrame>> | null>(null)
 ```
 
 In `executeSend`'s qr branch (`:995-1008`), set it before showing the QR:
 
 ```ts
-      if (sendKind === 'qr') {
-        if (!qr) {
-          abortBuild(built.reference)
-          setPaymentQr(null)
-          fail('generic', t('local_pay_too_large'))
-          return
-        }
-        builtRef.current = built
-        setPaymentQr(qr)
-        setPhase('send_qr')
-        return
-      }
+if (sendKind === 'qr') {
+  if (!qr) {
+    abortBuild(built.reference)
+    setPaymentQr(null)
+    fail('generic', t('local_pay_too_large'))
+    return
+  }
+  builtRef.current = built
+  setPaymentQr(qr)
+  setPhase('send_qr')
+  return
+}
 ```
 
 In the AWDL-catch branch (`:1013-1027`), before `setPaymentQr(qr)`, add `builtRef.current = qr ? built : null` (the QR offer only exists when the frame fits; a null offer keeps the old failure path).
@@ -858,41 +881,41 @@ In `reset()` (inside the callback at `:468-491`), add `builtRef.current = null`.
 Below `executeSend`, add:
 
 ```ts
-  // ── Send: the payer asserts QR delivery ──
-  //
-  // The QR path has no ack channel, so "the payee has it" is the user's claim,
-  // made by tapping Done. Acting on that claim mirrors a positive AWDL ack:
-  // broadcast when online, hold + queue when offline. This replaces the old
-  // do-nothing Done, which stranded the transaction at nosend with no queue
-  // row — nothing in the system would ever broadcast it. The risk of a wrong
-  // claim is bounded: the frame is persisted on the queue row, the code can be
-  // re-shown from /pay, and a payee scanning after the broadcast internalizes
-  // the already-mempooled transaction as a merge.
-  const completeQrDelivery = useCallback(async () => {
-    const built = builtRef.current
-    if (!built || !wallet) {
-      // No handle (e.g. re-entry after reset): nothing to decide, just close.
-      setSettledAmount(payAmount)
-      setRole('payer')
-      setPhase('done')
-      return
-    }
-    builtRef.current = null
-    setPhase('send_working')
-    const outcome = await finalizeDelivery(wallet as unknown as PayingWalletArg, built, { ok: true }, adminOriginator, {
-      hold: async txid => {
-        if (!storage) throw new Error('no local storage to queue this payment in')
-        await holdSentPaymentOffline({ storage, txid, framePayload: frameToQr(built.frame) })
-      }
-    })
-    if (outcome.kind === 'sent' && outcome.broadcast === 'pending') {
-      console.warn('[localpay] QR delivery queued or broadcast pending:', outcome.detail ?? '')
-      setNotice({ text: t('local_pay_broadcast_pending'), tone: 'warning' })
-    }
+// ── Send: the payer asserts QR delivery ──
+//
+// The QR path has no ack channel, so "the payee has it" is the user's claim,
+// made by tapping Done. Acting on that claim mirrors a positive AWDL ack:
+// broadcast when online, hold + queue when offline. This replaces the old
+// do-nothing Done, which stranded the transaction at nosend with no queue
+// row — nothing in the system would ever broadcast it. The risk of a wrong
+// claim is bounded: the frame is persisted on the queue row, the code can be
+// re-shown from /pay, and a payee scanning after the broadcast internalizes
+// the already-mempooled transaction as a merge.
+const completeQrDelivery = useCallback(async () => {
+  const built = builtRef.current
+  if (!built || !wallet) {
+    // No handle (e.g. re-entry after reset): nothing to decide, just close.
     setSettledAmount(payAmount)
     setRole('payer')
     setPhase('done')
-  }, [wallet, storage, adminOriginator, payAmount, t])
+    return
+  }
+  builtRef.current = null
+  setPhase('send_working')
+  const outcome = await finalizeDelivery(wallet as unknown as PayingWalletArg, built, { ok: true }, adminOriginator, {
+    hold: async txid => {
+      if (!storage) throw new Error('no local storage to queue this payment in')
+      await holdSentPaymentOffline({ storage, txid, framePayload: frameToQr(built.frame) })
+    }
+  })
+  if (outcome.kind === 'sent' && outcome.broadcast === 'pending') {
+    console.warn('[localpay] QR delivery queued or broadcast pending:', outcome.detail ?? '')
+    setNotice({ text: t('local_pay_broadcast_pending'), tone: 'warning' })
+  }
+  setSettledAmount(payAmount)
+  setRole('payer')
+  setPhase('done')
+}, [wallet, storage, adminOriginator, payAmount, t])
 ```
 
 (`finalizeDelivery` with `ack.ok === true` never takes the decline branch, so `outcome.kind === 'declined'` is unreachable here; `frameToQr` is already imported from the rails barrel at the top of the file.)
@@ -902,10 +925,12 @@ Below `executeSend`, add:
 Replace the send_qr Done button's `onPress` (`:1600-1604`) with `onPress={() => void completeQrDelivery()}` and replace the "Deliberately does NOT abort the build" comment block (`:1587-1595`) with:
 
 ```tsx
-            {/* Done asserts delivery: broadcast when online, hold + queue when
+{
+  /* Done asserts delivery: broadcast when online, hold + queue when
                 offline (see completeQrDelivery). Never an abort — the payee may
                 be about to broadcast this frame, and freeing its inputs would
-                let this wallet respend them into a conflict. */}
+                let this wallet respend them into a conflict. */
+}
 ```
 
 - [ ] **Step 4: Verify**
@@ -925,10 +950,12 @@ git commit -m "fix(pay): Done on the payment QR broadcasts or queues instead of 
 ### Task 6: Send now, stall surfacing, and re-show
 
 **Files:**
+
 - Modify: `components/pay/OfflineNotice.tsx`, `app/pay.tsx` (queue effect `:112-140` + render site of `OfflineNotice` + new modal), `context/i18n/translations.tsx`
 - Test: `__tests__/offlineNotice.test.tsx` (extend — the file exists and renders the component with fake rows)
 
 **Interfaces:**
+
 - Consumes: `TaskSendOffline.requestNow()`, `TaskSendOffline.lastStall` (Task 1); `OfflineActionRow.framePayload` (Task 4); `txStatusVersion` from `useWallet()`.
 - Produces: `OfflineNoticeProps` gains `onSendNow?: () => void`, `stalled?: string`, `queuedSent?: OfflineActionRow[]`, `onShowCode?: (row: OfflineActionRow) => void`.
 
@@ -937,24 +964,24 @@ git commit -m "fix(pay): Done on the payment QR broadcasts or queues instead of 
 In `__tests__/offlineNotice.test.tsx`, add (following the file's existing render helpers):
 
 ```tsx
-  it('shows a Send now button when online with a queue and fires the callback', () => {
-    const onSendNow = jest.fn()
-    // render OfflineNotice with online={true} queued={2} rejected={[]} onSendNow={onSendNow}
-    // fireEvent.press the node with text matching the pay_offline_send_now string
-    // expect(onSendNow).toHaveBeenCalled()
-  })
+it('shows a Send now button when online with a queue and fires the callback', () => {
+  const onSendNow = jest.fn()
+  // render OfflineNotice with online={true} queued={2} rejected={[]} onSendNow={onSendNow}
+  // fireEvent.press the node with text matching the pay_offline_send_now string
+  // expect(onSendNow).toHaveBeenCalled()
+})
 
-  it('renders the stall detail when one exists', () => {
-    // render with online={true} queued={1} stalled="txA has no request"
-    // expect text containing "txA has no request" to be present
-  })
+it('renders the stall detail when one exists', () => {
+  // render with online={true} queued={1} stalled="txA has no request"
+  // expect text containing "txA has no request" to be present
+})
 
-  it('offers show-code only for queued sent rows that carry a frame', () => {
-    const withFrame = { ...fakeRow, role: 'sent', status: 'queued', framePayload: 'bsvpayf1:abc' }
-    const without = { ...fakeRow, txid: 'other', role: 'sent', status: 'queued', framePayload: null }
-    // render with queuedSent={[withFrame, without]} and onShowCode
-    // expect exactly one show-code button
-  })
+it('offers show-code only for queued sent rows that carry a frame', () => {
+  const withFrame = { ...fakeRow, role: 'sent', status: 'queued', framePayload: 'bsvpayf1:abc' }
+  const without = { ...fakeRow, txid: 'other', role: 'sent', status: 'queued', framePayload: null }
+  // render with queuedSent={[withFrame, without]} and onShowCode
+  // expect exactly one show-code button
+})
 ```
 
 Write them concretely against the fixtures already defined in that file (it builds `OfflineActionRow` fakes for the rejected-row cases — reuse and extend those, adding `framePayload: null` to the base fake now that the type requires it).
@@ -967,6 +994,7 @@ Expected: FAIL — unknown props / missing strings.
 - [ ] **Step 3: Extend OfflineNotice**
 
 In `components/pay/OfflineNotice.tsx`:
+
 - Props (`:39-51`) gain:
 
 ```ts
@@ -982,42 +1010,45 @@ In `components/pay/OfflineNotice.tsx`:
 - In the `online && queued > 0` card (`:76-86`), after the body `<Text>`, add:
 
 ```tsx
-            {!!stalled && (
-              <Text style={[styles.body, { color: colors.warning }]}>
-                {t('pay_offline_stalled_body', { detail: stalled })}
-              </Text>
-            )}
-            {onSendNow && (
-              <Text
-                accessibilityRole="button"
-                onPress={onSendNow}
-                style={[styles.action, { color: colors.info }]}
-              >
-                {t('pay_offline_send_now')}
-              </Text>
-            )}
+{
+  !!stalled && (
+    <Text style={[styles.body, { color: colors.warning }]}>{t('pay_offline_stalled_body', { detail: stalled })}</Text>
+  )
+}
+{
+  onSendNow && (
+    <Text accessibilityRole="button" onPress={onSendNow} style={[styles.action, { color: colors.info }]}>
+      {t('pay_offline_send_now')}
+    </Text>
+  )
+}
 ```
 
 - After the `sentRejected` map (`:105-118`), add the re-show rows:
 
 ```tsx
-      {(queuedSent ?? [])
-        .filter(r => r.framePayload)
-        .map(r => (
-          <View key={`code-${r.txid}`} style={[styles.card, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
-            <Ionicons name="qr-code-outline" size={18} color={colors.textSecondary} />
-            <View style={styles.text}>
-              <Text style={[styles.body, { color: colors.textSecondary }]}>{r.created_at.slice(0, 10)}</Text>
-              <Text
-                accessibilityRole="button"
-                onPress={() => onShowCode?.(r)}
-                style={[styles.action, { color: colors.info }]}
-              >
-                {t('pay_offline_show_code')}
-              </Text>
-            </View>
-          </View>
-        ))}
+{
+  ;(queuedSent ?? [])
+    .filter(r => r.framePayload)
+    .map(r => (
+      <View
+        key={`code-${r.txid}`}
+        style={[styles.card, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
+      >
+        <Ionicons name="qr-code-outline" size={18} color={colors.textSecondary} />
+        <View style={styles.text}>
+          <Text style={[styles.body, { color: colors.textSecondary }]}>{r.created_at.slice(0, 10)}</Text>
+          <Text
+            accessibilityRole="button"
+            onPress={() => onShowCode?.(r)}
+            style={[styles.action, { color: colors.info }]}
+          >
+            {t('pay_offline_show_code')}
+          </Text>
+        </View>
+      </View>
+    ))
+}
 ```
 
 - Add to the stylesheet: `action: { ...typography.subhead, fontWeight: '600', marginTop: 4 }`.
@@ -1026,22 +1057,24 @@ In `components/pay/OfflineNotice.tsx`:
 - [ ] **Step 4: Wire pay.tsx**
 
 In `app/pay.tsx`:
+
 - Destructure `txStatusVersion` from `useWallet()` (`:104`) and add it to the queue effect's dep array (`:140`) so a drain refreshes the banner.
 - Extend the queue effect to keep the sent rows and the stall:
 
 ```ts
-  const [queuedSentRows, setQueuedSentRows] = useState<OfflineActionRow[]>([])
-  const [stalled, setStalled] = useState<string | undefined>(undefined)
-  // inside the effect, after setQueued(...):
-        setQueuedSentRows(rows.filter(r => r.status !== 'rejected' && r.role === 'sent'))
-        setStalled(TaskSendOffline.lastStall)
+const [queuedSentRows, setQueuedSentRows] = useState<OfflineActionRow[]>([])
+const [stalled, setStalled] = useState<string | undefined>(undefined)
+// inside the effect, after setQueued(...):
+setQueuedSentRows(rows.filter(r => r.status !== 'rejected' && r.role === 'sent'))
+setStalled(TaskSendOffline.lastStall)
 ```
 
 (import `TaskSendOffline` from `@/utils/monitor/TaskSendOffline`).
+
 - Re-show modal + send-now state:
 
 ```tsx
-  const [showCode, setShowCode] = useState<OfflineActionRow | null>(null)
+const [showCode, setShowCode] = useState<OfflineActionRow | null>(null)
 ```
 
 Pass to the `OfflineNotice` render site:
@@ -1056,20 +1089,20 @@ Pass to the `OfflineNotice` render site:
 And render, next to the screen's other modals:
 
 ```tsx
-      <Modal visible={!!showCode} animationType="slide" transparent onRequestClose={() => setShowCode(null)}>
-        <View style={styles.codeOverlay}>
-          <View style={[styles.codeCard, { backgroundColor: colors.backgroundElevated }]}>
-            {showCode?.framePayload && showCode.framePayload.length <= MAX_FRAME_QR_CHARS ? (
-              <QRCode value={showCode.framePayload} size={288} ecl="M" color="#000" backgroundColor="#fff" />
-            ) : (
-              <Text style={{ color: colors.textSecondary }}>{t('local_pay_too_large')}</Text>
-            )}
-            <TouchableOpacity onPress={() => setShowCode(null)} style={styles.codeClose}>
-              <Text style={{ color: colors.info }}>{t('done')}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+<Modal visible={!!showCode} animationType="slide" transparent onRequestClose={() => setShowCode(null)}>
+  <View style={styles.codeOverlay}>
+    <View style={[styles.codeCard, { backgroundColor: colors.backgroundElevated }]}>
+      {showCode?.framePayload && showCode.framePayload.length <= MAX_FRAME_QR_CHARS ? (
+        <QRCode value={showCode.framePayload} size={288} ecl="M" color="#000" backgroundColor="#fff" />
+      ) : (
+        <Text style={{ color: colors.textSecondary }}>{t('local_pay_too_large')}</Text>
+      )}
+      <TouchableOpacity onPress={() => setShowCode(null)} style={styles.codeClose}>
+        <Text style={{ color: colors.info }}>{t('done')}</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+</Modal>
 ```
 
 with imports (`react-native-qrcode-svg`, `Modal`, `MAX_FRAME_QR_CHARS` from `@/utils/pay/rails/nearby`) and two styles (`codeOverlay`: flex 1, centered, `rgba(0,0,0,0.5)`; `codeCard`: padding `spacing.xl`, borderRadius 16, alignItems center, gap `spacing.lg`; `codeClose`: padding `spacing.md`). Phase 2's Task 11 swaps the static `<QRCode>` here for `PaymentQrDisplay`, which removes the too-large branch.
@@ -1078,11 +1111,11 @@ with imports (`react-native-qrcode-svg`, `Modal`, `MAX_FRAME_QR_CHARS` from `@/u
 
 Add to each locale block of `context/i18n/translations.tsx`:
 
-| key | en | zh | hi | es | fr | ar |
-| --- | --- | --- | --- | --- | --- | --- |
-| `pay_offline_send_now` | Send now | 立即发送 | अभी भेजें | Enviar ahora | Envoyer maintenant | أرسل الآن |
+| key                        | en                                                           | zh                                   | hi                                                      | es                                                                    | fr                                                                                     | ar                                                               |
+| -------------------------- | ------------------------------------------------------------ | ------------------------------------ | ------------------------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `pay_offline_send_now`     | Send now                                                     | 立即发送                             | अभी भेजें                                               | Enviar ahora                                                          | Envoyer maintenant                                                                     | أرسل الآن                                                        |
 | `pay_offline_stalled_body` | Some queued payments can't be sent automatically: {{detail}} | 部分排队付款无法自动发送：{{detail}} | कुछ कतारबद्ध भुगतान स्वतः नहीं भेजे जा सकते: {{detail}} | Algunos pagos en cola no se pueden enviar automáticamente: {{detail}} | Certains paiements en attente ne peuvent pas être envoyés automatiquement : {{detail}} | تعذّر إرسال بعض المدفوعات في قائمة الانتظار تلقائيًا: {{detail}} |
-| `pay_offline_show_code` | Show code again | 再次显示付款码 | कोड फिर दिखाएँ | Mostrar el código otra vez | Réafficher le code | إظهار الرمز مرة أخرى |
+| `pay_offline_show_code`    | Show code again                                              | 再次显示付款码                       | कोड फिर दिखाएँ                                          | Mostrar el código otra vez                                            | Réafficher le code                                                                     | إظهار الرمز مرة أخرى                                             |
 
 - [ ] **Step 6: Run to verify pass**
 
@@ -1102,10 +1135,12 @@ git commit -m "feat(pay): send-now control, stall surfacing, and re-showable pay
 ### Task 7: Offline badges in the transactions screen
 
 **Files:**
+
 - Modify: `app/transactions.tsx` (`fetchActions` `:63-70`, `getStatusInfo` `:32-43`, `renderItem` `:198-204`), `context/WalletContext.tsx` (expose `walletUserId`), `app/pay.tsx:119` (userId scoping), `context/i18n/translations.tsx`
 - Test: none new (screen-level; `payScreen.test.tsx` covers /pay's query change if it pins the call shape). Device step in Task 17.
 
 **Interfaces:**
+
 - Consumes: `findOfflineActions(db, { status, userId })` (`storage/methods/offlineActions.ts:70`); `storageManager.getAuth()` (`@bsv/wallet-toolbox-mobile` `WalletStorageManager.d.ts:94`, returns `Promise<sdk.AuthId>` whose `userId: number`).
 - Produces: `useWallet().walletUserId: number | null` — the active user's storage id, for scoping `offline_actions` reads.
 
@@ -1114,14 +1149,14 @@ git commit -m "feat(pay): send-now control, stall surfacing, and re-showable pay
 In `context/WalletContext.tsx`: add state `const [walletUserId, setWalletUserId] = useState<number | null>(null)` next to `txStatusVersion` (`:328` area). In the wallet-build flow, directly after `await storageManager.addWalletStorageProvider(phoneStorage as any)` (`:832`), add:
 
 ```ts
-          try {
-            const auth = await storageManager.getAuth()
-            setWalletUserId(auth.userId ?? null)
-          } catch {
-            // Scoping is a filter, not a gate: with no id the queue reads fall
-            // back to unscoped, which is today's behaviour.
-            setWalletUserId(null)
-          }
+try {
+  const auth = await storageManager.getAuth()
+  setWalletUserId(auth.userId ?? null)
+} catch {
+  // Scoping is a filter, not a gate: with no id the queue reads fall
+  // back to unscoped, which is today's behaviour.
+  setWalletUserId(null)
+}
 ```
 
 Reset it to `null` in `logout` (`:1568+`, alongside the other resets) and add `walletUserId` to the context value object and its type.
@@ -1131,10 +1166,10 @@ Reset it to `null` in `logout` (`:1568+`, alongside the other resets) and add `w
 `app/pay.tsx:119` becomes:
 
 ```ts
-        const rows = await findOfflineActions(db, {
-          status: ['queued', 'posting', 'rejected'],
-          ...(walletUserId === null ? {} : { userId: walletUserId })
-        })
+const rows = await findOfflineActions(db, {
+  status: ['queued', 'posting', 'rejected'],
+  ...(walletUserId === null ? {} : { userId: walletUserId })
+})
 ```
 
 (destructure `walletUserId` from `useWallet()`, add to the effect deps.)
@@ -1144,23 +1179,23 @@ Reset it to `null` in `logout` (`:1568+`, alongside the other resets) and add `w
 - New state + fetch alongside `fetchActions` (`:63-70`):
 
 ```ts
-  const [offlineByTxid, setOfflineByTxid] = useState<Map<string, OfflineActionRow>>(new Map())
+const [offlineByTxid, setOfflineByTxid] = useState<Map<string, OfflineActionRow>>(new Map())
 
-  const fetchOfflineRows = useCallback(async () => {
-    try {
-      const db = storage?.sqliteDb
-      if (!db) return
-      const rows = await findOfflineActions(db, {
-        status: ['queued', 'posting', 'rejected'],
-        ...(walletUserId === null ? {} : { userId: walletUserId })
-      })
-      // 'sent' rows are excluded by the query: a settled transaction must show
-      // its normal status, and sent rows persist as provenance.
-      setOfflineByTxid(new Map(rows.map(r => [r.txid, r])))
-    } catch {
-      // The overlay is advisory. A read failure must not break the list.
-    }
-  }, [storage, walletUserId])
+const fetchOfflineRows = useCallback(async () => {
+  try {
+    const db = storage?.sqliteDb
+    if (!db) return
+    const rows = await findOfflineActions(db, {
+      status: ['queued', 'posting', 'rejected'],
+      ...(walletUserId === null ? {} : { userId: walletUserId })
+    })
+    // 'sent' rows are excluded by the query: a settled transaction must show
+    // its normal status, and sent rows persist as provenance.
+    setOfflineByTxid(new Map(rows.map(r => [r.txid, r])))
+  } catch {
+    // The overlay is advisory. A read failure must not break the list.
+  }
+}, [storage, walletUserId])
 ```
 
 Call `void fetchOfflineRows()` inside the existing initial-load effect (`:72-84`, it already re-runs on `txStatusVersion`) and inside `onRefresh`.
@@ -1194,11 +1229,11 @@ function getStatusInfo(
 
 - [ ] **Step 4: The strings, six locales**
 
-| key | en | zh | hi | es | fr | ar |
-| --- | --- | --- | --- | --- | --- | --- |
-| `tx_status_offline_queued` | Offline · queued | 离线 · 已排队 | ऑफ़लाइन · कतार में | Sin conexión · en cola | Hors ligne · en file | دون اتصال · في قائمة الانتظار |
-| `tx_status_offline_sending` | Offline · sending | 离线 · 发送中 | ऑफ़लाइन · भेजा जा रहा है | Sin conexión · enviando | Hors ligne · envoi | دون اتصال · جارٍ الإرسال |
-| `tx_status_offline_rejected` | Offline · rejected | 离线 · 已拒绝 | ऑफ़लाइन · अस्वीकृत | Sin conexión · rechazado | Hors ligne · rejeté | دون اتصال · مرفوض |
+| key                          | en                 | zh            | hi                       | es                       | fr                   | ar                            |
+| ---------------------------- | ------------------ | ------------- | ------------------------ | ------------------------ | -------------------- | ----------------------------- |
+| `tx_status_offline_queued`   | Offline · queued   | 离线 · 已排队 | ऑफ़लाइन · कतार में       | Sin conexión · en cola   | Hors ligne · en file | دون اتصال · في قائمة الانتظار |
+| `tx_status_offline_sending`  | Offline · sending  | 离线 · 发送中 | ऑफ़लाइन · भेजा जा रहा है | Sin conexión · enviando  | Hors ligne · envoi   | دون اتصال · جارٍ الإرسال      |
+| `tx_status_offline_rejected` | Offline · rejected | 离线 · 已拒绝 | ऑफ़लाइन · अस्वीकृत       | Sin conexión · rechazado | Hors ligne · rejeté  | دون اتصال · مرفوض             |
 
 - [ ] **Step 5: Verify + commit**
 
@@ -1220,11 +1255,13 @@ Unlocks every cross-OS pair and removes the size ceiling. Depends on Phase 1 (Do
 ### Task 8: The fountain codec
 
 **Files:**
+
 - Create: `utils/localpay/fountain.ts`
 - Modify: `utils/localpay/codec.ts` (one new export)
 - Test: `__tests__/localpayFountain.test.ts` (new), `__tests__/localpayCodec.test.ts` (one new case)
 
 **Interfaces:**
+
 - Consumes: nothing (pure module; reuses codec's base64url shape by construction).
 - Produces:
   - `FOUNTAIN_QR_PREFIX = 'bsvpayf2:'`, `BLOCK_BYTES = 1200`, `MAX_MESSAGE_BYTES = 65536`, `FOUNTAIN_FRAME_MS = 200`
@@ -1380,8 +1417,7 @@ describe('FountainDecoder', () => {
     bytes[20] ^= 0xff
     let bin = ''
     for (const byte of bytes) bin += String.fromCharCode(byte)
-    const corrupt =
-      FOUNTAIN_QR_PREFIX + globalThis.btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    const corrupt = FOUNTAIN_QR_PREFIX + globalThis.btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 
     dec.accept(enc.partAt(0))
     const s = dec.accept(corrupt)
@@ -1401,12 +1437,12 @@ Add to `__tests__/localpayCodec.test.ts`:
 ```ts
 import { frameBytesFromQr, frameToQr, encodeFrame } from '@/utils/localpay/codec'
 
-  it('frameBytesFromQr returns the exact encodeFrame bytes', () => {
-    // Reuse the suite's existing valid frame fixture (the one frameToQr tests use).
-    const qr = frameToQr(fixtureFrame)
-    expect(Array.from(frameBytesFromQr(qr))).toEqual(Array.from(encodeFrame(fixtureFrame)))
-    expect(() => frameBytesFromQr('bsvpay1:xx')).toThrow()
-  })
+it('frameBytesFromQr returns the exact encodeFrame bytes', () => {
+  // Reuse the suite's existing valid frame fixture (the one frameToQr tests use).
+  const qr = frameToQr(fixtureFrame)
+  expect(Array.from(frameBytesFromQr(qr))).toEqual(Array.from(encodeFrame(fixtureFrame)))
+  expect(() => frameBytesFromQr('bsvpay1:xx')).toThrow()
+})
 ```
 
 (name the fixture whatever the file already calls its valid `PaymentFrame` — do not mint a new one.)
@@ -1636,7 +1672,12 @@ export class FountainDecoder {
    * the camera WILL hand this stray reads.
    */
   accept(text: string): { ok: boolean; done: boolean; have: number; total: number } {
-    const state = () => ({ ok: true, done: this.solvedCount === this.total && this.total > 0, have: this.solvedCount, total: this.total })
+    const state = () => ({
+      ok: true,
+      done: this.solvedCount === this.total && this.total > 0,
+      have: this.solvedCount,
+      total: this.total
+    })
     if (typeof text !== 'string' || !text.startsWith(FOUNTAIN_QR_PREFIX)) {
       return { ok: false, done: false, have: this.solvedCount, total: this.total }
     }
@@ -1762,10 +1803,12 @@ git commit -m "feat(pay): Luby-transform fountain codec for multipart payment QR
 ### Task 9: Session payload v2 — CAP_NEARBY and the OS field
 
 **Files:**
+
 - Modify: `utils/localpay/session.ts`
 - Test: `__tests__/localpaySession.test.ts` (additions)
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: `CAP_NEARBY = 0x02`; `Session.os?: 'ios' | 'android'`; `mintSession` args gain `supportsNearby?: boolean; os?: 'ios' | 'android'`. Wire field `o: 'i' | 'a'`, omitted when unknown. **`SESSION_VERSION` stays 1.**
 
@@ -1774,34 +1817,36 @@ git commit -m "feat(pay): Luby-transform fountain codec for multipart payment QR
 Append to `__tests__/localpaySession.test.ts` (reuse the file's existing valid-mint helper/fixture args):
 
 ```ts
-  it('mints CAP_NEARBY and the OS field, and round-trips them', () => {
-    const s = mintSession({ ...validMintArgs, supportsAwdl: false, supportsNearby: true, os: 'android' })
-    expect(s.caps & CAP_NEARBY).toBe(CAP_NEARBY)
-    expect(s.caps & CAP_AWDL).toBe(0)
-    const decoded = decodeSession(encodeSession(s))
-    expect(decoded.caps).toBe(s.caps)
-    expect(decoded.os).toBe('android')
-  })
+it('mints CAP_NEARBY and the OS field, and round-trips them', () => {
+  const s = mintSession({ ...validMintArgs, supportsAwdl: false, supportsNearby: true, os: 'android' })
+  expect(s.caps & CAP_NEARBY).toBe(CAP_NEARBY)
+  expect(s.caps & CAP_AWDL).toBe(0)
+  const decoded = decodeSession(encodeSession(s))
+  expect(decoded.caps).toBe(s.caps)
+  expect(decoded.os).toBe('android')
+})
 
-  it('omits the OS field when unknown and tolerates junk in it', () => {
-    const s = mintSession({ ...validMintArgs, supportsAwdl: true })
-    expect(encodeSession(s)).not.toContain('"o"')
-    // A future build may send values this one does not know: they read as absent.
-    const body = JSON.parse(new TextDecoder().decode(b64urlDecode(encodeSession({ ...s, os: 'ios' }).slice('bsvpay1:'.length))))
-    body.o = 'z'
-    const tampered = 'bsvpay1:' + b64urlEncode(new TextEncoder().encode(JSON.stringify(body)))
-    expect(decodeSession(tampered).os).toBeUndefined()
-  })
+it('omits the OS field when unknown and tolerates junk in it', () => {
+  const s = mintSession({ ...validMintArgs, supportsAwdl: true })
+  expect(encodeSession(s)).not.toContain('"o"')
+  // A future build may send values this one does not know: they read as absent.
+  const body = JSON.parse(
+    new TextDecoder().decode(b64urlDecode(encodeSession({ ...s, os: 'ios' }).slice('bsvpay1:'.length)))
+  )
+  body.o = 'z'
+  const tampered = 'bsvpay1:' + b64urlEncode(new TextEncoder().encode(JSON.stringify(body)))
+  expect(decodeSession(tampered).os).toBeUndefined()
+})
 
-  it('a payload with unknown extra keys and unknown cap bits still decodes', () => {
-    const s = mintSession({ ...validMintArgs, supportsAwdl: true })
-    const body = JSON.parse(new TextDecoder().decode(b64urlDecode(encodeSession(s).slice('bsvpay1:'.length))))
-    body.c = 0xff // future caps
-    body.future = 'ignored'
-    const wire = 'bsvpay1:' + b64urlEncode(new TextEncoder().encode(JSON.stringify(body)))
-    const decoded = decodeSession(wire)
-    expect(decoded.caps & CAP_AWDL).toBe(CAP_AWDL)
-  })
+it('a payload with unknown extra keys and unknown cap bits still decodes', () => {
+  const s = mintSession({ ...validMintArgs, supportsAwdl: true })
+  const body = JSON.parse(new TextDecoder().decode(b64urlDecode(encodeSession(s).slice('bsvpay1:'.length))))
+  body.c = 0xff // future caps
+  body.future = 'ignored'
+  const wire = 'bsvpay1:' + b64urlEncode(new TextEncoder().encode(JSON.stringify(body)))
+  const decoded = decodeSession(wire)
+  expect(decoded.caps & CAP_AWDL).toBe(CAP_AWDL)
+})
 ```
 
 (the suite already has base64url helpers or inline equivalents for its tamper tests — reuse them; if named differently, use those names.)
@@ -1839,8 +1884,8 @@ export interface Session {
 `decodeSession`: destructure `o` too; after the caps check add:
 
 ```ts
-  // Tolerant on purpose: 'o' is advisory, from possibly-newer builds.
-  const os: SessionOs | undefined = o === 'i' ? 'ios' : o === 'a' ? 'android' : undefined
+// Tolerant on purpose: 'o' is advisory, from possibly-newer builds.
+const os: SessionOs | undefined = o === 'i' ? 'ios' : o === 'a' ? 'android' : undefined
 ```
 
 and spread `...(os === undefined ? {} : { os })` into the returned object.
@@ -1859,11 +1904,13 @@ git commit -m "feat(pay): session payload learns CAP_NEARBY and an advisory OS f
 ### Task 10: The transport ladder and the shared socket wrapper
 
 **Files:**
+
 - Create: `utils/localpay/transport/socket.ts`, `utils/localpay/transport/nearby.ts`
 - Modify: `utils/localpay/transport/select.ts`, `utils/localpay/transport/types.ts` (kind union), `utils/localpay/transport/awdl.ts` (becomes a re-export), `utils/pay/rails/nearby.ts` (barrel), `components/pay/NearbyFlow.tsx` (mint, listener, send branch, attribution)
 - Test: `__tests__/localpayTransportSelect.test.ts` (ladder table), `__tests__/localpayTransportAwdl.test.ts` (import path only — behaviour identical)
 
 **Interfaces:**
+
 - Consumes: `CAP_AWDL`, `CAP_NEARBY` (Task 9); `getLocalPayTransport()` (unchanged — on Android it will return the Kotlin backend from Phase 3, null until then).
 - Produces:
   - `type TransportKind = 'awdl' | 'nearby' | 'qr'` (from `select.ts`)
@@ -1877,19 +1924,19 @@ git commit -m "feat(pay): session payload learns CAP_NEARBY and an advisory OS f
 In `__tests__/localpayTransportSelect.test.ts`, extend the existing suite (it already mocks `react-native` Platform and `react-native-localpay-transport` for `localSupportsAwdl`) with the full table:
 
 ```ts
-  // caps × platform × native support → transport
-  const CASES: [caps: number, platform: 'ios' | 'android', native: boolean, expected: string][] = [
-    [CAP_AWDL, 'ios', true, 'awdl'],
-    [CAP_AWDL, 'ios', false, 'qr'],
-    [CAP_AWDL, 'android', true, 'qr'],            // AWDL cap useless off-iOS
-    [CAP_NEARBY, 'android', true, 'nearby'],
-    [CAP_NEARBY, 'android', false, 'qr'],
-    [CAP_NEARBY, 'ios', true, 'qr'],              // Nearby cap useless on iOS
-    [CAP_AWDL | CAP_NEARBY, 'ios', true, 'awdl'], // AWDL outranks Nearby
-    [CAP_AWDL | CAP_NEARBY, 'android', true, 'nearby'],
-    [0, 'ios', true, 'qr'],
-    [0, 'android', true, 'qr']
-  ]
+// caps × platform × native support → transport
+const CASES: [caps: number, platform: 'ios' | 'android', native: boolean, expected: string][] = [
+  [CAP_AWDL, 'ios', true, 'awdl'],
+  [CAP_AWDL, 'ios', false, 'qr'],
+  [CAP_AWDL, 'android', true, 'qr'], // AWDL cap useless off-iOS
+  [CAP_NEARBY, 'android', true, 'nearby'],
+  [CAP_NEARBY, 'android', false, 'qr'],
+  [CAP_NEARBY, 'ios', true, 'qr'], // Nearby cap useless on iOS
+  [CAP_AWDL | CAP_NEARBY, 'ios', true, 'awdl'], // AWDL outranks Nearby
+  [CAP_AWDL | CAP_NEARBY, 'android', true, 'nearby'],
+  [0, 'ios', true, 'qr'],
+  [0, 'android', true, 'qr']
+]
 ```
 
 and a `it.each(CASES)` that sets the Platform mock and the native `isSupported` mock per row, then asserts `selectTransport(sessionWithCaps(caps))`. Follow the file's existing mock plumbing exactly (same `jest.mock` targets, same session fixture builder).
@@ -1997,12 +2044,12 @@ In `components/pay/NearbyFlow.tsx` (import the new symbols from the rails barrel
 - Next to the `supportsAwdl` memo (`:410`):
 
 ```ts
-  const supportsNearby = useMemo(() => localSupportsNearby(), [])
-  /** The radio this device listens on as payee, if any. */
-  const radioTransport = useMemo(
-    () => (supportsAwdl ? awdlTransport : supportsNearby ? nearbyTransport : null),
-    [supportsAwdl, supportsNearby]
-  )
+const supportsNearby = useMemo(() => localSupportsNearby(), [])
+/** The radio this device listens on as payee, if any. */
+const radioTransport = useMemo(
+  () => (supportsAwdl ? awdlTransport : supportsNearby ? nearbyTransport : null),
+  [supportsAwdl, supportsNearby]
+)
 ```
 
 - The payee listener effect (`:748-784`): replace `if (!supportsAwdl) return` with `if (!radioTransport) return`, replace `awdlTransport.receive(...)` with `radioTransport.receive(...)`, and swap `supportsAwdl` for `radioTransport` in the dep array.
@@ -2010,17 +2057,17 @@ In `components/pay/NearbyFlow.tsx` (import the new symbols from the rails barrel
 - The mint (`:813-821`): pass the new args —
 
 ```ts
-      const session = mintSession({
-        identityKey,
-        amount: sats,
-        derivationPrefix,
-        derivationSuffix,
-        // Caps advertise what this payee can DO; the payer's ladder picks the
-        // highest rung both sides share, QR being the floor.
-        supportsAwdl,
-        supportsNearby,
-        os: Platform.OS === 'ios' ? 'ios' : 'android'
-      })
+const session = mintSession({
+  identityKey,
+  amount: sats,
+  derivationPrefix,
+  derivationSuffix,
+  // Caps advertise what this payee can DO; the payer's ladder picks the
+  // highest rung both sides share, QR being the floor.
+  supportsAwdl,
+  supportsNearby,
+  os: Platform.OS === 'ios' ? 'ios' : 'android'
+})
 ```
 
 - `executeSend`'s radio branch (`:1010-1012`): `const radio = sendKind === 'awdl' ? awdlTransport : nearbyTransport` above the try, and `ack = await radio.send(session, built.frame, controller.signal)`.
@@ -2040,11 +2087,13 @@ git commit -m "feat(pay): three-rung transport ladder — AWDL, Nearby, QR floor
 ### Task 11: Animated sender
 
 **Files:**
+
 - Create: `components/pay/PaymentQrDisplay.tsx`
 - Modify: `components/pay/NearbyFlow.tsx` (qr branch of `executeSend`, send_qr render), `app/pay.tsx` (re-show modal), `context/i18n/translations.tsx`
 - Test: none new (the codec is Task 8-tested; this is rendering). Device step in Task 17.
 
 **Interfaces:**
+
 - Consumes: `FountainEncoder`, `FOUNTAIN_FRAME_MS`, `MAX_MESSAGE_BYTES` (Task 8); `frameBytesFromQr`, `MAX_FRAME_QR_CHARS`, `encodeFrame` (codec, via the rails barrel — add `encodeFrame`, `frameBytesFromQr`, and the fountain exports to `utils/pay/rails/nearby.ts` in this task).
 - Produces: `PaymentQrDisplay({ frameQr, size?, onError? })` — renders a `bsvpayf1:` payload statically when it fits a symbol, otherwise animates fountain parts. `NearbyFlow`'s `paymentQr` state now always holds the full `bsvpayf1:` string (never withheld for size — only the >64 KB sanity case still fails).
 
@@ -2063,12 +2112,7 @@ Create `components/pay/PaymentQrDisplay.tsx`:
  */
 import React, { useEffect, useMemo, useState } from 'react'
 import QRCode from 'react-native-qrcode-svg'
-import {
-  FOUNTAIN_FRAME_MS,
-  FountainEncoder,
-  MAX_FRAME_QR_CHARS,
-  frameBytesFromQr
-} from '@/utils/pay/rails/nearby'
+import { FOUNTAIN_FRAME_MS, FountainEncoder, MAX_FRAME_QR_CHARS, frameBytesFromQr } from '@/utils/pay/rails/nearby'
 
 export default function PaymentQrDisplay({
   frameQr,
@@ -2121,21 +2165,21 @@ In `components/pay/NearbyFlow.tsx`:
 - `executeSend`: delete the `const qr = frameQrOrNull(built.frame)` line (`:993`) and replace the qr branch (as rewritten in Task 5) with:
 
 ```ts
-      if (sendKind === 'qr') {
-        // The fountain removes the symbol-size ceiling; the only refusal left
-        // is the 64 KB sanity cap, past which QR handover is unreasonable and
-        // something upstream is wrong.
-        if (encodeFrame(built.frame).length > MAX_MESSAGE_BYTES) {
-          abortBuild(built.reference)
-          setPaymentQr(null)
-          fail('generic', t('local_pay_too_large'))
-          return
-        }
-        builtRef.current = built
-        setPaymentQr(frameToQr(built.frame))
-        setPhase('send_qr')
-        return
-      }
+if (sendKind === 'qr') {
+  // The fountain removes the symbol-size ceiling; the only refusal left
+  // is the 64 KB sanity cap, past which QR handover is unreasonable and
+  // something upstream is wrong.
+  if (encodeFrame(built.frame).length > MAX_MESSAGE_BYTES) {
+    abortBuild(built.reference)
+    setPaymentQr(null)
+    fail('generic', t('local_pay_too_large'))
+    return
+  }
+  builtRef.current = built
+  setPaymentQr(frameToQr(built.frame))
+  setPhase('send_qr')
+  return
+}
 ```
 
 (The AWDL-catch branch still calls `frameQrOrNull` until Task 13 rewrites it; leave both in place this task.)
@@ -2143,7 +2187,7 @@ In `components/pay/NearbyFlow.tsx`:
 - send_qr render (`:1570-1583`): replace the inner `<QRCode .../>` with:
 
 ```tsx
-                <PaymentQrDisplay frameQr={paymentQr} size={PAYMENT_QR_SIZE} onError={onPaymentQrError} />
+<PaymentQrDisplay frameQr={paymentQr} size={PAYMENT_QR_SIZE} onError={onPaymentQrError} />
 ```
 
 (import `PaymentQrDisplay` from `@/components/pay/PaymentQrDisplay`; the `qrPlate` wrapper stays.)
@@ -2151,9 +2195,11 @@ In `components/pay/NearbyFlow.tsx`:
 and directly under the amount caption add the animated hint, shown only when animating:
 
 ```tsx
-            {paymentQr.length > MAX_FRAME_QR_CHARS && (
-              <Text style={[styles.support, { color: colors.textSecondary }]}>{t('local_pay_animated_hint')}</Text>
-            )}
+{
+  paymentQr.length > MAX_FRAME_QR_CHARS && (
+    <Text style={[styles.support, { color: colors.textSecondary }]}>{t('local_pay_animated_hint')}</Text>
+  )
+}
 ```
 
 - [ ] **Step 3: Upgrade the re-show modal**
@@ -2161,23 +2207,23 @@ and directly under the amount caption add the animated hint, shown only when ani
 In `app/pay.tsx`, replace Task 6's modal body branch with:
 
 ```tsx
-            {showCode?.framePayload ? (
-              <PaymentQrDisplay frameQr={showCode.framePayload} size={288} />
-            ) : null}
+{
+  showCode?.framePayload ? <PaymentQrDisplay frameQr={showCode.framePayload} size={288} /> : null
+}
 ```
 
 (remove the now-unused `QRCode` import and the `MAX_FRAME_QR_CHARS` import if nothing else uses them).
 
 - [ ] **Step 4: Strings, six locales**
 
-| key | en | zh | hi | es | fr | ar |
-| --- | --- | --- | --- | --- | --- | --- |
+| key                       | en                                                                               | zh                                                         | hi                                                                                       | es                                                                                                 | fr                                                                          | ar                                                                        |
+| ------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | `local_pay_animated_hint` | Hold the screens together — the code animates until the other device has it all. | 请将两台设备屏幕对准——二维码会持续变化，直到对方接收完成。 | स्क्रीन आमने-सामने रखें — कोड तब तक बदलता रहेगा जब तक दूसरा डिवाइस पूरा प्राप्त न कर ले। | Mantén las pantallas enfrentadas: el código se anima hasta que el otro dispositivo lo reciba todo. | Gardez les écrans face à face — le code s'anime jusqu'à réception complète. | أبقِ الشاشتين متقابلتين — يتحرك الرمز حتى يستلم الجهاز الآخر كل البيانات. |
 
 Also REPLACE `local_pay_too_large`'s copy in all six locales — the current text claims "Both devices need to be on iOS", which the fountain makes false:
 
-| key | en | zh | hi | es | fr | ar |
-| --- | --- | --- | --- | --- | --- | --- |
+| key                   | en                                                           | zh                                   | hi                                                    | es                                                                            | fr                                                                                  | ar                                              |
+| --------------------- | ------------------------------------------------------------ | ------------------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------- |
 | `local_pay_too_large` | This payment's data is too large to hand over with QR codes. | 此付款数据过大，无法通过二维码传输。 | इस भुगतान का डेटा QR कोड से देने के लिए बहुत बड़ा है। | Los datos de este pago son demasiado grandes para entregarlos con códigos QR. | Les données de ce paiement sont trop volumineuses pour être transmises par code QR. | بيانات هذه الدفعة أكبر من أن تُنقل عبر رموز QR. |
 
 - [ ] **Step 5: Verify + commit**
@@ -2194,10 +2240,12 @@ git commit -m "feat(pay): animated fountain QR replaces the too-large dead end"
 ### Task 12: Fountain receiver
 
 **Files:**
+
 - Modify: `components/QRScanner.tsx` (`continuous` prop), `components/pay/NearbyFlow.tsx` (`onFrameScanned`, scanner render `:1718-1726`, `openScanner`, `reset`), `context/i18n/translations.tsx`
 - Test: fountain assembly is Task 8-tested; the scanner prop is exercised by `payScreen.test.tsx` mounting (type-level) plus the device step.
 
 **Interfaces:**
+
 - Consumes: `FountainDecoder`, `FOUNTAIN_QR_PREFIX` (rails barrel, Task 11); `decodeFrame` (add to the rails barrel re-exports).
 - Produces: `QRScannerProps.continuous?: boolean` — when true, every recognised barcode is forwarded immediately: no 1,500 ms lock, no per-read haptic (5 reads/s would buzz continuously); the caller owns dedupe and completion.
 
@@ -2218,11 +2266,11 @@ In `components/QRScanner.tsx`: add to props (after `multiScan`, `:27`):
 and at the top of `handleBarCodeScanned` (`:57-59`):
 
 ```ts
-      if (continuous) {
-        if (stoppedRef.current) return
-        onScan(data)
-        return
-      }
+if (continuous) {
+  if (stoppedRef.current) return
+  onScan(data)
+  return
+}
 ```
 
 (destructure `continuous = false` in the component signature; add it to the `useCallback` deps.)
@@ -2234,19 +2282,19 @@ In `components/pay/NearbyFlow.tsx`:
 - New refs/state near the others:
 
 ```ts
-  const fountainDecoderRef = useRef<FountainDecoder | null>(null)
-  const [scanProgress, setScanProgress] = useState<{ have: number; total: number } | null>(null)
+const fountainDecoderRef = useRef<FountainDecoder | null>(null)
+const [scanProgress, setScanProgress] = useState<{ have: number; total: number } | null>(null)
 ```
 
 - `openScanner` (`:440-443`) additionally clears them:
 
 ```ts
-  const openScanner = useCallback((next: 'send_scan' | 'receive_scan') => {
-    scanLatchRef.current = false
-    fountainDecoderRef.current = null
-    setScanProgress(null)
-    setPhase(next)
-  }, [])
+const openScanner = useCallback((next: 'send_scan' | 'receive_scan') => {
+  scanLatchRef.current = false
+  fountainDecoderRef.current = null
+  setScanProgress(null)
+  setPhase(next)
+}, [])
 ```
 
 (same two resets inside `reset()`.)
@@ -2292,28 +2340,28 @@ In `components/pay/NearbyFlow.tsx`:
 - Scanner render (`:1718-1726`): pass the mode and the progress:
 
 ```tsx
-        <QRScanner
-          multiScan
-          continuous={phase === 'receive_scan'}
-          onScan={phase === 'send_scan' ? onSessionScanned : onFrameScanned}
-          onClose={closeScanner}
-          hintText={phase === 'send_scan' ? t('local_pay_scan_qr') : t('local_pay_scan_payer_qr')}
-          renderBottom={
-            phase === 'receive_scan' && scanProgress
-              ? () => (
-                  <Text style={{ color: 'rgba(255,255,255,0.8)', marginTop: 8 }}>
-                    {t('local_pay_scan_progress', { have: scanProgress.have, total: scanProgress.total })}
-                  </Text>
-                )
-              : undefined
-          }
-        />
+<QRScanner
+  multiScan
+  continuous={phase === 'receive_scan'}
+  onScan={phase === 'send_scan' ? onSessionScanned : onFrameScanned}
+  onClose={closeScanner}
+  hintText={phase === 'send_scan' ? t('local_pay_scan_qr') : t('local_pay_scan_payer_qr')}
+  renderBottom={
+    phase === 'receive_scan' && scanProgress
+      ? () => (
+          <Text style={{ color: 'rgba(255,255,255,0.8)', marginTop: 8 }}>
+            {t('local_pay_scan_progress', { have: scanProgress.have, total: scanProgress.total })}
+          </Text>
+        )
+      : undefined
+  }
+/>
 ```
 
 - [ ] **Step 3: String, six locales**
 
-| key | en | zh | hi | es | fr | ar |
-| --- | --- | --- | --- | --- | --- | --- |
+| key                       | en                           | zh                             | hi                               | es                               | fr                               | ar                          |
+| ------------------------- | ---------------------------- | ------------------------------ | -------------------------------- | -------------------------------- | -------------------------------- | --------------------------- |
 | `local_pay_scan_progress` | {{have}} of {{total}} pieces | 已接收 {{have}}/{{total}} 片段 | {{total}} में से {{have}} हिस्से | {{have}} de {{total}} fragmentos | {{have}} sur {{total}} fragments | {{have}} من {{total}} أجزاء |
 
 - [ ] **Step 4: Verify + commit**
@@ -2330,13 +2378,15 @@ git commit -m "feat(pay): continuous scanning assembles fountain parts with live
 ### Task 13: Fast radio failure, automatic QR fallback
 
 **Files:**
+
 - Modify: `packages/react-native-localpay-transport/src/specs/LocalPayTransport.nitro.ts` (`sendFrame` signature), `packages/react-native-localpay-transport/ios/HybridLocalPayTransport.swift:357-429` (`sendFrame`), `utils/localpay/transport/socket.ts` (pass the new arg), `components/pay/NearbyFlow.tsx` (AWDL-catch branch), `context/i18n/translations.tsx`
 - Test: `__tests__/localpayTransportAwdl.test.ts` (the native mock's `sendFrame` gains an arg — update arity assertions if any pin it)
 
 **Interfaces:**
+
 - Produces: `sendFrame(instanceName, pskBase64, frameBase64, timeoutMs, connectTimeoutMs): Promise<string>` — rejects with `"connect timeout: no route to peer"` when the connection is not `.ready` within `connectTimeoutMs`. `socket.ts` gains `CONNECT_TIMEOUT_MS = 4_000` alongside `SEND_TIMEOUT_MS = 20_000`.
 
-Today an iOS payer with its Wi-Fi radio off sits the full 20 s send timeout and then lands on a *failure screen* with a manual "show QR instead" button. The connect phase is where "radios off" shows up, and it resolves in well under 4 s when it is going to resolve at all; the remaining 16 s budget still covers a slow payee save + ack.
+Today an iOS payer with its Wi-Fi radio off sits the full 20 s send timeout and then lands on a _failure screen_ with a manual "show QR instead" button. The connect phase is where "radios off" shows up, and it resolves in well under 4 s when it is going to resolve at all; the remaining 16 s budget still covers a slow payee save + ack.
 
 - [ ] **Step 1: Widen the Nitro spec**
 
@@ -2389,48 +2439,50 @@ In `utils/localpay/transport/socket.ts`: add `const CONNECT_TIMEOUT_MS = 4_000` 
 Replace `executeSend`'s radio catch branch (`:1013-1028`, as it stands after Tasks 5/10/11) with:
 
 ```ts
-      let ack: Ack
-      try {
-        ack = await radio.send(session, built.frame, controller.signal)
-      } catch (e) {
-        if (controller.signal.aborted) return
-        // The radio path failed: connect timeout (radios off, peer gone),
-        // Local Network denial, or a lost ack. The frame is signed and noSend,
-        // so the QR still completes this payment — fall straight through to
-        // the code instead of a failure screen. Deliberately NOT aborted: a
-        // lost ack does not prove non-delivery, and Done's semantics
-        // (broadcast-or-queue, re-showable) keep the already-delivered case
-        // consistent — the payee's copy merges once this transaction is out.
-        const message = messageOf(e)
-        console.warn('[localpay] radio send failed, falling back to QR:', message)
-        if (encodeFrame(built.frame).length > MAX_MESSAGE_BYTES) {
-          // No radio and no representable code: the one genuinely dead end.
-          fail(looksLikeLocalNetworkDenial(message) ? 'network' : 'generic', t('local_pay_too_large'))
-          return
-        }
-        builtRef.current = built
-        setPaymentQr(frameToQr(built.frame))
-        setNotice({ text: t('local_pay_radio_fallback'), tone: 'info' })
-        setPhase('send_qr')
-        return
-      }
+let ack: Ack
+try {
+  ack = await radio.send(session, built.frame, controller.signal)
+} catch (e) {
+  if (controller.signal.aborted) return
+  // The radio path failed: connect timeout (radios off, peer gone),
+  // Local Network denial, or a lost ack. The frame is signed and noSend,
+  // so the QR still completes this payment — fall straight through to
+  // the code instead of a failure screen. Deliberately NOT aborted: a
+  // lost ack does not prove non-delivery, and Done's semantics
+  // (broadcast-or-queue, re-showable) keep the already-delivered case
+  // consistent — the payee's copy merges once this transaction is out.
+  const message = messageOf(e)
+  console.warn('[localpay] radio send failed, falling back to QR:', message)
+  if (encodeFrame(built.frame).length > MAX_MESSAGE_BYTES) {
+    // No radio and no representable code: the one genuinely dead end.
+    fail(looksLikeLocalNetworkDenial(message) ? 'network' : 'generic', t('local_pay_too_large'))
+    return
+  }
+  builtRef.current = built
+  setPaymentQr(frameToQr(built.frame))
+  setNotice({ text: t('local_pay_radio_fallback'), tone: 'info' })
+  setPhase('send_qr')
+  return
+}
 ```
 
 Delete the now-unused `frameQrOrNull` helper (`:244-251`) — this was its last caller — and render the notice on the send_qr screen: after `{presenceBlock}` in the send_qr block, add
 
 ```tsx
-            {!!notice && (
-              <>
-                <View style={styles.gapLg} />
-                {noticeBlock(notice)}
-              </>
-            )}
+{
+  !!notice && (
+    <>
+      <View style={styles.gapLg} />
+      {noticeBlock(notice)}
+    </>
+  )
+}
 ```
 
 - [ ] **Step 6: String, six locales**
 
-| key | en | zh | hi | es | fr | ar |
-| --- | --- | --- | --- | --- | --- | --- |
+| key                        | en                                                                      | zh                                     | hi                                                                  | es                                                                         | fr                                                                           | ar                                                                        |
+| -------------------------- | ----------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | `local_pay_radio_fallback` | Wireless link unavailable — show this code to the other device instead. | 无线连接不可用——请改为向对方出示此码。 | वायरलेस लिंक उपलब्ध नहीं — इसके बजाय यह कोड दूसरे डिवाइस को दिखाएँ। | Enlace inalámbrico no disponible: muestra este código al otro dispositivo. | Liaison sans fil indisponible — présentez plutôt ce code à l'autre appareil. | الاتصال اللاسلكي غير متاح — اعرض هذا الرمز على الجهاز الآخر بدلاً من ذلك. |
 
 - [ ] **Step 7: Verify + commit**
@@ -2464,11 +2516,13 @@ A wrong or missing HELLO proof → disconnect; the payee keeps advertising. The 
 ### Task 14: Android scaffolding — the package compiles
 
 **Files:**
+
 - Modify: `packages/react-native-localpay-transport/src/specs/LocalPayTransport.nitro.ts:3`, `packages/react-native-localpay-transport/nitro.json`, `packages/react-native-localpay-transport/package.json`, `app.json` (permissions land in Task 16 — not here)
 - Create: `packages/react-native-localpay-transport/android/build.gradle`, `packages/react-native-localpay-transport/android/src/main/AndroidManifest.xml`, `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayTransport.kt` (skeleton)
 - Test: compile checkpoint (gradle), plus `npx jest` stays green (JS surface unchanged).
 
 **Interfaces:**
+
 - Produces: an Android library module Nitro autolinks, whose `HybridLocalPayTransport` Kotlin class implements the generated spec with honest stubs: `isSupported()` returns false, everything else rejects `"not implemented"`. `getLocalPayTransport()` on Android then returns a real object whose `isSupported()` is false — identical ladder behaviour to today, so this ships safely mid-phase.
 
 - [ ] **Step 1: Widen the spec to both platforms**
@@ -2607,10 +2661,12 @@ git commit -m "feat(pay): Android module scaffolding for the localpay transport 
 ### Task 15: The Nearby Connections implementation
 
 **Files:**
+
 - Modify: `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayTransport.kt` (full implementation)
 - Test: compile checkpoint; behaviour on the Task 17 device matrix. The TS layer above is already fully tested against mocks.
 
 **Interfaces:**
+
 - Consumes: the wire protocol at the top of this phase; `NitroModules.applicationContext` for the ConnectionsClient.
 - Produces: the four spec methods with the exact same money-safety contract the Swift backend documents (`LocalPayTransport.nitro.ts:13-35`): delivery (`onFrame`) and acknowledgement (`confirmFrame`) are separate; a positive ack is sent only by JS after the durable write; `confirmFrame` with no held connection resolves and does nothing.
 
@@ -2979,11 +3035,13 @@ git commit -m "feat(pay): Nearby Connections backend — advertise/discover, PSK
 ### Task 16: Permissions and capability wiring
 
 **Files:**
+
 - Create: `utils/localpay/transport/nearbyPermissions.ts`
 - Modify: `app.json` (android permissions), `components/pay/NearbyFlow.tsx` (nearbyReady state), `utils/pay/rails/nearby.ts` (barrel)
 - Test: `__tests__/localpayTransportSelect.test.ts` already covers the ladder; the permission helper gets its own small suite in the same file style if it contains branching (it does — API levels).
 
 **Interfaces:**
+
 - Produces: `requestNearbyPermissions(): Promise<boolean>` — requests the API-level-appropriate set, resolves true only when every needed grant landed; `NearbyFlow`'s `nearbyReady` boolean replaces raw `supportsNearby` in the mint and the `radioTransport` choice.
 
 - [ ] **Step 1: app.json**
@@ -3052,23 +3110,23 @@ Add a small `describe('requestNearbyPermissions')` to `__tests__/localpayTranspo
 In `components/pay/NearbyFlow.tsx`, replace the Task 10 `supportsNearby` memo with permission-gated state:
 
 ```ts
-  /**
-   * Nearby is usable only once BOTH hold: GMS is present (localSupportsNearby)
-   * and the runtime grants landed. Resolved async on mount, Android only; a
-   * denial leaves this false and the flow QR-only, silently — same posture as
-   * a GMS-less device.
-   */
-  const [nearbyReady, setNearbyReady] = useState(false)
-  useEffect(() => {
-    if (Platform.OS !== 'android' || !localSupportsNearby()) return
-    let live = true
-    void requestNearbyPermissions().then(granted => {
-      if (live) setNearbyReady(granted)
-    })
-    return () => {
-      live = false
-    }
-  }, [])
+/**
+ * Nearby is usable only once BOTH hold: GMS is present (localSupportsNearby)
+ * and the runtime grants landed. Resolved async on mount, Android only; a
+ * denial leaves this false and the flow QR-only, silently — same posture as
+ * a GMS-less device.
+ */
+const [nearbyReady, setNearbyReady] = useState(false)
+useEffect(() => {
+  if (Platform.OS !== 'android' || !localSupportsNearby()) return
+  let live = true
+  void requestNearbyPermissions().then(granted => {
+    if (live) setNearbyReady(granted)
+  })
+  return () => {
+    live = false
+  }
+}, [])
 ```
 
 and swap every `supportsNearby` read for `nearbyReady` (the `radioTransport` memo — which becomes a memo on `[supportsAwdl, nearbyReady]` — and the `mintSession` args). Add `requestNearbyPermissions` to the rails barrel and import from it.
@@ -3089,6 +3147,7 @@ git commit -m "feat(pay): lazy Nearby permission flow gating the CAP_NEARBY adve
 ### Task 17: Device matrix, docs, closeout
 
 **Files:**
+
 - Modify: `docs/superpowers/specs/2026-07-29-offline-transport-fixes-design.md` (status line), this plan (check boxes)
 - No code. Two physical iPhones + two physical Androids (Nearby does not work on emulators).
 

@@ -30,33 +30,35 @@
 
 ## File structure
 
-| File | Responsibility |
-|---|---|
-| Modify: `core/peerpay/handleResendRequests.ts` | Sender check on cancel; no requester fallback |
-| Modify: `core/pay/rails/handle.ts` | Recipient label on `createAction`; cancel re-read; `acceptWithRetry` cap; env regex via `isMessageBoxNetworkError` |
-| Create: `core/walletRepair/shouldReleaseUtxo.ts` | Positive-confirmation release predicate |
-| Modify: `core/context/WalletContext.tsx` | `checkUtxoSpendability` skip rules + online gate; `peekLastMissHeight`; CreditInbox notify; drain prune |
-| Modify: `ui/screens/WalletCheckScreen.tsx` | Drop spec-op auto-release; throw from ports; render couldn’t-check |
-| Modify: `core/storage/methods/reviewStatusSql.ts` | Invalid-req WHERE; bounded output scan |
-| Modify: `core/storage/StorageExpoSQLite.ts` | Per-row try/catch; shipping path tests hit this |
-| Modify: `core/headers/OfflineFirstChaintracks.ts` | `peekLastMissHeight` |
-| Modify: `core/pay/creditErrors.ts` | Peek at failure time; broader env regex |
-| Modify: `core/walletRepair/runWalletCheck.ts` | Per-step `ok`/`error` |
-| Modify: `core/localpay/pending.ts` | Repair `PENDING_KEY` after quarantine; prune completed |
-| Modify: `core/monitor/TaskDrainOutbox.ts` | Call `pruneExpiredSent` |
-| Modify: `core/walletMonitor.ts` | ReviewProvenTxs offline gate + 10 min cadence |
-| Modify: `core/monitor/TaskCreditInbox.ts` | Optional `onAccepted` port |
-| Modify: `core/i18n/translations.tsx` | New keys in all 12 locales |
+| File                                              | Responsibility                                                                                                     |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Modify: `core/peerpay/handleResendRequests.ts`    | Sender check on cancel; no requester fallback                                                                      |
+| Modify: `core/pay/rails/handle.ts`                | Recipient label on `createAction`; cancel re-read; `acceptWithRetry` cap; env regex via `isMessageBoxNetworkError` |
+| Create: `core/walletRepair/shouldReleaseUtxo.ts`  | Positive-confirmation release predicate                                                                            |
+| Modify: `core/context/WalletContext.tsx`          | `checkUtxoSpendability` skip rules + online gate; `peekLastMissHeight`; CreditInbox notify; drain prune            |
+| Modify: `ui/screens/WalletCheckScreen.tsx`        | Drop spec-op auto-release; throw from ports; render couldn’t-check                                                 |
+| Modify: `core/storage/methods/reviewStatusSql.ts` | Invalid-req WHERE; bounded output scan                                                                             |
+| Modify: `core/storage/StorageExpoSQLite.ts`       | Per-row try/catch; shipping path tests hit this                                                                    |
+| Modify: `core/headers/OfflineFirstChaintracks.ts` | `peekLastMissHeight`                                                                                               |
+| Modify: `core/pay/creditErrors.ts`                | Peek at failure time; broader env regex                                                                            |
+| Modify: `core/walletRepair/runWalletCheck.ts`     | Per-step `ok`/`error`                                                                                              |
+| Modify: `core/localpay/pending.ts`                | Repair `PENDING_KEY` after quarantine; prune completed                                                             |
+| Modify: `core/monitor/TaskDrainOutbox.ts`         | Call `pruneExpiredSent`                                                                                            |
+| Modify: `core/walletMonitor.ts`                   | ReviewProvenTxs offline gate + 10 min cadence                                                                      |
+| Modify: `core/monitor/TaskCreditInbox.ts`         | Optional `onAccepted` port                                                                                         |
+| Modify: `core/i18n/translations.tsx`              | New keys in all 12 locales                                                                                         |
 
 ---
 
 ### Task 1: Authenticate `payment_cancelled` before dropping inbox tokens
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/peerpay/handleResendRequests.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/pay/handleResendRequests.test.ts`
 
 **Interfaces:**
+
 - Consumes: `listControlMessages`, `parseControlMessage`, existing `dropInboxTokenForTxid`.
 - Produces: `dropInboxTokenForTxid(client, txid, sender: string)` — only acks inbox rows whose `m.sender === sender` AND `txidFromInboxBody(m.body) === txid`. `consumePaymentCancelled` passes `msg.sender`.
 
@@ -114,12 +116,14 @@ git commit -m "fix(pay): require matching sender before dropping a cancelled inb
 ### Task 2: Never resend to the requester; label the recipient at send time
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/peerpay/handleResendRequests.ts` (`rebuildAndDeliver`)
 - Modify: `packages/expo-wallet-toolbox/core/pay/rails/handle.ts` (`createAction` labels around the `labels: ['peerpay']` call)
 - Test: `packages/expo-wallet-toolbox/__tests__/pay/handleResendRequests.test.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/pay/handleRail.test.ts` (assert labels on createAction)
 
 **Interfaces:**
+
 - Consumes: `recipientFromLabels`, `PUBKEY_LABEL`.
 - Produces: `createAction` labels `['peerpay', recipient]`. `rebuildAndDeliver` recipient = `entry?.recipient || recipientFromLabels(listed?.labels)` only — **no** `args.recipient` fallback.
 
@@ -137,7 +141,11 @@ it('does not deliver a rebuilt token to the resend requester when the outbox and
       sendMessage
     } as never,
     storage: fakeStorage(),
-    listPeerPayAction: async () => ({ txid: 'aa'.repeat(32), labels: ['peerpay'], outputs: [{ customInstructions: '{}' }] }),
+    listPeerPayAction: async () => ({
+      txid: 'aa'.repeat(32),
+      labels: ['peerpay'],
+      outputs: [{ customInstructions: '{}' }]
+    }),
     refetch: async () => [1]
   })
   expect(sendMessage).not.toHaveBeenCalled()
@@ -188,12 +196,14 @@ git commit -m "fix(pay): label the recipient at send and never resend to the req
 ### Task 3: Release a UTXO only on a confirmed-spent answer
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/core/walletRepair/shouldReleaseUtxo.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/walletRepair/shouldReleaseUtxo.test.ts`
 - Modify: `packages/expo-wallet-toolbox/core/context/WalletContext.tsx` (`checkUtxoSpendability`)
 - Modify: `packages/expo-wallet-toolbox/ui/screens/WalletCheckScreen.tsx` (remove spec-op auto-release)
 
 **Interfaces:**
+
 - Consumes: `getOnline()`, output `txStatus`, live offline txids, UTXO probe result.
 - Produces:
 
@@ -264,11 +274,13 @@ git commit -m "fix(wallet): release a coin only when the network confirms it is 
 ### Task 4: `reviewStatus` skips completed txs and survives a per-row throw
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/storage/methods/reviewStatusSql.ts` (`REVIEW_INVALID_REQ_TXS_SQL`)
 - Modify: `packages/expo-wallet-toolbox/core/storage/StorageExpoSQLite.ts` (`reviewStatus`)
 - Test: `packages/expo-wallet-toolbox/__tests__/storage/reviewStatusSql.test.ts`
 
 **Interfaces:**
+
 - Consumes: existing `reviewStatusOnDb` helpers.
 - Produces: `REVIEW_INVALID_REQ_TXS_SQL` includes `AND t.provenTxId IS NULL AND t.status <> 'completed'`. Shipping `reviewStatus` catches `updateTransactionStatus` per row.
 
@@ -302,7 +314,10 @@ export async function failInvalidReqTxs(args: {
 it('continues after fail() throws on one row', async () => {
   const seen: number[] = []
   const r = await failInvalidReqTxs({
-    rows: [{ transactionId: 1, txid: 'aa' }, { transactionId: 2, txid: 'bb' }],
+    rows: [
+      { transactionId: 1, txid: 'aa' },
+      { transactionId: 2, txid: 'bb' }
+    ],
     skipTxids: new Set(),
     fail: async id => {
       seen.push(id)
@@ -343,6 +358,7 @@ git commit -m "fix(storage): do not fail a completed tx and do not abort reviewS
 ### Task 5: Peek header-miss at classification time, do not consume it
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/headers/OfflineFirstChaintracks.ts`
 - Modify: `packages/expo-wallet-toolbox/core/pay/creditErrors.ts`
 - Modify: `packages/expo-wallet-toolbox/core/context/WalletContext.tsx` (expose `peekLastMissHeight`)
@@ -351,6 +367,7 @@ git commit -m "fix(storage): do not fail a completed tx and do not abort reviewS
 - Test: `packages/expo-wallet-toolbox/__tests__/headers/offlineChaintracks.test.ts`
 
 **Interfaces:**
+
 - Produces: `peekLastMissHeight(): number | undefined` — returns `lastMissHeight`, does not clear.
 - `makeCreditClassifier({ getOnline, peekLastMissHeight })` — `getOnline` awaited once; each `classify(e)` calls `peekLastMissHeight()` at that moment.
 
@@ -417,6 +434,7 @@ git commit -m "fix(pay): classify header-miss at failure time without consuming 
 ### Task 6: Check Wallet reports per-step ok/error and can Retry
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/walletRepair/runWalletCheck.ts`
 - Modify: `packages/expo-wallet-toolbox/ui/screens/WalletCheckScreen.tsx`
 - Modify: `packages/expo-wallet-toolbox/core/i18n/translations.tsx` (all 12 locales)
@@ -492,12 +510,14 @@ git commit -m "fix(wallet): distinguish a failed Check Wallet step from nothing 
 ### Task 7: Re-read the outbox before abort; treat more failures as environmental
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/pay/rails/handle.ts` (`cancelOutboxPayment`)
 - Modify: `packages/expo-wallet-toolbox/core/pay/creditErrors.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/pay/handleRail.test.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/pay/creditErrors.test.ts`
 
 **Interfaces:**
+
 - `cancelOutboxPayment` loads `getOutboxEntries(storage).find(e => e.id === entry.id)` before the undelivered abort. Missing row → `{ aborted: false }` and no abort. Stored `delivered`/`delivering` → `{ aborted: false, needsAbandon: true }`.
 - `classifyCreditError` environmental regex also matches `database-locked`, `failed to retrieve messages`, `not found on refresh` (case-insensitive).
 
@@ -510,7 +530,12 @@ it('re-reads storage and does not abort if the row became delivered after the sn
   const entry = await undeliveredEntry(s)
   await updateOutboxEntry(s, entry.id, { delivered: true })
   const stale = { ...entry, delivered: false, delivering: false }
-  const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry: stale })
+  const result = await cancelOutboxPayment({
+    wallet: w as never,
+    adminOriginator: 'admin.com',
+    storage: s,
+    entry: stale
+  })
   expect(result.aborted).toBe(false)
   expect(result.needsAbandon).toBe(true)
   expect(w.abortAction).not.toHaveBeenCalled()
@@ -552,10 +577,12 @@ git commit -m "fix(pay): re-read the outbox before abort and treat more failures
 ### Task 8: Repair a corrupt pending blob and prune completed entries
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/localpay/pending.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/localpay/pending.test.ts`
 
 **Interfaces:**
+
 - After quarantine copy in `readAll`’s catch: `await storage.setKeyValue(PENDING_KEY, '[]')` then throw `PendingCorruptError` (notice still true for this read). Next `readAll` parses `[]`.
 - `writeAll` filters out `status === 'completed'` before serialising. Failed entries stay.
 
@@ -610,6 +637,7 @@ git commit -m "fix(pay): repair a corrupt nearby queue and drop completed entrie
 ### Task 9: Bound reviewStatus scans, cap inbox relist, slow ReviewProvenTxs, prune outbox in the drain
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/storage/methods/reviewStatusSql.ts` (`REVIEW_OUTPUTS_SQL`)
 - Modify: `packages/expo-wallet-toolbox/core/pay/rails/handle.ts` (`acceptWithRetry`)
 - Modify: `packages/expo-wallet-toolbox/core/walletMonitor.ts` (`boundReviewProvenTxs`)
@@ -620,6 +648,7 @@ git commit -m "fix(pay): repair a corrupt nearby queue and drop completed entrie
 - Test: `packages/expo-wallet-toolbox/__tests__/monitor/taskDrainOutbox.test.ts`
 
 **Interfaces:**
+
 - `REVIEW_OUTPUTS_SQL`: `SELECT … FROM outputs WHERE NOT (spendable = 0 AND spentBy IS NULL)`.
 - `acceptWithRetry`: retry `internalize(payment)` once on catch; do **not** call `listIncomingPayments`. If the second attempt throws, rethrow. (Spec: at most one list per **pass** — dropping the list entirely is the smallest change that meets the cap of one.)
 - `boundReviewProvenTxs(task, { getOnline, now })`: `trigger` returns `{ run: false }` when `getOnline()` is false. Cadence: run at most every `REVIEW_PROVEN_TXS_MIN_INTERVAL_MS = 600_000` (10 minutes). Keep the 100-height cap.
@@ -674,12 +703,14 @@ git commit -m "fix(wallet): bound repair scans, inbox retries, proven-tx cadence
 ### Task 10: Notify when background credit accepts a payment
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/monitor/TaskCreditInbox.ts`
 - Modify: `packages/expo-wallet-toolbox/core/context/WalletContext.tsx` (wire sound + toast)
 - Modify: `packages/expo-wallet-toolbox/core/i18n/translations.tsx`
 - Test: `packages/expo-wallet-toolbox/__tests__/monitor/taskCreditInbox.test.ts`
 
 **Interfaces:**
+
 - `TaskCreditInbox` constructor gains optional `onAccepted?: (count: number) => void`. After a successful `credit()` with `r.accepted > 0`, call `onAccepted(r.accepted)`.
 - WalletContext: if receive screen is not focused (use existing focus/AppState pattern or a module flag `HandleReceive.isFocused`; if no flag exists, add `setReceiveInboxFocused(boolean)` in `creditInbox.ts` or a tiny `core/pay/receiveFocus.ts`), call `sounds.confirmation()` and `showToast(i18n.t('payment_arrived'), { type: 'success' })`. If focused, skip — HandleReceive owns the overlay.
 - English: `payment_arrived`: Payment received

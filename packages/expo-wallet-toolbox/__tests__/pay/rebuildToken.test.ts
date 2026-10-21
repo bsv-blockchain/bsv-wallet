@@ -14,7 +14,9 @@ describe('rebuildPeerPayToken', () => {
     const result = await rebuildPeerPayToken({
       action: {
         txid: 'aa',
-        outputs: [{ customInstructions: JSON.stringify({ derivationPrefix: 'p', derivationSuffix: 's', type: 'BRC29' }) }]
+        outputs: [
+          { customInstructions: JSON.stringify({ derivationPrefix: 'p', derivationSuffix: 's', type: 'BRC29' }) }
+        ]
       },
       recipient: '02aa',
       refetch: async () => beef
@@ -26,7 +28,10 @@ describe('rebuildPeerPayToken', () => {
 
   it('returns undefined when the beef cannot be refetched', async () => {
     const result = await rebuildPeerPayToken({
-      action: { txid: 'aa', outputs: [{ customInstructions: JSON.stringify({ derivationPrefix: 'p', derivationSuffix: 's' }) }] },
+      action: {
+        txid: 'aa',
+        outputs: [{ customInstructions: JSON.stringify({ derivationPrefix: 'p', derivationSuffix: 's' }) }]
+      },
       recipient: '02aa',
       refetch: async () => undefined
     })
@@ -64,7 +69,10 @@ describe('choosing the output that paid the recipient', () => {
   })
 
   it('falls back to the first output with derivation data when nothing is basketed', async () => {
-    const unmarked = { txid: 'aa', outputs: [{ customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, satoshis: 5 }] }
+    const unmarked = {
+      txid: 'aa',
+      outputs: [{ customInstructions: { derivationPrefix: 'p', derivationSuffix: 's' }, satoshis: 5 }]
+    }
     const r = await rebuildPeerPayToken({ action: unmarked, recipient: '02'.padEnd(66, 'a'), refetch: async () => [1] })
     expect(r!.token.customInstructions).toEqual({ derivationPrefix: 'p', derivationSuffix: 's' })
   })

@@ -74,7 +74,10 @@ if (__DEV__) {
         const k = QuickCrypto.randomBytes(32)
         const n = QuickCrypto.randomBytes(32)
         const c = QuickCrypto.createCipheriv('aes-256-gcm', k, n)
-        const body = Buffer.concat([Buffer.from(c.update(QuickCrypto.randomBytes(16 + (i % 400)))), Buffer.from(c.final())])
+        const body = Buffer.concat([
+          Buffer.from(c.update(QuickCrypto.randomBytes(16 + (i % 400)))),
+          Buffer.from(c.final())
+        ])
         const d = QuickCrypto.createDecipheriv('aes-256-gcm', k, n)
         d.setAuthTag(Buffer.from(c.getAuthTag()))
         try {
@@ -84,7 +87,8 @@ if (__DEV__) {
           late += 1
         }
       }
-      if (late) console.error(`[Crypto Setup] AES-GCM refused ${late}/300 good tags after startup: decrypts fail at random`)
+      if (late)
+        console.error(`[Crypto Setup] AES-GCM refused ${late}/300 good tags after startup: decrypts fail at random`)
     }, 15_000)
   } catch (e) {
     console.error('[Crypto Setup] AES-GCM canary failed to run', e)
@@ -126,9 +130,7 @@ try {
   const { installSecpNative } = require('react-native-secp-native')
   const secpNativeInstalled = installSecpNative()
   if (__DEV__) {
-    console.log(
-      `[SecpNative] native secp256k1 ${secpNativeInstalled ? 'installed' : 'unavailable — using pure-JS EC'}`
-    )
+    console.log(`[SecpNative] native secp256k1 ${secpNativeInstalled ? 'installed' : 'unavailable — using pure-JS EC'}`)
   }
 } catch (e) {
   if (__DEV__) console.warn('[SecpNative] install failed — using pure-JS EC', e)
@@ -167,9 +169,9 @@ if (process.env.EXPO_PUBLIC_SECP_PROOF === '1') {
   setTimeout(() => {
     require('./utils/engineNativeProof')
       .runEngineProof()
-      .catch((e) => console.error('[EngineNative] proof run failed:', e))
+      .catch(e => console.error('[EngineNative] proof run failed:', e))
       .then(() => require('./utils/secpNativeProof').runSecpProof())
-      .catch((e) => console.error('[SecpNative] proof run failed:', e))
+      .catch(e => console.error('[SecpNative] proof run failed:', e))
   }, 4000)
 }
 
@@ -183,7 +185,7 @@ if (process.env.EXPO_PUBLIC_CR_DEVICE === '1') {
   setTimeout(() => {
     require('./utils/engineNativeProof')
       .runCrDevice()
-      .catch((e) => console.error('[CR-DEVICE] run failed:', e))
+      .catch(e => console.error('[CR-DEVICE] run failed:', e))
   }, 6000)
 }
 

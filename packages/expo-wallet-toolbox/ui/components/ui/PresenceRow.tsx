@@ -45,7 +45,7 @@ import Animated, {
   withRepeat,
   withSequence,
   withSpring,
-  withTiming,
+  withTiming
 } from 'react-native-reanimated'
 import { useTheme, spacing, typography, durations, easings, springs } from '@bsv/expo-wallet-toolbox'
 
@@ -155,7 +155,7 @@ export default function PresenceRow({ state, label, peer, medium = 'wifi' }: Pre
     if (reducedMotion) return { opacity: enter.value }
     return {
       opacity: enter.value,
-      transform: [{ translateY: (1 - enter.value) * 6 }],
+      transform: [{ translateY: (1 - enter.value) * 6 }]
     }
   }, [reducedMotion])
 
@@ -206,10 +206,10 @@ const styles = StyleSheet.create({
     // Held constant across every state so the content beneath never shifts as
     // the status changes.
     minHeight: 20,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.sm
   },
   label: { ...typography.footnote, flexShrink: 1 },
   labelStrong: { fontWeight: '600' },
   sep: { ...typography.footnote },
-  peer: { ...typography.footnote, flexShrink: 1 },
+  peer: { ...typography.footnote, flexShrink: 1 }
 })

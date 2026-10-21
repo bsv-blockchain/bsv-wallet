@@ -81,11 +81,7 @@ export const BackupReminderSheet: React.FC<{
     // intercepts touches, so the screen behind stays fully interactive.
     <View style={[styles.wrapper, { paddingBottom: insets.bottom + spacing.md }]} pointerEvents="box-none">
       <Animated.View
-        style={[
-          styles.card,
-          { backgroundColor: colors.sheetBackground, borderColor: colors.warning },
-          cardStyle
-        ]}
+        style={[styles.card, { backgroundColor: colors.sheetBackground, borderColor: colors.warning }, cardStyle]}
       >
         <PressableScale haptic="tap" onPress={onClose} style={styles.closeButton}>
           <Ionicons name="close" size={20} color={colors.textSecondary} />

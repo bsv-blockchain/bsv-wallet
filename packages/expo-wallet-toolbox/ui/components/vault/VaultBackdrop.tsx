@@ -60,14 +60,7 @@ function ringY(atY: number, r: number, ox = 0, oz = 0): P3[] {
 }
 
 /** Rounded rectangle lying flat — the key's body, its contact pad, its plug. */
-function roundedRectY(
-  atY: number,
-  x0: number,
-  x1: number,
-  z0: number,
-  z1: number,
-  r: number
-): P3[] {
+function roundedRectY(atY: number, x0: number, x1: number, z0: number, z1: number, r: number): P3[] {
   const STEP = 8
   const corners: [number, number, number][] = [
     [x1 - r, z1 - r, 0],

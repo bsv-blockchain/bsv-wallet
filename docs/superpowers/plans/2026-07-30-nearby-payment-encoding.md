@@ -20,7 +20,7 @@
 - `FRAME_VERSION = 2`, `FRAME_BLOCK_BYTES = 1024`.
 - `estimatePartCharLength(FRAME_BLOCK_BYTES)` must stay ≤ 2331 (version-40 QR, EC level M). A test pins this.
 - No storage schema migration. No new npm dependency.
-- Comment style in `utils/localpay/*` is dense and explains *why*, in the imperative. Match it; do not add banner comments or restate types in prose.
+- Comment style in `utils/localpay/*` is dense and explains _why_, in the imperative. Match it; do not add banner comments or restate types in prose.
 
 ---
 
@@ -29,10 +29,12 @@
 Pure addition — nothing imports it yet, so the tree keeps compiling.
 
 **Files:**
+
 - Create: `utils/localpay/verify.ts`
 - Test: `__tests__/localpayVerify.test.ts`
 
 **Interfaces:**
+
 - Consumes: `PaymentFrame` from `utils/localpay/codec`, `PEERPAY_PROTOCOL_ID` from `utils/localpay/pending`, `isRequestableAmount` from `utils/localpay/session`.
 - Produces:
   - `class FrameVerifyError extends Error` with `readonly kind: 'unparseable' | 'not_mine'`
@@ -302,10 +304,12 @@ to a key this device derives. Payee-side mirror of build.ts's derivation."
 `settleReceived` stops reading `frame.amount`. The field still exists on the type after this task; it simply has no readers left, which is what lets Task 3 delete it.
 
 **Files:**
+
 - Modify: `components/pay/NearbyFlow.tsx` (imports ~:124-145; `settleReceived` :556-772)
 - Test: `__tests__/localpayVerify.test.ts` (already covers the module; the settle wiring is covered by the assertions below plus existing NearbyFlow coverage)
 
 **Interfaces:**
+
 - Consumes: `verifyFramePayment`, `FrameVerifyError` from Task 1.
 - Produces: no new exports. `settleReceived`'s signature is unchanged: `(frame: PaymentFrame, session: Session, confirm?: ConfirmDelivery) => Promise<void>`.
 
@@ -326,32 +330,28 @@ import { FrameVerifyError, verifyFramePayment } from '@/utils/localpay/verify'
 Then, immediately after the `settlingRef.current` re-entry guard (`NearbyFlow.tsx:567-572`) and **before** the binding block at :574, insert:
 
 ```ts
-      // (0a) What this frame actually pays this device. The figure below is the
-      //      satoshis of the AtomicBEEF output at `frame.outputIndex`, and it is
-      //      only produced once that output is shown to lock to a key this
-      //      device derives — so it is both the real number and a proof the
-      //      payment is ours to spend. Nothing has latched and nothing has been
-      //      written, so every failure here is a provable "queued nothing".
-      let satoshis: number
-      try {
-        ;({ satoshis } = await verifyFramePayment(
-          wallet as unknown as DerivingWallet,
-          frame,
-          adminOriginator
-        ))
-      } catch (e) {
-        // `not_mine` is a frame that was never for this request; `unparseable`
-        // is bytes that are not a transaction. Both leave the request LIVE and
-        // unspent, exactly as a nonce mismatch does, so the genuine payer can
-        // still complete.
-        const kind = e instanceof FrameVerifyError ? e.kind : 'unparseable'
-        void confirm?.(false, kind === 'not_mine' ? 'session_mismatch' : 'decode_failed')
-        scanLatchRef.current = false
-        setSessionMismatch(true)
-        setPhase('receive_wait')
-        setListenerEpoch(n => n + 1)
-        return
-      }
+// (0a) What this frame actually pays this device. The figure below is the
+//      satoshis of the AtomicBEEF output at `frame.outputIndex`, and it is
+//      only produced once that output is shown to lock to a key this
+//      device derives — so it is both the real number and a proof the
+//      payment is ours to spend. Nothing has latched and nothing has been
+//      written, so every failure here is a provable "queued nothing".
+let satoshis: number
+try {
+  ;({ satoshis } = await verifyFramePayment(wallet as unknown as DerivingWallet, frame, adminOriginator))
+} catch (e) {
+  // `not_mine` is a frame that was never for this request; `unparseable`
+  // is bytes that are not a transaction. Both leave the request LIVE and
+  // unspent, exactly as a nonce mismatch does, so the genuine payer can
+  // still complete.
+  const kind = e instanceof FrameVerifyError ? e.kind : 'unparseable'
+  void confirm?.(false, kind === 'not_mine' ? 'session_mismatch' : 'decode_failed')
+  scanLatchRef.current = false
+  setSessionMismatch(true)
+  setPhase('receive_wait')
+  setListenerEpoch(n => n + 1)
+  return
+}
 ```
 
 Add the type-only import beside the value import:
@@ -365,7 +365,7 @@ import { FrameVerifyError, verifyFramePayment, type DerivingWallet } from '@/uti
 Replace the `amountDisagrees` line (`NearbyFlow.tsx:602`) with:
 
 ```ts
-      const amountDisagrees = session.amount !== undefined && satoshis !== session.amount
+const amountDisagrees = session.amount !== undefined && satoshis !== session.amount
 ```
 
 and delete the now-stale bullet in the comment above it — the one beginning
@@ -381,13 +381,13 @@ and delete the now-stale bullet in the comment above it — the one beginning
 At `NearbyFlow.tsx:718`:
 
 ```ts
-      setSettledAmount(satoshis)
+setSettledAmount(satoshis)
 ```
 
 At `NearbyFlow.tsx:764`:
 
 ```ts
-        if (credited) setReceivedOverlay({ amount: satoshis, broadcast: await broadcastCheck })
+if (credited) setReceivedOverlay({ amount: satoshis, broadcast: await broadcastCheck })
 ```
 
 Add `wallet` and `adminOriginator` to the `settleReceived` `useCallback` dependency array if they are not already there (they are: `[storage, wallet, adminOriginator, radioTransport, fail, t]`).
@@ -419,36 +419,39 @@ the settled figure from the output that proves it pays us."
 ### Task 3: `PaymentFrame` v2 — drop `amount`
 
 **Files:**
+
 - Modify: `utils/localpay/codec.ts` (`FRAME_VERSION` :1, `PaymentFrame` :8-24, `encodeFrame` :96-107, `decodeFrame` :109-122)
 - Modify: `utils/localpay/build.ts` (:170-177, the returned frame)
 - Test: `__tests__/localpayCodec.test.ts`, `__tests__/localpayBuild.test.ts`, `__tests__/localpayPending.test.ts`, `__tests__/localpayAirGap.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks.
 - Produces: `PaymentFrame` without `amount`; `FRAME_VERSION = 2`.
 
 - [ ] **Step 1: Update the codec tests to the v2 shape**
 
 In `__tests__/localpayCodec.test.ts`:
+
 - delete `amount: 1234,` from `sample()`
 - delete the `round-trips amounts above 32 bits` case (:39-42) and replace it with:
 
 ```ts
-  it('carries no amount field: the transaction is the only source of the figure', () => {
-    const decoded = decodeFrame(encodeFrame(sample())) as Record<string, unknown>
-    expect('amount' in decoded).toBe(false)
-  })
+it('carries no amount field: the transaction is the only source of the figure', () => {
+  const decoded = decodeFrame(encodeFrame(sample())) as Record<string, unknown>
+  expect('amount' in decoded).toBe(false)
+})
 
-  it('rejects a v1 frame, whose layout put an amount after the identity key', () => {
-    const v1 = encodeFrame(sample())
-    v1[0] = 1
-    expect(() => decodeFrame(v1)).toThrow('unsupported frame version 1')
-  })
+it('rejects a v1 frame, whose layout put an amount after the identity key', () => {
+  const v1 = encodeFrame(sample())
+  v1[0] = 1
+  expect(() => decodeFrame(v1)).toThrow('unsupported frame version 1')
+})
 
-  it('is version 2', () => {
-    expect(FRAME_VERSION).toBe(2)
-    expect(encodeFrame(sample())[0]).toBe(2)
-  })
+it('is version 2', () => {
+  expect(FRAME_VERSION).toBe(2)
+  expect(encodeFrame(sample())[0]).toBe(2)
+})
 ```
 
 In `__tests__/localpayAirGap.test.ts`, delete `amount: 123456,` from `bigFrame()`, set its `version: 2`, and delete the `expect(decoded.amount).toBe(frame.amount)` assertion.
@@ -458,7 +461,7 @@ In `__tests__/localpayPending.test.ts`, delete `amount: 42,` from `frame()` and 
 In `__tests__/localpayBuild.test.ts`, rename the `echoes the session derivation nonces and amount` case to `echoes the session derivation nonces`, delete `expect(frame.amount).toBe(777)`, and in the open-session case replace `expect(built.frame.amount).toBe(4200)` / `expect(...satoshis).toBe(built.frame.amount)` with:
 
 ```ts
-    expect(w.createAction.mock.calls[0][0].outputs[0].satoshis).toBe(4200)
+expect(w.createAction.mock.calls[0][0].outputs[0].satoshis).toBe(4200)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -547,6 +550,7 @@ lie about it. FRAME_VERSION 2; a v1 frame is refused as decode_failed."
 ### Task 4: Always fountain, 1 KiB blocks
 
 **Files:**
+
 - Modify: `utils/localpay/codec.ts` (add `FRAME_BLOCK_BYTES`; delete `MAX_FRAME_QR_CHARS` and `frameFromQr`)
 - Modify: `utils/pay/rails/nearby.ts` (export surface)
 - Modify: `components/pay/PaymentQrDisplay.tsx`
@@ -554,6 +558,7 @@ lie about it. FRAME_VERSION 2; a v1 frame is refused as decode_failed."
 - Test: `__tests__/localpayCodec.test.ts`, `__tests__/localpayAirGap.test.ts`
 
 **Interfaces:**
+
 - Consumes: `PaymentFrame` v2 from Task 3.
 - Produces: `FRAME_BLOCK_BYTES = 1024` from `utils/localpay/codec` and re-exported by `utils/pay/rails/nearby`. `MAX_FRAME_QR_CHARS` and `frameFromQr` no longer exist.
 
@@ -562,46 +567,53 @@ lie about it. FRAME_VERSION 2; a v1 frame is refused as decode_failed."
 In `__tests__/localpayCodec.test.ts`: remove `frameFromQr` and `MAX_FRAME_QR_CHARS` from the import list, add `FRAME_BLOCK_BYTES`, and replace the four cases that referenced them (`round-trips a frame through a QR string`, `round-trips a realistic single-input AtomicBEEF frame`, `stays clear of the version-40 / EC-M capacity`, `reports a length a caller can gate on before rendering`, plus the two `rejects a … payload` cases for `frameFromQr`) with:
 
 ```ts
-  it('round-trips a frame through the stored envelope', () => {
-    const f = sample()
-    expect(Array.from(frameBytesFromQr(frameToQr(f)))).toEqual(Array.from(encodeFrame(f)))
-    expect(decodeFrame(frameBytesFromQr(frameToQr(f)))).toEqual(f)
-  })
+it('round-trips a frame through the stored envelope', () => {
+  const f = sample()
+  expect(Array.from(frameBytesFromQr(frameToQr(f)))).toEqual(Array.from(encodeFrame(f)))
+  expect(decodeFrame(frameBytesFromQr(frameToQr(f)))).toEqual(f)
+})
 
-  it('rejects an envelope that is not a frame payload', () => {
-    expect(() => frameBytesFromQr('bsvpay1:AAAA')).toThrow(CodecError)
-    expect(() => frameBytesFromQr('https://example.com')).toThrow(CodecError)
-  })
+it('rejects an envelope that is not a frame payload', () => {
+  expect(() => frameBytesFromQr('bsvpay1:AAAA')).toThrow(CodecError)
+  expect(() => frameBytesFromQr('https://example.com')).toThrow(CodecError)
+})
 ```
 
 In `__tests__/localpayAirGap.test.ts`, replace every `MAX_FRAME_QR_CHARS` reference (import, and the three assertions at the `genuinely needs the fountain` line and inside `every part fits the symbol this app renders`) with the block-size contract:
 
 ```ts
-import { FRAME_BLOCK_BYTES, decodeFrame, encodeFrame, frameBytesFromQr, frameToQr, type PaymentFrame } from '@/utils/localpay/codec'
+import {
+  FRAME_BLOCK_BYTES,
+  decodeFrame,
+  encodeFrame,
+  frameBytesFromQr,
+  frameToQr,
+  type PaymentFrame
+} from '@/utils/localpay/codec'
 
 /** Version-40 QR, error-correction level M, byte mode. */
 const SYMBOL_CAPACITY_M = 2331
 
-  it('sizes every part to fit the symbol this app renders', () => {
-    expect(FRAME_BLOCK_BYTES).toBe(1024)
-    expect(estimatePartCharLength(FRAME_BLOCK_BYTES)).toBeLessThanOrEqual(SYMBOL_CAPACITY_M)
+it('sizes every part to fit the symbol this app renders', () => {
+  expect(FRAME_BLOCK_BYTES).toBe(1024)
+  expect(estimatePartCharLength(FRAME_BLOCK_BYTES)).toBeLessThanOrEqual(SYMBOL_CAPACITY_M)
 
-    const encoder = new AirGapEncoder(frameBytesFromQr(frameToQr(bigFrame(40000))), {
-      blockBytes: FRAME_BLOCK_BYTES
-    })
-    for (const seq of [0, 1, encoder.blockCount, encoder.blockCount + 17]) {
-      expect(encoder.partAt(seq).length).toBeLessThanOrEqual(SYMBOL_CAPACITY_M)
-    }
+  const encoder = new AirGapEncoder(frameBytesFromQr(frameToQr(bigFrame(40000))), {
+    blockBytes: FRAME_BLOCK_BYTES
   })
+  for (const seq of [0, 1, encoder.blockCount, encoder.blockCount + 17]) {
+    expect(encoder.partAt(seq).length).toBeLessThanOrEqual(SYMBOL_CAPACITY_M)
+  }
+})
 
-  it('renders a one-block payment as a single unchanging part', () => {
-    const small = frameBytesFromQr(frameToQr(bigFrame(200)))
-    expect(small.length).toBeLessThanOrEqual(FRAME_BLOCK_BYTES)
-    const encoder = new AirGapEncoder(small, { blockBytes: FRAME_BLOCK_BYTES })
-    expect(encoder.blockCount).toBe(1)
-    const first = encoder.partAt(0)
-    for (const seq of [1, 2, 17, 999]) expect(encoder.partAt(seq)).toBe(first)
-  })
+it('renders a one-block payment as a single unchanging part', () => {
+  const small = frameBytesFromQr(frameToQr(bigFrame(200)))
+  expect(small.length).toBeLessThanOrEqual(FRAME_BLOCK_BYTES)
+  const encoder = new AirGapEncoder(small, { blockBytes: FRAME_BLOCK_BYTES })
+  expect(encoder.blockCount).toBe(1)
+  const first = encoder.partAt(0)
+  for (const seq of [1, 2, 17, 999]) expect(encoder.partAt(seq)).toBe(first)
+})
 ```
 
 Also add `blockBytes: FRAME_BLOCK_BYTES` to the `new AirGapEncoder(...)` calls in the two existing round-trip cases, and update the `routes parts and non-parts` case to assert `isAirGapPart(frameToQr(bigFrame(10))) === false` (unchanged) — the stored envelope must still never enter the decoder.
@@ -644,7 +656,12 @@ Amend `frameToQr`'s doc comment: `/** Encodes a frame for storage and re-display
 In `utils/pay/rails/nearby.ts`, in the codec re-export block: drop `MAX_FRAME_QR_CHARS` and `frameFromQr`, add `FRAME_BLOCK_BYTES`. Add a re-export for the new module beside the others:
 
 ```ts
-export { FrameVerifyError, verifyFramePayment, type DerivingWallet, type FrameVerifyKind } from '@/utils/localpay/verify'
+export {
+  FrameVerifyError,
+  verifyFramePayment,
+  type DerivingWallet,
+  type FrameVerifyKind
+} from '@/utils/localpay/verify'
 ```
 
 - [ ] **Step 5: Always-fountain renderer**
@@ -711,11 +728,12 @@ In `components/pay/NearbyFlow.tsx`:
 - delete the bare-envelope branch at :902-919 (from `if (scanLatchRef.current) return` through the `void settleRef.current(frame, session)` that follows `frameFromQr`), leaving `onFrameScanned` with only the air-gap branch. Add above the remaining branch:
 
 ```ts
-      // Frames arrive as air-gap parts and nothing else: the payer's code is
-      // always a fountain, so a bare bsvpayf1: envelope is not a payment QR
-      // this build renders or accepts.
+// Frames arrive as air-gap parts and nothing else: the payer's code is
+// always a fountain, so a bare bsvpayf1: envelope is not a payment QR
+// this build renders or accepts.
 ```
-  Drop the now-unused `if (isAirGapPart(data))` guard's `return` fallthrough by making the function early-return when `!isAirGapPart(data)`.
+
+Drop the now-unused `if (isAirGapPart(data))` guard's `return` fallthrough by making the function early-return when `!isAirGapPart(data)`.
 
 - remove `frameFromQr` and `MAX_FRAME_QR_CHARS` from the rail import block; add `FRAME_BLOCK_BYTES`.
 - replace the hint condition at :1693:
@@ -726,22 +744,22 @@ In `components/pay/NearbyFlow.tsx`:
             )}
 ```
 
-  and add beside the other derived values (near the `sessionQr` memo, ~:1256):
+and add beside the other derived values (near the `sessionQr` memo, ~:1256):
 
 ```ts
-  // Source blocks in the payment code. One block renders as a still QR, so the
-  // "hold steady while it animates" hint would be wrong copy for it.
-  const paymentQrBlocks = useMemo(() => {
-    if (!paymentQr) return 0
-    try {
-      return Math.ceil(frameBytesFromQr(paymentQr).length / FRAME_BLOCK_BYTES)
-    } catch {
-      return 0
-    }
-  }, [paymentQr])
+// Source blocks in the payment code. One block renders as a still QR, so the
+// "hold steady while it animates" hint would be wrong copy for it.
+const paymentQrBlocks = useMemo(() => {
+  if (!paymentQr) return 0
+  try {
+    return Math.ceil(frameBytesFromQr(paymentQr).length / FRAME_BLOCK_BYTES)
+  } catch {
+    return 0
+  }
+}, [paymentQr])
 ```
 
-  Add `frameBytesFromQr` to the rail import block.
+Add `frameBytesFromQr` to the rail import block.
 
 - update the comment at :1240 (`every frameToQr() call site already gates on MAX_MESSAGE_BYTES before calling it`) — still true, keep it, but drop any mention of a symbol-size ceiling if present.
 
@@ -780,6 +798,7 @@ bsvpayf1: survives only as the offline_actions.framePayload envelope."
 ### Task 5: Device matrix note
 
 **Files:**
+
 - Modify: `docs/superpowers/plans/2026-07-29-offline-transport-fixes.md` (its device-matrix section)
 
 - [ ] **Step 1: Add the rows this change needs on-device**
@@ -804,15 +823,15 @@ git commit -m "docs(plan): device-matrix rows for frame v2 and the always-founta
 
 **Spec coverage:**
 
-| spec section | task |
-| --- | --- |
-| 1. `PaymentFrame` v2 — `amount` deleted | Task 3 |
-| 2. `verifyFramePayment` | Task 1 |
-| 3. Settle path + decline mapping | Task 2 |
-| 4. QR wire: always air-gap, 1 KiB blocks | Task 4 |
+| spec section                                        | task                                                                                                            |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 1. `PaymentFrame` v2 — `amount` deleted             | Task 3                                                                                                          |
+| 2. `verifyFramePayment`                             | Task 1                                                                                                          |
+| 3. Settle path + decline mapping                    | Task 2                                                                                                          |
+| 4. QR wire: always air-gap, 1 KiB blocks            | Task 4                                                                                                          |
 | 5. Compatibility (v1 refused; both on-disk formats) | Task 3 Step 1 (v1 refusal test), Task 4 Step 1 (envelope round-trip); no migration needed, nothing to implement |
-| Testing section | Tasks 1, 3, 4 |
-| Non-goals (`Session`, `Ack` untouched) | Global Constraints |
+| Testing section                                     | Tasks 1, 3, 4                                                                                                   |
+| Non-goals (`Session`, `Ack` untouched)              | Global Constraints                                                                                              |
 
 **Type consistency:** `verifyFramePayment(wallet, frame, originator) → { satoshis }`, `FrameVerifyError.kind: 'unparseable' | 'not_mine'`, `DerivingWallet.getPublicKey`, `FRAME_BLOCK_BYTES`, `FRAME_VERSION = 2` — used under those exact names in Tasks 2 and 4.
 

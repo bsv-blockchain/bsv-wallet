@@ -127,7 +127,9 @@ function txSpending(parents: { tx: Transaction; vout: number }[], amount = 60, a
 
 /** A real σ_I: the same bytes the overlay signs, by the overlay's own key. */
 function signAdmission(txid: string, outputsToAdmit: number[]): string {
-  return OVERLAY_PRIV.sign(Utils.toArray(admissionMessageV3(tokenTopic(ASSET_ID), txid, outputsToAdmit), 'utf8')).toDER('hex') as string
+  return OVERLAY_PRIV.sign(Utils.toArray(admissionMessageV3(tokenTopic(ASSET_ID), txid, outputsToAdmit), 'utf8')).toDER(
+    'hex'
+  ) as string
 }
 
 interface FakeReq {
@@ -1040,7 +1042,11 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
       ok: true,
       status: 200,
       body: JSON.stringify({
-        [tokenTopic(ASSET_ID)]: { outputsToAdmit: [0], admissionSignature: signature, admissionIdentityKey: OVERLAY_KEY }
+        [tokenTopic(ASSET_ID)]: {
+          outputsToAdmit: [0],
+          admissionSignature: signature,
+          admissionIdentityKey: OVERLAY_KEY
+        }
       })
     })
     expect(await runtime.tokenDeps.submit(tipTxid)).toEqual({
@@ -1066,7 +1072,9 @@ describe('submit maps the wire contract onto OverlayVerdict', () => {
 
   it('a σ_I by some other key, or over another admitted set, is ERR_BAD_ADMISSION', async () => {
     const impostor = PrivateKey.fromRandom()
-    const foreign = impostor.sign(Utils.toArray(admissionMessageV3(tokenTopic(ASSET_ID), tipTxid, [0]), 'utf8')).toDER('hex') as string
+    const foreign = impostor
+      .sign(Utils.toArray(admissionMessageV3(tokenTopic(ASSET_ID), tipTxid, [0]), 'utf8'))
+      .toDER('hex') as string
     const byImpostor = runtimeWith({
       ok: true,
       status: 200,
@@ -2050,7 +2058,9 @@ function tokenFrame(args: {
 
 /** σ_I bytes as a frame carries them, by the overlay or by an impostor. */
 function admissionBytes(txid: string, outputsToAdmit: number[], priv = OVERLAY_PRIV): Uint8Array {
-  const der = priv.sign(Utils.toArray(admissionMessageV3(tokenTopic(ASSET_ID), txid, outputsToAdmit), 'utf8')).toDER('hex') as string
+  const der = priv
+    .sign(Utils.toArray(admissionMessageV3(tokenTopic(ASSET_ID), txid, outputsToAdmit), 'utf8'))
+    .toDER('hex') as string
   return Uint8Array.from(Utils.toArray(der, 'hex'))
 }
 

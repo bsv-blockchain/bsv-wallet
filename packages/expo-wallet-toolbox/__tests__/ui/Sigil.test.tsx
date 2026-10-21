@@ -20,31 +20,25 @@ function collectTypes(node: HostNode | null, out: string[] = []): string[] {
 
 describe('Sigil', () => {
   it('renders a real svg tree for a valid planet name', () => {
-    const { toJSON } = render(
-      <Sigil point="~sampel-palnet" size={38} foreground="#000" background="#fff" />
-    )
+    const { toJSON } = render(<Sigil point="~sampel-palnet" size={38} foreground="#000" background="#fff" />)
     const root = toJSON() as HostNode
     expect(root).not.toBeNull()
     const types = collectTypes(root)
     expect(types).toContain('RNSVGSvgView')
-    expect(types.some((t) => t === 'RNSVGPath' || t === 'RNSVGCircle')).toBe(true)
+    expect(types.some(t => t === 'RNSVGPath' || t === 'RNSVGCircle')).toBe(true)
   })
 
   it('renders null without throwing for an invalid point', () => {
     let tree: unknown = 'unset'
     expect(() => {
-      const { toJSON } = render(
-        <Sigil point="~notaname-xx" size={38} foreground="#000" background="#fff" />
-      )
+      const { toJSON } = render(<Sigil point="~notaname-xx" size={38} foreground="#000" background="#fff" />)
       tree = toJSON()
     }).not.toThrow()
     expect(tree).toBeNull()
   })
 
   it('strips the display:block inline style sigil-js emits on the root svg', () => {
-    const { toJSON } = render(
-      <Sigil point="~sampel-palnet" size={38} foreground="#000" background="#fff" />
-    )
+    const { toJSON } = render(<Sigil point="~sampel-palnet" size={38} foreground="#000" background="#fff" />)
     const root = toJSON() as HostNode
     expect(root.type).toBe('RNSVGSvgView')
     // SvgXml spreads its own props (xml included) onto the root Svg, and Svg

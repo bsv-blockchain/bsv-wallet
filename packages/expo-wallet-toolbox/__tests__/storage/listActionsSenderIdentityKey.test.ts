@@ -18,8 +18,7 @@ function adapt(raw: DatabaseSync) {
   return {
     execAsync: async (sql: string) => raw.exec(sql),
     getAllAsync: jest.fn(async (sql: string, params: unknown[] = []) => raw.prepare(sql).all(...(params as never[]))),
-    getFirstAsync: async (sql: string, params: unknown[] = []) =>
-      raw.prepare(sql).get(...(params as never[])) ?? null,
+    getFirstAsync: async (sql: string, params: unknown[] = []) => raw.prepare(sql).get(...(params as never[])) ?? null,
     runAsync: async (sql: string, params: unknown[] = []) => raw.prepare(sql).run(...(params as never[]))
   }
 }

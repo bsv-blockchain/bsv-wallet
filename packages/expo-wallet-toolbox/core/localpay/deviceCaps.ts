@@ -19,15 +19,7 @@
 import { Platform } from 'react-native'
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo'
 import { getLocalPayBleTransport } from '@bsv/react-native-localpay-transport'
-import {
-  HINT_BT,
-  HINT_NET,
-  HINT_NFC,
-  HINT_ONLINE,
-  HINT_ONLINE_KNOWN,
-  HINT_WIFI,
-  RUNG_MASK,
-} from './session'
+import { HINT_BT, HINT_NET, HINT_NFC, HINT_ONLINE, HINT_ONLINE_KNOWN, HINT_WIFI, RUNG_MASK } from './session'
 
 /** Mirrors LocalPayBleTransport.bluetoothState(); anything else coerces to 'unknown'. */
 export type BluetoothState = 'poweredOn' | 'poweredOff' | 'unauthorized' | 'unsupported' | 'unknown'
@@ -58,7 +50,7 @@ const BLUETOOTH_STATES: readonly BluetoothState[] = [
   'poweredOff',
   'unauthorized',
   'unsupported',
-  'unknown',
+  'unknown'
 ]
 
 /**
@@ -145,15 +137,13 @@ function readNfcAvailable(): boolean {
  */
 export async function probeDeviceCaps(opts?: { netBudgetMs?: number }): Promise<DeviceProbe> {
   const net = await fetchNetWithinBudget(opts?.netBudgetMs ?? DEFAULT_NET_BUDGET_MS)
-  const wifi =
-    net !== null &&
-    (Platform.OS === 'android' ? net.isWifiEnabled === true : net.type === 'wifi')
+  const wifi = net !== null && (Platform.OS === 'android' ? net.isWifiEnabled === true : net.type === 'wifi')
   return {
     online: net === null ? null : net.isInternetReachable,
     connected: net === null ? null : net.isConnected,
     wifi,
     bluetooth: readBluetoothState(),
-    nfc: readNfcAvailable(),
+    nfc: readNfcAvailable()
   }
 }
 

@@ -25,26 +25,20 @@ export const GroupedList: React.FC<GroupedListProps> = ({ sections }) => {
       {sections.map((section, idx) => (
         <View key={idx} style={styles.section}>
           {section.header && (
-            <Text style={[styles.header, { color: colors.textTertiary }]}>
-              {section.header.toUpperCase()}
-            </Text>
+            <Text style={[styles.header, { color: colors.textTertiary }]}>{section.header.toUpperCase()}</Text>
           )}
           <View
             style={[
               styles.group,
               {
                 backgroundColor: colors.backgroundElevated,
-                borderColor: colors.separator,
+                borderColor: colors.separator
               }
             ]}
           >
             {section.children}
           </View>
-          {section.footer && (
-            <Text style={[styles.footer, { color: colors.textTertiary }]}>
-              {section.footer}
-            </Text>
-          )}
+          {section.footer && <Text style={[styles.footer, { color: colors.textTertiary }]}>{section.footer}</Text>}
         </View>
       ))}
     </View>
@@ -54,46 +48,34 @@ export const GroupedList: React.FC<GroupedListProps> = ({ sections }) => {
 /**
  * Standalone section for inline use without the GroupedList wrapper.
  */
-export const GroupedSection: React.FC<GroupedListSection> = ({
-  header,
-  footer,
-  children
-}) => {
+export const GroupedSection: React.FC<GroupedListSection> = ({ header, footer, children }) => {
   const { colors } = useTheme()
 
   return (
     <View style={styles.section}>
-      {header && (
-        <Text style={[styles.header, { color: colors.textTertiary }]}>
-          {header.toUpperCase()}
-        </Text>
-      )}
+      {header && <Text style={[styles.header, { color: colors.textTertiary }]}>{header.toUpperCase()}</Text>}
       <View
         style={[
           styles.group,
           {
             backgroundColor: colors.backgroundElevated,
-            borderColor: colors.separator,
+            borderColor: colors.separator
           }
         ]}
       >
         {children}
       </View>
-      {footer && (
-        <Text style={[styles.footer, { color: colors.textTertiary }]}>
-          {footer}
-        </Text>
-      )}
+      {footer && <Text style={[styles.footer, { color: colors.textTertiary }]}>{footer}</Text>}
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flex: 1
   },
   section: {
-    marginBottom: spacing.xxl,
+    marginBottom: spacing.xxl
   },
   // Tracked small caps, matching the day headings in the activity list — a
   // section header is a label for the block under it, not a line of prose.
@@ -102,7 +84,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1.3,
     paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.sm
   },
   // A card lifted off the canvas: the border does the work in dark, the shadow
   // in light, and the radius says "object" in both.
@@ -115,11 +97,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    elevation: 1
   },
   footer: {
     ...typography.footnote,
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.sm,
-  },
+    paddingTop: spacing.sm
+  }
 })

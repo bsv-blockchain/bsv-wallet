@@ -9,11 +9,13 @@
 **Tech Stack:** Expo 55, React Native 0.83, React 19.2, Reanimated 4.2.1, expo-haptics, react-native-svg 15.15.3, jest-expo + @testing-library/react-native (new).
 
 **Hard constraints (from prior perf work — violating these is a plan failure):**
+
 1. Never animate an ancestor's opacity fractionally above a LiquidGlass / UIVisualEffectView view. New primitives therefore use **solid/near-solid theme backgrounds** (`colors.sheetBackground`, `colors.backgroundElevated`), NOT BlurView/LiquidGlass.
 2. Do not change the warm WebView pool structure, `WalletManagersContext`, or KeyboardAvoidingView placement. The tab-crossfade task only animates the existing opacity style value.
 3. `react-toastify` is a web-only DOM library currently imported in 4 native files (silently broken on device) — it gets replaced by the native Toast and removed.
 
 **Verification commands available in this repo** (no test infra exists before Task 1):
+
 - Typecheck: `npx tsc --noEmit`
 - Lint: `npm run lint`
 - Tests (after Task 1): `npx jest`
@@ -23,6 +25,7 @@
 ### Task 1: Test infrastructure (jest-expo)
 
 **Files:**
+
 - Modify: `package.json` (devDependencies + scripts + jest config)
 
 - [ ] **Step 1: Install dev dependencies**
@@ -76,6 +79,7 @@ git commit -m "test: add jest-expo test infrastructure"
 ### Task 2: Motion tokens
 
 **Files:**
+
 - Create: `context/theme/motion.ts`
 - Test: `__tests__/motion.test.ts`
 
@@ -126,7 +130,7 @@ export const springs = {
   /** Buttons, small elements, alert cards. */
   snappy: { mass: 1, stiffness: 380, damping: 36 },
   /** Larger surfaces: sheets, popovers, dropdowns. */
-  settle: { mass: 1, stiffness: 280, damping: 32 },
+  settle: { mass: 1, stiffness: 280, damping: 32 }
 } as const
 
 export const durations = {
@@ -135,7 +139,7 @@ export const durations = {
   /** Small movements, toasts. */
   quick: 250,
   /** Largest allowed — full-surface transitions. */
-  moderate: 350,
+  moderate: 350
 } as const
 ```
 
@@ -153,6 +157,7 @@ git commit -m "feat: add Quiet Precision motion tokens"
 ### Task 3: Haptic vocabulary
 
 **Files:**
+
 - Create: `hooks/useHaptics.ts`
 - Test: `__tests__/useHaptics.test.ts`
 
@@ -166,7 +171,7 @@ jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(() => Promise.resolve()),
   notificationAsync: jest.fn(() => Promise.resolve()),
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
-  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
+  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' }
 }))
 
 import * as Haptics from 'expo-haptics'
@@ -222,15 +227,21 @@ Run: `npx jest __tests__/useHaptics.test.ts` — Expected: FAIL.
 import * as Haptics from 'expo-haptics'
 import { Platform } from 'react-native'
 
-const swallow = (p: Promise<void>) => { p.catch(() => {}) }
+const swallow = (p: Promise<void>) => {
+  p.catch(() => {})
+}
 const isIOS = () => Platform.OS === 'ios'
 
 export const haptics = {
-  tap: () => { if (isIOS()) swallow(Haptics.selectionAsync()) },
-  confirm: () => { if (isIOS()) swallow(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)) },
+  tap: () => {
+    if (isIOS()) swallow(Haptics.selectionAsync())
+  },
+  confirm: () => {
+    if (isIOS()) swallow(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light))
+  },
   success: () => swallow(Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)),
   warning: () => swallow(Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)),
-  error: () => swallow(Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)),
+  error: () => swallow(Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error))
 } as const
 
 export type HapticName = keyof typeof haptics
@@ -264,6 +275,7 @@ git commit -m "feat: add semantic haptic vocabulary, migrate ad-hoc call sites"
 ### Task 4: PressableScale
 
 **Files:**
+
 - Create: `components/ui/PressableScale.tsx`
 - Test: `__tests__/PressableScale.test.tsx`
 
@@ -329,23 +341,32 @@ export default function PressableScale({
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: 1 - (1 - scaleTo) * pressed.value }],
-    opacity: 1 - 0.15 * pressed.value,
+    opacity: 1 - 0.15 * pressed.value
   }))
 
-  const handlePressIn = useCallback((e: GestureResponderEvent) => {
-    pressed.value = withSpring(1, springs.snappy)
-    onPressIn?.(e)
-  }, [onPressIn, pressed])
+  const handlePressIn = useCallback(
+    (e: GestureResponderEvent) => {
+      pressed.value = withSpring(1, springs.snappy)
+      onPressIn?.(e)
+    },
+    [onPressIn, pressed]
+  )
 
-  const handlePressOut = useCallback((e: GestureResponderEvent) => {
-    pressed.value = withSpring(0, springs.snappy)
-    onPressOut?.(e)
-  }, [onPressOut, pressed])
+  const handlePressOut = useCallback(
+    (e: GestureResponderEvent) => {
+      pressed.value = withSpring(0, springs.snappy)
+      onPressOut?.(e)
+    },
+    [onPressOut, pressed]
+  )
 
-  const handlePress = useCallback((e: GestureResponderEvent) => {
-    if (haptic) haptics[haptic]()
-    onPress?.(e)
-  }, [haptic, onPress])
+  const handlePress = useCallback(
+    (e: GestureResponderEvent) => {
+      if (haptic) haptics[haptic]()
+      onPress?.(e)
+    },
+    [haptic, onPress]
+  )
 
   return (
     <Pressable
@@ -375,6 +396,7 @@ git commit -m "feat: add PressableScale press-feedback primitive"
 ### Task 5: Upgrade IconButton + ListRow press feedback internally
 
 **Files:**
+
 - Modify: `components/ui/IconButton.tsx` (pressed style at lines ~36-44, styles ~61-73)
 - Modify: `components/ui/ListRow.tsx` (Pressable wrapper at lines ~73-82)
 
@@ -435,6 +457,7 @@ git commit -m "feat: spring press feedback in IconButton and ListRow"
 ### Task 6: AlertCard primitive + host
 
 **Files:**
+
 - Create: `components/ui/AlertCard.tsx`
 - Modify: `app/_layout.tsx` (mount host)
 - Test: `__tests__/AlertCard.test.tsx`
@@ -451,7 +474,12 @@ import { render, fireEvent, act } from '@testing-library/react-native'
 import { AlertHost, showAlert } from '@/components/ui/AlertCard'
 import { ThemeProvider } from '@/context/theme/ThemeContext'
 
-const host = () => render(<ThemeProvider><AlertHost /></ThemeProvider>)
+const host = () =>
+  render(
+    <ThemeProvider>
+      <AlertHost />
+    </ThemeProvider>
+  )
 
 describe('showAlert', () => {
   it('renders title/message and resolves pressed button key', async () => {
@@ -463,8 +491,8 @@ describe('showAlert', () => {
         message: 'Apps will no longer resolve identities.',
         buttons: [
           { text: 'Cancel', style: 'cancel', key: 'cancel' },
-          { text: 'Delete', style: 'destructive', key: 'delete' },
-        ],
+          { text: 'Delete', style: 'destructive', key: 'delete' }
+        ]
       })
     })
     expect(screen.getByText('Delete Certifier?')).toBeTruthy()
@@ -476,7 +504,9 @@ describe('showAlert', () => {
   it('defaults to a single OK button resolving "ok"', async () => {
     const screen = host()
     let result: Promise<string>
-    act(() => { result = showAlert({ title: 'Heads up' }) })
+    act(() => {
+      result = showAlert({ title: 'Heads up' })
+    })
     fireEvent.press(screen.getByText('OK'))
     await expect(result!).resolves.toBe('ok')
   })
@@ -512,7 +542,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  useReducedMotion,
+  useReducedMotion
 } from 'react-native-reanimated'
 import { useTheme } from '@/context/theme/ThemeContext'
 import { spacing, radii, typography } from '@/context/theme/tokens'
@@ -560,30 +590,33 @@ export function AlertHost() {
 
   useEffect(() => {
     enqueue = (a: ActiveAlert) => setQueue(q => [...q, a])
-    return () => { enqueue = null }
+    return () => {
+      enqueue = null
+    }
   }, [])
 
   useEffect(() => {
     if (current) {
       if (current.buttons?.some(b => b.style === 'destructive')) haptics.warning()
-      progress.value = reducedMotion
-        ? withTiming(1, { duration: durations.instant })
-        : withSpring(1, springs.snappy)
+      progress.value = reducedMotion ? withTiming(1, { duration: durations.instant }) : withSpring(1, springs.snappy)
     }
   }, [current, progress, reducedMotion])
 
-  const dismiss = useCallback((key: string) => {
-    if (!current) return
-    current.resolve(key)
-    progress.value = withTiming(0, { duration: durations.instant })
-    // Unmount after the exit fade completes.
-    setTimeout(() => setQueue(q => q.slice(1)), durations.instant)
-  }, [current, progress])
+  const dismiss = useCallback(
+    (key: string) => {
+      if (!current) return
+      current.resolve(key)
+      progress.value = withTiming(0, { duration: durations.instant })
+      // Unmount after the exit fade completes.
+      setTimeout(() => setQueue(q => q.slice(1)), durations.instant)
+    },
+    [current, progress]
+  )
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: progress.value }))
   const cardStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ scale: 0.95 + 0.05 * progress.value }],
+    transform: [{ scale: 0.95 + 0.05 * progress.value }]
   }))
 
   if (!current) return null
@@ -591,35 +624,33 @@ export function AlertHost() {
   const sideBySide = buttons.length === 2
 
   const buttonColor = (b: AlertButton) =>
-    b.style === 'destructive' ? colors.error
-    : b.style === 'cancel' ? colors.textSecondary
-    : colors.info
+    b.style === 'destructive' ? colors.error : b.style === 'cancel' ? colors.textSecondary : colors.info
 
   return (
     <Modal transparent visible animationType="none" onRequestClose={() => dismiss('cancel')}>
       <Animated.View style={[styles.backdrop, backdropStyle]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => dismiss('cancel')} />
         <Animated.View
-          style={[
-            styles.card,
-            { backgroundColor: colors.sheetBackground, borderColor: colors.separator },
-            cardStyle,
-          ]}
+          style={[styles.card, { backgroundColor: colors.sheetBackground, borderColor: colors.separator }, cardStyle]}
         >
           <Text style={[styles.title, { color: colors.textPrimary }]}>{current.title}</Text>
           {!!current.message && (
             <Text style={[styles.message, { color: colors.textSecondary }]}>{current.message}</Text>
           )}
-          <View style={[styles.buttonGroup, { borderTopColor: colors.separator }, !sideBySide && styles.buttonGroupStacked]}>
+          <View
+            style={[styles.buttonGroup, { borderTopColor: colors.separator }, !sideBySide && styles.buttonGroupStacked]}
+          >
             {buttons.map((b, i) => (
               <Pressable
                 key={b.key ?? b.text}
                 onPress={() => dismiss(b.key ?? b.text.toLowerCase())}
                 style={({ pressed }) => [
                   styles.button,
-                  sideBySide && i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.separator },
-                  !sideBySide && i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },
-                  pressed && { backgroundColor: colors.fillTertiary },
+                  sideBySide &&
+                    i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.separator },
+                  !sideBySide &&
+                    i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },
+                  pressed && { backgroundColor: colors.fillTertiary }
                 ]}
                 accessibilityRole="button"
               >
@@ -627,7 +658,7 @@ export function AlertHost() {
                   style={[
                     styles.buttonText,
                     { color: buttonColor(b) },
-                    (b.style === 'destructive' || b.style === 'cancel') && styles.buttonTextBold,
+                    (b.style === 'destructive' || b.style === 'cancel') && styles.buttonTextBold
                   ]}
                 >
                   {b.text}
@@ -646,30 +677,30 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.45)'
   },
   card: {
     width: 280,
     borderRadius: radii.xl,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
-    paddingTop: spacing.xl,
+    paddingTop: spacing.xl
   },
   title: {
     ...typography.headline,
     textAlign: 'center',
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.xl
   },
   message: {
     ...typography.footnote,
     textAlign: 'center',
     paddingHorizontal: spacing.xl,
-    marginTop: spacing.xs,
+    marginTop: spacing.xs
   },
   buttonGroup: {
     flexDirection: 'row',
     marginTop: spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: StyleSheet.hairlineWidth
   },
   buttonGroupStacked: { flexDirection: 'column' },
   button: {
@@ -677,10 +708,10 @@ const styles = StyleSheet.create({
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.md
   },
   buttonText: { ...typography.body, textAlign: 'center' },
-  buttonTextBold: { fontWeight: '600' },
+  buttonTextBold: { fontWeight: '600' }
 })
 ```
 
@@ -702,6 +733,7 @@ git commit -m "feat: add AlertCard glass alert with promise API"
 ### Task 7: Toast primitive + host
 
 **Files:**
+
 - Create: `components/ui/Toast.tsx`
 - Modify: `app/_layout.tsx` (mount host)
 - Test: `__tests__/Toast.test.tsx`
@@ -722,13 +754,23 @@ jest.useFakeTimers()
 
 describe('showToast', () => {
   it('renders message, newest wins, auto-dismisses after 2s', () => {
-    const screen = render(<ThemeProvider><ToastHost /></ThemeProvider>)
-    act(() => { showToast('Copied') })
+    const screen = render(
+      <ThemeProvider>
+        <ToastHost />
+      </ThemeProvider>
+    )
+    act(() => {
+      showToast('Copied')
+    })
     expect(screen.getByText('Copied')).toBeTruthy()
-    act(() => { showToast('Exported', { type: 'success' }) })
+    act(() => {
+      showToast('Exported', { type: 'success' })
+    })
     expect(screen.queryByText('Copied')).toBeNull()
     expect(screen.getByText('Exported')).toBeTruthy()
-    act(() => { jest.advanceTimersByTime(2600) })
+    act(() => {
+      jest.advanceTimersByTime(2600)
+    })
     expect(screen.queryByText('Exported')).toBeNull()
   })
 })
@@ -757,7 +799,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  useReducedMotion,
+  useReducedMotion
 } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '@/context/theme/ThemeContext'
@@ -766,7 +808,11 @@ import { springs, durations } from '@/context/theme/motion'
 import { haptics } from '@/hooks/useHaptics'
 
 export type ToastType = 'info' | 'success' | 'error'
-interface ToastData { id: number; message: string; type: ToastType }
+interface ToastData {
+  id: number
+  message: string
+  type: ToastType
+}
 
 const TOAST_MS = 2000
 
@@ -777,7 +823,10 @@ export function showToast(message: string, opts?: { type?: ToastType }) {
   const type = opts?.type ?? 'info'
   if (type === 'success') haptics.success()
   if (type === 'error') haptics.error()
-  if (!push) { console.warn('[Toast] ToastHost not mounted:', message); return }
+  if (!push) {
+    console.warn('[Toast] ToastHost not mounted:', message)
+    return
+  }
   push(message, type)
 }
 
@@ -794,32 +843,32 @@ export function ToastHost() {
       if (hideTimer.current) clearTimeout(hideTimer.current)
       setToast({ id: nextId++, message, type })
     }
-    return () => { push = null }
+    return () => {
+      push = null
+    }
   }, [])
 
   useEffect(() => {
     if (!toast) return
     progress.value = 0
-    progress.value = reducedMotion
-      ? withTiming(1, { duration: durations.instant })
-      : withSpring(1, springs.snappy)
+    progress.value = reducedMotion ? withTiming(1, { duration: durations.instant }) : withSpring(1, springs.snappy)
     hideTimer.current = setTimeout(() => {
       progress.value = withTiming(0, { duration: durations.quick })
       hideTimer.current = setTimeout(() => setToast(null), durations.quick)
     }, TOAST_MS)
-    return () => { if (hideTimer.current) clearTimeout(hideTimer.current) }
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current)
+    }
   }, [toast, progress, reducedMotion])
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ translateY: -12 * (1 - progress.value) }],
+    transform: [{ translateY: -12 * (1 - progress.value) }]
   }))
 
   if (!toast) return null
 
-  const icon = toast.type === 'success' ? 'checkmark-circle'
-    : toast.type === 'error' ? 'alert-circle'
-    : null
+  const icon = toast.type === 'success' ? 'checkmark-circle' : toast.type === 'error' ? 'alert-circle' : null
   const iconColor = toast.type === 'success' ? colors.success : colors.error
 
   return (
@@ -829,7 +878,7 @@ export function ToastHost() {
         style={[
           styles.capsule,
           { backgroundColor: colors.sheetBackground, borderColor: colors.separator },
-          animatedStyle,
+          animatedStyle
         ]}
       >
         {icon && <Ionicons name={icon} size={18} color={iconColor} style={styles.icon} />}
@@ -847,7 +896,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    zIndex: 10000,
+    zIndex: 10000
   },
   capsule: {
     flexDirection: 'row',
@@ -861,10 +910,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    elevation: 6
   },
   icon: { marginRight: spacing.sm },
-  text: { ...typography.subhead, flexShrink: 1 },
+  text: { ...typography.subhead, flexShrink: 1 }
 })
 ```
 
@@ -886,6 +935,7 @@ git commit -m "feat: add native Toast notice capsule"
 ### Task 8: Celebration primitive
 
 **Files:**
+
 - Create: `components/ui/Celebration.tsx`
 
 Drawn checkmark (SVG stroke draw) + `success` haptic, ~600ms total. Used in exactly 3 places (Task 17). Not modal — renders inline where mounted.
@@ -908,7 +958,7 @@ import Animated, {
   withSpring,
   withTiming,
   withDelay,
-  useReducedMotion,
+  useReducedMotion
 } from 'react-native-reanimated'
 import { useTheme } from '@/context/theme/ThemeContext'
 import { springs } from '@/context/theme/motion'
@@ -945,7 +995,7 @@ export default function Celebration({ size = 88, onDone }: CelebrationProps) {
 
   const circleStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
-    transform: [{ scale: scale.value }],
+    transform: [{ scale: scale.value }]
   }))
   const pathProps = useAnimatedProps(() => ({ strokeDashoffset: draw.value }))
 
@@ -971,7 +1021,7 @@ export default function Celebration({ size = 88, onDone }: CelebrationProps) {
 }
 
 const styles = StyleSheet.create({
-  center: { alignItems: 'center', justifyContent: 'center' },
+  center: { alignItems: 'center', justifyContent: 'center' }
 })
 ```
 
@@ -991,6 +1041,7 @@ git commit -m "feat: add Celebration drawn-checkmark primitive"
 **Files (all Modify):** `app/wallet-config.tsx`, `app/trust.tsx`, `app/auth/scan-shares.tsx`, `app/connections.tsx`, `utils/importDatabases.ts`, `app/auth/mnemonic.tsx`, `components/onboarding/DefaultBrowserPrompt.tsx`
 
 Conversion rules (apply mechanically):
+
 - **DECISION** (buttons with callbacks) → `await showAlert({...})`, branch on resolved key. Destructive action gets `style: 'destructive'`.
 - **Blocking NOTICE** (single button, user must acknowledge before flow continues) → `await showAlert({ title, message })`.
 - **Transient NOTICE** (errors/info mid-flow, nothing depends on acknowledgment) → `showToast(message, { type: 'error' })` (or `'success'`/`'info'`).
@@ -999,28 +1050,28 @@ Conversion rules (apply mechanically):
 
 Full site list with target treatment:
 
-| File:Line | Current | Treatment |
-|---|---|---|
-| wallet-config.tsx:147 | 'Error' / wallet key access | `showToast(msg, { type: 'error' })` |
-| wallet-config.tsx:179 | import success | `showToast(t('import_success'), { type: 'success' })` |
-| wallet-config.tsx:553 | delete wallet warning | `showAlert` — cancel + destructive `delete` |
-| trust.tsx:140 | confirm delete certifier | `showAlert` — cancel + destructive `delete` |
-| scan-shares.tsx:85 | biometric required (Cancel/Try Again) | `showAlert` — `cancel` + `retry` keys |
-| connections.tsx:112 | invalid QR | `showToast(..., { type: 'error' })` |
-| connections.tsx:116 | wallet not ready | `showToast(..., { type: 'error' })` |
-| connections.tsx:124 | connection failed | `showToast(..., { type: 'error' })` |
-| connections.tsx:176 | reconnect failed | `showToast(..., { type: 'error' })` |
-| importDatabases.ts:51 | invalid file (done btn) | `await showAlert({ title, message })` (blocking) |
-| importDatabases.ts:81 | import conflict (cancel/anyway) | `showAlert` — `cancel` + destructive `import` |
-| importDatabases.ts:90 | import confirm (cancel/import) | `showAlert` — `cancel` + default `import` |
-| importDatabases.ts:106 | invalid file + e.message | `showToast(..., { type: 'error' })` |
-| importDatabases.ts:128 | invalid file + e.message | `showToast(..., { type: 'error' })` |
-| mnemonic.tsx:67,155,194 | biometric required (Cancel/Try Again) | `showAlert` — `cancel` + `retry` |
-| mnemonic.tsx:81 | generate failed | `showToast(..., { type: 'error' })` |
-| mnemonic.tsx:169 | invalid private key | `showToast(..., { type: 'error' })` |
-| mnemonic.tsx:177 | invalid recovery phrase | `showToast(..., { type: 'error' })` |
-| mnemonic.tsx:209 | wallet setup failed | `showToast(..., { type: 'error' })` |
-| DefaultBrowserPrompt.tsx:48,67,76,129,143 | see Step 3 — full rewrite below | `showAlert` |
+| File:Line                                 | Current                               | Treatment                                             |
+| ----------------------------------------- | ------------------------------------- | ----------------------------------------------------- |
+| wallet-config.tsx:147                     | 'Error' / wallet key access           | `showToast(msg, { type: 'error' })`                   |
+| wallet-config.tsx:179                     | import success                        | `showToast(t('import_success'), { type: 'success' })` |
+| wallet-config.tsx:553                     | delete wallet warning                 | `showAlert` — cancel + destructive `delete`           |
+| trust.tsx:140                             | confirm delete certifier              | `showAlert` — cancel + destructive `delete`           |
+| scan-shares.tsx:85                        | biometric required (Cancel/Try Again) | `showAlert` — `cancel` + `retry` keys                 |
+| connections.tsx:112                       | invalid QR                            | `showToast(..., { type: 'error' })`                   |
+| connections.tsx:116                       | wallet not ready                      | `showToast(..., { type: 'error' })`                   |
+| connections.tsx:124                       | connection failed                     | `showToast(..., { type: 'error' })`                   |
+| connections.tsx:176                       | reconnect failed                      | `showToast(..., { type: 'error' })`                   |
+| importDatabases.ts:51                     | invalid file (done btn)               | `await showAlert({ title, message })` (blocking)      |
+| importDatabases.ts:81                     | import conflict (cancel/anyway)       | `showAlert` — `cancel` + destructive `import`         |
+| importDatabases.ts:90                     | import confirm (cancel/import)        | `showAlert` — `cancel` + default `import`             |
+| importDatabases.ts:106                    | invalid file + e.message              | `showToast(..., { type: 'error' })`                   |
+| importDatabases.ts:128                    | invalid file + e.message              | `showToast(..., { type: 'error' })`                   |
+| mnemonic.tsx:67,155,194                   | biometric required (Cancel/Try Again) | `showAlert` — `cancel` + `retry`                      |
+| mnemonic.tsx:81                           | generate failed                       | `showToast(..., { type: 'error' })`                   |
+| mnemonic.tsx:169                          | invalid private key                   | `showToast(..., { type: 'error' })`                   |
+| mnemonic.tsx:177                          | invalid recovery phrase               | `showToast(..., { type: 'error' })`                   |
+| mnemonic.tsx:209                          | wallet setup failed                   | `showToast(..., { type: 'error' })`                   |
+| DefaultBrowserPrompt.tsx:48,67,76,129,143 | see Step 3 — full rewrite below       | `showAlert`                                           |
 
 Worked example — `app/trust.tsx:140` becomes:
 
@@ -1030,8 +1081,8 @@ const choice = await showAlert({
   message: t('confirm_delete_body'),
   buttons: [
     { text: t('cancel'), style: 'cancel', key: 'cancel' },
-    { text: t('delete'), style: 'destructive', key: 'delete' },
-  ],
+    { text: t('delete'), style: 'destructive', key: 'delete' }
+  ]
 })
 if (choice !== 'delete') return
 // ...existing delete logic from the old onPress callback...
@@ -1046,11 +1097,12 @@ Callback-style sites: move each button's `onPress` body under the corresponding 
 ```ts
 const choice = await showAlert({
   title: 'Set Default Browser',
-  message: 'To set BSV Browser as your default browser:\n\n1. Go to Settings\n2. Scroll down to BSV Browser\n3. Tap "Default Browser App"\n4. Select BSV Browser',
+  message:
+    'To set BSV Browser as your default browser:\n\n1. Go to Settings\n2. Scroll down to BSV Browser\n3. Tap "Default Browser App"\n4. Select BSV Browser',
   buttons: [
     { text: 'Cancel', style: 'cancel', key: 'cancel' },
-    { text: 'Open Settings', key: 'open' },
-  ],
+    { text: 'Open Settings', key: 'open' }
+  ]
 })
 if (choice === 'open') Linking.openSettings()
 ```
@@ -1060,11 +1112,12 @@ The main prompt (lines 75-91):
 ```ts
 const choice = await showAlert({
   title: 'Set as Default Browser',
-  message: 'Would you like to set BSV Browser as your default browser? This will allow you to open web links directly in BSV Browser.',
+  message:
+    'Would you like to set BSV Browser as your default browser? This will allow you to open web links directly in BSV Browser.',
   buttons: [
     { text: 'Not Now', style: 'cancel', key: 'later' },
-    { text: 'Set as Default', key: 'set' },
-  ],
+    { text: 'Set as Default', key: 'set' }
+  ]
 })
 if (choice === 'set') await openDefaultBrowserSettings()
 else await markPromptShown()
@@ -1081,6 +1134,7 @@ The error notice (line 67) → `showToast('Could not open settings. Set BSV Brow
 ### Task 10: Replace react-toastify with native Toast
 
 **Files:**
+
 - Modify: `context/WalletContext.tsx` (toast import + CSS import, ~lines 38-39), `app/transactions.tsx`, `app/logs.tsx`, `app/payments.tsx`
 - Modify: `package.json` (remove dependency)
 
@@ -1092,6 +1146,7 @@ The error notice (line 67) → `showToast('Could not open settings. Set BSV Brow
 ---### Task 11: Rebuild PermissionModal on Sheet
 
 **Files:**
+
 - Modify: `components/browser/PermissionModal.tsx` (full rewrite, keep props contract)
 
 Keep the exact props (`visible, domain, permission, onDecision`) and the permission-label mapping (lines 16-37). Replace the plain `Modal` with the app `Sheet`:
@@ -1150,6 +1205,7 @@ return (
 ### Task 12: Align legacy wallet modals with PermissionSheet
 
 **Files:**
+
 - Modify: `components/wallet/SpendingAuthorizationModal.tsx`, `components/wallet/BasketAccessModal.tsx`, `components/wallet/ProtocolAccessModal.tsx`
 
 These three predate `PermissionSheet`. Do NOT restructure their data flow — restyle only:
@@ -1162,6 +1218,7 @@ These three predate `PermissionSheet`. Do NOT restructure their data flow — re
 ### Task 13: WebView native props
 
 **Files:**
+
 - Modify: `app/index.tsx` (WebView element, lines ~281-482; `allowsBackForwardNavigationGestures` already present at line ~475)
 
 - [ ] **Step 1:** Add to the WebView props, next to `allowsBackForwardNavigationGestures`:
@@ -1179,6 +1236,7 @@ allowsLinkPreview
 ### Task 14: Page-load progress bar
 
 **Files:**
+
 - Modify: `app/index.tsx` (WebViewHost + chrome area)
 - Create: `components/browser/LoadProgressBar.tsx`
 
@@ -1204,18 +1262,13 @@ export default function LoadProgressBar({ progress }: Props) {
   const { colors } = useTheme()
   const style = useAnimatedStyle(() => ({
     width: `${Math.min(progress.value, 1) * 100}%`,
-    opacity: progress.value > 0 && progress.value < 1 ? 1 : 0,
+    opacity: progress.value > 0 && progress.value < 1 ? 1 : 0
   }))
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[styles.bar, { backgroundColor: colors.info }, style]}
-    />
-  )
+  return <Animated.View pointerEvents="none" style={[styles.bar, { backgroundColor: colors.info }, style]} />
 }
 
 const styles = StyleSheet.create({
-  bar: { position: 'absolute', bottom: 0, left: 0, height: 2, borderRadius: 1 },
+  bar: { position: 'absolute', bottom: 0, left: 0, height: 2, borderRadius: 1 }
 })
 ```
 
@@ -1231,6 +1284,7 @@ Throttling: `onLoadProgress` fires sparsely from WKWebView; it is not a per-fram
 ### Task 15: Tab-switch crossfade
 
 **Files:**
+
 - Modify: `app/index.tsx` (WebViewHost container, lines ~247-265)
 
 Current: instant `opacity: isActive ? 1 : 0` style. Animate ONLY this value — pointerEvents and zIndex stay instant (interaction correctness).
@@ -1257,6 +1311,7 @@ Convert the container `View` to `Animated.View`, remove `opacity` from the inlin
 ### Task 16: TabsOverview entrance stagger + new-tab feel
 
 **Files:**
+
 - Modify: `components/browser/TabsOverview.tsx`
 
 - [ ] **Step 1:** Wrap each tab card in `Animated.View` with `entering={FadeInDown.duration(durations.quick).delay(Math.min(index * 20, 160)).springify().stiffness(springs.settle.stiffness).damping(springs.settle.damping)}` (Reanimated entering animation — UI thread). Cap total stagger at 160ms. Gate behind `!useReducedMotion()` (pass `undefined` when reduced).
@@ -1269,6 +1324,7 @@ Convert the container `View` to `Animated.View`, remove `opacity` from the inlin
 ### Task 17: Celebration wiring (exactly three moments)
 
 **Files:**
+
 - Modify: `app/payments.tsx` (first-payment-sent), `app/auth/mnemonic.tsx` (wallet created), `app/auth/scan-shares.tsx` or the backup-verified success path (locate via existing `haptics.success()` call from Task 3)
 - Uses: AsyncStorage flag for "first payment ever"
 
@@ -1282,6 +1338,7 @@ Convert the container `View` to `Animated.View`, remove `opacity` from the inlin
 ### Task 18: PermissionSheet approve morph + haptics
 
 **Files:**
+
 - Modify: `components/ui/PermissionSheet.tsx` (buttons at lines ~571-587)
 
 - [ ] **Step 1:** Replace the two `TouchableOpacity` buttons with `PressableScale` (same styles). On deny: `haptics.warning()` then existing deny logic. On allow: `haptics.success()`, set local state `granted=true`, render an Ionicons `checkmark` (white, 22pt) in place of the allow label, then call the existing grant handler after 400ms (`setTimeout`), letting the sheet dismiss as it already does. Guard against double-tap (`disabled={granted}` on both buttons once granted).
@@ -1293,6 +1350,7 @@ Convert the container `View` to `Animated.View`, remove `opacity` from the inlin
 ### Task 19: Payments screen polish
 
 **Files:**
+
 - Modify: `app/payments.tsx`, `components/wallet/AmountInput.tsx`
 
 Read both files before editing. Apply, preserving ALL payment logic:
@@ -1308,6 +1366,7 @@ Read both files before editing. Apply, preserving ALL payment logic:
 ### Task 20: Onboarding polish — mnemonic screen
 
 **Files:**
+
 - Modify: `app/auth/mnemonic.tsx`
 
 Read the file first. Presentation only — zero flow/logic changes:
@@ -1324,6 +1383,7 @@ Read the file first. Presentation only — zero flow/logic changes:
 ### Task 21: Web3BenefitsModal alignment
 
 **Files:**
+
 - Modify: `components/onboarding/Web3BenefitsModal.tsx`
 
 - [ ] **Step 1:** Read file. Align to token language: background `colors.sheetBackground`, radius `radii.xl`, typography scale per tokens, buttons → `PressableScale` (primary solid accent, secondary hairline border), spacing grid from `spacing.*`. If it uses a plain `Modal`, mount content in `Sheet fitContent` instead, keeping trigger logic in `Web3BenefitsModalHandler` untouched.
@@ -1334,6 +1394,7 @@ Read the file first. Presentation only — zero flow/logic changes:
 ### Task 22: Address bar focus transition + suggestions spring
 
 **Files:**
+
 - Modify: `components/browser/AddressBar.tsx`, `components/browser/SuggestionsDropdown.tsx`
 
 - [ ] **Step 1:** Read both files. In AddressBar: the domain-display ↔ full-URL/TextInput swap on focus gets a crossfade — both states wrapped in `Animated.View` with `FadeIn/FadeOut` at `durations.instant`. Lock-icon changes likewise `FadeIn.duration(durations.instant)`. Do NOT touch the existing `useAddressBarAnimation` hook's layout behavior or focus-cancel guard convention.

@@ -24,11 +24,7 @@ export interface SecpNative extends HybridObject<{ ios: 'swift' }> {
   /** ECDH shared POINT, compressed 33 bytes — NOT hashed. */
   ecdhSharedPoint(privkey32: ArrayBuffer, pubkey33: ArrayBuffer): ArrayBuffer
   /** BRC-42 composite: ECDH point → HMAC-SHA256(invoiceNumber) → (k + tweak) mod n. */
-  brc42DeriveChild(
-    privkey32: ArrayBuffer,
-    counterpartyPubkey33: ArrayBuffer,
-    invoiceNumber: string
-  ): ArrayBuffer
+  brc42DeriveChild(privkey32: ArrayBuffer, counterpartyPubkey33: ArrayBuffer, invoiceNumber: string): ArrayBuffer
   /**
    * Public-key recovery from a 65-byte SDK compact signature
    * ([compactByte 27..=34, r32, s32] — Signature.toCompact layout). Throws for
@@ -81,11 +77,7 @@ export interface SecpNative extends HybridObject<{ ios: 'swift' }> {
   /** 65-byte uncompressed recovered public key (same compact65 layout/fallbacks as ecdsaRecover). */
   ecdsaRecoverUncompressed(msg32: ArrayBuffer, compact65: ArrayBuffer): ArrayBuffer
   /** BRC-42 PUBLIC-side deriveChild composite → 65-byte uncompressed child pubkey. */
-  brc42DeriveChildPubUncompressed(
-    privkey32: ArrayBuffer,
-    pubkey33: ArrayBuffer,
-    invoiceNumber: string
-  ): ArrayBuffer
+  brc42DeriveChildPubUncompressed(privkey32: ArrayBuffer, pubkey33: ArrayBuffer, invoiceNumber: string): ArrayBuffer
 
   /**
    * Batch ECDSA sign, off the JS thread — ONE crossing for a whole transaction.
@@ -100,11 +92,7 @@ export interface SecpNative extends HybridObject<{ ios: 'swift' }> {
    * [1-byte derLen][DER]; resolves to N bytes of 0/1 verdicts (S normalized,
    * same accept-any-s semantics as ecdsaVerify). Rejects on malformed input.
    */
-  batchEcdsaVerify(
-    msgs32Cat: ArrayBuffer,
-    sigsFramed: ArrayBuffer,
-    pubkeys33Cat: ArrayBuffer
-  ): Promise<ArrayBuffer>
+  batchEcdsaVerify(msgs32Cat: ArrayBuffer, sigsFramed: ArrayBuffer, pubkeys33Cat: ArrayBuffer): Promise<ArrayBuffer>
   /**
    * Batch BRC-42 PRIVATE-side deriveChild, off the JS thread — ONE crossing for
    * a whole flow's derivations against one counterparty (ECDH computed once).

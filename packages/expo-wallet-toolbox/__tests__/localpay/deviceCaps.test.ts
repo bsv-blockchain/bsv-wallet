@@ -5,7 +5,7 @@ import {
   capsFromProbe,
   probeDeviceCaps,
   readBluetoothState,
-  type DeviceProbe,
+  type DeviceProbe
 } from '../../core/localpay/deviceCaps'
 import {
   CAP_AWDL,
@@ -16,25 +16,25 @@ import {
   HINT_ONLINE_KNOWN,
   HINT_WIFI,
   RUNG_MASK,
-  mintSession,
+  mintSession
 } from '../../core/localpay/session'
 
 jest.mock('@bsv/react-native-localpay-transport', () => ({
   getLocalPayTransport: jest.fn(),
-  getLocalPayBleTransport: jest.fn(),
+  getLocalPayBleTransport: jest.fn()
 }))
 
 jest.mock('@react-native-community/netinfo', () => ({
   __esModule: true,
-  default: { fetch: jest.fn() },
+  default: { fetch: jest.fn() }
 }))
 
 const { getLocalPayBleTransport } = jest.requireMock('@bsv/react-native-localpay-transport') as {
   getLocalPayBleTransport: jest.Mock
 }
 
-const netFetch = (jest.requireMock('@react-native-community/netinfo') as { default: { fetch: jest.Mock } })
-  .default.fetch
+const netFetch = (jest.requireMock('@react-native-community/netinfo') as { default: { fetch: jest.Mock } }).default
+  .fetch
 
 /** Every field in its "false or unknown" position: the probe that must map to 0. */
 const clear: DeviceProbe = {
@@ -42,7 +42,7 @@ const clear: DeviceProbe = {
   connected: null,
   wifi: false,
   bluetooth: 'unknown',
-  nfc: false,
+  nfc: false
 }
 
 const allSet: DeviceProbe = {
@@ -50,7 +50,7 @@ const allSet: DeviceProbe = {
   connected: true,
   wifi: true,
   bluetooth: 'poweredOn',
-  nfc: true,
+  nfc: true
 }
 
 const ALL_HINTS = HINT_ONLINE | HINT_ONLINE_KNOWN | HINT_NET | HINT_WIFI | HINT_BT | HINT_NFC
@@ -59,7 +59,7 @@ const wifiState = {
   isInternetReachable: true,
   isConnected: true,
   type: 'wifi',
-  isWifiEnabled: true,
+  isWifiEnabled: true
 }
 
 describe('capsFromProbe', () => {
@@ -80,7 +80,7 @@ describe('capsFromProbe', () => {
     ['bluetooth unknown', { ...clear, bluetooth: 'unknown' }, 0],
     ['nfc', { ...clear, nfc: true }, HINT_NFC],
     ['all set', allSet, ALL_HINTS],
-    ['all clear', clear, 0],
+    ['all clear', clear, 0]
   ]
 
   it.each(TABLE)('%s', (_name, probe, expected) => {
@@ -103,7 +103,7 @@ describe('capsFromProbe', () => {
       derivationPrefix: 'cA',
       derivationSuffix: 'cw',
       supportsAwdl: true,
-      hints: capsFromProbe(allSet),
+      hints: capsFromProbe(allSet)
     })
     expect(s.caps & RUNG_MASK).toBe(CAP_AWDL)
     expect(s.caps & ~RUNG_MASK).toBe(ALL_HINTS)
@@ -133,7 +133,7 @@ describe('readBluetoothState', () => {
       bluetoothState: () => {
         throw new Error('bridge gone')
       },
-      nfcAvailable: () => false,
+      nfcAvailable: () => false
     })
     expect(readBluetoothState()).toBe('unknown')
   })
@@ -160,7 +160,7 @@ describe('probeDeviceCaps', () => {
       connected: true,
       wifi: true,
       bluetooth: 'unsupported',
-      nfc: false,
+      nfc: false
     })
   })
 
@@ -226,7 +226,7 @@ describe('probeDeviceCaps', () => {
     netFetch.mockResolvedValue(wifiState)
     getLocalPayBleTransport.mockReturnValue({
       bluetoothState: () => 'poweredOn',
-      nfcAvailable: () => true,
+      nfcAvailable: () => true
     })
 
     await expect(probeDeviceCaps()).resolves.toMatchObject({ bluetooth: 'poweredOn', nfc: true })
@@ -236,7 +236,7 @@ describe('probeDeviceCaps', () => {
     netFetch.mockResolvedValue(wifiState)
     getLocalPayBleTransport.mockReturnValue({
       bluetoothState: () => 'resetting',
-      nfcAvailable: () => false,
+      nfcAvailable: () => false
     })
 
     await expect(probeDeviceCaps()).resolves.toMatchObject({ bluetooth: 'unknown', nfc: false })
@@ -250,7 +250,7 @@ describe('probeDeviceCaps', () => {
       },
       nfcAvailable: () => {
         throw new Error('NFCNDEFReaderSession unavailable')
-      },
+      }
     })
 
     await expect(probeDeviceCaps()).resolves.toMatchObject({ bluetooth: 'unknown', nfc: false })

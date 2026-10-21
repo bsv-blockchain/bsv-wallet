@@ -12,7 +12,21 @@
  *
  * Plan 1's r1comb.ts must exist.
  */
-import { Beef, CompletedProtoWallet, Hash, KeyDeriver, LockingScript, OP, P2PKH, PrivateKey, PublicKey, Script, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
+import {
+  Beef,
+  CompletedProtoWallet,
+  Hash,
+  KeyDeriver,
+  LockingScript,
+  OP,
+  P2PKH,
+  PrivateKey,
+  PublicKey,
+  Script,
+  Transaction,
+  UnlockingScript,
+  Utils
+} from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { sdk as toolboxSdk } from '@bsv/wallet-toolbox-mobile'
 import {
@@ -45,11 +59,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -59,9 +81,15 @@ jest.mock('expo-secure-store', () => ({
     return {
       WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wutdo',
       getItemAsync: jest.fn(async (k: string) => store[k] ?? null),
-      setItemAsync: jest.fn(async (k: string, v: string) => { store[k] = v }),
-      deleteItemAsync: jest.fn(async (k: string) => { delete store[k] }),
-      __clear: () => { for (const k of Object.keys(store)) delete store[k] }
+      setItemAsync: jest.fn(async (k: string, v: string) => {
+        store[k] = v
+      }),
+      deleteItemAsync: jest.fn(async (k: string) => {
+        delete store[k]
+      }),
+      __clear: () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   })()
 }))
@@ -131,7 +159,10 @@ const SALT_DERIVER = new KeyDeriver(new PrivateKey(42))
 const CRYPTO_WALLET = new CompletedProtoWallet(new PrivateKey(42))
 let fixtureSaltIndex = 1000
 
-function fixtureSalt(index = fixtureSaltIndex++, serials: readonly string[] = ['A-1', 'B-1']): {
+function fixtureSalt(
+  index = fixtureSaltIndex++,
+  serials: readonly string[] = ['A-1', 'B-1']
+): {
   salt: string
   saltKeyId: string
 } {
@@ -250,8 +281,14 @@ beforeEach(async () => {
           lockingScript: new P2PKH().lock(Utils.toArray('55'.repeat(20), 'hex'))
         })
         const tx = new Transaction(args.version ?? 1)
-        tx.addInput({ sourceTransaction: fund, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
-        for (const o of explicit) tx.addOutput({ satoshis: o.satoshis, lockingScript: LockingScript.fromHex(o.lockingScript) })
+        tx.addInput({
+          sourceTransaction: fund,
+          sourceOutputIndex: 0,
+          sequence: 0xffffffff,
+          unlockingScript: new UnlockingScript([])
+        })
+        for (const o of explicit)
+          tx.addOutput({ satoshis: o.satoshis, lockingScript: LockingScript.fromHex(o.lockingScript) })
         tx.addOutput({ satoshis: 9_500, lockingScript: new P2PKH().lock(Utils.toArray('66'.repeat(20), 'hex')) })
         lastSignable = tx
         return { signableTransaction: { tx: tx.toAtomicBEEF(), reference: 'deposit-ref' } }
@@ -353,9 +390,20 @@ function vaultFixture(
 ): VaultFixture {
   const instructionKeys = keys.map((pubkey, i) => {
     const known = [KEY_A, KEY_B, KEY_C].find(key => key.pubkey === pubkey)
-    return known ?? { serial: `fixture-${i}-${pubkey.slice(-6)}`, slot: 0x82, pubkey, nickname: `Fixture ${i + 1}`, enrolledAt: i + 10 }
+    return (
+      known ?? {
+        serial: `fixture-${i}-${pubkey.slice(-6)}`,
+        slot: 0x82,
+        pubkey,
+        nickname: `Fixture ${i + 1}`,
+        enrolledAt: i + 10
+      }
+    )
   })
-  const { salt, saltKeyId } = fixtureSalt(undefined, instructionKeys.map(key => key.serial))
+  const { salt, saltKeyId } = fixtureSalt(
+    undefined,
+    instructionKeys.map(key => key.serial)
+  )
   const lockingScript = buildLock({ commitments: lockKeys.map(pk => commitment(pk, salt)), saltHex64: salt })
   const src = new Transaction()
   src.addOutput({ satoshis, lockingScript })
@@ -380,7 +428,11 @@ function vaultFixture(
   }
 }
 
-function fixtureFromVaultOutput(output: { satoshis: number; lockingScript: string; customInstructions: string }): VaultFixture {
+function fixtureFromVaultOutput(output: {
+  satoshis: number
+  lockingScript: string
+  customInstructions: string
+}): VaultFixture {
   const ci = decodeVaultInstructions(output.customInstructions)!
   const lockingScript = LockingScript.fromHex(output.lockingScript)
   const src = new Transaction()
@@ -405,7 +457,11 @@ function serveVaultOutputs(fixtures: VaultFixture[]): void {
   wallet.listOutputs.mockImplementation(async (args: any) =>
     args?.basket === VAULT_BASKET
       ? {
-          outputs: fixtures.map(f => ({ outpoint: f.outpoint, satoshis: f.satoshis, customInstructions: f.customInstructions })),
+          outputs: fixtures.map(f => ({
+            outpoint: f.outpoint,
+            satoshis: f.satoshis,
+            customInstructions: f.customInstructions
+          })),
           BEEF: stitchBeef(fixtures)
         }
       : { outputs: [] }
@@ -432,7 +488,11 @@ async function seedVault(
   wallet.listOutputs.mockImplementation(async (args: any) =>
     args?.basket === VAULT_BASKET
       ? {
-          outputs: fx.map(f => ({ outpoint: f.outpoint, satoshis: f.satoshis, customInstructions: f.customInstructions })),
+          outputs: fx.map(f => ({
+            outpoint: f.outpoint,
+            satoshis: f.satoshis,
+            customInstructions: f.customInstructions
+          })),
           BEEF: stitchBeef(fx)
         }
       : { outputs: [] }
@@ -445,7 +505,12 @@ async function seedVault(
     if (opts.fundingFirst) {
       const fund = new Transaction()
       fund.addOutput({ satoshis: 50_000, lockingScript: new P2PKH().lock(Utils.toArray('44'.repeat(20), 'hex')) })
-      tx.addInput({ sourceTransaction: fund, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
+      tx.addInput({
+        sourceTransaction: fund,
+        sourceOutputIndex: 0,
+        sequence: 0xffffffff,
+        unlockingScript: new UnlockingScript([])
+      })
     }
     for (const inp of args.inputs ?? []) {
       const f = fx.find(x => x.outpoint === inp.outpoint)!
@@ -461,7 +526,10 @@ async function seedVault(
     }
     // The toolbox's one implicit default-basket change, leaving a realistic
     // 500-satoshi fee for the exact proposed transaction.
-    const inputValue = tx.inputs.reduce((sum, input) => sum + (input.sourceTransaction?.outputs[input.sourceOutputIndex].satoshis ?? 0), 0)
+    const inputValue = tx.inputs.reduce(
+      (sum, input) => sum + (input.sourceTransaction?.outputs[input.sourceOutputIndex].satoshis ?? 0),
+      0
+    )
     const explicitValue = tx.outputs.reduce((sum, output) => sum + (output.satoshis ?? 0), 0)
     const change = inputValue - explicitValue - 500
     if (change > 0) {
@@ -536,7 +604,13 @@ const validateSpends = (fx: VaultFixture[]): void => {
     const unlockingScript = UnlockingScript.fromHex(saArgs.spends[idx].unlockingScript)
     expect(unlockingScript.toBinary().length).toBeLessThanOrEqual(R1C_UNLOCK_LEN)
     expect(
-      verifyVaultInput({ tx, inputIndex: idx, sourceSatoshis: f.satoshis, lockingScript: f.lockingScript, unlockingScript })
+      verifyVaultInput({
+        tx,
+        inputIndex: idx,
+        sourceSatoshis: f.satoshis,
+        lockingScript: f.lockingScript,
+        unlockingScript
+      })
     ).toBe(true)
   }
 }
@@ -561,35 +635,40 @@ const heldDepositAction = (
     reference: 'held-deposit-ref',
     status,
     labels: ['vault', 'vault-deposit'],
-    inputs: [{
-      sourceOutpoint: `${'d6'.repeat(32)}.0`,
-      sourceSatoshis: 260_000,
-      sourceLockingScript: new P2PKH().lock(Utils.toArray('d7'.repeat(20), 'hex')).toHex()
-    }],
-    outputs: [{
-      satoshis: 250_000,
-      spendable: true,
-      customInstructions: encodeVaultInstructions({
-        v: 6,
-        type: 'R1C',
-        salt,
-        saltKeyId,
-        chain,
-        vaultId: VAULT_ID,
-        revision: 2,
-        createdAt: 1,
-        keys: [KEY_A, KEY_B]
-      }),
-      lockingScript,
-      outputIndex: 0,
-      basket: VAULT_BASKET
-    }, {
-      satoshis: 9_500,
-      spendable: true,
-      lockingScript: new P2PKH().lock(Utils.toArray('d8'.repeat(20), 'hex')).toHex(),
-      outputIndex: 1,
-      basket: 'default'
-    }]
+    inputs: [
+      {
+        sourceOutpoint: `${'d6'.repeat(32)}.0`,
+        sourceSatoshis: 260_000,
+        sourceLockingScript: new P2PKH().lock(Utils.toArray('d7'.repeat(20), 'hex')).toHex()
+      }
+    ],
+    outputs: [
+      {
+        satoshis: 250_000,
+        spendable: true,
+        customInstructions: encodeVaultInstructions({
+          v: 6,
+          type: 'R1C',
+          salt,
+          saltKeyId,
+          chain,
+          vaultId: VAULT_ID,
+          revision: 2,
+          createdAt: 1,
+          keys: [KEY_A, KEY_B]
+        }),
+        lockingScript,
+        outputIndex: 0,
+        basket: VAULT_BASKET
+      },
+      {
+        satoshis: 9_500,
+        spendable: true,
+        lockingScript: new P2PKH().lock(Utils.toArray('d8'.repeat(20), 'hex')).toHex(),
+        outputIndex: 1,
+        basket: 'default'
+      }
+    ]
   }
 }
 
@@ -608,7 +687,14 @@ const heldDepositActionV7 = async (
     saltHex64: salt
   }).toHex()
   const v7Instructions = {
-    v: 7 as const, type: 'R1C' as const, saltKeyId, chain, vaultId: VAULT_ID, revision: 2, createdAt: 1, keys: [KEY_A, KEY_B]
+    v: 7 as const,
+    type: 'R1C' as const,
+    saltKeyId,
+    chain,
+    vaultId: VAULT_ID,
+    revision: 2,
+    createdAt: 1,
+    keys: [KEY_A, KEY_B]
   }
   const customInstructions = JSON.stringify(v7Instructions)
   const { publicKey: markerPub } = await CRYPTO_WALLET.getPublicKey({
@@ -626,26 +712,30 @@ const heldDepositActionV7 = async (
   const tagBytes = Utils.toArray('r1c7', 'utf8') as number[]
   const payload = [...encPush(tagBytes), ...encPush(ciphertext)]
   const descriptorScript = new LockingScript([{ op: OP.OP_FALSE }, { op: OP.OP_RETURN, data: payload }]).toHex()
-  const outputs = [{
-    satoshis: 250_000,
-    spendable: true,
-    customInstructions,
-    lockingScript,
-    outputIndex: 0,
-    basket: VAULT_BASKET
-  }, {
-    satoshis: 1,
-    spendable: true,
-    lockingScript: markerScript,
-    outputIndex: 1,
-    basket: ''
-  }, {
-    satoshis: 0,
-    spendable: true,
-    lockingScript: descriptorScript,
-    outputIndex: 2,
-    basket: ''
-  }]
+  const outputs = [
+    {
+      satoshis: 250_000,
+      spendable: true,
+      customInstructions,
+      lockingScript,
+      outputIndex: 0,
+      basket: VAULT_BASKET
+    },
+    {
+      satoshis: 1,
+      spendable: true,
+      lockingScript: markerScript,
+      outputIndex: 1,
+      basket: ''
+    },
+    {
+      satoshis: 0,
+      spendable: true,
+      lockingScript: descriptorScript,
+      outputIndex: 2,
+      basket: ''
+    }
+  ]
   if (opts.withChange !== false) {
     outputs.push({
       satoshis: 9_500,
@@ -660,11 +750,13 @@ const heldDepositActionV7 = async (
     reference: 'held-deposit-ref',
     status,
     labels: ['vault', 'vault-deposit'],
-    inputs: [{
-      sourceOutpoint: `${'d6'.repeat(32)}.0`,
-      sourceSatoshis: 260_000,
-      sourceLockingScript: new P2PKH().lock(Utils.toArray('d7'.repeat(20), 'hex')).toHex()
-    }],
+    inputs: [
+      {
+        sourceOutpoint: `${'d6'.repeat(32)}.0`,
+        sourceSatoshis: 260_000,
+        sourceLockingScript: new P2PKH().lock(Utils.toArray('d7'.repeat(20), 'hex')).toHex()
+      }
+    ],
     outputs
   }
 }
@@ -688,11 +780,13 @@ const heldSpendAction = (label: 'vault-withdraw' | 'vault-relock', status: 'unsi
     reference: 'held-spend-ref',
     status,
     labels: ['vault', label],
-    inputs: [{
-      sourceOutpoint: `${'e6'.repeat(32)}.0`,
-      sourceSatoshis: 250_000,
-      sourceLockingScript: lockingScript
-    }],
+    inputs: [
+      {
+        sourceOutpoint: `${'e6'.repeat(32)}.0`,
+        sourceSatoshis: 250_000,
+        sourceLockingScript: lockingScript
+      }
+    ],
     outputs: []
   }
 }
@@ -803,7 +897,6 @@ describe('depositToVault', () => {
       expect(wallet.createAction).not.toHaveBeenCalled()
     }
   )
-
 
   it('rejects a wallet action response larger than the requested page before retaining its rows', async () => {
     await seedMeta()
@@ -927,11 +1020,7 @@ describe('depositToVault', () => {
     const failed = { ...unsigned, txid: '', status: 'failed' }
     let aborted = false
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: !aborted
-        ? [unsigned]
-        : args.labels?.includes(toolboxSdk.specOpFailedActions)
-          ? [failed]
-          : []
+      actions: !aborted ? [unsigned] : args.labels?.includes(toolboxSdk.specOpFailedActions) ? [failed] : []
     }))
     wallet.abortAction.mockImplementation(async ({ reference }: any) => {
       expect(reference).toBe('held-deposit-ref')
@@ -1068,14 +1157,16 @@ describe('depositToVault', () => {
       reference: 'stuck-withdraw-ref',
       status: 'failed',
       labels: ['vault', 'vault-withdraw'],
-      inputs: [{
-        sourceOutpoint: `${'a3'.repeat(32)}.0`,
-        sourceSatoshis: 250_000,
-        sourceLockingScript: buildLock({
-          commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
-          saltHex64: salt
-        }).toHex()
-      }],
+      inputs: [
+        {
+          sourceOutpoint: `${'a3'.repeat(32)}.0`,
+          sourceSatoshis: 250_000,
+          sourceLockingScript: buildLock({
+            commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
+            saltHex64: salt
+          }).toHex()
+        }
+      ],
       outputs: []
     }
     wallet.listActions.mockImplementation(async (args: any) => ({
@@ -1103,14 +1194,16 @@ describe('depositToVault', () => {
       reference: 'unproven-withdraw-ref',
       status: 'unproven',
       labels: ['vault', 'vault-withdraw'],
-      inputs: [{
-        sourceOutpoint: `${'a8'.repeat(32)}.0`,
-        sourceSatoshis: 250_000,
-        sourceLockingScript: buildLock({
-          commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
-          saltHex64: salt
-        }).toHex()
-      }],
+      inputs: [
+        {
+          sourceOutpoint: `${'a8'.repeat(32)}.0`,
+          sourceSatoshis: 250_000,
+          sourceLockingScript: buildLock({
+            commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
+            saltHex64: salt
+          }).toHex()
+        }
+      ],
       outputs: []
     }
     wallet.listActions.mockImplementation(async (args: any) => ({
@@ -1129,14 +1222,16 @@ describe('depositToVault', () => {
       reference: 'nosend-withdraw-ref',
       status: 'nosend',
       labels: ['vault', 'vault-withdraw'],
-      inputs: [{
-        sourceOutpoint: `${'a9'.repeat(32)}.0`,
-        sourceSatoshis: 250_000,
-        sourceLockingScript: buildLock({
-          commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
-          saltHex64: salt
-        }).toHex()
-      }],
+      inputs: [
+        {
+          sourceOutpoint: `${'a9'.repeat(32)}.0`,
+          sourceSatoshis: 250_000,
+          sourceLockingScript: buildLock({
+            commitments: [KEY_A, KEY_B].map(key => commitment(key.pubkey, salt)),
+            saltHex64: salt
+          }).toHex()
+        }
+      ],
       outputs: []
     }
     wallet.listActions.mockImplementation(async (args: any) => ({
@@ -1155,11 +1250,13 @@ describe('depositToVault', () => {
       reference: 'legacy-withdraw-ref',
       status: 'completed',
       labels: ['vault', 'vault-withdraw'],
-      inputs: [{
-        sourceOutpoint: `${'a5'.repeat(32)}.0`,
-        sourceSatoshis: 250_000,
-        sourceLockingScript: new P2PKH().lock(Utils.toArray('a6'.repeat(20), 'hex')).toHex()
-      }],
+      inputs: [
+        {
+          sourceOutpoint: `${'a5'.repeat(32)}.0`,
+          sourceSatoshis: 250_000,
+          sourceLockingScript: new P2PKH().lock(Utils.toArray('a6'.repeat(20), 'hex')).toHex()
+        }
+      ],
       outputs: []
     }
     wallet.listActions.mockImplementation(async (args: any) => ({
@@ -1187,13 +1284,16 @@ describe('depositToVault', () => {
     expect(ci.chain).toBe('test')
     expect(ci.saltKeyId).toBe('1')
     const expectedSalt = fixtureSalt(1, ['A-1', 'B-1']).salt
-    expect(wallet.createHmac).toHaveBeenCalledWith({
-      protocolID: [2, 'vault salt'],
-      keyID: ci.saltKeyId,
-      counterparty: 'self',
-      data: vaultSaltHmacData(['A-1', 'B-1']),
-      seekPermission: false
-    }, ADMIN)
+    expect(wallet.createHmac).toHaveBeenCalledWith(
+      {
+        protocolID: [2, 'vault salt'],
+        keyID: ci.saltKeyId,
+        counterparty: 'self',
+        data: vaultSaltHmacData(['A-1', 'B-1']),
+        seekPermission: false
+      },
+      ADMIN
+    )
     expect(ci).toMatchObject({ vaultId: VAULT_ID, revision: 2, createdAt: 1 })
     expect(ci.keys).toEqual([KEY_A, KEY_B]) // commitment order = meta order
 
@@ -1214,13 +1314,15 @@ describe('depositToVault', () => {
     wallet.listActions.mockImplementation(async (args: any) => ({
       actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
-        : [{
-            txid: first.txid,
-            reference: 'deposit-ref',
-            status: 'completed',
-            labels: ['vault', 'vault-deposit'],
-            outputs: [{ ...firstOutput, spendable: false, outputIndex: 0 }]
-          }]
+        : [
+            {
+              txid: first.txid,
+              reference: 'deposit-ref',
+              status: 'completed',
+              labels: ['vault', 'vault-deposit'],
+              outputs: [{ ...firstOutput, spendable: false, outputIndex: 0 }]
+            }
+          ]
     }))
     await depositToVault(wallet, ADMIN, 250_000)
     const outs = wallet.createAction.mock.calls
@@ -1244,9 +1346,7 @@ describe('depositToVault', () => {
       .map(([args]) => args)
       .filter(args => args.labels?.includes('vault-deposit'))
     const outputs = deposits.map(args => args.outputs[0])
-    const [testRecord, mainRecord] = outputs.map(output =>
-      decodeVaultInstructions(output.customInstructions)!
-    )
+    const [testRecord, mainRecord] = outputs.map(output => decodeVaultInstructions(output.customInstructions)!)
     expect(testRecord).toMatchObject({ v: 7, saltKeyId: '1', chain: 'test' })
     expect(mainRecord).toMatchObject({ v: 7, saltKeyId: '1', chain: 'main' })
     // The 'vault salt' HMAC is chain-agnostic (unchanged, SALT-04's accepted
@@ -1267,63 +1367,68 @@ describe('depositToVault', () => {
   // N=1 is a valid R1C lock size (see r1comb/proofBar tests) but not reachable
   // here: the wallet's own business rule requires at least VAULT_MIN_KEYS (2)
   // enrolled keys before a vault is usable at all.
-  it.each([2, 3])('creates [vault, marker, descriptor] in that order for N=%i, with a byte-exact deterministic marker and a decryptable descriptor', async n => {
-    const keys = [KEY_A, KEY_B, KEY_C].slice(0, n)
-    await seedMeta(keys)
-    await depositToVault(wallet, ADMIN, 250_000)
-    const outs = depositArgs().outputs
-    expect(outs).toHaveLength(3)
+  it.each([2, 3])(
+    'creates [vault, marker, descriptor] in that order for N=%i, with a byte-exact deterministic marker and a decryptable descriptor',
+    async n => {
+      const keys = [KEY_A, KEY_B, KEY_C].slice(0, n)
+      await seedMeta(keys)
+      await depositToVault(wallet, ADMIN, 250_000)
+      const outs = depositArgs().outputs
+      expect(outs).toHaveLength(3)
 
-    const vaultCi = decodeVaultInstructions(outs[0].customInstructions)!
-    expect(vaultCi.v).toBe(7)
-    expect(Utils.toArray(outs[0].lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(n))
+      const vaultCi = decodeVaultInstructions(outs[0].customInstructions)!
+      expect(vaultCi.v).toBe(7)
+      expect(Utils.toArray(outs[0].lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(n))
 
-    // Marker: a deterministic function of (root, chain, saltKeyId) alone —
-    // independently re-derived here (not read off the deposit) and compared
-    // byte-exact, proving nothing but the wallet root + chain + index is
-    // needed to reproduce it (the literal claim chain recovery depends on).
-    const { publicKey: expectedMarkerPub } = await CRYPTO_WALLET.getPublicKey({
-      protocolID: [2, 'vault marker'],
-      keyID: `test:${vaultCi.saltKeyId}`,
-      counterparty: 'self'
-    })
-    const expectedMarkerScript = new P2PKH().lock(PublicKey.fromString(expectedMarkerPub).toAddress()).toHex()
-    expect(outs[1]).toMatchObject({ satoshis: 1, lockingScript: expectedMarkerScript })
-    expect(outs[1].basket).toBeUndefined()
-    expect(outs[1].customInstructions).toBeUndefined()
+      // Marker: a deterministic function of (root, chain, saltKeyId) alone —
+      // independently re-derived here (not read off the deposit) and compared
+      // byte-exact, proving nothing but the wallet root + chain + index is
+      // needed to reproduce it (the literal claim chain recovery depends on).
+      const { publicKey: expectedMarkerPub } = await CRYPTO_WALLET.getPublicKey({
+        protocolID: [2, 'vault marker'],
+        keyID: `test:${vaultCi.saltKeyId}`,
+        counterparty: 'self'
+      })
+      const expectedMarkerScript = new P2PKH().lock(PublicKey.fromString(expectedMarkerPub).toAddress()).toHex()
+      expect(outs[1]).toMatchObject({ satoshis: 1, lockingScript: expectedMarkerScript })
+      expect(outs[1].basket).toBeUndefined()
+      expect(outs[1].customInstructions).toBeUndefined()
 
-    // Descriptor: OP_FALSE OP_RETURN <'r1c7'> <ciphertext>, basketless,
-    // 0-sat, and decrypts back to EXACTLY the vault output's own v7 record.
-    expect(outs[2].satoshis).toBe(0)
-    expect(outs[2].basket).toBeUndefined()
-    const descriptorScript = LockingScript.fromHex(outs[2].lockingScript)
-    // @bsv/sdk's chunk parser captures everything after OP_RETURN as one raw
-    // blob on that chunk (see buildVaultDescriptorScript); the tag and
-    // ciphertext are push-encoded within it.
-    expect(descriptorScript.chunks).toHaveLength(2)
-    expect(descriptorScript.chunks[0].op).toBe(OP.OP_FALSE)
-    expect(descriptorScript.chunks[1].op).toBe(OP.OP_RETURN)
-    const inner = Script.fromBinary(descriptorScript.chunks[1].data!).chunks
-    expect(inner).toHaveLength(2)
-    expect(Utils.toUTF8(inner[0].data!)).toBe('r1c7')
-    const ciphertext = inner[1].data!
-    expect(ciphertext.length).toBeGreaterThan(0)
-    expect(ciphertext.length).toBeLessThanOrEqual(MAX_DESCRIPTOR_CIPHERTEXT_BYTES)
-    const { plaintext } = await CRYPTO_WALLET.decrypt({
-      ciphertext,
-      protocolID: [2, 'vault descriptor'],
-      keyID: `test:${vaultCi.saltKeyId}`,
-      counterparty: 'self'
-    })
-    expect(JSON.parse(Utils.toUTF8(plaintext))).toEqual(JSON.parse(outs[0].customInstructions))
-  })
+      // Descriptor: OP_FALSE OP_RETURN <'r1c7'> <ciphertext>, basketless,
+      // 0-sat, and decrypts back to EXACTLY the vault output's own v7 record.
+      expect(outs[2].satoshis).toBe(0)
+      expect(outs[2].basket).toBeUndefined()
+      const descriptorScript = LockingScript.fromHex(outs[2].lockingScript)
+      // @bsv/sdk's chunk parser captures everything after OP_RETURN as one raw
+      // blob on that chunk (see buildVaultDescriptorScript); the tag and
+      // ciphertext are push-encoded within it.
+      expect(descriptorScript.chunks).toHaveLength(2)
+      expect(descriptorScript.chunks[0].op).toBe(OP.OP_FALSE)
+      expect(descriptorScript.chunks[1].op).toBe(OP.OP_RETURN)
+      const inner = Script.fromBinary(descriptorScript.chunks[1].data!).chunks
+      expect(inner).toHaveLength(2)
+      expect(Utils.toUTF8(inner[0].data!)).toBe('r1c7')
+      const ciphertext = inner[1].data!
+      expect(ciphertext.length).toBeGreaterThan(0)
+      expect(ciphertext.length).toBeLessThanOrEqual(MAX_DESCRIPTOR_CIPHERTEXT_BYTES)
+      const { plaintext } = await CRYPTO_WALLET.decrypt({
+        ciphertext,
+        protocolID: [2, 'vault descriptor'],
+        keyID: `test:${vaultCi.saltKeyId}`,
+        counterparty: 'self'
+      })
+      expect(JSON.parse(Utils.toUTF8(plaintext))).toEqual(JSON.parse(outs[0].customInstructions))
+    }
+  )
 
   it('frames concatenated YubiKey serials so different lists cannot share HMAC data', () => {
     expect(vaultSaltHmacData(['1', '23'])).not.toEqual(vaultSaltHmacData(['12', '3']))
     expect(vaultSaltHmacData(['A-1', 'B-1'])).toEqual([
       2,
-      3, ...Utils.toArray('A-1', 'utf8'),
-      3, ...Utils.toArray('B-1', 'utf8')
+      3,
+      ...Utils.toArray('A-1', 'utf8'),
+      3,
+      ...Utils.toArray('B-1', 'utf8')
     ])
   })
 
@@ -1343,21 +1448,21 @@ describe('depositToVault', () => {
       return result
     })
     wallet.listActions.mockImplementation(async (args: any) => ({
-      actions: args.labels?.includes(toolboxSdk.specOpFailedActions) || !completedOutput
-        ? []
-        : [{
-            txid: completedTxid,
-            reference: 'completed-deposit',
-            status: 'completed',
-            labels: ['vault', 'vault-deposit'],
-            outputs: [{ ...completedOutput, spendable: false, outputIndex: 0 }]
-          }]
+      actions:
+        args.labels?.includes(toolboxSdk.specOpFailedActions) || !completedOutput
+          ? []
+          : [
+              {
+                txid: completedTxid,
+                reference: 'completed-deposit',
+                status: 'completed',
+                labels: ['vault', 'vault-deposit'],
+                outputs: [{ ...completedOutput, spendable: false, outputIndex: 0 }]
+              }
+            ]
     }))
 
-    await Promise.all([
-      depositToVault(wallet, ADMIN, 250_000),
-      depositToVault(wallet, ADMIN, 250_000)
-    ])
+    await Promise.all([depositToVault(wallet, ADMIN, 250_000), depositToVault(wallet, ADMIN, 250_000)])
 
     const ids = wallet.createAction.mock.calls
       .map(([args]) => args)
@@ -1391,19 +1496,23 @@ describe('depositToVault', () => {
     wallet.listActions.mockImplementation(async (args: any) => ({
       actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
-        : [{
-            txid: 'cd'.repeat(32),
-            reference: 'spent-vault-output',
-            status: 'completed',
-            outputs: [{
-              satoshis: 250_000,
-              spendable: false,
-              customInstructions,
-              lockingScript: lock.toHex(),
-              outputIndex: 0,
-              basket: VAULT_BASKET
-            }]
-          }]
+        : [
+            {
+              txid: 'cd'.repeat(32),
+              reference: 'spent-vault-output',
+              status: 'completed',
+              outputs: [
+                {
+                  satoshis: 250_000,
+                  spendable: false,
+                  customInstructions,
+                  lockingScript: lock.toHex(),
+                  outputIndex: 0,
+                  basket: VAULT_BASKET
+                }
+              ]
+            }
+          ]
     }))
     await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
     expect(wallet.createHmac).toHaveBeenCalledTimes(2)
@@ -1425,32 +1534,37 @@ describe('depositToVault', () => {
     wallet.listActions.mockImplementation(async (args: any) => ({
       // A restored/imported action may have lost its advisory Vault labels.
       // The wallet-global salt inventory must inspect all ordinary history.
-      actions: Array.isArray(args.labels) && args.labels.length === 0
-        ? [{
-            txid: 'ce'.repeat(32),
-            reference: 'spent-prior-enrollment',
-            status: 'completed',
-            inputs: [],
-            outputs: [{
-              satoshis: 250_000,
-              spendable: false,
-              customInstructions: encodeVaultInstructions({
-                v: 6,
-                type: 'R1C',
-                salt,
-                saltKeyId,
-                chain: 'test',
-                vaultId: priorVaultId,
-                revision: 1,
-                createdAt: 99,
-                keys: [KEY_A, KEY_B]
-              }),
-              lockingScript,
-              outputIndex: 0,
-              basket: VAULT_BASKET
-            }]
-          }]
-        : []
+      actions:
+        Array.isArray(args.labels) && args.labels.length === 0
+          ? [
+              {
+                txid: 'ce'.repeat(32),
+                reference: 'spent-prior-enrollment',
+                status: 'completed',
+                inputs: [],
+                outputs: [
+                  {
+                    satoshis: 250_000,
+                    spendable: false,
+                    customInstructions: encodeVaultInstructions({
+                      v: 6,
+                      type: 'R1C',
+                      salt,
+                      saltKeyId,
+                      chain: 'test',
+                      vaultId: priorVaultId,
+                      revision: 1,
+                      createdAt: 99,
+                      keys: [KEY_A, KEY_B]
+                    }),
+                    lockingScript,
+                    outputIndex: 0,
+                    basket: VAULT_BASKET
+                  }
+                ]
+              }
+            ]
+          : []
     }))
 
     await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
@@ -1458,7 +1572,9 @@ describe('depositToVault', () => {
     expect(current.vaultId).toBe(VAULT_ID)
     expect(Number(current.saltKeyId)).toBe(42)
     expect(current.salt).not.toBe(salt)
-    expect(wallet.listActions.mock.calls.some(([args]) => Array.isArray(args.labels) && args.labels.length === 0)).toBe(true)
+    expect(wallet.listActions.mock.calls.some(([args]) => Array.isArray(args.labels) && args.labels.length === 0)).toBe(
+      true
+    )
   })
 
   it('rejects historical salt metadata whose numeric key ID does not derive its recorded HMAC', async () => {
@@ -1472,29 +1588,33 @@ describe('depositToVault', () => {
     wallet.listActions.mockImplementation(async (args: any) => ({
       actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
-        : [{
-            txid: 'dd'.repeat(32),
-            reference: 'poisoned-high-water',
-            status: 'completed',
-            outputs: [{
-              satoshis: 250_000,
-              spendable: false,
-              customInstructions: encodeVaultInstructions({
-                v: 6,
-                type: 'R1C',
-                salt: claimed.salt,
-                saltKeyId,
-                chain: 'test',
-                vaultId: VAULT_ID,
-                revision: 2,
-                createdAt: 1,
-                keys: [KEY_A, KEY_B]
-              }),
-              lockingScript,
-              outputIndex: 0,
-              basket: VAULT_BASKET
-            }]
-          }]
+        : [
+            {
+              txid: 'dd'.repeat(32),
+              reference: 'poisoned-high-water',
+              status: 'completed',
+              outputs: [
+                {
+                  satoshis: 250_000,
+                  spendable: false,
+                  customInstructions: encodeVaultInstructions({
+                    v: 6,
+                    type: 'R1C',
+                    salt: claimed.salt,
+                    saltKeyId,
+                    chain: 'test',
+                    vaultId: VAULT_ID,
+                    revision: 2,
+                    createdAt: 1,
+                    keys: [KEY_A, KEY_B]
+                  }),
+                  lockingScript,
+                  outputIndex: 0,
+                  basket: VAULT_BASKET
+                }
+              ]
+            }
+          ]
     }))
 
     await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({
@@ -1515,29 +1635,33 @@ describe('depositToVault', () => {
     wallet.listActions.mockImplementation(async (args: any) => ({
       actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
-        : [{
-            txid: 'de'.repeat(32),
-            reference: 'forked-current-revision',
-            status: 'completed',
-            outputs: [{
-              satoshis: 250_000,
-              spendable: false,
-              customInstructions: encodeVaultInstructions({
-                v: 6,
-                type: 'R1C',
-                salt,
-                saltKeyId,
-                chain: 'test',
-                vaultId: VAULT_ID,
-                revision: 2,
-                createdAt: 1,
-                keys
-              }),
-              lockingScript,
-              outputIndex: 0,
-              basket: VAULT_BASKET
-            }]
-          }]
+        : [
+            {
+              txid: 'de'.repeat(32),
+              reference: 'forked-current-revision',
+              status: 'completed',
+              outputs: [
+                {
+                  satoshis: 250_000,
+                  spendable: false,
+                  customInstructions: encodeVaultInstructions({
+                    v: 6,
+                    type: 'R1C',
+                    salt,
+                    saltKeyId,
+                    chain: 'test',
+                    vaultId: VAULT_ID,
+                    revision: 2,
+                    createdAt: 1,
+                    keys
+                  }),
+                  lockingScript,
+                  outputIndex: 0,
+                  basket: VAULT_BASKET
+                }
+              ]
+            }
+          ]
     }))
 
     await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({
@@ -1563,12 +1687,14 @@ describe('depositToVault', () => {
     wallet.listActions.mockImplementation(async (args: any) => ({
       actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
-        : [{
-            txid: txid.toUpperCase(),
-            reference: 'same-current-output',
-            status: 'completed',
-            outputs: [historyOutput(current)]
-          }]
+        : [
+            {
+              txid: txid.toUpperCase(),
+              reference: 'same-current-output',
+              status: 'completed',
+              outputs: [historyOutput(current)]
+            }
+          ]
     }))
 
     await expect(depositToVault(wallet, ADMIN, 250_000)).resolves.toMatchObject({ txid: expect.any(String) })
@@ -1578,12 +1704,14 @@ describe('depositToVault', () => {
     wallet.listActions.mockImplementation(async (args: any) => ({
       actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
         ? []
-        : [{
-            txid: txid.toUpperCase(),
-            reference: 'conflicting-current-output',
-            status: 'completed',
-            outputs: [historyOutput(conflicting)]
-          }]
+        : [
+            {
+              txid: txid.toUpperCase(),
+              reference: 'conflicting-current-output',
+              status: 'completed',
+              outputs: [historyOutput(conflicting)]
+            }
+          ]
     }))
     await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({
       code: 'template-invalid',
@@ -1663,7 +1791,9 @@ describe('depositToVault', () => {
 
     it('rejects a changed R1C destination script', async () => {
       await seedMeta()
-      tamperNextSignable(tx => { tx.outputs[0].lockingScript = new P2PKH().lock(Utils.toArray('77'.repeat(20), 'hex')) })
+      tamperNextSignable(tx => {
+        tx.outputs[0].lockingScript = new P2PKH().lock(Utils.toArray('77'.repeat(20), 'hex'))
+      })
       await expectDepositRejected()
     })
 
@@ -1688,7 +1818,9 @@ describe('depositToVault', () => {
     it('rejects unreasonable fee burn', async () => {
       await seedMeta()
       // outputs[3] is the implicit wallet change (0=vault, 1=marker, 2=descriptor).
-      tamperNextSignable(tx => { tx.outputs[3].satoshis = 1 })
+      tamperNextSignable(tx => {
+        tx.outputs[3].satoshis = 1
+      })
       await expectDepositRejected()
     })
 
@@ -1700,13 +1832,17 @@ describe('depositToVault', () => {
     // not happen silently.
     it('rejects a substituted marker script', async () => {
       await seedMeta()
-      tamperNextSignable(tx => { tx.outputs[1].lockingScript = new P2PKH().lock(Utils.toArray('99'.repeat(20), 'hex')) })
+      tamperNextSignable(tx => {
+        tx.outputs[1].lockingScript = new P2PKH().lock(Utils.toArray('99'.repeat(20), 'hex'))
+      })
       await expectDepositRejected()
     })
 
     it('rejects a substituted descriptor script', async () => {
       await seedMeta()
-      tamperNextSignable(tx => { tx.outputs[2].lockingScript = new P2PKH().lock(Utils.toArray('9a'.repeat(20), 'hex')) })
+      tamperNextSignable(tx => {
+        tx.outputs[2].lockingScript = new P2PKH().lock(Utils.toArray('9a'.repeat(20), 'hex'))
+      })
       await expectDepositRejected()
     })
 
@@ -1800,15 +1936,17 @@ describe('depositToVault', () => {
       await seedMeta()
       await expect(depositToVault(wallet, ADMIN, VAULT_DEPOSIT_MIN - 1)).rejects.toMatchObject({ code: 'below-dust' })
       await expect(depositToVault(wallet, ADMIN, 250_000.5)).rejects.toMatchObject({ code: 'below-dust' })
-      await expect(depositToVault(wallet, ADMIN, Number.MAX_SAFE_INTEGER + 1)).rejects.toMatchObject({ code: 'below-dust' })
+      await expect(depositToVault(wallet, ADMIN, Number.MAX_SAFE_INTEGER + 1)).rejects.toMatchObject({
+        code: 'below-dust'
+      })
       expect(wallet.createAction).not.toHaveBeenCalled()
     })
 
     it('requires-online before key checks', async () => {
       await seedMeta()
-      await expect(
-        depositToVault(wallet, ADMIN, 250_000, { isOnline: async () => false })
-      ).rejects.toMatchObject({ code: 'requires-online' })
+      await expect(depositToVault(wallet, ADMIN, 250_000, { isOnline: async () => false })).rejects.toMatchObject({
+        code: 'requires-online'
+      })
       expect(wallet.createAction).not.toHaveBeenCalled()
     })
 
@@ -1833,7 +1971,9 @@ describe('depositToVault', () => {
     it('uses the injected private-backup gate before reading metadata or allocating a salt', async () => {
       await seedMeta()
       const backupEnabled = jest.fn(async () => false)
-      await expect(depositToVault(wallet, ADMIN, 250_000, { backupEnabled })).rejects.toMatchObject({ code: 'backup-off' })
+      await expect(depositToVault(wallet, ADMIN, 250_000, { backupEnabled })).rejects.toMatchObject({
+        code: 'backup-off'
+      })
       expect(backupEnabled).toHaveBeenCalledTimes(1)
       expect(wallet.createHmac).not.toHaveBeenCalled()
       expect(wallet.listOutputs).not.toHaveBeenCalled()
@@ -1860,10 +2000,13 @@ describe('depositToVault', () => {
     ['missing results', undefined],
     ['an unrelated txid', [{ txid: '00'.repeat(32), status: 'sending' }]],
     ['an unknown status', [{ txid: 'requested', status: 'unknown' }]],
-    ['duplicate results', [
-      { txid: 'requested', status: 'sending' },
-      { txid: 'requested', status: 'unproven' }
-    ]]
+    [
+      'duplicate results',
+      [
+        { txid: 'requested', status: 'sending' },
+        { txid: 'requested', status: 'unproven' }
+      ]
+    ]
   ])('keeps a signed deposit held when sendWith returns %s', async (_case, configured) => {
     await seedMeta()
     const realCreate = wallet.createAction.getMockImplementation()!
@@ -2253,7 +2396,11 @@ describe('withdrawFromVault', () => {
     expect(caArgs.version).toBe(1)
     expect(caArgs.inputs).toHaveLength(2)
     for (const i of caArgs.inputs) {
-      expect(i).toEqual({ outpoint: i.outpoint, unlockingScriptLength: R1C_UNLOCK_LEN, inputDescription: 'Vault withdrawal' })
+      expect(i).toEqual({
+        outpoint: i.outpoint,
+        unlockingScriptLength: R1C_UNLOCK_LEN,
+        inputDescription: 'Vault withdrawal'
+      })
       expect(i.unlockingScriptLength).toBe(2560)
     }
     // Largest first.
@@ -2283,7 +2430,7 @@ describe('withdrawFromVault', () => {
   //
   // The figures are a mainnet withdrawal that this check refused: 500,000
   // in, a 400,000 re-vault remainder, and change split eight ways for 95,185.
-  it('accepts the wallet\'s eight-way change split on a withdrawal', async () => {
+  it("accepts the wallet's eight-way change split on a withdrawal", async () => {
     const split = [2_461, 40, 978, 4_348, 250, 5_579, 57_230, 24_299]
     await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])])
     tamperNextSignable(tx => {
@@ -2319,7 +2466,6 @@ describe('withdrawFromVault', () => {
     expect(requestVaultSigner).not.toHaveBeenCalled()
   }, 60_000)
 
-
   it('rejects a toolbox-injected funding input before the YubiKey signs', async () => {
     const fx = [vaultFixture(300_000, [PUB_A, PUB_B]), vaultFixture(200_000, [PUB_A, PUB_B])]
     await seedVault(fx, [KEY_A, KEY_B], { fundingFirst: true })
@@ -2329,8 +2475,12 @@ describe('withdrawFromVault', () => {
     expect(wallet.signAction).not.toHaveBeenCalled()
   }, 60_000)
 
-  it('signs the digest of each input\'s REAL preimage, sequentially, with per-input progress, then reports broadcasting', async () => {
-    const fx = [vaultFixture(300_000, [PUB_A, PUB_B]), vaultFixture(200_000, [PUB_A, PUB_B]), vaultFixture(100_000, [PUB_A, PUB_B])]
+  it("signs the digest of each input's REAL preimage, sequentially, with per-input progress, then reports broadcasting", async () => {
+    const fx = [
+      vaultFixture(300_000, [PUB_A, PUB_B]),
+      vaultFixture(200_000, [PUB_A, PUB_B]),
+      vaultFixture(100_000, [PUB_A, PUB_B])
+    ]
     await seedVault(fx)
     await withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw from vault', 'A-1')
 
@@ -2370,7 +2520,7 @@ describe('withdrawFromVault', () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining('[vault] noteLastUsed failed'), 'disk full')
   }, 60_000)
 
-  it('returns cappedInputs 0 and an empty unreachable set when every output is the chosen key\'s and fits', async () => {
+  it("returns cappedInputs 0 and an empty unreachable set when every output is the chosen key's and fits", async () => {
     await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
     const r = await withdrawAll()
     expect(r).toEqual({ txid: 'feedface'.repeat(8), cappedInputs: 0, unreachable: { count: 0, satoshis: 0, keys: [] } })
@@ -2420,7 +2570,7 @@ describe('withdrawFromVault', () => {
     }
   }, 120_000)
 
-  it('choosing B selects only B\'s outputs and reports A\'s as unreachable, naming A', async () => {
+  it("choosing B selects only B's outputs and reports A's as unreachable, naming A", async () => {
     armWith(PRIV_B, PUB_B, 'B-1')
     const shared = vaultFixture(300_000, [PUB_A, PUB_B])
     const bOnly = vaultFixture(400_000, [PUB_B])
@@ -2489,7 +2639,11 @@ describe('withdrawFromVault', () => {
     const fixture = vaultFixture(250_000, [PUB_A, PUB_B])
     wallet.listOutputs.mockResolvedValueOnce({
       outputs: [
-        { outpoint: fixture.outpoint, satoshis: 250_000, customInstructions: JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/0' }) }
+        {
+          outpoint: fixture.outpoint,
+          satoshis: 250_000,
+          customInstructions: JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/0' })
+        }
       ],
       BEEF: stitchBeef([fixture])
     })
@@ -2498,7 +2652,9 @@ describe('withdrawFromVault', () => {
 
   it('not-enrolled for an unknown chosen serial, before listing anything', async () => {
     await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
-    await expect(withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw', 'Z-9')).rejects.toMatchObject({ code: 'not-enrolled' })
+    await expect(withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw', 'Z-9')).rejects.toMatchObject({
+      code: 'not-enrolled'
+    })
     expect(wallet.listOutputs).not.toHaveBeenCalled()
   })
 
@@ -2540,7 +2696,12 @@ describe('withdrawFromVault', () => {
     // v7: the re-vaulted output, its marker, and its descriptor.
     expect(caArgs.outputs).toHaveLength(3)
     const out = caArgs.outputs[0]
-    expect(out).toMatchObject({ satoshis: 400_000, basket: VAULT_BASKET, outputDescription: 'Vault change', tags: ['vault'] })
+    expect(out).toMatchObject({
+      satoshis: 400_000,
+      basket: VAULT_BASKET,
+      outputDescription: 'Vault change',
+      tags: ['vault']
+    })
     expect(Utils.toArray(out.lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(3))
     const ci = decodeVaultInstructions(out.customInstructions)!
     expect(ci.keys).toEqual([KEY_A, KEY_B, KEY_C])
@@ -2602,9 +2763,9 @@ describe('withdrawFromVault', () => {
       actions: args.labels?.includes(toolboxSdk.specOpFailedActions) ? [] : [heldDepositAction('nosend')]
     }))
 
-    await expect(
-      withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1')
-    ).rejects.toMatchObject({ code: 'action-pending' })
+    await expect(withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1')).rejects.toMatchObject({
+      code: 'action-pending'
+    })
     expect(wallet.createAction).not.toHaveBeenCalled()
   }, 60_000)
 
@@ -2630,7 +2791,9 @@ describe('withdrawFromVault', () => {
 
     it('rejects a missing selected input', async () => {
       await seedVault([vaultFixture(300_000, [PUB_A, PUB_B]), vaultFixture(200_000, [PUB_A, PUB_B])])
-      tamperNextSignable(tx => { tx.inputs.pop() })
+      tamperNextSignable(tx => {
+        tx.inputs.pop()
+      })
       await expectRejectedBeforeTap()
     })
 
@@ -2672,7 +2835,10 @@ describe('withdrawFromVault', () => {
       await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
       tamperNextSignable(tx => {
         const change = tx.outputs.pop()!
-        tx.addOutput({ satoshis: change.satoshis! - 1, lockingScript: new P2PKH().lock(Utils.toArray('77'.repeat(20), 'hex')) })
+        tx.addOutput({
+          satoshis: change.satoshis! - 1,
+          lockingScript: new P2PKH().lock(Utils.toArray('77'.repeat(20), 'hex'))
+        })
         tx.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex('006a') })
       })
       await expectRejectedBeforeTap()
@@ -2680,26 +2846,36 @@ describe('withdrawFromVault', () => {
 
     it('rejects a non-P2PKH withdrawal destination', async () => {
       await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
-      tamperNextSignable(tx => { tx.outputs[0].lockingScript = LockingScript.fromHex('006a') })
+      tamperNextSignable(tx => {
+        tx.outputs[0].lockingScript = LockingScript.fromHex('006a')
+      })
       await expectRejectedBeforeTap()
     })
 
     it('rejects a changed destination value that makes the fee negative', async () => {
       await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
-      tamperNextSignable(tx => { tx.outputs[0].satoshis = 300_001 })
+      tamperNextSignable(tx => {
+        tx.outputs[0].satoshis = 300_001
+      })
       await expectRejectedBeforeTap()
     })
 
     it('rejects an unreasonable fee or omitted change', async () => {
       await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
-      tamperNextSignable(tx => { tx.outputs = [] })
+      tamperNextSignable(tx => {
+        tx.outputs = []
+      })
       await expectRejectedBeforeTap()
     })
 
     it('rejects a byte-changed re-vault output', async () => {
       await seedVault([vaultFixture(500_000, [PUB_A, PUB_B]), vaultFixture(500_000, [PUB_A, PUB_B])])
-      tamperNextSignable(tx => { tx.outputs[0].lockingScript = new P2PKH().lock(Utils.toArray('88'.repeat(20), 'hex')) })
-      await expect(withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1')).rejects.toMatchObject({ code: 'no-transaction' })
+      tamperNextSignable(tx => {
+        tx.outputs[0].lockingScript = new P2PKH().lock(Utils.toArray('88'.repeat(20), 'hex'))
+      })
+      await expect(withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1')).rejects.toMatchObject({
+        code: 'no-transaction'
+      })
       expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
       expect(requestVaultSigner).not.toHaveBeenCalled()
       expect(wallet.signAction).not.toHaveBeenCalled()
@@ -2738,7 +2914,7 @@ describe('withdrawFromVault', () => {
     expect(wallet.signAction).not.toHaveBeenCalled()
   })
 
-  it('a pushTxDerCheck hit aborts the reservation and re-creates the action with that input\'s sequenceNumber bumped', async () => {
+  it("a pushTxDerCheck hit aborts the reservation and re-creates the action with that input's sequenceNumber bumped", async () => {
     const fx = [vaultFixture(300_000, [PUB_A, PUB_B])]
     await seedVault(fx)
     const check = jest.spyOn(r1comb, 'pushTxDerCheck').mockReturnValueOnce({ ok: false, s: 0n })
@@ -2765,7 +2941,16 @@ describe('withdrawFromVault', () => {
     expect(wallet.createAction).toHaveBeenCalledTimes(8)
     expect(wallet.abortAction).toHaveBeenCalledTimes(8)
     const seqs = wallet.createAction.mock.calls.map(([a]: [any]) => a.inputs[0].sequenceNumber)
-    expect(seqs).toEqual([undefined, 0xfffffffe, 0xfffffffd, 0xfffffffc, 0xfffffffb, 0xfffffffa, 0xfffffff9, 0xfffffff8])
+    expect(seqs).toEqual([
+      undefined,
+      0xfffffffe,
+      0xfffffffd,
+      0xfffffffc,
+      0xfffffffb,
+      0xfffffffa,
+      0xfffffff9,
+      0xfffffff8
+    ])
     expect(requestVaultSigner).not.toHaveBeenCalled()
     expect(wallet.signAction).not.toHaveBeenCalled()
   }, 60_000)
@@ -2790,13 +2975,15 @@ describe('withdrawFromVault', () => {
 
   it('aborts the reservation when the tap itself fails (serial-mismatch from the ceremony)', async () => {
     await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
-    ;(requestVaultSigner as jest.Mock).mockRejectedValueOnce(new VaultError('serial-mismatch', 'Tapped key B-1, chose key A-1'))
+    ;(requestVaultSigner as jest.Mock).mockRejectedValueOnce(
+      new VaultError('serial-mismatch', 'Tapped key B-1, chose key A-1')
+    )
     await expect(withdrawAll()).rejects.toMatchObject({ code: 'serial-mismatch' })
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
     expect(wallet.signAction).not.toHaveBeenCalled()
   })
 
-  it('serial-mismatch when the signer\'s pubkey is not the chosen key\'s — released once, aborted, nothing signed', async () => {
+  it("serial-mismatch when the signer's pubkey is not the chosen key's — released once, aborted, nothing signed", async () => {
     // The commitment check ran against chosen.pubkey; every unlock is built
     // with signer.pubkey. A ceremony that failed to enforce the serial (or a
     // slot whose key was regenerated under the same serial) must be caught
@@ -2849,7 +3036,7 @@ describe('withdrawFromVault', () => {
 // ── double-spend self-heal (unchanged behaviour, R1C fixtures) ────────────
 
 describe('previewVaultWithdrawal', () => {
-  it('reports the chosen key\'s selectable total, capped count and unreachable set — the same figures the withdrawal then uses — reserving and tapping nothing', async () => {
+  it("reports the chosen key's selectable total, capped count and unreachable set — the same figures the withdrawal then uses — reserving and tapping nothing", async () => {
     const shared = vaultFixture(300_000, [PUB_A, PUB_B])
     const bOnly = vaultFixture(400_000, [PUB_B])
     const aOnly = vaultFixture(500_000, [PUB_A])
@@ -2876,8 +3063,12 @@ describe('previewVaultWithdrawal', () => {
     expect(r.unreachable).toEqual(preview.unreachable)
   }, 60_000)
 
-  it('the reviewer\'s case: vault 300,000 in three outputs, chosen key committed to 200,000, withdraw 150,000 → selectedTotal 200,000, and the withdrawal folds the 50,000 remainder', async () => {
-    const fx = [vaultFixture(100_000, [PUB_A, PUB_B]), vaultFixture(100_000, [PUB_A, PUB_B]), vaultFixture(100_000, [PUB_B])]
+  it("the reviewer's case: vault 300,000 in three outputs, chosen key committed to 200,000, withdraw 150,000 → selectedTotal 200,000, and the withdrawal folds the 50,000 remainder", async () => {
+    const fx = [
+      vaultFixture(100_000, [PUB_A, PUB_B]),
+      vaultFixture(100_000, [PUB_A, PUB_B]),
+      vaultFixture(100_000, [PUB_B])
+    ]
     await seedVault(fx)
     const preview = await previewVaultWithdrawal(wallet, ADMIN, 'A-1', 150_000)
     expect(preview.selectedTotal).toBe(200_000) // NOT 300,000: the screen's remainder is 50,000, under the floor
@@ -2897,7 +3088,7 @@ describe('previewVaultWithdrawal', () => {
     expect(wallet.createAction).not.toHaveBeenCalled()
   }, 120_000)
 
-  it('throws exactly the selection\'s refusals: key-cannot-cover with details, not-enrolled, and below-dust for a bad amount — before any reservation or tap', async () => {
+  it("throws exactly the selection's refusals: key-cannot-cover with details, not-enrolled, and below-dust for a bad amount — before any reservation or tap", async () => {
     await seedVault([vaultFixture(500_000, [PUB_A, PUB_B]), vaultFixture(500_000, [PUB_B])])
     const err = await previewVaultWithdrawal(wallet, ADMIN, 'A-1', 600_000).catch(e => e)
     expect(err).toMatchObject({ code: 'key-cannot-cover' })
@@ -2928,11 +3119,13 @@ describe('previewVaultWithdrawal', () => {
       reference: 'ref-inflight',
       status: 'unsigned',
       labels: ['vault', 'vault-withdraw'],
-      inputs: [{
-        sourceOutpoint: fx[0].outpoint,
-        sourceSatoshis: fx[0].satoshis,
-        sourceLockingScript: fx[0].lockingScript.toHex()
-      }]
+      inputs: [
+        {
+          sourceOutpoint: fx[0].outpoint,
+          sourceSatoshis: fx[0].satoshis,
+          sourceLockingScript: fx[0].lockingScript.toHex()
+        }
+      ]
     }
     wallet.listActions.mockImplementation(async (args: any) => ({
       actions: args.labels?.includes(toolboxSdk.specOpFailedActions) || !inFlightPresent ? [] : [inFlight]
@@ -3023,7 +3216,12 @@ describe('withdraw self-heals a double-spend from stuck reservations', () => {
         actions: [
           { status: 'unsigned', reference: 'ref-orphan', inputs: [{ sourceOutpoint: h.fx[0].outpoint }] },
           { status: 'unsigned', reference: 'ref-other', inputs: [{ sourceOutpoint: `${'ee'.repeat(32)}.0` }] },
-          { txid: 'cd'.repeat(32), status: 'completed', reference: 'ref-done', inputs: [{ sourceOutpoint: h.fx[0].outpoint }] }
+          {
+            txid: 'cd'.repeat(32),
+            status: 'completed',
+            reference: 'ref-done',
+            inputs: [{ sourceOutpoint: h.fx[0].outpoint }]
+          }
         ]
       }
     })
@@ -3116,7 +3314,14 @@ describe('withdraw self-heals a double-spend from stuck reservations', () => {
     const fx = [vaultFixture(300_000, [PUB_A, PUB_B])]
     await seedVault(fx)
     wallet.listActions.mockResolvedValue({
-      actions: [{ txid: 'cd'.repeat(32), status: 'completed', reference: 'ref-done', inputs: [{ sourceOutpoint: fx[0].outpoint }] }]
+      actions: [
+        {
+          txid: 'cd'.repeat(32),
+          status: 'completed',
+          reference: 'ref-done',
+          inputs: [{ sourceOutpoint: fx[0].outpoint }]
+        }
+      ]
     })
     wallet.createAction.mockImplementation(async () => {
       throw unspendableError(fx[0].outpoint)
@@ -3182,7 +3387,12 @@ describe('relockVault', () => {
     expect(caArgs.outputs).toHaveLength(3)
     const out = caArgs.outputs[0]
     const fee = estimateRelockFee(2, R1C_LOCK_LEN(3))
-    expect(out).toMatchObject({ satoshis: 1_000_000 - fee, basket: VAULT_BASKET, outputDescription: 'Vault re-lock', tags: ['vault'] })
+    expect(out).toMatchObject({
+      satoshis: 1_000_000 - fee,
+      basket: VAULT_BASKET,
+      outputDescription: 'Vault re-lock',
+      tags: ['vault']
+    })
     expect(Utils.toArray(out.lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(3))
     const ci = decodeVaultInstructions(out.customInstructions)!
     expect(ci.keys).toEqual([KEY_A, KEY_B, KEY_C])
@@ -3292,7 +3502,9 @@ describe('relockVault', () => {
     const r = await relock()
     expect(r.unreachable).toEqual({ count: 1, satoshis: 400_000, keys: [{ serial: 'B-1', pubkey: PUB_B }] })
     expect(wallet.createAction.mock.calls[0][0].inputs.map((i: any) => i.outpoint)).toEqual([mine.outpoint])
-    expect(wallet.createAction.mock.calls[0][0].outputs[0].satoshis).toBe(500_000 - estimateRelockFee(1, R1C_LOCK_LEN(2)))
+    expect(wallet.createAction.mock.calls[0][0].outputs[0].satoshis).toBe(
+      500_000 - estimateRelockFee(1, R1C_LOCK_LEN(2))
+    )
     validateSpends([mine])
   }, 60_000)
 
@@ -3303,7 +3515,9 @@ describe('relockVault', () => {
     expect(r.cappedInputs).toBe(1)
     const [caArgs] = wallet.createAction.mock.calls[0]
     expect(caArgs.inputs).toHaveLength(VAULT_MAX_INPUTS)
-    expect(caArgs.outputs[0].satoshis).toBe(VAULT_MAX_INPUTS * 300_000 - estimateRelockFee(VAULT_MAX_INPUTS, R1C_LOCK_LEN(2)))
+    expect(caArgs.outputs[0].satoshis).toBe(
+      VAULT_MAX_INPUTS * 300_000 - estimateRelockFee(VAULT_MAX_INPUTS, R1C_LOCK_LEN(2))
+    )
   }, 120_000)
 })
 
@@ -3364,7 +3578,8 @@ describe('six active keys: held, never locked to', () => {
     expect(begun.meta.keys).toEqual([KEY_A, KEY_B, KEY_C, KEY_D, KEY_E])
 
     await relockVault(wallet, ADMIN, 'Remove F', 'A-1', { revokePubkey: KEY_F.pubkey })
-    const out = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0].outputs[0]
+    const out = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0]
+      .outputs[0]
     expect(Utils.toArray(out.lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(5))
     expect(decodeVaultInstructions(out.customInstructions)!.keys).toEqual([KEY_A, KEY_B, KEY_C, KEY_D, KEY_E])
     validateSpends(fx)
@@ -3423,7 +3638,7 @@ describe('key removal pending-action gate', () => {
     expect(wallet.createAction).not.toHaveBeenCalled()
   }, 90_000)
 
-  it('does not finish an uncommitted key\'s removal while a held deposit could still commit it', async () => {
+  it("does not finish an uncommitted key's removal while a held deposit could still commit it", async () => {
     await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])], [KEY_A, KEY_B, KEY_C])
     wallet.listActions.mockImplementation(async () => ({ actions: [heldDepositAction('nosend')] }))
     await expect(beginVaultKeyRemoval(wallet, ADMIN, KEY_C.serial)).rejects.toMatchObject({ code: 'action-pending' })
@@ -3441,7 +3656,11 @@ describe('key removal pending-action gate', () => {
       basketScans++
       const fx = basketScans === 1 ? [without] : [without, withC]
       return {
-        outputs: fx.map(f => ({ outpoint: f.outpoint, satoshis: f.satoshis, customInstructions: f.customInstructions })),
+        outputs: fx.map(f => ({
+          outpoint: f.outpoint,
+          satoshis: f.satoshis,
+          customInstructions: f.customInstructions
+        })),
         BEEF: stitchBeef(fx)
       }
     })
@@ -3454,7 +3673,9 @@ describe('key removal pending-action gate', () => {
   it('still refuses while an unbroadcast vault action reserves the outputs a re-lock must spend', async () => {
     await funded()
     wallet.listActions.mockImplementation(async () => ({
-      actions: [{ txid: 'e1'.repeat(32), reference: 'held-relock-ref', status: 'nosend', labels: ['vault', 'vault-relock'] }]
+      actions: [
+        { txid: 'e1'.repeat(32), reference: 'held-relock-ref', status: 'nosend', labels: ['vault', 'vault-relock'] }
+      ]
     }))
 
     await expect(beginVaultKeyRemoval(wallet, ADMIN, KEY_C.serial)).rejects.toMatchObject({ code: 'action-pending' })
@@ -3488,14 +3709,16 @@ describe('two-phase key removal reconciliation', () => {
       sourceSatoshis: source.satoshis,
       sourceLockingScript: source.lockingScript.toHex()
     })),
-    outputs: [{
-      satoshis: output.satoshis,
-      spendable: true,
-      customInstructions: output.customInstructions,
-      lockingScript: output.lockingScript,
-      outputIndex: 0,
-      basket: VAULT_BASKET
-    }],
+    outputs: [
+      {
+        satoshis: output.satoshis,
+        spendable: true,
+        customInstructions: output.customInstructions,
+        lockingScript: output.lockingScript,
+        outputIndex: 0,
+        basket: VAULT_BASKET
+      }
+    ],
     sourceFixtures: sources
   })
 
@@ -3510,14 +3733,16 @@ describe('two-phase key removal reconciliation', () => {
       status: 'completed',
       labels: ['vault', 'vault-deposit'],
       inputs: [],
-      outputs: [{
-        satoshis: source.satoshis,
-        spendable: false,
-        customInstructions: source.customInstructions,
-        lockingScript: source.lockingScript.toHex(),
-        outputIndex: Number(source.outpoint.split('.')[1]),
-        basket: VAULT_BASKET
-      }]
+      outputs: [
+        {
+          satoshis: source.satoshis,
+          spendable: false,
+          customInstructions: source.customInstructions,
+          lockingScript: source.lockingScript.toHex(),
+          outputIndex: Number(source.outpoint.split('.')[1]),
+          basket: VAULT_BASKET
+        }
+      ]
     }))
     const completeHistory = [...actions, ...sourceActions]
     wallet.listActions.mockImplementation(async (args: any) => ({
@@ -3527,12 +3752,12 @@ describe('two-phase key removal reconciliation', () => {
     }))
   }
 
-  const replacementForCurrentMeta = async (
-    satoshis = 490_000,
-    chain: VaultSaltChain = 'test'
-  ): Promise<any> => {
+  const replacementForCurrentMeta = async (satoshis = 490_000, chain: VaultSaltChain = 'test'): Promise<any> => {
     const meta = (await vaultStore.getMeta())!
-    const { salt, saltKeyId } = fixtureSalt(undefined, meta.keys.map(key => key.serial))
+    const { salt, saltKeyId } = fixtureSalt(
+      undefined,
+      meta.keys.map(key => key.serial)
+    )
     const lockingScript = buildLock({
       commitments: meta.keys.map(key => commitment(key.pubkey, salt)),
       saltHex64: salt
@@ -3558,10 +3783,12 @@ describe('two-phase key removal reconciliation', () => {
     const old = await beginRemoval()
     const replacementOutput = await replacementForCurrentMeta()
     serveVaultOutputs([])
-    serveHistory([{
-      ...historyAction(replacementOutput, old, 'unsigned', undefined as any, 'crash-ref'),
-      txid: undefined
-    }])
+    serveHistory([
+      {
+        ...historyAction(replacementOutput, old, 'unsigned', undefined as any, 'crash-ref'),
+        txid: undefined
+      }
+    ])
     wallet.abortAction.mockImplementation(async ({ reference }: any) => {
       expect(reference).toBe('crash-ref')
       serveVaultOutputs(old)
@@ -3577,7 +3804,9 @@ describe('two-phase key removal reconciliation', () => {
   it('finalizes after two zero-authority scans and multiple completed matching relocks without storing txids', async () => {
     const old = await beginRemoval()
     await relockVault(wallet, ADMIN, 'Remove C', 'A-1', { revokePubkey: KEY_C.pubkey })
-    const replacementOutput = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0].outputs[0]
+    const replacementOutput = wallet.createAction.mock.calls.find(
+      ([args]) => args.outputs?.[0]?.basket === VAULT_BASKET
+    )![0].outputs[0]
     const replacement = fixtureFromVaultOutput(replacementOutput)
     serveVaultOutputs([replacement])
     serveHistory([
@@ -3599,7 +3828,9 @@ describe('two-phase key removal reconciliation', () => {
   it('finalizes once the matching relock is accepted (unproven), without waiting for a block', async () => {
     const old = await beginRemoval()
     await relockVault(wallet, ADMIN, 'Remove C', 'A-1', { revokePubkey: KEY_C.pubkey })
-    const replacementOutput = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0].outputs[0]
+    const replacementOutput = wallet.createAction.mock.calls.find(
+      ([args]) => args.outputs?.[0]?.basket === VAULT_BASKET
+    )![0].outputs[0]
     const replacement = fixtureFromVaultOutput(replacementOutput)
     serveVaultOutputs([replacement])
     serveHistory([historyAction(replacementOutput, old, 'unproven')])
@@ -3613,13 +3844,19 @@ describe('two-phase key removal reconciliation', () => {
   it('finalizes a crash-interrupted removal from an accepted relock it has to infer as broadcast', async () => {
     const old = await beginRemoval()
     await relockVault(wallet, ADMIN, 'Remove C', 'A-1', { revokePubkey: KEY_C.pubkey })
-    const replacementOutput = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0].outputs[0]
+    const replacementOutput = wallet.createAction.mock.calls.find(
+      ([args]) => args.outputs?.[0]?.basket === VAULT_BASKET
+    )![0].outputs[0]
     const replacement = fixtureFromVaultOutput(replacementOutput)
     const afterRelock = (await vaultStore.getMeta())!
-    await vaultStore.setMeta({
-      ...afterRelock,
-      pendingRemoval: { ...afterRelock.pendingRemoval!, state: 'prepared' }
-    }, undefined, tagFor)
+    await vaultStore.setMeta(
+      {
+        ...afterRelock,
+        pendingRemoval: { ...afterRelock.pendingRemoval!, state: 'prepared' }
+      },
+      undefined,
+      tagFor
+    )
     serveVaultOutputs([replacement])
     serveHistory([historyAction(replacementOutput, old, 'unproven')])
 
@@ -3634,7 +3871,9 @@ describe('two-phase key removal reconciliation', () => {
     async status => {
       const old = await beginRemoval()
       await relockVault(wallet, ADMIN, 'Remove C', 'A-1', { revokePubkey: KEY_C.pubkey })
-      const replacementOutput = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0].outputs[0]
+      const replacementOutput = wallet.createAction.mock.calls.find(
+        ([args]) => args.outputs?.[0]?.basket === VAULT_BASKET
+      )![0].outputs[0]
       const replacement = fixtureFromVaultOutput(replacementOutput)
       const afterRelock = (await vaultStore.getMeta())!
       await vaultStore.setMeta({
@@ -3666,7 +3905,9 @@ describe('two-phase key removal reconciliation', () => {
   it('keeps the tombstone while a matching relock is failed', async () => {
     const old = await beginRemoval()
     await relockVault(wallet, ADMIN, 'Remove C', 'A-1', { revokePubkey: KEY_C.pubkey })
-    const replacementOutput = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0].outputs[0]
+    const replacementOutput = wallet.createAction.mock.calls.find(
+      ([args]) => args.outputs?.[0]?.basket === VAULT_BASKET
+    )![0].outputs[0]
     const replacement = fixtureFromVaultOutput(replacementOutput)
     serveVaultOutputs([replacement])
     serveHistory([historyAction(replacementOutput, old, 'failed')])
@@ -3699,30 +3940,37 @@ describe('two-phase key removal reconciliation', () => {
     expect((await vaultStore.getMeta())!.pendingRemoval).toBeUndefined()
   })
 
-  it.each(['sending', 'failed'])('does not finalize while a %s ordinary withdrawal hides the old-authority source', async status => {
-    const old = await beginRemoval()
-    serveVaultOutputs([])
-    serveHistory([{
-      txid: 'dd'.repeat(32),
-      reference: `ordinary-${status}`,
-      status,
-      labels: ['vault', 'vault-withdraw'],
-      inputs: old.map(source => ({
-        sourceOutpoint: source.outpoint,
-        sourceSatoshis: source.satoshis,
-        sourceLockingScript: source.lockingScript.toHex()
-      })),
-      outputs: []
-    }])
+  it.each(['sending', 'failed'])(
+    'does not finalize while a %s ordinary withdrawal hides the old-authority source',
+    async status => {
+      const old = await beginRemoval()
+      serveVaultOutputs([])
+      serveHistory([
+        {
+          txid: 'dd'.repeat(32),
+          reference: `ordinary-${status}`,
+          status,
+          labels: ['vault', 'vault-withdraw'],
+          inputs: old.map(source => ({
+            sourceOutpoint: source.outpoint,
+            sourceSatoshis: source.satoshis,
+            sourceLockingScript: source.lockingScript.toHex()
+          })),
+          outputs: []
+        }
+      ])
 
-    await expect(finalizeVaultKeyRemoval(wallet, ADMIN)).resolves.toBe(false)
-    expect((await vaultStore.getMeta())!.pendingRemoval).toMatchObject({ key: KEY_C, state: 'prepared' })
-  })
+      await expect(finalizeVaultKeyRemoval(wallet, ADMIN)).resolves.toBe(false)
+      expect((await vaultStore.getMeta())!.pendingRemoval).toMatchObject({ key: KEY_C, state: 'prepared' })
+    }
+  )
 
   it('cannot mark or finalize from a relock whose source never authorized the tombstoned key', async () => {
     await beginRemoval()
     await relockVault(wallet, ADMIN, 'Remove C', 'A-1', { revokePubkey: KEY_C.pubkey })
-    const replacementOutput = wallet.createAction.mock.calls.find(([args]) => args.outputs?.[0]?.basket === VAULT_BASKET)![0].outputs[0]
+    const replacementOutput = wallet.createAction.mock.calls.find(
+      ([args]) => args.outputs?.[0]?.basket === VAULT_BASKET
+    )![0].outputs[0]
     const replacement = fixtureFromVaultOutput(replacementOutput)
     const wrongSource = vaultFixture(500_000, [PUB_A, PUB_B])
     const afterRelock = (await vaultStore.getMeta())!
@@ -3796,7 +4044,6 @@ describe('two-phase key removal reconciliation', () => {
 // ── coverage / removal / balance ─────────────────────────────────────────
 
 describe('authenticated vault scans', () => {
-
   // A withdrawal that reached the network has genuinely SPENT its vault
   // source, so listOutputs is right to omit it and the re-vault remainder it
   // created is already listed. Blocking on it made every balance read throw
@@ -3813,18 +4060,22 @@ describe('authenticated vault scans', () => {
       wallet.listActions.mockImplementation(async (args: any) => ({
         actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
           ? []
-          : [{
-              txid: '8b'.repeat(32),
-              reference: 'withdraw-ref',
-              status,
-              labels: ['vault', 'vault-withdraw'],
-              inputs: [{
-                sourceOutpoint: spent.outpoint,
-                sourceSatoshis: spent.satoshis,
-                sourceLockingScript: spent.lockingScript.toHex()
-              }],
-              outputs: []
-            }]
+          : [
+              {
+                txid: '8b'.repeat(32),
+                reference: 'withdraw-ref',
+                status,
+                labels: ['vault', 'vault-withdraw'],
+                inputs: [
+                  {
+                    sourceOutpoint: spent.outpoint,
+                    sourceSatoshis: spent.satoshis,
+                    sourceLockingScript: spent.lockingScript.toHex()
+                  }
+                ],
+                outputs: []
+              }
+            ]
       }))
 
       await expect(getVaultBalance(wallet, ADMIN)).resolves.toBe(400_000)
@@ -3841,18 +4092,22 @@ describe('authenticated vault scans', () => {
       wallet.listActions.mockImplementation(async (args: any) => ({
         actions: args.labels?.includes(toolboxSdk.specOpFailedActions)
           ? []
-          : [{
-              txid: '8b'.repeat(32),
-              reference: 'withdraw-ref',
-              status,
-              labels: ['vault', 'vault-withdraw'],
-              inputs: [{
-                sourceOutpoint: spent.outpoint,
-                sourceSatoshis: spent.satoshis,
-                sourceLockingScript: spent.lockingScript.toHex()
-              }],
-              outputs: []
-            }]
+          : [
+              {
+                txid: '8b'.repeat(32),
+                reference: 'withdraw-ref',
+                status,
+                labels: ['vault', 'vault-withdraw'],
+                inputs: [
+                  {
+                    sourceOutpoint: spent.outpoint,
+                    sourceSatoshis: spent.satoshis,
+                    sourceLockingScript: spent.lockingScript.toHex()
+                  }
+                ],
+                outputs: []
+              }
+            ]
       }))
 
       await expect(getVaultBalance(wallet, ADMIN)).rejects.toMatchObject({ code: 'action-pending' })
@@ -3891,16 +4146,20 @@ describe('authenticated vault scans', () => {
     serveVaultOutputs([])
     const legacySource = new P2PKH().lock(Utils.toArray('44'.repeat(20), 'hex')).toHex()
     wallet.listActions.mockResolvedValue({
-      actions: [{
-        reference: 'completed-legacy-vault-action',
-        status: 'completed',
-        labels: ['vault', 'vault-withdraw'],
-        inputs: [{
-          sourceOutpoint: `${'45'.repeat(32)}.0`,
-          sourceSatoshis: 100_000,
-          sourceLockingScript: legacySource
-        }]
-      }]
+      actions: [
+        {
+          reference: 'completed-legacy-vault-action',
+          status: 'completed',
+          labels: ['vault', 'vault-withdraw'],
+          inputs: [
+            {
+              sourceOutpoint: `${'45'.repeat(32)}.0`,
+              sourceSatoshis: 100_000,
+              sourceLockingScript: legacySource
+            }
+          ]
+        }
+      ]
     })
 
     await expect(recoverVaultMetaFromOutputs(wallet, ADMIN)).resolves.toBeNull()
@@ -3930,7 +4189,7 @@ describe('authenticated vault scans', () => {
     const recovered = await recoverVaultMetaFromOutputs(wallet, ADMIN)
 
     expect(recovered).toMatchObject({ revision: 2, keys: [KEY_A, KEY_B] })
-    expect((await vaultStore.getMeta())).toMatchObject({ revision: 2, keys: [KEY_A, KEY_B] })
+    expect(await vaultStore.getMeta()).toMatchObject({ revision: 2, keys: [KEY_A, KEY_B] })
   })
 
   it('keeps an existing, already-current local record unchanged', async () => {
@@ -3964,13 +4223,16 @@ describe('authenticated vault scans', () => {
       recovery: { required: true, adoptedSerials: [] }
     })
     const ci = decodeVaultInstructions(fixture.customInstructions)!
-    expect(wallet.createHmac).toHaveBeenCalledWith({
-      protocolID: [2, 'vault salt'],
-      keyID: ci.saltKeyId,
-      counterparty: 'self',
-      data: vaultSaltHmacData(['A-1', 'B-1']),
-      seekPermission: false
-    }, ADMIN)
+    expect(wallet.createHmac).toHaveBeenCalledWith(
+      {
+        protocolID: [2, 'vault salt'],
+        keyID: ci.saltKeyId,
+        counterparty: 'self',
+        data: vaultSaltHmacData(['A-1', 'B-1']),
+        seekPermission: false
+      },
+      ADMIN
+    )
   })
 
   it('rejects a valid HMAC record whose salt does not rebuild the source lock commitments', async () => {
@@ -4051,11 +4313,7 @@ describe('authenticated vault scans', () => {
   })
 
   it('keeps current key order and reports each missing key once', async () => {
-    const fixtures = [
-      vaultFixture(100_000, [PUB_A]),
-      vaultFixture(100_000, [PUB_A]),
-      vaultFixture(100_000, [PUB_B])
-    ]
+    const fixtures = [vaultFixture(100_000, [PUB_A]), vaultFixture(100_000, [PUB_A]), vaultFixture(100_000, [PUB_B])]
     await seedVault(fixtures, [KEY_A, KEY_B, KEY_C])
     expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({
       outputs: 3,
@@ -4093,7 +4351,13 @@ describe('authenticated vault scans', () => {
     it('keeps an output only the key mid-removal can open', async () => {
       const removing = vaultFixture(100_000, [removedPubkey])
       await seedVault([removing], [KEY_A, KEY_B])
-      const pendingKey = { serial: 'YK-removing', slot: 0x82, pubkey: removedPubkey, nickname: 'Removing', enrolledAt: 3 }
+      const pendingKey = {
+        serial: 'YK-removing',
+        slot: 0x82,
+        pubkey: removedPubkey,
+        nickname: 'Removing',
+        enrolledAt: 3
+      }
       await vaultStore.setMeta(
         {
           v: 6,
@@ -4167,7 +4431,9 @@ describe('authenticated vault scans', () => {
       if (index >= fixtures.length) return { outputs: [], totalOutputs: fixtures.length }
       const fixture = fixtures[index]
       return {
-        outputs: [{ outpoint: fixture.outpoint, satoshis: fixture.satoshis, customInstructions: fixture.customInstructions }],
+        outputs: [
+          { outpoint: fixture.outpoint, satoshis: fixture.satoshis, customInstructions: fixture.customInstructions }
+        ],
         BEEF: stitchBeef([fixture]),
         totalOutputs: fixtures.length
       }

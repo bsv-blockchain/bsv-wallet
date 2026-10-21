@@ -72,13 +72,7 @@ const useDemoRuntime: () => MandalaRuntime | null = __DEV__
 /** Injected runtime. `undefined` means "ask the wallet context"; `null` means "none". */
 const MandalaRuntimeContext = createContext<MandalaRuntime | null | undefined>(undefined)
 
-export function MandalaProvider({
-  runtime,
-  children
-}: {
-  runtime: MandalaRuntime | null
-  children: React.ReactNode
-}) {
+export function MandalaProvider({ runtime, children }: { runtime: MandalaRuntime | null; children: React.ReactNode }) {
   return React.createElement(MandalaRuntimeContext.Provider, { value: runtime }, children)
 }
 

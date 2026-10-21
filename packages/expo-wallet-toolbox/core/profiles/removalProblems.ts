@@ -18,7 +18,9 @@ const PENDING_BLOCKERS: RemovalBlocker[] = [
   'inbox-pending'
 ]
 
-export type RemovalProblem = Exclude<ProfileRemovalCheck, { kind: 'ok' }> | Exclude<RemoveProfileResult, { kind: 'removed' }>
+export type RemovalProblem =
+  | Exclude<ProfileRemovalCheck, { kind: 'ok' }>
+  | Exclude<RemoveProfileResult, { kind: 'removed' }>
 
 /** The i18n keys that explain a refusal or failure, one paragraph per kind of reason. */
 export function removalProblemKeys(problem: RemovalProblem): string[] {

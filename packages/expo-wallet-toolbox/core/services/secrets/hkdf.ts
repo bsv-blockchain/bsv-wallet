@@ -14,12 +14,7 @@ import { Hash, Utils } from '@bsv/sdk'
 const HASH_LEN = 32
 
 /** RFC 5869 HKDF with SHA-256. `info` accepts bytes or a UTF-8 string. */
-export function hkdfSha256(
-  ikm: number[],
-  salt: number[],
-  info: number[] | string,
-  length: number = 32
-): number[] {
+export function hkdfSha256(ikm: number[], salt: number[], info: number[] | string, length: number = 32): number[] {
   if (length > 255 * HASH_LEN) throw new Error('hkdf: length too large')
   const infoBytes: number[] = typeof info === 'string' ? Utils.toArray(info, 'utf8') : info
   // Extract: PRK = HMAC(salt, IKM); zero-length salt means a hash-length zero block

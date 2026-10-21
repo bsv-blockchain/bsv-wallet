@@ -146,9 +146,7 @@ describe('column lists match the schema', () => {
       const m = /^"?([A-Za-z_][A-Za-z0-9_]*)"?\s/.exec(line)
       if (m) cols.push(m[1])
     }
-    for (const alter of ddl.matchAll(
-      new RegExp(`ALTER TABLE ${table} ADD COLUMN "?([A-Za-z_][A-Za-z0-9_]*)"?`, 'g')
-    )) {
+    for (const alter of ddl.matchAll(new RegExp(`ALTER TABLE ${table} ADD COLUMN "?([A-Za-z_][A-Za-z0-9_]*)"?`, 'g'))) {
       if (!cols.includes(alter[1])) cols.push(alter[1])
     }
     return cols
@@ -182,9 +180,10 @@ describe('spendingReferencesSql against real SQLite', () => {
   }
 
   it('finds the reserving transaction by outpoint', () => {
-    const rows = seeded()
-      .prepare(spendingReferencesSql(1))
-      .all('aa'.repeat(32), 0) as { reference: string; status: string }[]
+    const rows = seeded().prepare(spendingReferencesSql(1)).all('aa'.repeat(32), 0) as {
+      reference: string
+      status: string
+    }[]
     expect(rows).toEqual([{ reference: 'ref-orphan', status: 'unsigned' }])
   })
 
@@ -195,9 +194,9 @@ describe('spendingReferencesSql against real SQLite', () => {
   })
 
   it('takes several outpoints in one query', () => {
-    const rows = seeded()
-      .prepare(spendingReferencesSql(2))
-      .all('aa'.repeat(32), 0, 'bb'.repeat(32), 1) as { reference: string }[]
+    const rows = seeded().prepare(spendingReferencesSql(2)).all('aa'.repeat(32), 0, 'bb'.repeat(32), 1) as {
+      reference: string
+    }[]
     expect(rows.map(r => r.reference).sort()).toEqual(['ref-done', 'ref-orphan'])
   })
 

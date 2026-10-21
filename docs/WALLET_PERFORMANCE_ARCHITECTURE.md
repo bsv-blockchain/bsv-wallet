@@ -27,18 +27,18 @@ The app already has strong foundations for a mobile Web3 wallet:
 
 ### Stack overview
 
-| Layer | Location / package | Role |
-| ----- | ------------------ | ---- |
-| WebView CWI | `utils/webview/cwiProvider.ts`, `app/index.tsx` | BRC-100 provider over `postMessage` / `injectJavaScript` |
-| 402 payments | `utils/webview/bsvPaymentHandler.ts` | Merchant micropay: derive keys → `createAction` → undelayed broadcast → paid GET |
-| PeerPay | `app/payments.tsx`, `utils/peerpay/outbox.ts` | MessageBox send/receive + durable outbox |
-| Pairing RPC | `context/WalletConnectionContext.tsx` | Encrypted WS relay of BRC-100 methods |
-| Permissions | `@bsv/wallet-toolbox-mobile` `WalletPermissionsManager` | Originator gating, spending auth, metadata encrypt |
-| Wallet core | toolbox `Wallet` / `WalletSigner` / `SimpleWalletManager` | Action build, sign, process |
-| Storage | `storage/StorageExpoSQLite.ts` | expo-sqlite backend extending `StorageProvider` |
-| Services | `services/walletServiceConfig.ts`, arcade broadcast providers | ARC, WoC, Chaintracks, multi-broadcaster |
-| Monitor | `context/WalletContext.tsx` + toolbox `Monitor` | SSE status, send-waiting, proofs, header poll |
-| Crypto | `index.js`, `utils/crypto/*`, `modules/native-secp256k1` | Hashes/AES + secp256k1 sign/verify |
+| Layer        | Location / package                                            | Role                                                                             |
+| ------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| WebView CWI  | `utils/webview/cwiProvider.ts`, `app/index.tsx`               | BRC-100 provider over `postMessage` / `injectJavaScript`                         |
+| 402 payments | `utils/webview/bsvPaymentHandler.ts`                          | Merchant micropay: derive keys → `createAction` → undelayed broadcast → paid GET |
+| PeerPay      | `app/payments.tsx`, `utils/peerpay/outbox.ts`                 | MessageBox send/receive + durable outbox                                         |
+| Pairing RPC  | `context/WalletConnectionContext.tsx`                         | Encrypted WS relay of BRC-100 methods                                            |
+| Permissions  | `@bsv/wallet-toolbox-mobile` `WalletPermissionsManager`       | Originator gating, spending auth, metadata encrypt                               |
+| Wallet core  | toolbox `Wallet` / `WalletSigner` / `SimpleWalletManager`     | Action build, sign, process                                                      |
+| Storage      | `storage/StorageExpoSQLite.ts`                                | expo-sqlite backend extending `StorageProvider`                                  |
+| Services     | `services/walletServiceConfig.ts`, arcade broadcast providers | ARC, WoC, Chaintracks, multi-broadcaster                                         |
+| Monitor      | `context/WalletContext.tsx` + toolbox `Monitor`               | SSE status, send-waiting, proofs, header poll                                    |
+| Crypto       | `index.js`, `utils/crypto/*`, `modules/native-secp256k1`      | Hashes/AES + secp256k1 sign/verify                                               |
 
 ### Boot and provider tree
 
@@ -105,16 +105,16 @@ Wallet construction lives primarily in `context/WalletContext.tsx` (`buildWallet
 
 ## Strengths to preserve
 
-| Area | Why it matters |
-| ---- | -------------- |
-| Early `quick-crypto` + fast ECDSA Metro alias | Hash/AES/ECDSA off pure-JS for sign-heavy paths |
-| Auto-approve + 402 in-flight coalesce + payment cache | Correct “instant micro” UX primitives |
-| `acceptDelayedBroadcast: false` only for 402 | Correctness for merchants; do not apply globally |
-| SQL-native `listOutputs` / `listActions` | Better than IDB-style cursor filtering |
-| Monitor patches (NewHeader cadence, ReviewProvenTxs removed, QuietEventSource) | Avoids JS-thread death by logging/polling |
-| Deferred `monitor.startTasks()` | Protects cold start |
-| `WalletManagersContext` | Stops browser tree thrashing on SSE ticks |
-| Dev perf tooling (`utils/perf.ts`, monitor task timers, JS stall watchdog) | Enables phase-level diagnosis |
+| Area                                                                           | Why it matters                                   |
+| ------------------------------------------------------------------------------ | ------------------------------------------------ |
+| Early `quick-crypto` + fast ECDSA Metro alias                                  | Hash/AES/ECDSA off pure-JS for sign-heavy paths  |
+| Auto-approve + 402 in-flight coalesce + payment cache                          | Correct “instant micro” UX primitives            |
+| `acceptDelayedBroadcast: false` only for 402                                   | Correctness for merchants; do not apply globally |
+| SQL-native `listOutputs` / `listActions`                                       | Better than IDB-style cursor filtering           |
+| Monitor patches (NewHeader cadence, ReviewProvenTxs removed, QuietEventSource) | Avoids JS-thread death by logging/polling        |
+| Deferred `monitor.startTasks()`                                                | Protects cold start                              |
+| `WalletManagersContext`                                                        | Stops browser tree thrashing on SSE ticks        |
+| Dev perf tooling (`utils/perf.ts`, monitor task timers, JS stall watchdog)     | Enables phase-level diagnosis                    |
 
 ---
 
@@ -128,12 +128,12 @@ Today **every** CWI call takes the same path: yield → `permissionsManager[meth
 
 Split methods into latency classes:
 
-| Tier | Methods | Policy |
-| ---- | ------- | ------ |
-| **L0 — free** | `getVersion`, `getNetwork`, `isAuthenticated`, `waitForAuthentication` | No yield, no storage, fixed answers from memory |
+| Tier            | Methods                                                                                             | Policy                                                                              |
+| --------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| **L0 — free**   | `getVersion`, `getNetwork`, `isAuthenticated`, `waitForAuthentication`                              | No yield, no storage, fixed answers from memory                                     |
 | **L1 — crypto** | `getPublicKey`, `createHmac`/`verifyHmac`, `createSignature`/`verifySignature`, `encrypt`/`decrypt` | No `InteractionManager`; no SQLite; keep on JS thread only if native crypto is warm |
-| **L2 — read** | `listOutputs`, `listActions`, `listCertificates`, `getHeight` | Short yield only if UI animating; prefer cached UTXO/balance |
-| **L3 — mutate** | `createAction`, `signAction`, `internalizeAction`, cert acquire | Full path + permission + exclusive txn |
+| **L2 — read**   | `listOutputs`, `listActions`, `listCertificates`, `getHeight`                                       | Short yield only if UI animating; prefer cached UTXO/balance                        |
+| **L3 — mutate** | `createAction`, `signAction`, `internalizeAction`, cert acquire                                     | Full path + permission + exclusive txn                                              |
 
 **Why:** dApps often call `getPublicKey` / `getNetwork` / `listOutputs` in a storm before paying. Those should not pay the same tax as `createAction`.
 
@@ -221,11 +221,11 @@ PRAGMA cache_size=-8000;  -- ~8MB, tune by device tier
 
 #### 9. Dual broadcast modes by UX class
 
-| Flow | Broadcast | Why |
-| ---- | --------- | --- |
-| 402 / merchant must see tx now | `acceptDelayedBroadcast: false` | Correctness |
-| PeerPay send, in-app transfer, non-critical | delayed + outbox/SSE | Returns to user sooner |
-| Status UI | trust SSE first, poll only on resume | Battery + CPU |
+| Flow                                        | Broadcast                            | Why                    |
+| ------------------------------------------- | ------------------------------------ | ---------------------- |
+| 402 / merchant must see tx now              | `acceptDelayedBroadcast: false`      | Correctness            |
+| PeerPay send, in-app transfer, non-critical | delayed + outbox/SSE                 | Returns to user sooner |
+| Status UI                                   | trust SSE first, poll only on resume | Battery + CPU          |
 
 Keep undelayed for 402. Ensure PeerPay/UI payments do not accidentally inherit undelayed semantics.
 
@@ -309,14 +309,14 @@ Managers are already split via `WalletManagersContext`. Next: a **TxStatusContex
 
 Use these as product bars when instrumenting on device (native ECDSA build).
 
-| Operation | Feels fast | Stretch |
-| --------- | ---------- | ------- |
-| L0 CWI | &lt; 5 ms | &lt; 2 ms |
-| Auto-approved micro `createAction` (local sign, delayed broadcast) | &lt; 80–120 ms | &lt; 50 ms |
-| Same with undelayed broadcast | RTT + 50–100 ms local | RTT + 30 ms |
-| `listOutputs` balance (warm cache) | &lt; 10 ms | &lt; 5 ms |
-| Status flip after SSE | &lt; 100 ms UI | frame-aligned debounce |
-| Receive list (warm) | &lt; 50 ms paint | optimistic |
+| Operation                                                          | Feels fast            | Stretch                |
+| ------------------------------------------------------------------ | --------------------- | ---------------------- |
+| L0 CWI                                                             | &lt; 5 ms             | &lt; 2 ms              |
+| Auto-approved micro `createAction` (local sign, delayed broadcast) | &lt; 80–120 ms        | &lt; 50 ms             |
+| Same with undelayed broadcast                                      | RTT + 50–100 ms local | RTT + 30 ms            |
+| `listOutputs` balance (warm cache)                                 | &lt; 10 ms            | &lt; 5 ms              |
+| Status flip after SSE                                              | &lt; 100 ms UI        | frame-aligned debounce |
+| Receive list (warm)                                                | &lt; 50 ms paint      | optimistic             |
 
 ### Instrumentation guidance
 
@@ -357,23 +357,23 @@ If formalizing work (OpenSpec or plans):
 
 ## Key files reference
 
-| File | Role |
-| ---- | ---- |
-| `context/WalletContext.tsx` | Wallet build, permissions callbacks, monitor, auto-approve, status version |
-| `app/index.tsx` | CWI message router, InteractionManager yield, 402 entry |
-| `utils/webview/cwiProvider.ts` | Injected `window.CWI` BRC-100 surface |
-| `utils/webview/bsvPaymentHandler.ts` | 402 payment orchestration |
-| `utils/peerpay/outbox.ts` | Durable outbound PeerPay tokens |
-| `storage/StorageExpoSQLite.ts` | SQLite provider, exclusive transactions |
-| `storage/methods/listOutputsSql.ts` | SQL listOutputs |
-| `storage/methods/listActionsSql.ts` | SQL listActions |
-| `services/walletServiceConfig.ts` | ARC / Chaintracks / WoC options |
-| `utils/walletMonitor.ts` | NewHeader poll cadence / backoff |
-| `utils/crypto/*` | Fast ECDSA install + backends |
-| `utils/perf.ts` | Dev JS-thread span instrumentation |
-| `context/WalletConnectionContext.tsx` | Paired desktop/session BRC-100 RPC |
-| `app/payments.tsx` | PeerPay UI send/receive |
-| `docs/NOWAB_IMPLEMENTATION.md` | Self-custodial wallet overview |
+| File                                  | Role                                                                       |
+| ------------------------------------- | -------------------------------------------------------------------------- |
+| `context/WalletContext.tsx`           | Wallet build, permissions callbacks, monitor, auto-approve, status version |
+| `app/index.tsx`                       | CWI message router, InteractionManager yield, 402 entry                    |
+| `utils/webview/cwiProvider.ts`        | Injected `window.CWI` BRC-100 surface                                      |
+| `utils/webview/bsvPaymentHandler.ts`  | 402 payment orchestration                                                  |
+| `utils/peerpay/outbox.ts`             | Durable outbound PeerPay tokens                                            |
+| `storage/StorageExpoSQLite.ts`        | SQLite provider, exclusive transactions                                    |
+| `storage/methods/listOutputsSql.ts`   | SQL listOutputs                                                            |
+| `storage/methods/listActionsSql.ts`   | SQL listActions                                                            |
+| `services/walletServiceConfig.ts`     | ARC / Chaintracks / WoC options                                            |
+| `utils/walletMonitor.ts`              | NewHeader poll cadence / backoff                                           |
+| `utils/crypto/*`                      | Fast ECDSA install + backends                                              |
+| `utils/perf.ts`                       | Dev JS-thread span instrumentation                                         |
+| `context/WalletConnectionContext.tsx` | Paired desktop/session BRC-100 RPC                                         |
+| `app/payments.tsx`                    | PeerPay UI send/receive                                                    |
+| `docs/NOWAB_IMPLEMENTATION.md`        | Self-custodial wallet overview                                             |
 
 Related prior notes:
 

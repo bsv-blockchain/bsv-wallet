@@ -34,7 +34,9 @@ export async function listOutputsSql(
   let basketId: number | undefined
   if (basket) {
     const baskets = await storage.findOutputBaskets({ partial: { userId, name: basket } })
-    devLog(`[listOutputsSql] basket="${basket}" found ${baskets.length} matches${baskets.length > 0 ? ` (id=${baskets[0].basketId})` : ''}`)
+    devLog(
+      `[listOutputsSql] basket="${basket}" found ${baskets.length} matches${baskets.length > 0 ? ` (id=${baskets[0].basketId})` : ''}`
+    )
     if (baskets.length !== 1) return r
     basketId = baskets[0].basketId
   }
@@ -98,19 +100,11 @@ export async function listOutputsSql(
   // thread, to produce a single integer. Same filter, same answer; the row path
   // below still serves every other specOp.
   if (specOp?.totalOutputsIsSumOfSatoshis && !specOp.filterOutputs) {
-    const { total } = await storage.sumOutputSatoshis(
-      findArgs,
-      tagIds.length > 0 ? tagIds : undefined,
-      isQueryModeAll
-    )
+    const { total } = await storage.sumOutputSatoshis(findArgs, tagIds.length > 0 ? tagIds : undefined, isQueryModeAll)
     return { totalOutputs: total, outputs: [] }
   }
 
-  let outputs = await storage.findOutputs(
-    findArgs,
-    tagIds.length > 0 ? tagIds : undefined,
-    isQueryModeAll
-  )
+  let outputs = await storage.findOutputs(findArgs, tagIds.length > 0 ? tagIds : undefined, isQueryModeAll)
   if (outputs.length === 0 && basketId !== undefined && isLoggingEnabled()) {
     // Debug aid for an empty basket: what IS in there, before the filters. The
     // query is gated with the log — running it unconditionally cost a second
@@ -124,7 +118,12 @@ export async function listOutputsSql(
     )
     devLog(`[listOutputsSql] DEBUG basket=${basketId} raw outputs:`, JSON.stringify(raw))
   }
-  devLog(`[listOutputsSql] basket="${basket}" specOp=${specOp?.name || 'none'} found ${outputs.length} outputs, satoshis: [${outputs.slice(0, 5).map(o => o.satoshis).join(',')}]`)
+  devLog(
+    `[listOutputsSql] basket="${basket}" specOp=${specOp?.name || 'none'} found ${outputs.length} outputs, satoshis: [${outputs
+      .slice(0, 5)
+      .map(o => o.satoshis)
+      .join(',')}]`
+  )
 
   // Count total
   if (outputs.length === limit) {
@@ -168,7 +167,10 @@ export async function listOutputsSql(
     if (includeLabels && (o as any).txid) {
       if (!labelsByTxId.has(o.transactionId)) {
         const txLabels = await storage.getLabelsForTransactionId(o.transactionId)
-        labelsByTxId.set(o.transactionId, txLabels.map(l => l.label))
+        labelsByTxId.set(
+          o.transactionId,
+          txLabels.map(l => l.label)
+        )
       }
       wo.labels = labelsByTxId.get(o.transactionId)
     }
@@ -181,9 +183,12 @@ export async function listOutputsSql(
     if (includeLockingScripts) {
       await storage.validateOutputScript(o)
       if (o.lockingScript) {
-        wo.lockingScript = typeof o.lockingScript === 'string'
-          ? o.lockingScript
-          : Array.from(o.lockingScript as any).map((b: any) => b.toString(16).padStart(2, '0')).join('')
+        wo.lockingScript =
+          typeof o.lockingScript === 'string'
+            ? o.lockingScript
+            : Array.from(o.lockingScript as any)
+                .map((b: any) => b.toString(16).padStart(2, '0'))
+                .join('')
       }
     }
 

@@ -92,14 +92,17 @@ mkdirSync(OUT, { recursive: true })
 
 /** The toolbox's own two-part check, reported as two separate answers. */
 async function dissect(txBytes) {
-  const out = { }
+  const out = {}
   const head = txBytes.slice(0, 4)
   out.prefix = head.map(b => b.toString(16).padStart(2, '0')).join('')
   out.container =
-    out.prefix === '01010101' ? 'AtomicBEEF (BRC-95)'
-    : out.prefix === '0100beef' ? 'BEEF V1  — NOT atomic'
-    : out.prefix === '0200beef' ? 'BEEF V2  — NOT atomic'
-    : 'unrecognised'
+    out.prefix === '01010101'
+      ? 'AtomicBEEF (BRC-95)'
+      : out.prefix === '0100beef'
+        ? 'BEEF V1  — NOT atomic'
+        : out.prefix === '0200beef'
+          ? 'BEEF V2  — NOT atomic'
+          : 'unrecognised'
 
   let beef
   try {
@@ -157,12 +160,13 @@ async function dissect(txBytes) {
  * This replicates its network branch exactly: findHeaderForHeight →
  * GET /findHeaderHexForHeight?height=N, then compare `.merkleRoot`.
  */
-async function appChaintracksRootFor (height) {
+async function appChaintracksRootFor(height) {
   const url = `${CHAINTRACKS_URL}/findHeaderHexForHeight?height=${height}`
   const res = await fetch(url)
   if (!res.ok) return { error: `HTTP ${res.status} ${res.statusText}` }
   const v = await res.json()
-  if (v.status !== 'success') return { error: `status=${v.status} code=${v.code ?? ''} ${JSON.stringify(v).slice(0, 200)}` }
+  if (v.status !== 'success')
+    return { error: `status=${v.status} code=${v.code ?? ''} ${JSON.stringify(v).slice(0, 200)}` }
   const header = v.value
   if (header == null) return { error: 'success with no value (height beyond the service tip?)' }
   const raw = JSON.stringify(header).slice(0, 300)
@@ -170,7 +174,8 @@ async function appChaintracksRootFor (height) {
   // service answers with a bare 80-byte header hex instead of an object, there
   // is no .merkleRoot at all and rootHex throws — which line 79 swallows into
   // `return false`. Surface that rather than hiding it.
-  if (typeof header === 'string') return { error: `service returned a bare header string, not an object with .merkleRoot`, raw }
+  if (typeof header === 'string')
+    return { error: `service returned a bare header string, not an object with .merkleRoot`, raw }
   const mr = header.merkleRoot
   if (mr == null) return { error: 'header object has no merkleRoot field', raw }
   const root = typeof mr === 'string' ? mr : Utils.toHex(Array.from(mr))
@@ -181,7 +186,7 @@ async function appChaintracksRootFor (height) {
  * the moment of the failed accept: if the service (or the device's header
  * window) had not reached the bump height yet, findHeaderForHeight returned
  * nothing and the verification failed then, even though it passes now. */
-async function appChaintracksTip () {
+async function appChaintracksTip() {
   try {
     const res = await fetch(`${CHAINTRACKS_URL}/getPresentHeight`)
     const v = await res.json()
@@ -192,7 +197,7 @@ async function appChaintracksTip () {
 }
 
 /** The three ways a "correct-looking" root still fails `remoteRoot === root`. */
-function explainNearMiss (expected, got) {
+function explainNearMiss(expected, got) {
   if (got.toLowerCase() === expected.toLowerCase()) {
     return 'CASE ONLY — the bytes match but the hex case differs, and the comparison is ===. This fails.'
   }
@@ -203,7 +208,7 @@ function explainNearMiss (expected, got) {
   return null
 }
 
-async function checkAppChaintracks (beef) {
+async function checkAppChaintracks(beef) {
   const { roots } = beef.verifyValid(false)
   const heights = Object.keys(roots)
   if (heights.length === 0) {
@@ -275,7 +280,9 @@ for (const msg of messages) {
   console.log(`created_at   : ${msg.created_at}`)
   console.log(`amount       : ${token.amount}`)
   console.log(`outputIndex  : ${token.outputIndex ?? 0}`)
-  console.log(`derivation   : prefix=${token.customInstructions?.derivationPrefix} suffix=${token.customInstructions?.derivationSuffix}`)
+  console.log(
+    `derivation   : prefix=${token.customInstructions?.derivationPrefix} suffix=${token.customInstructions?.derivationSuffix}`
+  )
   if (token.note) console.log(`note         : ${JSON.stringify(token.note)}`)
   hr()
   console.log(`container    : ${d.container}  (prefix 0x${d.prefix}, ${txBytes.length} bytes)`)
@@ -291,13 +298,18 @@ for (const msg of messages) {
     console.log(`  ${t.txid}  ${flags.padEnd(10)} ${String(t.rawBytes).padStart(7)}B  inputs:${t.inputs.length}`)
   }
   hr()
-  console.log(`sortTxs      : valid=${d.sort.valid} txidOnly=${d.sort.txidOnly.length} missingInputs=${d.sort.missingInputs.length} withMissingInputs=${d.sort.withMissingInputs.length} notValid=${d.sort.notValid.length}`)
+  console.log(
+    `sortTxs      : valid=${d.sort.valid} txidOnly=${d.sort.txidOnly.length} missingInputs=${d.sort.missingInputs.length} withMissingInputs=${d.sort.withMissingInputs.length} notValid=${d.sort.notValid.length}`
+  )
   for (const [label, list] of Object.entries(d.sort)) {
     if (Array.isArray(list) && list.length) console.log(`  ${label}: ${list.join('\n' + ' '.repeat(label.length + 4))}`)
   }
   console.log(`verifyValid(allowTxidOnly=false) : ${d.verifyValidStrict}   <- the check internalizeAction runs`)
   console.log(`verifyValid(allowTxidOnly=true)  : ${d.verifyValidLenient}`)
-  if ('verifyWithChainTracker' in d) console.log(`verify(defaultChainTracker, false): ${d.verifyWithChainTracker}   <- WhatsOnChain, NOT what the app uses`)
+  if ('verifyWithChainTracker' in d)
+    console.log(
+      `verify(defaultChainTracker, false): ${d.verifyWithChainTracker}   <- WhatsOnChain, NOT what the app uses`
+    )
   if (CHECK_APP_CT) {
     hr()
     console.log(`app chain tracker (${CHAINTRACKS_URL}):`)
@@ -332,7 +344,14 @@ for (const msg of messages) {
   const stem = join(OUT, d.atomicTxid ?? msg.messageId)
   writeFileSync(`${stem}.atomicbeef.hex`, Utils.toHex(txBytes))
   writeFileSync(`${stem}.token.json`, JSON.stringify(token, null, 2))
-  writeFileSync(`${stem}.report.json`, JSON.stringify({ messageId: msg.messageId, sender: msg.sender, created_at: msg.created_at, ...d, beef: undefined }, null, 2))
+  writeFileSync(
+    `${stem}.report.json`,
+    JSON.stringify(
+      { messageId: msg.messageId, sender: msg.sender, created_at: msg.created_at, ...d, beef: undefined },
+      null,
+      2
+    )
+  )
   console.log(`\nwrote ${stem}.{atomicbeef.hex,token.json,report.json}`)
 }
 

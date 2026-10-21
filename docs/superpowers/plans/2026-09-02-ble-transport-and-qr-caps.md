@@ -30,53 +30,53 @@
 
 Paths: `RNLT` = `packages/react-native-localpay-transport`, `L` = `packages/expo-wallet-toolbox/core/localpay`, `T` = `packages/expo-wallet-toolbox/__tests__/localpay`, `UI` = `packages/expo-wallet-toolbox/ui`.
 
-| Path | Action | Task(s) | Responsibility |
-|---|---|---|---|
-| `RNLT/src/specs/LocalPayBleTransport.nitro.ts` | Create | 1 | Nitro spec: `isSupported`, `bluetoothState`, `nfcAvailable`, `prepare` + the four transport methods, same signatures as `LocalPayTransport` |
-| `RNLT/src/index.ts` | Modify | 1 | `getLocalPayBleTransport()` cached, never-throwing accessor that warns once in `__DEV__`; `export type LocalPayBleTransport` |
-| `RNLT/tsconfig.json` | Create | 1 | Typecheck for the native package's TS (copy of `react-native-yubikey/tsconfig.json`) |
-| `RNLT/nitro.json` | Modify | 1 | Autolinks `LocalPayBleTransport` → `HybridLocalPayBleTransport` on both platforms |
-| `RNLT/nitrogen/generated/**` | Regenerate | 1 | nitrogen glue for both HybridObjects (committed) |
-| `RNLT/ios/HybridLocalPayBleTransport.swift` | Create → Replace | 1 → 8 | Task 1: prompt-free probes + inert transport methods (links CoreBluetooth). Task 8: CoreBluetooth peripheral (payee) and central (payer) state machines on one serial queue |
-| `RNLT/ios/BleGattProfile.swift` | Create | 8 | `bsvpay-ble/1` constants, service-UUID derivation, HELLO/ACK HMACs, ack JSON, u32-BE framing, reassembler |
-| `RNLT/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayBleTransport.kt` | Create → Replace | 1 → 9 | Task 1: probes + inert transport. Task 9: `BluetoothGattServer` payee and `BluetoothGatt` payer, main-`Handler` confinement, adapter-off receiver |
-| `RNLT/android/src/main/java/com/margelo/nitro/localpaytransport/BleGattProfile.kt` | Create | 9 | Byte-identical Kotlin twin of `BleGattProfile.swift` (pure JVM) |
-| `RNLT/android/src/test/java/com/margelo/nitro/localpaytransport/BleGattProfileTest.kt` | Create | 9 | JUnit known-answer vectors for the profile helpers |
-| `RNLT/android/build.gradle` | Modify | 9 | `testImplementation 'junit:junit:4.13.2'` |
-| `RNLT/LocalPayTransport.podspec` | Modify | 1, 8 | Source files + `CoreBluetooth`/`CoreNFC` frameworks |
-| `RNLT/android/src/main/AndroidManifest.xml` | Modify | 1 | `<uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />` |
-| `app.json` | Modify | 1 | `NSBluetoothAlwaysUsageDescription`, `NSBluetoothPeripheralUsageDescription` |
-| `ios/` | Regenerate | 1, 8 | `expo prebuild --clean` output (Info.plist, Podfile.lock, Pods project) |
-| `T/bleAccessor.test.ts` | Create | 1 | Accessor never throws, caches, warns once |
-| `docs/superpowers/2026-09-02-ble-preflight.md` | Create | 2 | ITMS-90683 TestFlight record (go/no-go gate) |
-| `L/session.ts` | Modify | 3 | `HINT_*`, `RUNG_MASK`; `mintSession({ supportsBle?, hints? })` |
-| `T/session.test.ts` | Modify | 3 | Bit layout, masking, round-trip, realistic-nonce QR size class |
-| `L/types.ts` | Modify | 4 | `LocalPaymentTransport.kind` gains `'ble'` |
-| `L/pending.ts` | Modify | 4 | `receivedVia` comment lists `'ble'` |
-| `L/transport/select.ts` | Modify | 4 | `TransportKind`, `localSupportsBle`, AWDL → Nearby → BLE → QR ladder, `describeFloor`/`FloorReason` |
-| `L/deviceCaps.ts` | Create → Fill → Extend | 4 → 6 → 10 | Task 4: `BluetoothState` only. Task 6: `DeviceProbe`, `capsFromProbe`, `probeDeviceCaps`, `readBluetoothState`, budgets. Task 10: `prepareBle` |
-| `T/transportSelect.test.ts` | Modify | 4 | New CASES rows, `localSupportsBle` |
-| `T/describeFloor.test.ts` | Create | 4 | The spec §5 table |
-| `L/transport/socket.ts` | Modify | 5 | `makeSocketTransport(kind, native, connectTimeoutMs)`, `LocalPayNative` |
-| `L/transport/awdl.ts`, `L/transport/nearby.ts` | Modify | 5 | Pass their accessor and named connect budget |
-| `L/transport/ble.ts` | Create | 5 | `BLE_CONNECT_TIMEOUT_MS`, `bleTransport` |
-| `T/transportAwdl.test.ts` | Modify | 5 | Pins the 4 s / 20 s budgets through the refactor |
-| `T/transportBle.test.ts` | Create | 5 | BLE rung over a mocked native object, incl. connect-timeout and oversize propagation |
-| `T/deviceCaps.test.ts` | Create | 6 | `capsFromProbe` truth table, `readBluetoothState`, budgeted probe |
-| `L/blePermissions.ts` | Create | 7 | `requestBlePermissions()` (Android BLE grant sets by API level) |
-| `T/blePermissions.test.ts` | Create | 7 | Permission sets per API level |
-| `packages/expo-wallet-toolbox/core/pay/rails/nearby.ts` | Modify | 7, 10 | Pass-through barrel gains the BLE rung and device-caps names (10: `prepareBle`, `raceReceivers`) |
-| `packages/expo-wallet-toolbox/core/index.ts` | Modify | 7, 10 | Hand-written nearby block mirrors the barrel; exports `LocalPaymentTransport`, `ReceivedFrame`, `QrHandoffRequired`, `AckError` |
-| `packages/expo-wallet-toolbox/__tests__/pay/nearbyRail.test.ts` | Modify | 7 | Identity pins for both barrels |
-| `docs/superpowers/2026-09-02-ble-hardware-log.md` | Create → Append | 8 → 9 | Measured MTU / connect / transfer / ack numbers for all four pairings |
-| `UI/components/ui/PresenceRow.tsx` | Modify | 10 | `medium?: 'wifi' \| 'bluetooth'` prop |
-| `packages/expo-wallet-toolbox/__tests__/ui/PresenceRow.test.tsx` | Modify | 10 | Glyph per medium |
-| `T/prepareBle.test.ts` | Create | 10 | `prepareBle` never rejects, coerces, passes the budget |
-| `L/transport/race.ts` | Create | 10 | `raceReceivers`: first frame wins, losers aborted before settle, per-radio non-terminal errors |
-| `T/race.test.ts` | Create | 10 | Multi-listener arbitration |
-| `packages/expo-wallet-toolbox/core/i18n/translations.tsx` | Modify | 10 | Six keys × 12 languages (`local_pay_floor_*`, `local_pay_ble_unavailable`) |
-| `UI/components/pay/NearbyFlow.tsx` | Modify | 10 | Multi-listener payee, probe + `prepareBle` at minting, BLE in `executeSend`, floor copy, presence medium |
-| `docs/superpowers/plans/2026-07-27-local-payments-awdl.md`, `docs/superpowers/specs/2026-07-27-local-payments-awdl-design.md`, `docs/superpowers/specs/2026-07-29-offline-transport-fixes-design.md`, `docs/superpowers/2026-08-20-morning-handoff.md`, `docs/superpowers/specs/2026-07-31-token-payment-frame-v3-design.md`, `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` | Modify | 11 | Dated `Superseded 2026-09-02` notes on the CoreBluetooth prohibitions; spec Status → Implemented |
+| Path                                                                                                                                                                                                                                                                                                                                                                                                  | Action                 | Task(s)    | Responsibility                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RNLT/src/specs/LocalPayBleTransport.nitro.ts`                                                                                                                                                                                                                                                                                                                                                        | Create                 | 1          | Nitro spec: `isSupported`, `bluetoothState`, `nfcAvailable`, `prepare` + the four transport methods, same signatures as `LocalPayTransport`                                 |
+| `RNLT/src/index.ts`                                                                                                                                                                                                                                                                                                                                                                                   | Modify                 | 1          | `getLocalPayBleTransport()` cached, never-throwing accessor that warns once in `__DEV__`; `export type LocalPayBleTransport`                                                |
+| `RNLT/tsconfig.json`                                                                                                                                                                                                                                                                                                                                                                                  | Create                 | 1          | Typecheck for the native package's TS (copy of `react-native-yubikey/tsconfig.json`)                                                                                        |
+| `RNLT/nitro.json`                                                                                                                                                                                                                                                                                                                                                                                     | Modify                 | 1          | Autolinks `LocalPayBleTransport` → `HybridLocalPayBleTransport` on both platforms                                                                                           |
+| `RNLT/nitrogen/generated/**`                                                                                                                                                                                                                                                                                                                                                                          | Regenerate             | 1          | nitrogen glue for both HybridObjects (committed)                                                                                                                            |
+| `RNLT/ios/HybridLocalPayBleTransport.swift`                                                                                                                                                                                                                                                                                                                                                           | Create → Replace       | 1 → 8      | Task 1: prompt-free probes + inert transport methods (links CoreBluetooth). Task 8: CoreBluetooth peripheral (payee) and central (payer) state machines on one serial queue |
+| `RNLT/ios/BleGattProfile.swift`                                                                                                                                                                                                                                                                                                                                                                       | Create                 | 8          | `bsvpay-ble/1` constants, service-UUID derivation, HELLO/ACK HMACs, ack JSON, u32-BE framing, reassembler                                                                   |
+| `RNLT/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayBleTransport.kt`                                                                                                                                                                                                                                                                                                        | Create → Replace       | 1 → 9      | Task 1: probes + inert transport. Task 9: `BluetoothGattServer` payee and `BluetoothGatt` payer, main-`Handler` confinement, adapter-off receiver                           |
+| `RNLT/android/src/main/java/com/margelo/nitro/localpaytransport/BleGattProfile.kt`                                                                                                                                                                                                                                                                                                                    | Create                 | 9          | Byte-identical Kotlin twin of `BleGattProfile.swift` (pure JVM)                                                                                                             |
+| `RNLT/android/src/test/java/com/margelo/nitro/localpaytransport/BleGattProfileTest.kt`                                                                                                                                                                                                                                                                                                                | Create                 | 9          | JUnit known-answer vectors for the profile helpers                                                                                                                          |
+| `RNLT/android/build.gradle`                                                                                                                                                                                                                                                                                                                                                                           | Modify                 | 9          | `testImplementation 'junit:junit:4.13.2'`                                                                                                                                   |
+| `RNLT/LocalPayTransport.podspec`                                                                                                                                                                                                                                                                                                                                                                      | Modify                 | 1, 8       | Source files + `CoreBluetooth`/`CoreNFC` frameworks                                                                                                                         |
+| `RNLT/android/src/main/AndroidManifest.xml`                                                                                                                                                                                                                                                                                                                                                           | Modify                 | 1          | `<uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />`                                                                                    |
+| `app.json`                                                                                                                                                                                                                                                                                                                                                                                            | Modify                 | 1          | `NSBluetoothAlwaysUsageDescription`, `NSBluetoothPeripheralUsageDescription`                                                                                                |
+| `ios/`                                                                                                                                                                                                                                                                                                                                                                                                | Regenerate             | 1, 8       | `expo prebuild --clean` output (Info.plist, Podfile.lock, Pods project)                                                                                                     |
+| `T/bleAccessor.test.ts`                                                                                                                                                                                                                                                                                                                                                                               | Create                 | 1          | Accessor never throws, caches, warns once                                                                                                                                   |
+| `docs/superpowers/2026-09-02-ble-preflight.md`                                                                                                                                                                                                                                                                                                                                                        | Create                 | 2          | ITMS-90683 TestFlight record (go/no-go gate)                                                                                                                                |
+| `L/session.ts`                                                                                                                                                                                                                                                                                                                                                                                        | Modify                 | 3          | `HINT_*`, `RUNG_MASK`; `mintSession({ supportsBle?, hints? })`                                                                                                              |
+| `T/session.test.ts`                                                                                                                                                                                                                                                                                                                                                                                   | Modify                 | 3          | Bit layout, masking, round-trip, realistic-nonce QR size class                                                                                                              |
+| `L/types.ts`                                                                                                                                                                                                                                                                                                                                                                                          | Modify                 | 4          | `LocalPaymentTransport.kind` gains `'ble'`                                                                                                                                  |
+| `L/pending.ts`                                                                                                                                                                                                                                                                                                                                                                                        | Modify                 | 4          | `receivedVia` comment lists `'ble'`                                                                                                                                         |
+| `L/transport/select.ts`                                                                                                                                                                                                                                                                                                                                                                               | Modify                 | 4          | `TransportKind`, `localSupportsBle`, AWDL → Nearby → BLE → QR ladder, `describeFloor`/`FloorReason`                                                                         |
+| `L/deviceCaps.ts`                                                                                                                                                                                                                                                                                                                                                                                     | Create → Fill → Extend | 4 → 6 → 10 | Task 4: `BluetoothState` only. Task 6: `DeviceProbe`, `capsFromProbe`, `probeDeviceCaps`, `readBluetoothState`, budgets. Task 10: `prepareBle`                              |
+| `T/transportSelect.test.ts`                                                                                                                                                                                                                                                                                                                                                                           | Modify                 | 4          | New CASES rows, `localSupportsBle`                                                                                                                                          |
+| `T/describeFloor.test.ts`                                                                                                                                                                                                                                                                                                                                                                             | Create                 | 4          | The spec §5 table                                                                                                                                                           |
+| `L/transport/socket.ts`                                                                                                                                                                                                                                                                                                                                                                               | Modify                 | 5          | `makeSocketTransport(kind, native, connectTimeoutMs)`, `LocalPayNative`                                                                                                     |
+| `L/transport/awdl.ts`, `L/transport/nearby.ts`                                                                                                                                                                                                                                                                                                                                                        | Modify                 | 5          | Pass their accessor and named connect budget                                                                                                                                |
+| `L/transport/ble.ts`                                                                                                                                                                                                                                                                                                                                                                                  | Create                 | 5          | `BLE_CONNECT_TIMEOUT_MS`, `bleTransport`                                                                                                                                    |
+| `T/transportAwdl.test.ts`                                                                                                                                                                                                                                                                                                                                                                             | Modify                 | 5          | Pins the 4 s / 20 s budgets through the refactor                                                                                                                            |
+| `T/transportBle.test.ts`                                                                                                                                                                                                                                                                                                                                                                              | Create                 | 5          | BLE rung over a mocked native object, incl. connect-timeout and oversize propagation                                                                                        |
+| `T/deviceCaps.test.ts`                                                                                                                                                                                                                                                                                                                                                                                | Create                 | 6          | `capsFromProbe` truth table, `readBluetoothState`, budgeted probe                                                                                                           |
+| `L/blePermissions.ts`                                                                                                                                                                                                                                                                                                                                                                                 | Create                 | 7          | `requestBlePermissions()` (Android BLE grant sets by API level)                                                                                                             |
+| `T/blePermissions.test.ts`                                                                                                                                                                                                                                                                                                                                                                            | Create                 | 7          | Permission sets per API level                                                                                                                                               |
+| `packages/expo-wallet-toolbox/core/pay/rails/nearby.ts`                                                                                                                                                                                                                                                                                                                                               | Modify                 | 7, 10      | Pass-through barrel gains the BLE rung and device-caps names (10: `prepareBle`, `raceReceivers`)                                                                            |
+| `packages/expo-wallet-toolbox/core/index.ts`                                                                                                                                                                                                                                                                                                                                                          | Modify                 | 7, 10      | Hand-written nearby block mirrors the barrel; exports `LocalPaymentTransport`, `ReceivedFrame`, `QrHandoffRequired`, `AckError`                                             |
+| `packages/expo-wallet-toolbox/__tests__/pay/nearbyRail.test.ts`                                                                                                                                                                                                                                                                                                                                       | Modify                 | 7          | Identity pins for both barrels                                                                                                                                              |
+| `docs/superpowers/2026-09-02-ble-hardware-log.md`                                                                                                                                                                                                                                                                                                                                                     | Create → Append        | 8 → 9      | Measured MTU / connect / transfer / ack numbers for all four pairings                                                                                                       |
+| `UI/components/ui/PresenceRow.tsx`                                                                                                                                                                                                                                                                                                                                                                    | Modify                 | 10         | `medium?: 'wifi' \| 'bluetooth'` prop                                                                                                                                       |
+| `packages/expo-wallet-toolbox/__tests__/ui/PresenceRow.test.tsx`                                                                                                                                                                                                                                                                                                                                      | Modify                 | 10         | Glyph per medium                                                                                                                                                            |
+| `T/prepareBle.test.ts`                                                                                                                                                                                                                                                                                                                                                                                | Create                 | 10         | `prepareBle` never rejects, coerces, passes the budget                                                                                                                      |
+| `L/transport/race.ts`                                                                                                                                                                                                                                                                                                                                                                                 | Create                 | 10         | `raceReceivers`: first frame wins, losers aborted before settle, per-radio non-terminal errors                                                                              |
+| `T/race.test.ts`                                                                                                                                                                                                                                                                                                                                                                                      | Create                 | 10         | Multi-listener arbitration                                                                                                                                                  |
+| `packages/expo-wallet-toolbox/core/i18n/translations.tsx`                                                                                                                                                                                                                                                                                                                                             | Modify                 | 10         | Six keys × 12 languages (`local_pay_floor_*`, `local_pay_ble_unavailable`)                                                                                                  |
+| `UI/components/pay/NearbyFlow.tsx`                                                                                                                                                                                                                                                                                                                                                                    | Modify                 | 10         | Multi-listener payee, probe + `prepareBle` at minting, BLE in `executeSend`, floor copy, presence medium                                                                    |
+| `docs/superpowers/plans/2026-07-27-local-payments-awdl.md`, `docs/superpowers/specs/2026-07-27-local-payments-awdl-design.md`, `docs/superpowers/specs/2026-07-29-offline-transport-fixes-design.md`, `docs/superpowers/2026-08-20-morning-handoff.md`, `docs/superpowers/specs/2026-07-31-token-payment-frame-v3-design.md`, `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` | Modify                 | 11         | Dated `Superseded 2026-09-02` notes on the CoreBluetooth prohibitions; spec Status → Implemented                                                                            |
 
 Task order and the spec's rollout order: the spec lists the TestFlight pre-flight as step 0, but a pre-flight binary has to link CoreBluetooth first, so Task 1 (spec, accessor, inert native stubs, plist, podspec) comes before Task 2 (the upload). Tasks 3–7 are pure JS with jest coverage and no native behaviour; Tasks 8–9 are the Swift and Kotlin backends with hardware checklists; Task 10 wires the screen; Task 11 amends the superseded docs.
 
@@ -87,6 +87,7 @@ Task order and the spec's rollout order: the spec lists the TestFlight pre-fligh
 Deliverable: the app LINKS CoreBluetooth and CoreNFC, declares the Bluetooth usage strings, and exposes a callable but inert `LocalPayBleTransport` HybridObject on both platforms. No UI change. No JS outside `react-native-localpay-transport` references the new object yet (Task 4 owns `select.ts`, Task 5 owns `ble.ts`). Spec: `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` §1 (placement, spec shape, accessor), §7 (prompt discipline), §8 (native configuration), "Why now" (ITMS-90683 gate is why linking CoreBluetooth is its own task).
 
 Repo facts this task relies on (verified at `0ad5521`; HEAD is now `1568bb9`, the spec commit, which touched only `docs/`):
+
 - `nitrogen@0.35.10` is installed. Its `--config` flag is parsed but IGNORED — `NitroConfig.current` always reads `./nitro.json` from the cwd and writes to `./nitrogen/generated` (node_modules/nitrogen/lib/config/NitroConfig.js:16-19, lib/index.js:38-50). So nitrogen MUST be run from inside the package directory. Never run `nitro-codegen` (wrong, abandoned package).
 - `ios/` is committed (Info.plist, Podfile.lock, pbxproj); `ios/Pods/` and `ios/build/` are gitignored. `android/` is NOT committed (root `.gitignore` line `android`), so the Android compile check is the EAS local build.
 - The committed `ios/Podfile.lock` was produced with the default prebuilt React core (`React-Core-prebuilt (0.83.6)` is in it), so plain `npx expo prebuild` reproduces it; do not set `RCT_USE_PREBUILT_RNCORE`.
@@ -94,6 +95,7 @@ Repo facts this task relies on (verified at `0ad5521`; HEAD is now `1568bb9`, th
 - `packages/react-native-localpay-transport` has no `tsconfig.json`; `packages/react-native-yubikey/tsconfig.json` is the template and `npx tsc --noEmit -p packages/react-native-yubikey/tsconfig.json` passes today (exit 0). A file including `typeof import('react-native-nitro-modules')` typechecks `__DEV__` under that tsconfig shape (verified).
 
 **Files:**
+
 - Create: `packages/react-native-localpay-transport/src/specs/LocalPayBleTransport.nitro.ts`
 - Modify: `packages/react-native-localpay-transport/src/index.ts` (whole file, currently 27 lines)
 - Create: `packages/react-native-localpay-transport/tsconfig.json` (copy of `packages/react-native-yubikey/tsconfig.json`)
@@ -108,6 +110,7 @@ Repo facts this task relies on (verified at `0ad5521`; HEAD is now `1568bb9`, th
 - Test: `packages/expo-wallet-toolbox/__tests__/localpay/bleAccessor.test.ts`
 
 **Interfaces:**
+
 - Consumes:
   - `react-native-nitro-modules`: `NitroModules.createHybridObject<T>(name: string): T`, `HybridObject<{ ios: 'swift'; android: 'kotlin' }>` (TS); Swift `Promise<T>.rejected(withError: Error) -> Promise<T>`; Kotlin `Promise<T>()` + `.reject(error: Throwable)` (`com.margelo.nitro.core.Promise` has no static `rejected`; a rejected promise is `Promise<T>().apply { reject(e) }`), `NitroModules.applicationContext: ReactApplicationContext?`.
   - Existing `getLocalPayTransport(): LocalPayTransport | null` in `RNLT/src/index.ts` (pattern to mirror; unchanged).
@@ -782,8 +785,9 @@ cd /Users/personal/git/bsv-wallet && grep -n -A1 "NSBluetoothAlwaysUsageDescript
 ```
 
 Expected:
+
 - Info.plist shows both keys, each followed by `<string>BSV Wallet uses Bluetooth to send and receive payments directly between nearby devices.</string>`.
-- Podfile.lock still lists `- LocalPayTransport (0.1.0):` under PODS, `LocalPayTransport (from \`../packages/react-native-localpay-transport\`)` under DEPENDENCIES/EXTERNAL SOURCES, and a changed `LocalPayTransport:` checksum under SPEC CHECKSUMS (the podspec changed).
+- Podfile.lock still lists `- LocalPayTransport (0.1.0):` under PODS, `LocalPayTransport (from \`../packages/react-native-localpay-transport\`)`under DEPENDENCIES/EXTERNAL SOURCES, and a changed`LocalPayTransport:` checksum under SPEC CHECKSUMS (the podspec changed).
 - The app target's aggregate xcconfig (`Pods-BSVWallet.debug.xcconfig` — with static frameworks, a pod's `s.frameworks` are emitted into the APP target's `OTHER_LDFLAGS`, not the pod's own xcconfig) prints three lines: `-framework "CoreBluetooth"`, `-framework "CoreNFC"`, `-framework "Network"`. Today it prints only `Network` (and `Security`), so the two new lines are the proof the podspec change reached CocoaPods.
 - `git status --short` shows ` M app.json`, ` M ios/BSVWallet/Info.plist`, ` M ios/Podfile.lock` (possibly ` M ios/BSVWallet.xcodeproj/project.pbxproj`) and nothing under `ios/Pods` (gitignored). If `ios/.xcode.env.local` appears it is gitignored too; nothing else should be untracked.
 
@@ -841,7 +845,6 @@ cd /Users/personal/git/bsv-wallet && git status --short && git log --oneline -3 
 
 Expected: clean working tree (only the pre-existing untracked `docs/1.0.0/` and any `build-*.apk`), the three commits from Steps 6, 11 and 15 on top of `1568bb9`, `Test Suites: 11 passed, 11 total`, and `TSC_OK`. Nothing in `packages/expo-wallet-toolbox/core` or `ui` changed in this task; `localSupportsBle`, `bleTransport` and the session bits are Tasks 3-5.
 
-
 ---
 
 ### Task 2: TestFlight pre-flight for ITMS-90683
@@ -851,11 +854,13 @@ Expected: clean working tree (only the pre-existing untracked `docs/1.0.0/` and 
 **Why this task exists (spec "Why now", "Testing → Store gate", "Rollout order 0").** On 2026-07-27 App Store Connect rejected this project's binary with ITMS-90683 because CoreBluetooth was linked and `NSBluetoothAlwaysUsageDescription` was forbidden by the `com.apple.developer.web-browser` entitlement. That entitlement was removed on 2026-08-26 (`de13669`/`1dc1d92`). The spec's premise is that the plist key can now be set and the upload accepted. ITMS-90683 fires at Deliver (the actual upload), not at Transporter's Verify, so the only proof is a real upload. Everything in Tasks 3+ (Swift/Kotlin backends, UI) is wasted if this fails, hence the gate sits here.
 
 **Files:**
+
 - Create: `docs/superpowers/2026-09-02-ble-preflight.md`
 - Modify: none (no source changes in this task)
 - Test: none (store gate; verification is command output and the App Store Connect result)
 
 **Interfaces:**
+
 - Consumes (must already be in `HEAD` from Task 1):
   - `app.json` → `expo.ios.infoPlist.NSBluetoothAlwaysUsageDescription` = `"BSV Wallet uses Bluetooth to send and receive payments directly between nearby devices."` and `NSBluetoothPeripheralUsageDescription` with the same text (spec §8)
   - `packages/react-native-localpay-transport/LocalPayTransport.podspec` → `s.frameworks = 'Network', 'Security', 'CoreBluetooth', 'CoreNFC'` and `ios/HybridLocalPayBleTransport.swift` in `s.source_files` (spec §8; `ios/BleGattProfile.swift` joins the list in Task 8)
@@ -873,6 +878,7 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
 - [ ] **Step 1: Confirm the working tree is clean and Task 1 is committed**
 
   Run:
+
   ```bash
   cd /Users/personal/git/bsv-wallet
   export SCRATCH=/private/tmp/claude-502/-Users-personal-git-bsv-wallet/26583f48-1da5-440b-accc-13f01e7486d0/scratchpad
@@ -882,6 +888,7 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
   git grep -n CoreBluetooth HEAD -- packages/react-native-localpay-transport/LocalPayTransport.podspec
   git grep -n '"LocalPayBleTransport"' HEAD -- packages/react-native-localpay-transport/nitro.json
   ```
+
   Expected:
   - `git status --porcelain` prints nothing (an untracked `docs/1.0.0/` directory pre-dates this plan and is acceptable; anything else is not).
   - `git log --oneline -3` shows Task 1's commit(s) on top (scope `transport` or `localpay`, e.g. `feat(transport): add LocalPayBleTransport nitro spec, config and JS accessor`), above `1568bb9 docs(spec): BLE transport rung and session QR capability flags design`.
@@ -894,16 +901,19 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
 - [ ] **Step 2: Confirm the web-browser entitlement is gone**
 
   Rationale: the entitlement is what made the plist key illegal in July (spec "Why now"). Run:
+
   ```bash
   cd /Users/personal/git/bsv-wallet
   git grep -n web-browser -- ios app.json plugins eas.json package.json; echo "exit=$?"
   ls plugins
   ```
+
   Expected: the `git grep` prints no lines and `exit=1` (no match). `ls plugins` lists `withNfcReaderEntitlement.js` and `withXcodeLastUpgradeVersion.js` (or their `.ts`/`.cjs` equivalents) and nothing whose name contains `WebBrowser` or `web-browser`. If there is any match, stop — the spec's premise is not met and re-adding the plist key will reproduce the July rejection.
 
 - [ ] **Step 3: Confirm credentials and tooling (hand-off gate)**
 
   Run:
+
   ```bash
   test -r /Users/personal/Certificates/AuthKey_23GZFDBWMS.p8 && echo "asc key: present" || echo "asc key: MISSING"
   npx eas --version
@@ -911,6 +921,7 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
   xcodebuild -version
   npx eas build:version:get --platform ios --profile production --non-interactive
   ```
+
   Expected:
   - `asc key: present`
   - `eas-cli/23.2.0 darwin-arm64 node-v24.15.0` (or newer `eas-cli/23.x`; `eas.json` requires `>=16.28.0`)
@@ -923,12 +934,14 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
 - [ ] **Step 4: Build the App Store binary locally**
 
   This is the `production` profile with `credentialsSource: remote` (distribution certificate and provisioning profile are pulled from EAS) and `autoIncrement: true` (build number is bumped on EAS servers first). It takes 15–40 minutes on this machine. Run:
+
   ```bash
   cd /Users/personal/git/bsv-wallet
   npm run ios-build-for-app-store 2>&1 | tee "$SCRATCH/ios-build.log"
   echo "build exit=${PIPESTATUS[0]}"
   ls -t build-*.ipa | head -1
   ```
+
   Expected:
   - The log contains `Incrementing iOS build number` (or `Using remote iOS build number`) followed by the number `PREV_BUILD + 1`.
   - The log ends with the local build summary; the final lines print the absolute path of a new `build-<epoch-ms>.ipa` in the repo root (the same naming as the existing `build-1788316442620.ipa`). `build exit=0`.
@@ -944,6 +957,7 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
 - [ ] **Step 5: Verify CoreBluetooth linkage and the plist key inside the .ipa**
 
   On this project a build has "succeeded" before while silently missing a native module (see `docs/superpowers/2026-08-20-morning-handoff.md`), so inspect the binary rather than trusting the log. Run:
+
   ```bash
   rm -rf "$SCRATCH/ipa" && mkdir -p "$SCRATCH/ipa"
   unzip -o -q "/Users/personal/git/bsv-wallet/$IPA" -d "$SCRATCH/ipa"
@@ -955,6 +969,7 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
   codesign -d --entitlements :- "$SCRATCH/ipa/Payload/BSVWallet.app" 2>/dev/null | grep -c web-browser
   codesign -d --entitlements :- "$SCRATCH/ipa/Payload/BSVWallet.app" 2>/dev/null | grep -A1 get-task-allow
   ```
+
   Expected:
   - `ls` shows `BSVWallet.app` (product name from `ios/BSVWallet.xcodeproj/project.pbxproj` `PRODUCT_NAME = "BSVWallet"`).
   - `otool -L … | grep -i bluetooth` prints exactly one line: `/System/Library/Frameworks/CoreBluetooth.framework/CoreBluetooth (compatibility version 1.0.0, current version 1.0.0)`. `app.json` sets `useFrameworks: "static"`, so the `LocalPayTransport` pod is linked into the main executable and its framework dependency appears here, not in a nested `Frameworks/` dylib. No line = CoreBluetooth is not linked and this pre-flight proves nothing; go back to Task 1.
@@ -974,11 +989,13 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
 - [ ] **Step 6: Submit the .ipa to App Store Connect (Deliver)**
 
   This is the actual gate. `eas submit` uploads through EAS using the submit profile from `eas.json`: `ascAppId 6805775325`, `appleTeamId SV8SWTHA2H`, API key `23GZFDBWMS` / issuer `296a2a8a-ed8d-466f-967c-6c8e59100f5e`, key file `/Users/personal/Certificates/AuthKey_23GZFDBWMS.p8`. Run:
+
   ```bash
   cd /Users/personal/git/bsv-wallet
   npx eas submit --platform ios --profile production --path "$IPA" --wait --verbose --non-interactive 2>&1 | tee "$SCRATCH/ios-submit.log"
   echo "submit exit=${PIPESTATUS[0]}"
   ```
+
   Expected:
   - The log shows the submission being created for `org.bsvblockchain.wallet` (ASC app `6805775325`) and, because of `--wait`, its progress until it finishes; the final status line reports the submission as finished (eas-cli prints `Submitted` / "successfully uploaded to App Store Connect" wording in its summary) and `submit exit=0`.
   - No line in the log begins with `ERROR ITMS-` and no `Transporter` / `Deliver` error block is printed.
@@ -988,10 +1005,12 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
 - [ ] **Step 7: Check for ITMS-90683 in the submit log and in Apple's processing result**
 
   ITMS-90683 ("Missing Purpose String in Info.plist") is raised by Deliver at upload time and also emailed by App Store Connect to the account holder after processing. Check both. Run:
+
   ```bash
   grep -n "ITMS-" "$SCRATCH/ios-submit.log"; echo "grep exit=$?"
   grep -n -i "purpose string\|NSBluetooth" "$SCRATCH/ios-submit.log"; echo "grep exit=$?"
   ```
+
   Expected: both greps print nothing and `grep exit=1`.
 
   Then, as the product owner (this needs the ASC account, not the CLI):
@@ -1003,6 +1022,7 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
 - [ ] **Step 8: If ITMS-90683 is PRESENT — record the rejection, commit, and STOP the plan**
 
   The spec's premise (spec "Why now": removing the web-browser entitlement is sufficient) is wrong. No further BLE task may proceed. Copy the exact Apple wording from `$SCRATCH/ios-submit.log` (or the email) and write the record:
+
   ```bash
   cd /Users/personal/git/bsv-wallet
   APPLE_WORDING="$(grep -n "ITMS-90683" "$SCRATCH/ios-submit.log" | head -5)"
@@ -1035,20 +1055,24 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
 
   Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   ```
+
   Expected: `git log --oneline -1` shows the commit above. Then end the plan and report to the product owner. (Skip Step 9.)
 
 - [ ] **Step 9: If ITMS-90683 is ABSENT — record the pass and commit**
 
   Also capture what EAS knows about the latest build for cross-reference. Note: `eas build --local` builds are not registered as EAS builds, so `eas build:list` may show an older remote build; the authoritative build number is `CFBundleVersion` from Step 5, and `build:version:get` shows the counter EAS incremented for it. Run:
+
   ```bash
   cd /Users/personal/git/bsv-wallet
   npx eas build:version:get --platform ios --profile production --non-interactive
   npx eas build:list --platform ios --limit 1 --json --non-interactive > "$SCRATCH/build-list.json"; echo "list exit=$?"
   echo "version=$APP_VERSION build=$BUILD_NUMBER ipa=$IPA"
   ```
+
   Expected: `build:version:get` prints `iOS buildNumber - $BUILD_NUMBER` (equal to the `CFBundleVersion` in the ipa). `list exit=0` (the JSON is informational only).
 
   Write the record:
+
   ```bash
   cd /Users/personal/git/bsv-wallet
   cat > docs/superpowers/2026-09-02-ble-preflight.md <<EOF
@@ -1083,9 +1107,11 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
   git add docs/superpowers/2026-09-02-ble-preflight.md
   git status --porcelain
   ```
+
   Expected: `git status --porcelain` prints exactly `A  docs/superpowers/2026-09-02-ble-preflight.md` (plus the pre-existing untracked `?? docs/1.0.0/`). The `.ipa`, `$SCRATCH/ipa`, and the logs are not in the repo.
 
   Commit:
+
   ```bash
   cd /Users/personal/git/bsv-wallet
   git commit -m "docs(ble): record TestFlight pre-flight for CoreBluetooth linkage
@@ -1099,8 +1125,8 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
   git log --oneline -1
   rm -rf "$SCRATCH/ipa"
   ```
-  Expected: `git log --oneline -1` prints `<sha> docs(ble): record TestFlight pre-flight for CoreBluetooth linkage`. Proceed to Task 3.
 
+  Expected: `git log --oneline -1` prints `<sha> docs(ble): record TestFlight pre-flight for CoreBluetooth linkage`. Proceed to Task 3.
 
 ---
 
@@ -1109,11 +1135,13 @@ All commands run from the repo root `/Users/personal/git/bsv-wallet`. Scratch di
 Spec: `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` §4 ("Session QR capability bits"). The low byte of `c` is the rungs the payee is listening on right now; the high bits are device hints; `selectTransport` never reads the hints. Nothing else in this task touches native code, `select.ts`, `NearbyFlow`, or i18n — `supportsBle` and `hints` are both optional, so the existing `mintSession` caller at `packages/expo-wallet-toolbox/ui/components/pay/NearbyFlow.tsx:976-986` compiles unchanged and keeps producing the same caps until Task 10 wires `probeDeviceCaps` in.
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/localpay/session.ts` — lines 4-7 (constants block) and lines 58-68, 81 (`mintSession` signature and `caps` expression). `decodeSession` (lines 145-208) is deliberately NOT modified: line 172 already accepts any number for `c` and line 198 stores it verbatim, so every new bit already round-trips (spec §4: "`decodeSession` is unchanged: it already accepts any number"; the existing test 'a payload with unknown extra keys and unknown cap bits still decodes' at `session.test.ts:244-252` proves it with `0xff`).
 - Test: `packages/expo-wallet-toolbox/__tests__/localpay/session.test.ts` — lines 1-3 (imports), lines 40-43 (extend the AWDL test block with new tests after it), lines 57-59 (REPLACE 'stays small enough for one static QR').
 - Read-only context: `package.json:101` (`"qrcode": "^1.5.4"` is a root dependency; `node_modules/@types/qrcode/index.d.ts:314` declares `create(text, options): QRCode` with `.version: number`), `packages/expo-wallet-toolbox/ui/backupShares.ts:26` (existing `import QRCode from 'qrcode'` style), `node_modules/@bsv/sdk/dist/esm/src/auth/utils/createNonce.js` (`toBase64([...16 random, ...32 hmac])` — 48 bytes → 64 base64 chars, which is why the fixture nonce below is 48 bytes).
 
 **Interfaces:**
+
 - Consumes (unchanged): `Random` from `@bsv/sdk`, `CodecError` from `./codec`, `encodeSession(s: Session): string`, `decodeSession(text: string): Session`.
 - Produces (new exports from `core/localpay/session.ts`; `core/index.ts:53` `export * from './localpay/session'` re-exports them automatically):
   ```ts
@@ -1140,6 +1168,7 @@ Spec: `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` §
   `CAP_AWDL`, `CAP_NEARBY`, `CAP_BLE` keep their values (0x01, 0x02, 0x04). Later tasks consume: Task 4 (`select.ts` ladder reads `CAP_BLE`, `describeFloor` reads `RUNG_MASK`, `HINT_BT`), Task 6 (`deviceCaps.ts` `capsFromProbe` returns `HINT_*` bits), Task 10 (`NearbyFlow` passes `supportsBle` and `hints`).
 
 Commands (run from repo root `/Users/personal/git/bsv-wallet`):
+
 - Test: `npx jest packages/expo-wallet-toolbox/__tests__/localpay/session.test.ts`
 - Typecheck: `npx tsc --noEmit -p packages/expo-wallet-toolbox/tsconfig.json 2>&1 | grep "error TS" | grep -v "core/pay/rails/handle.ts\|ui/components/pay/HandleReceive.tsx"` (that tsconfig includes `core/**/*` and `ui/**/*` only, so the test file is not typechecked — jest-expo transforms it with Babel; this is why an unknown `supportsBle` argument fails at the assertion, not at compile time).
 
@@ -1152,8 +1181,22 @@ Open `packages/expo-wallet-toolbox/__tests__/localpay/session.test.ts`. Replace 
 ```ts
 import QRCode from 'qrcode'
 import {
-  mintSession, encodeSession, decodeSession, instanceName, CAP_AWDL, CAP_NEARBY, SESSION_VERSION, CAP_BLE,
-  HINT_ONLINE, HINT_ONLINE_KNOWN, HINT_NET, HINT_WIFI, HINT_BT, HINT_NFC, RUNG_MASK, type SessionAsset,
+  mintSession,
+  encodeSession,
+  decodeSession,
+  instanceName,
+  CAP_AWDL,
+  CAP_NEARBY,
+  SESSION_VERSION,
+  CAP_BLE,
+  HINT_ONLINE,
+  HINT_ONLINE_KNOWN,
+  HINT_NET,
+  HINT_WIFI,
+  HINT_BT,
+  HINT_NFC,
+  RUNG_MASK,
+  type SessionAsset
 } from '../../core/localpay/session'
 import { CodecError } from '../../core/localpay/codec'
 ```
@@ -1161,75 +1204,75 @@ import { CodecError } from '../../core/localpay/codec'
 Then, directly after the existing test `'sets the AWDL capability bit'` (lines 40-43, ending `  })`), insert these four tests:
 
 ```ts
-  // ── Capability word layout (spec §4) ──
-  //
-  // Low byte: rungs the payee is LISTENING ON right now; the payer's ladder
-  // reads only these. High bits: device hints for copy and future rungs. A
-  // clear bit means "false or unknown"; only ONLINE gets a companion KNOWN bit
-  // because it is the one probe that can time out.
+// ── Capability word layout (spec §4) ──
+//
+// Low byte: rungs the payee is LISTENING ON right now; the payer's ladder
+// reads only these. High bits: device hints for copy and future rungs. A
+// clear bit means "false or unknown"; only ONLINE gets a companion KNOWN bit
+// because it is the one probe that can time out.
 
-  it('defines the rung and hint bits from spec §4', () => {
-    expect(CAP_AWDL).toBe(0x01)
-    expect(CAP_NEARBY).toBe(0x02)
-    expect(CAP_BLE).toBe(0x04)
-    expect(HINT_ONLINE).toBe(0x0100)
-    expect(HINT_ONLINE_KNOWN).toBe(0x0200)
-    expect(HINT_NET).toBe(0x0400)
-    expect(HINT_WIFI).toBe(0x0800)
-    expect(HINT_BT).toBe(0x1000)
-    expect(HINT_NFC).toBe(0x2000)
-    expect(RUNG_MASK).toBe(0x00ff)
-    // Every hint lives above the rung byte; no hint can be mistaken for a rung.
-    for (const hint of [HINT_ONLINE, HINT_ONLINE_KNOWN, HINT_NET, HINT_WIFI, HINT_BT, HINT_NFC]) {
-      expect(hint & RUNG_MASK).toBe(0)
-    }
-  })
+it('defines the rung and hint bits from spec §4', () => {
+  expect(CAP_AWDL).toBe(0x01)
+  expect(CAP_NEARBY).toBe(0x02)
+  expect(CAP_BLE).toBe(0x04)
+  expect(HINT_ONLINE).toBe(0x0100)
+  expect(HINT_ONLINE_KNOWN).toBe(0x0200)
+  expect(HINT_NET).toBe(0x0400)
+  expect(HINT_WIFI).toBe(0x0800)
+  expect(HINT_BT).toBe(0x1000)
+  expect(HINT_NFC).toBe(0x2000)
+  expect(RUNG_MASK).toBe(0x00ff)
+  // Every hint lives above the rung byte; no hint can be mistaken for a rung.
+  for (const hint of [HINT_ONLINE, HINT_ONLINE_KNOWN, HINT_NET, HINT_WIFI, HINT_BT, HINT_NFC]) {
+    expect(hint & RUNG_MASK).toBe(0)
+  }
+})
 
-  it('sets the BLE capability bit only when advertised', () => {
-    expect(mintSession({ ...args, supportsBle: true }).caps & CAP_BLE).toBe(CAP_BLE)
-    expect(mintSession({ ...args, supportsBle: false }).caps & CAP_BLE).toBe(0)
-    // Omitted means not advertised: the existing caller in NearbyFlow does not
-    // pass it yet and must keep minting exactly what it mints today.
-    expect(mintSession(args).caps & CAP_BLE).toBe(0)
-    // The BLE rung does not disturb the other rungs.
-    expect(mintSession({ ...args, supportsBle: true }).caps & CAP_AWDL).toBe(CAP_AWDL)
-  })
+it('sets the BLE capability bit only when advertised', () => {
+  expect(mintSession({ ...args, supportsBle: true }).caps & CAP_BLE).toBe(CAP_BLE)
+  expect(mintSession({ ...args, supportsBle: false }).caps & CAP_BLE).toBe(0)
+  // Omitted means not advertised: the existing caller in NearbyFlow does not
+  // pass it yet and must keep minting exactly what it mints today.
+  expect(mintSession(args).caps & CAP_BLE).toBe(0)
+  // The BLE rung does not disturb the other rungs.
+  expect(mintSession({ ...args, supportsBle: true }).caps & CAP_AWDL).toBe(CAP_AWDL)
+})
 
-  it('masks hints to the non-rung bits and ORs them into caps', () => {
-    // A caller that smuggles a rung bit inside `hints` must not be able to
-    // advertise a listener it never started: rungs come from supports* only.
-    const hints = HINT_ONLINE | HINT_BT | CAP_AWDL
-    const withAwdl = mintSession({ ...args, supportsAwdl: true, hints })
-    expect(withAwdl.caps & HINT_ONLINE).toBe(HINT_ONLINE)
-    expect(withAwdl.caps & HINT_BT).toBe(HINT_BT)
-    expect(withAwdl.caps & CAP_AWDL).toBe(CAP_AWDL)
-    expect(withAwdl.caps & HINT_NET).toBe(0)
-    const withoutAwdl = mintSession({ ...args, supportsAwdl: false, hints })
-    expect(withoutAwdl.caps & HINT_ONLINE).toBe(HINT_ONLINE)
-    expect(withoutAwdl.caps & HINT_BT).toBe(HINT_BT)
-    expect(withoutAwdl.caps & CAP_AWDL).toBe(0)
-    expect(withoutAwdl.caps & RUNG_MASK).toBe(0)
-    // No hints at all is the same word as today.
-    expect(mintSession(args).caps).toBe(CAP_AWDL)
-    expect(mintSession({ ...args, hints: 0 }).caps).toBe(CAP_AWDL)
-  })
+it('masks hints to the non-rung bits and ORs them into caps', () => {
+  // A caller that smuggles a rung bit inside `hints` must not be able to
+  // advertise a listener it never started: rungs come from supports* only.
+  const hints = HINT_ONLINE | HINT_BT | CAP_AWDL
+  const withAwdl = mintSession({ ...args, supportsAwdl: true, hints })
+  expect(withAwdl.caps & HINT_ONLINE).toBe(HINT_ONLINE)
+  expect(withAwdl.caps & HINT_BT).toBe(HINT_BT)
+  expect(withAwdl.caps & CAP_AWDL).toBe(CAP_AWDL)
+  expect(withAwdl.caps & HINT_NET).toBe(0)
+  const withoutAwdl = mintSession({ ...args, supportsAwdl: false, hints })
+  expect(withoutAwdl.caps & HINT_ONLINE).toBe(HINT_ONLINE)
+  expect(withoutAwdl.caps & HINT_BT).toBe(HINT_BT)
+  expect(withoutAwdl.caps & CAP_AWDL).toBe(0)
+  expect(withoutAwdl.caps & RUNG_MASK).toBe(0)
+  // No hints at all is the same word as today.
+  expect(mintSession(args).caps).toBe(CAP_AWDL)
+  expect(mintSession({ ...args, hints: 0 }).caps).toBe(CAP_AWDL)
+})
 
-  it('round-trips every defined bit through the QR', () => {
-    const s = mintSession({
-      ...args,
-      supportsAwdl: true,
-      supportsNearby: true,
-      supportsBle: true,
-      hints: HINT_ONLINE | HINT_ONLINE_KNOWN | HINT_NET | HINT_WIFI | HINT_BT | HINT_NFC,
-    })
-    expect(s.caps).toBe(0x3f07)
-    // decodeSession is untouched by this change: `c` was already "any number",
-    // so the new bits survive the wire with no decoder work (spec §4).
-    const back = decodeSession(encodeSession(s))
-    expect(back.caps).toBe(s.caps)
-    expect(back.caps & RUNG_MASK).toBe(CAP_AWDL | CAP_NEARBY | CAP_BLE)
-    expect(back.caps & ~RUNG_MASK).toBe(0x3f00)
+it('round-trips every defined bit through the QR', () => {
+  const s = mintSession({
+    ...args,
+    supportsAwdl: true,
+    supportsNearby: true,
+    supportsBle: true,
+    hints: HINT_ONLINE | HINT_ONLINE_KNOWN | HINT_NET | HINT_WIFI | HINT_BT | HINT_NFC
   })
+  expect(s.caps).toBe(0x3f07)
+  // decodeSession is untouched by this change: `c` was already "any number",
+  // so the new bits survive the wire with no decoder work (spec §4).
+  const back = decodeSession(encodeSession(s))
+  expect(back.caps).toBe(s.caps)
+  expect(back.caps & RUNG_MASK).toBe(CAP_AWDL | CAP_NEARBY | CAP_BLE)
+  expect(back.caps & ~RUNG_MASK).toBe(0x3f00)
+})
 ```
 
 - [ ] **Step 2: Run the suite and confirm the four new tests fail for the right reason**
@@ -1237,6 +1280,7 @@ Then, directly after the existing test `'sets the AWDL capability bit'` (lines 4
 Run: `npx jest packages/expo-wallet-toolbox/__tests__/localpay/session.test.ts`
 
 Expected: `Tests: 4 failed, 38 passed, 42 total`. The failures, in order:
+
 - `defines the rung and hint bits from spec §4` — `expect(HINT_ONLINE).toBe(0x0100)` → `Expected: 256` / `Received: undefined` (the constants do not exist yet, so the named imports resolve to `undefined`).
 - `sets the BLE capability bit only when advertised` — first assertion `Expected: 4` / `Received: 0` (`supportsBle` is ignored by the current `caps` expression on `session.ts:81`).
 - `masks hints to the non-rung bits and ORs them into caps` — `expect(withAwdl.caps & HINT_ONLINE).toBe(HINT_ONLINE)` → `Expected: undefined` / `Received: 0`.
@@ -1364,39 +1408,39 @@ Expected: no output. (The four pre-existing, unrelated `TS2345` errors in `core/
 The fixture `args` uses 8-char nonces (`'cHJlZml4'`, `'c3VmZml4'`). Real sessions carry two `createNonce` values — `toBase64` of 16 random + 32 HMAC bytes = 64 chars each — so the existing `< 300` assertion at `session.test.ts:57-59` understates the real QR by roughly 150 chars (spec §4 "Size"; research note: open 428 / amount 447 chars measured). Replace exactly this block:
 
 ```ts
-  it('stays small enough for one static QR', () => {
-    expect(encodeSession(mintSession(args)).length).toBeLessThan(300)
-  })
+it('stays small enough for one static QR', () => {
+  expect(encodeSession(mintSession(args)).length).toBeLessThan(300)
+})
 ```
 
 with:
 
 ```ts
-  it('stays small enough for one static QR', () => {
-    // A real createNonce is base64 of 48 bytes (16 random ‖ 32-byte HMAC) =
-    // 64 chars; the short fixture nonces above understate the QR by ~150
-    // chars. Mint what the payee actually mints: two 64-char nonces, an OS
-    // hint, an amount, and every hint bit lit (`c` = 0x3f01, 5 JSON chars).
-    const nonce = () => Buffer.alloc(48, 7).toString('base64')
-    expect(nonce().length).toBe(64)
-    const s = mintSession({
-      ...args,
-      derivationPrefix: nonce(),
-      derivationSuffix: nonce(),
-      os: 'ios',
-      hints: 0x3f00,
-    })
-    expect(s.caps).toBe(0x3f01)
-    const text = encodeSession(s)
-    // Measured 446 chars (spec §4 cites 428-450 for open/amount requests).
-    // base64url of fixed-length random bytes has a fixed length, so this is
-    // deterministic; the band leaves room for a 1-2 digit amount change.
-    expect(text.length).toBeGreaterThanOrEqual(400)
-    expect(text.length).toBeLessThanOrEqual(470)
-    // The size class that matters is the QR version at error level M: v16-M
-    // is what the 288 px session QR renders today and must not regress.
-    expect(QRCode.create(text, { errorCorrectionLevel: 'M' }).version).toBeLessThanOrEqual(16)
+it('stays small enough for one static QR', () => {
+  // A real createNonce is base64 of 48 bytes (16 random ‖ 32-byte HMAC) =
+  // 64 chars; the short fixture nonces above understate the QR by ~150
+  // chars. Mint what the payee actually mints: two 64-char nonces, an OS
+  // hint, an amount, and every hint bit lit (`c` = 0x3f01, 5 JSON chars).
+  const nonce = () => Buffer.alloc(48, 7).toString('base64')
+  expect(nonce().length).toBe(64)
+  const s = mintSession({
+    ...args,
+    derivationPrefix: nonce(),
+    derivationSuffix: nonce(),
+    os: 'ios',
+    hints: 0x3f00
   })
+  expect(s.caps).toBe(0x3f01)
+  const text = encodeSession(s)
+  // Measured 446 chars (spec §4 cites 428-450 for open/amount requests).
+  // base64url of fixed-length random bytes has a fixed length, so this is
+  // deterministic; the band leaves room for a 1-2 digit amount change.
+  expect(text.length).toBeGreaterThanOrEqual(400)
+  expect(text.length).toBeLessThanOrEqual(470)
+  // The size class that matters is the QR version at error level M: v16-M
+  // is what the 288 px session QR renders today and must not regress.
+  expect(QRCode.create(text, { errorCorrectionLevel: 'M' }).version).toBeLessThanOrEqual(16)
+})
 ```
 
 Leave the open-request size test at `session.test.ts:205-207` ('keeps an open session small enough for one static QR') as it is: it documents the open/amount distinction, not the size class, and the corrected size class is asserted once, here.
@@ -1436,18 +1480,19 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 Expected: one commit touching two files; `git show --stat HEAD` lists `core/localpay/session.ts` and `__tests__/localpay/session.test.ts`.
 
-
 ---
 
 ### Task 4: Selection ladder, localSupportsBle, describeFloor, kind widening
 
-Adds the BLE rung to the payer's transport ladder (spec §5: AWDL → Nearby → BLE → QR), the prompt-free `localSupportsBle()` probe, and the pure `describeFloor()` that tells the payer's confirm screen *why* a pair landed on the QR fountain. Also widens the `'awdl' | 'nearby' | 'qr'` kind unions to include `'ble'`. No native code, no UI: everything here is jest-testable.
+Adds the BLE rung to the payer's transport ladder (spec §5: AWDL → Nearby → BLE → QR), the prompt-free `localSupportsBle()` probe, and the pure `describeFloor()` that tells the payer's confirm screen _why_ a pair landed on the QR fountain. Also widens the `'awdl' | 'nearby' | 'qr'` kind unions to include `'ble'`. No native code, no UI: everything here is jest-testable.
 
 **Depends on earlier tasks in this plan** (verify in Step 1 before touching anything):
+
 - `packages/react-native-localpay-transport/src/index.ts` exports `getLocalPayBleTransport()` and `type LocalPayBleTransport` (the Nitro spec / JS accessor task).
 - `packages/expo-wallet-toolbox/core/localpay/session.ts` exports `CAP_BLE`, `HINT_BT`, `HINT_WIFI`, `RUNG_MASK` (the session caps task).
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/core/localpay/deviceCaps.ts` (ONLY the `BluetoothState` type; Task 6 fills in the probe)
 - Create: `packages/expo-wallet-toolbox/__tests__/localpay/describeFloor.test.ts`
 - Modify: `packages/expo-wallet-toolbox/core/localpay/types.ts:64` (the `kind` union)
@@ -1457,6 +1502,7 @@ Adds the BLE rung to the payer's transport ladder (spec §5: AWDL → Nearby →
 - Test: `packages/expo-wallet-toolbox/__tests__/localpay/transportSelect.test.ts`, `packages/expo-wallet-toolbox/__tests__/localpay/describeFloor.test.ts`
 
 **Interfaces:**
+
 - Consumes:
   - `getLocalPayTransport(): LocalPayTransport | null` and `getLocalPayBleTransport(): LocalPayBleTransport | null` from `'react-native-localpay-transport'` (`LocalPayBleTransport.isSupported(): boolean`, `.bluetoothState(): string`, `.nfcAvailable(): boolean`)
   - `CAP_AWDL = 0x01`, `CAP_NEARBY = 0x02`, `CAP_BLE = 0x04`, `HINT_BT = 0x1000`, `RUNG_MASK = 0x00ff`, `type Session` (fields used: `caps: number`, `os?: 'ios' | 'android'`) from `packages/expo-wallet-toolbox/core/localpay/session.ts`
@@ -1532,22 +1578,22 @@ Change it to:
 Open `packages/expo-wallet-toolbox/core/localpay/pending.ts`. Lines 25-29 currently read:
 
 ```ts
-  /**
-   * Which transport this frame arrived over ('awdl' | 'qr'), when the caller
-   * knows it. Threaded through so `processPending` can back-attribute the
-   * `offline_actions` row this internalize may create — see `attribute`.
-   */
+/**
+ * Which transport this frame arrived over ('awdl' | 'qr'), when the caller
+ * knows it. Threaded through so `processPending` can back-attribute the
+ * `offline_actions` row this internalize may create — see `attribute`.
+ */
 ```
 
 Change line 26 so the block reads:
 
 ```ts
-  /**
-   * Which transport this frame arrived over ('awdl' | 'nearby' | 'ble' | 'qr'),
-   * when the caller knows it. Threaded through so `processPending` can
-   * back-attribute the `offline_actions` row this internalize may create —
-   * see `attribute`.
-   */
+/**
+ * Which transport this frame arrived over ('awdl' | 'nearby' | 'ble' | 'qr'),
+ * when the caller knows it. Threaded through so `processPending` can
+ * back-attribute the `offline_actions` row this internalize may create —
+ * see `attribute`.
+ */
 ```
 
 `receivedVia` itself stays `string`; only the comment was stale. Nothing else in the file changes. `socket.ts:99` (`makeSocketTransport(kind: 'awdl' | 'nearby')`) still compiles because `'awdl' | 'nearby'` is assignable to the widened union; Task 5 widens that parameter when it adds `'ble'`.
@@ -1660,16 +1706,13 @@ describe('transport selection', () => {
     [CAP_AWDL | CAP_BLE, 'ios', false, true, 'ble'] // AWDL native unsupported → falls to BLE
   ]
 
-  it.each(CASES)(
-    'caps=%p platform=%s socket=%p ble=%p -> %s',
-    (caps, platform, nativeSocket, nativeBle, expected) => {
-      Platform.OS = platform
-      mockIsSupported = nativeSocket
-      mockBleSupported = nativeBle
-      const session: Session = { ...mintSession({ ...base, supportsAwdl: false }), caps }
-      expect(selectTransport(session)).toBe(expected)
-    }
-  )
+  it.each(CASES)('caps=%p platform=%s socket=%p ble=%p -> %s', (caps, platform, nativeSocket, nativeBle, expected) => {
+    Platform.OS = platform
+    mockIsSupported = nativeSocket
+    mockBleSupported = nativeBle
+    const session: Session = { ...mintSession({ ...base, supportsAwdl: false }), caps }
+    expect(selectTransport(session)).toBe(expected)
+  })
 })
 
 describe('localSupportsBle', () => {
@@ -1810,7 +1853,15 @@ Create `packages/expo-wallet-toolbox/__tests__/localpay/describeFloor.test.ts`:
 ```ts
 import { Platform } from 'react-native'
 import { describeFloor, type FloorReason } from '../../core/localpay/transport/select'
-import { mintSession, CAP_AWDL, CAP_BLE, CAP_NEARBY, HINT_BT, HINT_WIFI, type Session } from '../../core/localpay/session'
+import {
+  mintSession,
+  CAP_AWDL,
+  CAP_BLE,
+  CAP_NEARBY,
+  HINT_BT,
+  HINT_WIFI,
+  type Session
+} from '../../core/localpay/session'
 
 let mockIsSupported = true
 let mockBleSupported = true
@@ -1927,7 +1978,6 @@ import type { BluetoothState } from '../deviceCaps'
 Second, append this after the closing `}` of `selectTransport` at the end of the file:
 
 ```ts
-
 /**
  * Why a payer is on the QR fountain. 'none' when a radio was selected, or
  * when nothing in the table applies.
@@ -2027,7 +2077,6 @@ EOF
 
 Expected: `git status --short` afterwards shows none of the six paths as modified; `git log -1 --format=%s` prints `feat(localpay): BLE rung in the transport ladder and describeFloor`.
 
-
 ---
 
 ### Task 5: Socket wrapper takes its native accessor; bleTransport
@@ -2037,6 +2086,7 @@ The JS wrapper in `socket.ts` today hard-wires `getLocalPayTransport()` and deri
 **Depends on (already merged by earlier tasks in this plan — verified in Step 0):** `getLocalPayBleTransport()` + `type LocalPayBleTransport` exported from `RNLT/src/index.ts`; `kind: 'awdl' | 'nearby' | 'ble' | 'qr'` in `L/types.ts`; `supportsBle` on `mintSession` and `CAP_BLE` in `L/session.ts`; `localSupportsBle`, `describeFloor`, `type FloorReason` in `L/transport/select.ts`.
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/localpay/transport/socket.ts` (whole file, lines 1-221 — rewritten with the accessor and `connectTimeoutMs` parameters; every money-safety comment kept verbatim)
 - Modify: `packages/expo-wallet-toolbox/core/localpay/transport/awdl.ts` (whole file, lines 1-3)
 - Modify: `packages/expo-wallet-toolbox/core/localpay/transport/nearby.ts` (whole file, lines 1-3)
@@ -2045,6 +2095,7 @@ The JS wrapper in `socket.ts` today hard-wires `getLocalPayTransport()` and deri
 - Test (create): `packages/expo-wallet-toolbox/__tests__/localpay/transportBle.test.ts`
 
 **Interfaces:**
+
 - Consumes:
   - `getLocalPayTransport(): LocalPayTransport | null` and `getLocalPayBleTransport(): LocalPayBleTransport | null`, `type LocalPayTransport`, `type LocalPayBleTransport` — from `react-native-localpay-transport` (`packages/react-native-localpay-transport/src/index.ts`)
   - `sealFrame`, `unsealFrame`, `type PaymentFrame` from `L/codec.ts`; `instanceName`, `type Session` from `L/session.ts`; `AckError`, `type Ack`, `type ConfirmDelivery`, `type DeclineReason`, `type LocalPaymentTransport`, `type ReceivedFrame` from `L/types.ts`
@@ -2088,19 +2139,18 @@ Tests:       19 passed, 19 total
 Open `packages/expo-wallet-toolbox/__tests__/localpay/transportAwdl.test.ts`. Line 100 is the end of the test `'seals outgoing frames: sendFrame carries ciphertext the session PSK opens'` and line 101 is the `})` that closes `describe('awdlTransport.send', ...)`. Insert the following between them (after line 100, before the `})`):
 
 ```ts
+// Pins the connect budget through the makeSocketTransport(kind, native,
+// connectTimeoutMs) refactor: AWDL's Bonjour discovery over an existing
+// Wi-Fi link resolves inside ~4s, and the whole-send budget stays 20s.
+it('passes the 4 s AWDL connect budget and the 20 s send budget to sendFrame', async () => {
+  const native = fakeNative({ sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: true })) })
+  getLocalPayTransport.mockReturnValue(native)
 
-  // Pins the connect budget through the makeSocketTransport(kind, native,
-  // connectTimeoutMs) refactor: AWDL's Bonjour discovery over an existing
-  // Wi-Fi link resolves inside ~4s, and the whole-send budget stays 20s.
-  it('passes the 4 s AWDL connect budget and the 20 s send budget to sendFrame', async () => {
-    const native = fakeNative({ sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: true })) })
-    getLocalPayTransport.mockReturnValue(native)
-
-    await awdlTransport.send(session, frame, new AbortController().signal)
-    const call = (native.sendFrame as jest.Mock).mock.calls[0]
-    expect(call[3]).toBe(20_000)
-    expect(call[4]).toBe(4_000)
-  })
+  await awdlTransport.send(session, frame, new AbortController().signal)
+  const call = (native.sendFrame as jest.Mock).mock.calls[0]
+  expect(call[3]).toBe(20_000)
+  expect(call[4]).toBe(4_000)
+})
 ```
 
 Run:
@@ -2119,11 +2169,19 @@ Create `packages/expo-wallet-toolbox/__tests__/localpay/transportBle.test.ts` wi
 import { BLE_CONNECT_TIMEOUT_MS, bleTransport } from '../../core/localpay/transport/ble'
 import { AckError } from '../../core/localpay/types'
 import { mintSession, instanceName } from '../../core/localpay/session'
-import { CodecError, FRAME_VERSION, SEAL_VERSION, encodeFrame, sealFrame, unsealFrame, type PaymentFrame } from '../../core/localpay/codec'
+import {
+  CodecError,
+  FRAME_VERSION,
+  SEAL_VERSION,
+  encodeFrame,
+  sealFrame,
+  unsealFrame,
+  type PaymentFrame
+} from '../../core/localpay/codec'
 import type { LocalPayBleTransport } from 'react-native-localpay-transport'
 
 jest.mock('react-native-localpay-transport', () => ({
-  getLocalPayBleTransport: jest.fn(),
+  getLocalPayBleTransport: jest.fn()
 }))
 
 const { getLocalPayBleTransport } = jest.requireMock('react-native-localpay-transport') as {
@@ -2140,7 +2198,7 @@ function fakeNative(overrides: Partial<LocalPayBleTransport> = {}) {
     stopListening: jest.fn().mockResolvedValue(undefined),
     confirmFrame: jest.fn().mockResolvedValue(undefined),
     sendFrame: jest.fn(),
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -2150,7 +2208,7 @@ const session = mintSession({
   derivationPrefix: 'cA',
   derivationSuffix: 'cw',
   supportsAwdl: false,
-  supportsBle: true,
+  supportsBle: true
 })
 
 const frame: PaymentFrame = {
@@ -2160,7 +2218,7 @@ const frame: PaymentFrame = {
   outputIndex: 0,
   derivationPrefix: 'cA',
   derivationSuffix: 'cw',
-  transaction: new Uint8Array([1, 2, 3]),
+  transaction: new Uint8Array([1, 2, 3])
 }
 
 function toAckBase64(payload: unknown): string {
@@ -2225,7 +2283,7 @@ describe('bleTransport.send', () => {
   // action. The wrapper must forward it untouched.
   it('rejects with the native connect-timeout message so NearbyFlow falls back to the QR', async () => {
     const native = fakeNative({
-      sendFrame: jest.fn().mockRejectedValue(new Error('connect timeout: no route to peer')),
+      sendFrame: jest.fn().mockRejectedValue(new Error('connect timeout: no route to peer'))
     })
     getLocalPayBleTransport.mockReturnValue(native)
 
@@ -2239,7 +2297,7 @@ describe('bleTransport.send', () => {
   // AckError — an AckError would suggest the payee answered.
   it('propagates the oversize rejection as a plain radio failure, not an AckError', async () => {
     const native = fakeNative({
-      sendFrame: jest.fn().mockRejectedValue(new Error('frame too large for a BLE payload')),
+      sendFrame: jest.fn().mockRejectedValue(new Error('frame too large for a BLE payload'))
     })
     getLocalPayBleTransport.mockReturnValue(native)
 
@@ -2264,12 +2322,14 @@ describe('bleTransport.send', () => {
 
   it('resolves a genuine peer decline rather than throwing', async () => {
     const native = fakeNative({
-      sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: false, error: 'declined' })),
+      sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: false, error: 'declined' }))
     })
     getLocalPayBleTransport.mockReturnValue(native)
 
-    await expect(bleTransport.send(session, frame, new AbortController().signal))
-      .resolves.toEqual({ ok: false, error: 'declined' })
+    await expect(bleTransport.send(session, frame, new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      error: 'declined'
+    })
   })
 
   it('seals outgoing frames: sendFrame carries ciphertext the session PSK opens', async () => {
@@ -2392,7 +2452,7 @@ describe('bleTransport.receive', () => {
     })
     const native = fakeNative({
       startListening: startListening as never,
-      confirmFrame: jest.fn().mockRejectedValue(new Error('peer disconnected before acking')) as never,
+      confirmFrame: jest.fn().mockRejectedValue(new Error('peer disconnected before acking')) as never
     })
     getLocalPayBleTransport.mockReturnValue(native)
 
@@ -2412,9 +2472,10 @@ describe('bleTransport.receive', () => {
 
     let timer: ReturnType<typeof setTimeout> | undefined
     const outcome = await Promise.race([
-      bleTransport
-        .receive(session, new AbortController().signal)
-        .then(() => 'resolved' as const, () => 'rejected' as const),
+      bleTransport.receive(session, new AbortController().signal).then(
+        () => 'resolved' as const,
+        () => 'rejected' as const
+      ),
       new Promise<'hung'>(resolve => {
         timer = setTimeout(() => resolve('hung'), 500)
       })
@@ -2743,7 +2804,7 @@ export function makeSocketTransport(
             }
           )
       })
-    },
+    }
   }
 }
 ```
@@ -2891,7 +2952,6 @@ EOF
 
 Expected: one commit touching six files; `git log -1 --format=%s` prints `feat(transport): parameterise the socket wrapper and add the BLE transport`.
 
-
 ---
 
 ### Task 6: deviceCaps: probe and capsFromProbe
@@ -2899,6 +2959,7 @@ Expected: one commit touching six files; `git log -1 --format=%s` prints `feat(t
 Spec §4 "Probing (`core/localpay/deviceCaps.ts`)". The payee's `receive_minting` step (Task 10, NearbyFlow) will call `probeDeviceCaps()` and feed `capsFromProbe(probe)` into `mintSession({ hints })` so the session QR's `c` integer carries the device-hint bits (`HINT_ONLINE`, `HINT_ONLINE_KNOWN`, `HINT_NET`, `HINT_WIFI`, `HINT_BT`, `HINT_NFC`). This task delivers the pure hint mapper and the budgeted probe, fully unit-tested. No UI, no native code.
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/localpay/deviceCaps.ts` — entire file. Task 4 created it containing only `export type BluetoothState = 'poweredOn' | 'poweredOff' | 'unauthorized' | 'unsupported' | 'unknown'`. Replace the whole file with the contents in Step 3; the `BluetoothState` type stays byte-identical because `select.ts` (`describeFloor`, Task 4) and `NearbyFlow.tsx` (Task 10) import it from here.
 - Test: `packages/expo-wallet-toolbox/__tests__/localpay/deviceCaps.test.ts` (new)
 - Read only (open these before writing anything):
@@ -2910,6 +2971,7 @@ Spec §4 "Probing (`core/localpay/deviceCaps.ts`)". The payee's `receive_minting
   - `packages/react-native-localpay-transport/src/index.ts` — `getLocalPayBleTransport(): LocalPayBleTransport | null` (Task 1) and the `bluetoothState(): string` / `nfcAvailable(): boolean` methods on the spec.
 
 **Interfaces:**
+
 - Consumes:
   - `HINT_ONLINE, HINT_ONLINE_KNOWN, HINT_NET, HINT_WIFI, HINT_BT, HINT_NFC, RUNG_MASK: number` from `./session` (Task 3).
   - `getLocalPayBleTransport(): LocalPayBleTransport | null` from `react-native-localpay-transport` (Task 1); on it `bluetoothState(): string` and `nfcAvailable(): boolean`, both prompt-free (spec §1).
@@ -2951,7 +3013,7 @@ import {
   capsFromProbe,
   probeDeviceCaps,
   readBluetoothState,
-  type DeviceProbe,
+  type DeviceProbe
 } from '../../core/localpay/deviceCaps'
 import {
   CAP_AWDL,
@@ -2962,25 +3024,25 @@ import {
   HINT_ONLINE_KNOWN,
   HINT_WIFI,
   RUNG_MASK,
-  mintSession,
+  mintSession
 } from '../../core/localpay/session'
 
 jest.mock('react-native-localpay-transport', () => ({
   getLocalPayTransport: jest.fn(),
-  getLocalPayBleTransport: jest.fn(),
+  getLocalPayBleTransport: jest.fn()
 }))
 
 jest.mock('@react-native-community/netinfo', () => ({
   __esModule: true,
-  default: { fetch: jest.fn() },
+  default: { fetch: jest.fn() }
 }))
 
 const { getLocalPayBleTransport } = jest.requireMock('react-native-localpay-transport') as {
   getLocalPayBleTransport: jest.Mock
 }
 
-const netFetch = (jest.requireMock('@react-native-community/netinfo') as { default: { fetch: jest.Mock } })
-  .default.fetch
+const netFetch = (jest.requireMock('@react-native-community/netinfo') as { default: { fetch: jest.Mock } }).default
+  .fetch
 
 /** Every field in its "false or unknown" position: the probe that must map to 0. */
 const clear: DeviceProbe = {
@@ -2988,7 +3050,7 @@ const clear: DeviceProbe = {
   connected: null,
   wifi: false,
   bluetooth: 'unknown',
-  nfc: false,
+  nfc: false
 }
 
 const allSet: DeviceProbe = {
@@ -2996,7 +3058,7 @@ const allSet: DeviceProbe = {
   connected: true,
   wifi: true,
   bluetooth: 'poweredOn',
-  nfc: true,
+  nfc: true
 }
 
 const ALL_HINTS = HINT_ONLINE | HINT_ONLINE_KNOWN | HINT_NET | HINT_WIFI | HINT_BT | HINT_NFC
@@ -3005,7 +3067,7 @@ const wifiState = {
   isInternetReachable: true,
   isConnected: true,
   type: 'wifi',
-  isWifiEnabled: true,
+  isWifiEnabled: true
 }
 
 describe('capsFromProbe', () => {
@@ -3026,7 +3088,7 @@ describe('capsFromProbe', () => {
     ['bluetooth unknown', { ...clear, bluetooth: 'unknown' }, 0],
     ['nfc', { ...clear, nfc: true }, HINT_NFC],
     ['all set', allSet, ALL_HINTS],
-    ['all clear', clear, 0],
+    ['all clear', clear, 0]
   ]
 
   it.each(TABLE)('%s', (_name, probe, expected) => {
@@ -3049,7 +3111,7 @@ describe('capsFromProbe', () => {
       derivationPrefix: 'cA',
       derivationSuffix: 'cw',
       supportsAwdl: true,
-      hints: capsFromProbe(allSet),
+      hints: capsFromProbe(allSet)
     })
     expect(s.caps & RUNG_MASK).toBe(CAP_AWDL)
     expect(s.caps & ~RUNG_MASK).toBe(ALL_HINTS)
@@ -3079,7 +3141,7 @@ describe('readBluetoothState', () => {
       bluetoothState: () => {
         throw new Error('bridge gone')
       },
-      nfcAvailable: () => false,
+      nfcAvailable: () => false
     })
     expect(readBluetoothState()).toBe('unknown')
   })
@@ -3106,7 +3168,7 @@ describe('probeDeviceCaps', () => {
       connected: true,
       wifi: true,
       bluetooth: 'unsupported',
-      nfc: false,
+      nfc: false
     })
   })
 
@@ -3172,7 +3234,7 @@ describe('probeDeviceCaps', () => {
     netFetch.mockResolvedValue(wifiState)
     getLocalPayBleTransport.mockReturnValue({
       bluetoothState: () => 'poweredOn',
-      nfcAvailable: () => true,
+      nfcAvailable: () => true
     })
 
     await expect(probeDeviceCaps()).resolves.toMatchObject({ bluetooth: 'poweredOn', nfc: true })
@@ -3182,7 +3244,7 @@ describe('probeDeviceCaps', () => {
     netFetch.mockResolvedValue(wifiState)
     getLocalPayBleTransport.mockReturnValue({
       bluetoothState: () => 'resetting',
-      nfcAvailable: () => false,
+      nfcAvailable: () => false
     })
 
     await expect(probeDeviceCaps()).resolves.toMatchObject({ bluetooth: 'unknown', nfc: false })
@@ -3196,7 +3258,7 @@ describe('probeDeviceCaps', () => {
       },
       nfcAvailable: () => {
         throw new Error('NFCNDEFReaderSession unavailable')
-      },
+      }
     })
 
     await expect(probeDeviceCaps()).resolves.toMatchObject({ bluetooth: 'unknown', nfc: false })
@@ -3238,15 +3300,7 @@ Replace the entire contents of `packages/expo-wallet-toolbox/core/localpay/devic
 import { Platform } from 'react-native'
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo'
 import { getLocalPayBleTransport } from 'react-native-localpay-transport'
-import {
-  HINT_BT,
-  HINT_NET,
-  HINT_NFC,
-  HINT_ONLINE,
-  HINT_ONLINE_KNOWN,
-  HINT_WIFI,
-  RUNG_MASK,
-} from './session'
+import { HINT_BT, HINT_NET, HINT_NFC, HINT_ONLINE, HINT_ONLINE_KNOWN, HINT_WIFI, RUNG_MASK } from './session'
 
 /** Mirrors LocalPayBleTransport.bluetoothState(); anything else coerces to 'unknown'. */
 export type BluetoothState = 'poweredOn' | 'poweredOff' | 'unauthorized' | 'unsupported' | 'unknown'
@@ -3277,7 +3331,7 @@ const BLUETOOTH_STATES: readonly BluetoothState[] = [
   'poweredOff',
   'unauthorized',
   'unsupported',
-  'unknown',
+  'unknown'
 ]
 
 /**
@@ -3364,20 +3418,19 @@ function readNfcAvailable(): boolean {
  */
 export async function probeDeviceCaps(opts?: { netBudgetMs?: number }): Promise<DeviceProbe> {
   const net = await fetchNetWithinBudget(opts?.netBudgetMs ?? DEFAULT_NET_BUDGET_MS)
-  const wifi =
-    net !== null &&
-    (Platform.OS === 'android' ? net.isWifiEnabled === true : net.type === 'wifi')
+  const wifi = net !== null && (Platform.OS === 'android' ? net.isWifiEnabled === true : net.type === 'wifi')
   return {
     online: net === null ? null : net.isInternetReachable,
     connected: net === null ? null : net.isConnected,
     wifi,
     bluetooth: readBluetoothState(),
-    nfc: readNfcAvailable(),
+    nfc: readNfcAvailable()
   }
 }
 ```
 
 Notes for the executor:
+
 - `net.type === 'wifi'` compiles under `strict` against NetInfo 11.5.2's string enum `NetInfoStateType` (TS allows comparing a string enum to a matching literal; a non-member literal such as `'nonsense'` is a TS2367 error, which is the check you want).
 - `net.isInternetReachable` is itself `boolean | null` in NetInfo's types, so the tri-state passes through untouched — a probe that answered but had not yet resolved reachability leaves `HINT_ONLINE_KNOWN` clear on purpose.
 - `Platform.OS` is read inside the function, not at module load, so the tests' `Platform.OS = 'android'` takes effect.
@@ -3427,7 +3480,6 @@ EOF
 
 Expected: one commit touching two files; `git log --oneline -1` shows `feat(localpay): device capability probe for the session QR`.
 
-
 ---
 
 ### Task 7: requestBlePermissions; barrels export the BLE rung and device-caps helpers
@@ -3437,6 +3489,7 @@ BLE-only Android runtime permission request (spec §7 "Permissions and prompts")
 Second half: with `deviceCaps.ts` (Task 6) and this helper in place, every BLE-rung name the screen needs now exists, so the two barrels — `core/pay/rails/nearby.ts` (a pure pass-through) and the hand-written nearby block in `core/index.ts` — are extended here in one pass and pinned by identity in `nearbyRail.test.ts` (spec §1 lists the `core/index.ts` additions). Task 5 deliberately left the barrels alone because two of the names did not exist yet.
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/core/localpay/blePermissions.ts`
 - Create: `packages/expo-wallet-toolbox/__tests__/localpay/blePermissions.test.ts`
 - Modify: `packages/expo-wallet-toolbox/core/pay/rails/nearby.ts` (whole file, 65 lines: header comment line 2, new re-export lines after 56 and 63, `CAP_BLE` on line 65)
@@ -3445,6 +3498,7 @@ Second half: with `deviceCaps.ts` (Task 6) and this helper in place, every BLE-r
 - Reference (read, do not edit): `packages/expo-wallet-toolbox/core/localpay/nearbyPermissions.ts`, `packages/expo-wallet-toolbox/__tests__/localpay/transportSelect.test.ts:67-110`
 
 **Interfaces:**
+
 - Consumes: `PermissionsAndroid`, `Platform` from `react-native` (`Platform.OS`, `Platform.Version`, `PermissionsAndroid.PERMISSIONS.{BLUETOOTH_SCAN,BLUETOOTH_CONNECT,BLUETOOTH_ADVERTISE,ACCESS_FINE_LOCATION}`, `PermissionsAndroid.requestMultiple`, `PermissionsAndroid.RESULTS.GRANTED`).
 - Consumes (for the barrels): `bleTransport` from `L/transport/ble.ts` (Task 5); `localSupportsBle`, `describeFloor`, `type FloorReason` from `L/transport/select.ts` (Task 4); `probeDeviceCaps`, `capsFromProbe`, `readBluetoothState`, `type DeviceProbe`, `type BluetoothState` from `L/deviceCaps.ts` (Task 6); `CAP_BLE` from `L/session.ts` (Task 3); `AckError`, `QrHandoffRequired`, `type LocalPaymentTransport`, `type ReceivedFrame` from `L/types.ts`.
 - Produces: `export async function requestBlePermissions(): Promise<boolean>` in `core/localpay/blePermissions.ts`. `core/pay/rails/nearby.ts` additionally re-exports `bleTransport`, `localSupportsBle`, `describeFloor`, `type FloorReason`, `requestBlePermissions`, `probeDeviceCaps`, `capsFromProbe`, `readBluetoothState`, `type DeviceProbe`, `type BluetoothState`, `CAP_BLE`. `core/index.ts` exports the same names by hand in its nearby block, plus `QrHandoffRequired`, `AckError`, `type LocalPaymentTransport`, `type ReceivedFrame` (keeping `type Ack`) from `./localpay/types`. Consumed later by `NearbyFlow.tsx` (Task 10: payee at flow entry when GMS is absent; payer lazily inside `executeSend` when `sendKind === 'ble'`), and Task 10 adds `prepareBle` / `raceReceivers` to the same two blocks.
@@ -3658,7 +3712,12 @@ import * as build from '../../core/localpay/build'
 import * as types from '../../core/localpay/types'
 import { awdlTransport } from '../../core/localpay/transport/awdl'
 import { bleTransport } from '../../core/localpay/transport/ble'
-import { describeFloor, localSupportsAwdl, localSupportsBle, selectTransport } from '../../core/localpay/transport/select'
+import {
+  describeFloor,
+  localSupportsAwdl,
+  localSupportsBle,
+  selectTransport
+} from '../../core/localpay/transport/select'
 import { requestBlePermissions } from '../../core/localpay/blePermissions'
 import { capsFromProbe, probeDeviceCaps, readBluetoothState } from '../../core/localpay/deviceCaps'
 ```
@@ -3666,31 +3725,30 @@ import { capsFromProbe, probeDeviceCaps, readBluetoothState } from '../../core/l
 Then insert these two tests after the closing `})` of the existing `it('re-exports the localpay functions by identity, ...')` test (currently line 37) and before the `})` that closes the `describe` (currently line 38):
 
 ```ts
+it('re-exports the BLE rung and the device-caps helpers by identity', () => {
+  expect(nearby.bleTransport).toBe(bleTransport)
+  expect(nearby.localSupportsBle).toBe(localSupportsBle)
+  expect(nearby.describeFloor).toBe(describeFloor)
+  expect(nearby.requestBlePermissions).toBe(requestBlePermissions)
+  expect(nearby.probeDeviceCaps).toBe(probeDeviceCaps)
+  expect(nearby.capsFromProbe).toBe(capsFromProbe)
+  expect(nearby.readBluetoothState).toBe(readBluetoothState)
+  expect(nearby.CAP_BLE).toBe(session.CAP_BLE)
+})
 
-  it('re-exports the BLE rung and the device-caps helpers by identity', () => {
-    expect(nearby.bleTransport).toBe(bleTransport)
-    expect(nearby.localSupportsBle).toBe(localSupportsBle)
-    expect(nearby.describeFloor).toBe(describeFloor)
-    expect(nearby.requestBlePermissions).toBe(requestBlePermissions)
-    expect(nearby.probeDeviceCaps).toBe(probeDeviceCaps)
-    expect(nearby.capsFromProbe).toBe(capsFromProbe)
-    expect(nearby.readBluetoothState).toBe(readBluetoothState)
-    expect(nearby.CAP_BLE).toBe(session.CAP_BLE)
-  })
-
-  // core/index.ts cannot `export *` from nearby.ts (TS2308 collisions), so its
-  // hand-written block has to be extended by hand too — pin it.
-  it('surfaces the same names, and the transport types, from the package root', () => {
-    expect(root.bleTransport).toBe(bleTransport)
-    expect(root.localSupportsBle).toBe(localSupportsBle)
-    expect(root.describeFloor).toBe(describeFloor)
-    expect(root.requestBlePermissions).toBe(requestBlePermissions)
-    expect(root.probeDeviceCaps).toBe(probeDeviceCaps)
-    expect(root.capsFromProbe).toBe(capsFromProbe)
-    expect(root.readBluetoothState).toBe(readBluetoothState)
-    expect(root.QrHandoffRequired).toBe(types.QrHandoffRequired)
-    expect(root.AckError).toBe(types.AckError)
-  })
+// core/index.ts cannot `export *` from nearby.ts (TS2308 collisions), so its
+// hand-written block has to be extended by hand too — pin it.
+it('surfaces the same names, and the transport types, from the package root', () => {
+  expect(root.bleTransport).toBe(bleTransport)
+  expect(root.localSupportsBle).toBe(localSupportsBle)
+  expect(root.describeFloor).toBe(describeFloor)
+  expect(root.requestBlePermissions).toBe(requestBlePermissions)
+  expect(root.probeDeviceCaps).toBe(probeDeviceCaps)
+  expect(root.capsFromProbe).toBe(capsFromProbe)
+  expect(root.readBluetoothState).toBe(readBluetoothState)
+  expect(root.QrHandoffRequired).toBe(types.QrHandoffRequired)
+  expect(root.AckError).toBe(types.AckError)
+})
 ```
 
 (The file's existing `jest.mock('expo-secure-store', …)` / `jest.mock('expo-local-authentication', …)` lines at 6-7 are what make the `@bsv/expo-wallet-toolbox` root import loadable under jest, exactly as `__tests__/packageResolution.test.ts` does; `@react-native-community/netinfo`, which `deviceCaps.ts` imports, is already loaded by `core/net/online.ts` through that same root.)
@@ -3766,12 +3824,7 @@ export {
   type PendingPayment
 } from '../../localpay/pending'
 export { buildPaymentFrame, finalizeDelivery } from '../../localpay/build'
-export {
-  FrameVerifyError,
-  verifyFramePayment,
-  type DerivingWallet,
-  type FrameVerifyKind
-} from '../../localpay/verify'
+export { FrameVerifyError, verifyFramePayment, type DerivingWallet, type FrameVerifyKind } from '../../localpay/verify'
 export { holdSentPaymentOffline } from '../../offline/payerHold'
 export { awdlTransport } from '../../localpay/transport/awdl'
 export { nearbyTransport } from '../../localpay/transport/nearby'
@@ -3949,7 +4002,6 @@ EOF
 
 Expected: one commit touching three files; `git log -1 --format=%s` prints `feat(localpay): export the BLE rung and device-caps helpers from the barrels`.
 
-
 ---
 
 ### Task 8: Swift BLE backend (CoreBluetooth central + peripheral)
@@ -3957,13 +4009,15 @@ Expected: one commit touching three files; `git log -1 --format=%s` prints `feat
 Implements spec §2 (GATT profile `bsvpay-ble/1`), §3 (message layer, peripheral and central state machines) and §7 (iOS prompt placement) for iOS. Replaces the Task 1 stub `HybridLocalPayBleTransport.swift` (whose three probes are real and whose five transport methods reject `"bluetooth unavailable"`) with the real CoreBluetooth backend, and adds the pure profile helper `BleGattProfile.swift`. Nothing in JS changes in this task; the JS wrapper (`makeSocketTransport('ble', getLocalPayBleTransport, BLE_CONNECT_TIMEOUT_MS)`, Task 5) already talks to this object through the generated `HybridLocalPayBleTransportSpec`.
 
 Read these before starting, in this order, so the discipline you are mirroring is fresh:
+
 1. `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` §2, §3, §7, §9 (the whole file is ~300 lines; read all of it).
-2. `packages/react-native-localpay-transport/ios/HybridLocalPayTransport.swift` (441 lines) — the AWDL backend. Every rule below (one serial queue, `queue.sync` from bridge-thread entry points, `dispatchPrecondition` in callbacks, `hasAccepted` latch before the ack, `pendingAck` held until `confirmFrame`, silent reapers, `settle` latch in `sendFrame`) is lifted from it, and its comments explain *why*; do not paraphrase them away.
+2. `packages/react-native-localpay-transport/ios/HybridLocalPayTransport.swift` (441 lines) — the AWDL backend. Every rule below (one serial queue, `queue.sync` from bridge-thread entry points, `dispatchPrecondition` in callbacks, `hasAccepted` latch before the ack, `pendingAck` held until `confirmFrame`, silent reapers, `settle` latch in `sendFrame`) is lifted from it, and its comments explain _why_; do not paraphrase them away.
 3. `packages/react-native-localpay-transport/ios/AwdlSession.swift` (72 lines) — `lengthPrefixed` / `readFrame`; the BLE framing is the same u32-BE prefix.
 4. `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayTransport.kt:81-91,213-266` — the HELLO_A/HELLO_B/FRAME/ACK type-byte protocol the BLE profile extends with an ack MAC.
 5. `packages/react-native-localpay-transport/nitrogen/generated/ios/swift/HybridLocalPayBleTransportSpec.swift` (generated in Task 1) — the exact Swift signatures you must implement. They are: `isSupported() throws -> Bool`, `bluetoothState() throws -> String`, `nfcAvailable() throws -> Bool`, `prepare(timeoutMs: Double) throws -> Promise<String>`, `startListening(instanceName: String, pskBase64: String, onFrame: @escaping (_ frameBase64: String) -> Void, onError: @escaping (_ message: String) -> Void) throws -> Promise<Void>`, `stopListening() throws -> Promise<Void>`, `confirmFrame(accepted: Bool, reason: String) throws -> Promise<Void>`, `sendFrame(instanceName: String, pskBase64: String, frameBase64: String, timeoutMs: Double, connectTimeoutMs: Double) throws -> Promise<String>`. If the file is missing, run `cd packages/react-native-localpay-transport && npx nitrogen` first (Task 1 Step 7: nitrogen 0.35.10 parses `--config` but reads `./nitro.json` from the cwd).
 
 **Files:**
+
 - Create: `packages/react-native-localpay-transport/ios/BleGattProfile.swift` (new, ~200 lines)
 - Modify (replace entire contents): `packages/react-native-localpay-transport/ios/HybridLocalPayBleTransport.swift` (Task 1 stub → full backend, ~900 lines)
 - Modify: `packages/react-native-localpay-transport/LocalPayTransport.podspec` lines 14-19 (the `s.source_files` / `s.frameworks` block Task 1 left, comments included)
@@ -3972,6 +4026,7 @@ Read these before starting, in this order, so the discipline you are mirroring i
 - Test: no jest coverage is possible for CoreBluetooth; the compile gate is `xcodebuild` (Step 4) and the behavioural gate is the two-iPhone hardware checklist (Step 7). The JS-side behaviour of this object is covered by `packages/expo-wallet-toolbox/__tests__/localpay/transportBle.test.ts` (Task 5) against a mock.
 
 **Interfaces:**
+
 - Consumes (generated, Task 1): `HybridLocalPayBleTransportSpec` typealias (protocol `HybridLocalPayBleTransportSpec_protocol` & base class `HybridLocalPayBleTransportSpec_base`) from `nitrogen/generated/ios/swift/HybridLocalPayBleTransportSpec.swift`; `Promise<T>` from `NitroModules` with `Promise<Void>()`, `.resolve(withResult:)`, `.reject(withError:)` exactly as `HybridLocalPayTransport.swift` uses them.
 - Consumes (system): `CoreBluetooth` (`CBPeripheralManager`, `CBCentralManager`, `CBPeripheral`, `CBCentral`, `CBMutableService`, `CBMutableCharacteristic`, `CBATTRequest`, `CBUUID`, `CBManager.authorization`), `CryptoKit` (`HMAC<SHA256>`, `SymmetricKey`), `CoreNFC` (`NFCNDEFReaderSession.readingAvailable`; the app already links CoreNFC and carries `NFCReaderUsageDescription` for the K1 vault — `grep -n NFCReaderUsageDescription app.json` → line 139), `os.log`.
 - Produces: `final class HybridLocalPayBleTransport: HybridLocalPayBleTransportSpec` — the class name `nitro.json` autolinking instantiates (`"implementationClassName": "HybridLocalPayBleTransport"`). Behaviour contract for JS (`core/localpay/transport/socket.ts`, Task 2):
@@ -4212,9 +4267,10 @@ enum BleGattProfile {
 Open `packages/react-native-localpay-transport/ios/HybridLocalPayBleTransport.swift` (the Task 1 stub) and replace its entire contents with the file below. Structure: `HybridLocalPayBleTransport` is a thin Nitro-facing shell because `HybridLocalPayBleTransportSpec_base` is not an `NSObject` and every CoreBluetooth delegate protocol requires `NSObjectProtocol`; all state and both delegate roles live in `BleEngine`, and each payer-side send is its own `OutboundSend` object that is also the `CBPeripheralDelegate` for the peripheral it connected to.
 
 Non-obvious decisions, each cited to the spec:
+
 - One serial `DispatchQueue("org.bsvassociation.localpay.ble")` is the delegate queue for both managers, and every bridge-thread entry point mutates state inside `queue.sync` (spec §3 "All peripheral state is confined to one serial DispatchQueue"; identical to `HybridLocalPayTransport.swift:5-21`).
 - Managers are created lazily in `prepare()` (payee) or `sendFrame()` (payer), never at construction, because instantiating any `CB*Manager` while authorization is `notDetermined` shows the privacy prompt (spec §7, "Verified facts").
-- `CBPeripheralManager` cannot disconnect a central. "Disconnect that central" in spec §3 steps 3-4 is therefore implemented as *forgetting* it: its state is dropped, further writes are answered `insufficientAuthorization`, and it never receives HELLO_B or an ACK. The link itself dies when the central gives up or when the service is removed.
+- `CBPeripheralManager` cannot disconnect a central. "Disconnect that central" in spec §3 steps 3-4 is therefore implemented as _forgetting_ it: its state is dropped, further writes are answered `insufficientAuthorization`, and it never receives HELLO_B or an ACK. The link itself dies when the central gives up or when the service is removed.
 - `hasAccepted` is set and advertising is stopped in the same queue-confined statement block that delivers `onFrame`, before the ack can exist (spec §9 invariant 4).
 - After the ACK's last chunk is queued the service is removed only after the payer unsubscribes or a 2 s grace elapses, because `removeAllServices()` immediately after `updateValue` can drop a queued indication; the payer cancels its connection as soon as it verifies the ack, so the grace rarely runs to completion.
 - `CBManagerState.unauthorized` while `CBManager.authorization == .notDetermined` means "the prompt is on screen", not a decision, so `prepare()` keeps waiting in that state.
@@ -5458,13 +5514,13 @@ Measurements for the `bsvpay-ble/1` rung (spec: `docs/superpowers/specs/2026-09-
 
 Console.app filter used on each iPhone: `subsystem:org.bsvblockchain.wallet category:LocalPayBle`.
 
-| Date | Payee device / OS | Payer device / OS | Pairing | maxUpdate (payee) | maxWriteLen (payer) | scan hit ms | subscribed ms | frame bytes | frame written ms | ack verified ms (total) | Result | Notes |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-09-02 | — | — | iOS→iOS | — | — | — | — | — | — | — | — | — |
-| 2026-09-02 | — | — | iOS→iOS (Wi-Fi off both) | — | — | — | — | — | — | — | — | — |
-| 2026-09-02 | — | — | iOS→iOS (payer BT off) | — | — | — | — | — | — | — | — | expect `bluetooth unavailable` then fountain |
-| 2026-09-02 | — | — | iOS→iOS (payee locked mid-wait) | — | — | — | — | — | — | — | — | expect payer `connect timeout: no route to peer` within 6 s |
-| 2026-09-02 | — | — | iOS→iOS (second payer, same QR) | — | — | — | — | — | — | — | — | expect second payer refused at FRAME (no ack, falls to fountain) |
+| Date       | Payee device / OS | Payer device / OS | Pairing                         | maxUpdate (payee) | maxWriteLen (payer) | scan hit ms | subscribed ms | frame bytes | frame written ms | ack verified ms (total) | Result | Notes                                                            |
+| ---------- | ----------------- | ----------------- | ------------------------------- | ----------------- | ------------------- | ----------- | ------------- | ----------- | ---------------- | ----------------------- | ------ | ---------------------------------------------------------------- |
+| 2026-09-02 | —                 | —                 | iOS→iOS                         | —                 | —                   | —           | —             | —           | —                | —                       | —      | —                                                                |
+| 2026-09-02 | —                 | —                 | iOS→iOS (Wi-Fi off both)        | —                 | —                   | —           | —             | —           | —                | —                       | —      | —                                                                |
+| 2026-09-02 | —                 | —                 | iOS→iOS (payer BT off)          | —                 | —                   | —           | —             | —           | —                | —                       | —      | expect `bluetooth unavailable` then fountain                     |
+| 2026-09-02 | —                 | —                 | iOS→iOS (payee locked mid-wait) | —                 | —                   | —           | —             | —           | —                | —                       | —      | expect payer `connect timeout: no route to peer` within 6 s      |
+| 2026-09-02 | —                 | —                 | iOS→iOS (second payer, same QR) | —                 | —                   | —           | —             | —           | —                | —                       | —      | expect second payer refused at FRAME (no ack, falls to fountain) |
 
 Column sources: `maxUpdate` from the payee's `central connected ... maxUpdate=N` line; `maxWriteLen` from the payer's `connected ... maxWriteLen=N` line; the `ms` columns are the `ms=` field of the payer's `scan hit`, `subscribed`, `frame written` and `ack verified` lines (`frame written ms` is measured from the first frame write, the others from `sendFrame` entry).
 ```
@@ -5472,6 +5528,7 @@ Column sources: `maxUpdate` from the payee's `central connected ... maxUpdate=N`
 - [ ] **Step 7: Hardware checklist — iOS → iOS with two iPhones**
 
 Prerequisites (do not start without all four):
+
 1. Two physical iPhones, both signed into the same Apple developer team as `eas.json` `appleTeamId` `SV8SWTHA2H`, both with Bluetooth on.
 2. Task 10's NearbyFlow wiring (the payee starts `bleTransport.receive` alongside AWDL through `raceReceivers`; the payer's ladder can select `'ble'`) is present in the branch you build. Until it is, the payee never advertises and this checklist cannot run; do Steps 1-6 now and return to this step after Task 10, or run it once at the end of the plan.
 3. **Temporary, uncommitted** edit so an iPhone pair lands on BLE rather than AWDL (the ladder is AWDL → Nearby → BLE → QR, spec §5, and `localSupportsAwdl()` is a parameter-stack probe that stays true even with Wi-Fi off). In `packages/expo-wallet-toolbox/core/localpay/transport/select.ts`, change the body of `localSupportsAwdl()` (lines 8-15) to a single `return false`. Both phones get the same build, so the payee stops advertising `CAP_AWDL` and listens on BLE only, and the payer selects `'ble'`. Revert with `git checkout -- packages/expo-wallet-toolbox/core/localpay/transport/select.ts` before Step 8. Cross-OS pairings in Task 9 need no such edit.
@@ -5492,12 +5549,13 @@ cd /Users/personal/git/bsv-wallet && npx expo start --dev-client
 Open Console.app, select iPhone A (payee), set the filter to `subsystem:org.bsvblockchain.wallet category:LocalPayBle`, click Start. Repeat in a second Console window for iPhone B (payer).
 
 Run the happy path:
+
 1. Payee (A): open the Pay → Receive nearby flow and enter an amount. When the QR appears, the first prepare() has run. **Expected UI:** the presence row shows `waiting` ("Waiting for the other device"-style copy from `local_pay_presence_waiting_payee`) with the Bluetooth icon (PresenceRow `medium='bluetooth'`, since BLE is the only live listener). **Expected A log, in order:**
    - `peripheral manager state=poweredOn`
    - `central manager state=poweredOn`
    - `prepare resolved state=poweredOn`
    - `advertising started service=<UUID> name=bsvpay-<base32>`
-   The first launch also shows the iOS "BSV Wallet Would Like to Use Bluetooth" prompt at this moment and nowhere else; tap Allow.
+     The first launch also shows the iOS "BSV Wallet Would Like to Use Bluetooth" prompt at this moment and nowhere else; tap Allow.
 2. Payer (B): scan A's QR and confirm. **Expected UI:** `ready` with the Bluetooth icon on the confirm screen, `waiting` on send, then the done screen within 5 s. **Expected B log, in order:**
    - `central manager state=poweredOn` (first launch: the Bluetooth prompt appears here; tap Allow)
    - `scanning service=<same UUID as A>`
@@ -5512,13 +5570,14 @@ Run the happy path:
    - `hello verified id=...`
    - `frame accepted bytes=<N> id=...`
    - `ack sent ok=1 bytes=44` (type 1 + ack json 11 + MAC 32)
-   **Expected A UI:** `linked` when the frame arrives, then `paid`.
+     **Expected A UI:** `linked` when the frame arrives, then `paid`.
 4. Record `maxUpdate`, `maxWriteLen`, and the four `ms` values in the first row of `docs/superpowers/2026-09-02-ble-hardware-log.md`. Result column: `ok`.
 
 Then the four failure rows, each on a fresh receive request:
+
 - **Wi-Fi off on both** (Settings → Wi-Fi → off, not Control Center): identical log sequence; fill row 2. This proves BLE carries the payment with no Wi-Fi at all.
 - **Payer Bluetooth off** (Settings → Bluetooth → off on B only): B's log shows `central manager state=poweredOff` and no `scanning`; the flow falls to the fountain QR (payer presence `qr`). No `scan hit`. Row 3 result: `fallback`.
-- **Payee locked mid-wait**: on A, lock the screen once `advertising started` appears, then scan on B. iOS moves a backgrounded peripheral's UUIDs to the overflow area (spec "Verified facts"); B logs `scanning ...` and then, within 6 s, no `scan hit` and JS reports `connect timeout: no route to peer`, falling to the fountain. Row 4 result: `fallback`. (If you own a third iPhone, this is a good place to confirm a foreground iPhone central *does* still find it — it is Android centrals that cannot.)
+- **Payee locked mid-wait**: on A, lock the screen once `advertising started` appears, then scan on B. iOS moves a backgrounded peripheral's UUIDs to the overflow area (spec "Verified facts"); B logs `scanning ...` and then, within 6 s, no `scan hit` and JS reports `connect timeout: no route to peer`, falling to the fountain. Row 4 result: `fallback`. (If you own a third iPhone, this is a good place to confirm a foreground iPhone central _does_ still find it — it is Android centrals that cannot.)
 - **Second payer, same QR**: photograph A's QR with B, complete the payment, then scan the same photo with a third iPhone (or B again after the done screen if the session survived). A never logs a second `frame accepted`: the second central is refused at FRAME with no ack (`hasAccepted` latch) and the second payer falls to its fountain, where the payee's JS answers `already_paid`. Row 5 result: `refused`.
 
 Also confirm, in A's log after each completed payment, that no `payee never confirmed the payment` line ever appears on the happy path, and that `idle central forgotten` appears only in the lock/stranger cases.
@@ -5548,7 +5607,6 @@ EOF
 
 Expected: one commit containing only `docs/superpowers/2026-09-02-ble-hardware-log.md`. If the hardware step had to be deferred (prerequisite 2), commit the template as-is with the same message and fill the rows in when the checklist runs; the table's `—` cells make the gap visible rather than hidden.
 
-
 ---
 
 ### Task 9: Kotlin BLE backend (BluetoothGattServer + BluetoothGatt)
@@ -5556,6 +5614,7 @@ Expected: one commit containing only `docs/superpowers/2026-09-02-ble-hardware-l
 Replaces the Task 1 Kotlin stub with the real `bsvpay-ble/1` peripheral (payee) and central (payer) over `android.bluetooth`, mirroring `HybridLocalPayTransport.kt` (Nearby) structurally: main-`Handler` confinement, `javax.crypto.Mac` HMACs, `MessageDigest.isEqual` for constant time, `hasAccepted` first-success-wins latch, `boundDevice` / `pendingAckDevice`, identity-checked idle and ack reapers, `settle()` in `sendFrame`, and the exact error strings from the shared contract. Spec sections implemented: §2 (profile), §3 (messages, framing, both state machines), §7 Android permissions, §8 manifest feature flag.
 
 **Files:**
+
 - Create: `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/BleGattProfile.kt`
 - Create: `packages/react-native-localpay-transport/android/src/test/java/com/margelo/nitro/localpaytransport/BleGattProfileTest.kt`
 - Modify (replace whole file): `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayBleTransport.kt` (the Task 1 stub)
@@ -5565,6 +5624,7 @@ Replaces the Task 1 Kotlin stub with the real `bsvpay-ble/1` peripheral (payee) 
 - Read first (do not modify): `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayTransport.kt` (the Nearby backend you are mirroring, all 578 lines), `packages/react-native-localpay-transport/nitrogen/generated/android/kotlin/com/margelo/nitro/localpaytransport/HybridLocalPayBleTransportSpec.kt` (generated by Task 1's nitrogen run — confirm the abstract signatures below match it before writing a line), `packages/react-native-localpay-transport/ios/BleGattProfile.swift` (Task 8; the wire constants must be byte-identical), `packages/expo-wallet-toolbox/core/localpay/transport/socket.ts` (the JS caller; `parseAck` expects base64 of the bare ack JSON), spec §2–§3 and §7–§8.
 
 **Interfaces:**
+
 - Consumes (generated by Task 1, package `com.margelo.nitro.localpaytransport`):
   ```kotlin
   abstract class HybridLocalPayBleTransportSpec : HybridObject() {
@@ -6057,7 +6117,7 @@ Expected: `BUILD SUCCESSFUL`. Confirm all eleven tests ran: `grep -o 'tests="[0-
 
 - [ ] **Step 6: Replace the stub with the full `HybridLocalPayBleTransport.kt`**
 
-Overwrite `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayBleTransport.kt` with the complete file below. Non-obvious choices, with spec references, are in the comments; the ones worth knowing before reading: every GATT callback arrives on a binder thread and is `main.post`ed (§3 "confined to … the main Handler"); MTU negotiation completes (or times out at 2 s) *before* `discoverServices()` (§3 central step 3, the March `mDeviceBusy` deadlock); the next FRAME chunk is written only after `onCharacteristicWrite` (§3 step 6); `Context.checkSelfPermission` is the framework method `ContextCompat` wraps on API ≥ 23 and minSdk is 24, so no new Gradle dependency is needed; Android cannot set a per-app advertised local name without renaming the adapter, and the profile marks `localName` advisory (§2), so Android advertises the service UUID alone.
+Overwrite `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayBleTransport.kt` with the complete file below. Non-obvious choices, with spec references, are in the comments; the ones worth knowing before reading: every GATT callback arrives on a binder thread and is `main.post`ed (§3 "confined to … the main Handler"); MTU negotiation completes (or times out at 2 s) _before_ `discoverServices()` (§3 central step 3, the March `mDeviceBusy` deadlock); the next FRAME chunk is written only after `onCharacteristicWrite` (§3 step 6); `Context.checkSelfPermission` is the framework method `ContextCompat` wraps on API ≥ 23 and minSdk is 24, so no new Gradle dependency is needed; Android cannot set a per-app advertised local name without renaming the adapter, and the profile marks `localName` advisory (§2), so Android advertises the service UUID alone.
 
 ```kotlin
 package com.margelo.nitro.localpaytransport
@@ -7294,21 +7354,21 @@ Task 8 Step 6 created `docs/superpowers/2026-09-02-ble-hardware-log.md`; append 
 ```markdown
 ## Android (Task 9) — <date>, phones: A = <make/model, Android version>, B = <make/model, Android version>, iPhone = <model, iOS version>
 
-| Pairing | Negotiated MTU (`mtu <M>`) | Advertising latency (`advertising … (<n> ms`) | Subscribed at (`subscribed to ACK at <t5> ms`) | Frame bytes | Frame write (`frame written in <tf> ms`) | Ack indication (`ack … in <ta> ms`) | Total (`ack verified; total <T> ms`) | Result |
-|---|---|---|---|---|---|---|---|---|
-| Android A → Android B (payer B) | … | … | … | … | … | … | … | pass/fail |
-| Android B → iOS (payer B) | … | n/a (iOS payee) | … | … | … | n/a | … | pass/fail |
-| iOS → Android A (payee A) | … | … | n/a (iOS payer) | … | n/a | … | n/a | pass/fail |
+| Pairing                         | Negotiated MTU (`mtu <M>`) | Advertising latency (`advertising … (<n> ms`) | Subscribed at (`subscribed to ACK at <t5> ms`) | Frame bytes | Frame write (`frame written in <tf> ms`) | Ack indication (`ack … in <ta> ms`) | Total (`ack verified; total <T> ms`) | Result    |
+| ------------------------------- | -------------------------- | --------------------------------------------- | ---------------------------------------------- | ----------- | ---------------------------------------- | ----------------------------------- | ------------------------------------ | --------- |
+| Android A → Android B (payer B) | …                          | …                                             | …                                              | …           | …                                        | …                                   | …                                    | pass/fail |
+| Android B → iOS (payer B)       | …                          | n/a (iOS payee)                               | …                                              | …           | …                                        | n/a                                 | …                                    | pass/fail |
+| iOS → Android A (payee A)       | …                          | …                                             | n/a (iOS payer)                                | …           | n/a                                      | …                                   | n/a                                  | pass/fail |
 
 ### Negative cases
 
-| Case | Expected | Observed (ms / log line) |
-|---|---|---|
-| Payee Bluetooth off (Step 10.3) | `connect timeout: no route to peer` at ~6000 ms, fountain shown | … |
-| Second device, same QR (Step 10.4) | second payer times out; payee logs one `frame accepted` only | … |
-| Wrong-PSK sender (Step 10.5) | `connect timeout: no route to peer` (UUID never matches) | … |
-| Garbage write to FRAME (Step 10.5, nRF Connect) | `bad framing from` or `HELLO_A proof failed from`; next real payment still succeeds | … |
-| Payee screen locked, iOS payer (Step 12) | payer falls to fountain; payee logs no `frame accepted` | … |
+| Case                                            | Expected                                                                            | Observed (ms / log line) |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------ |
+| Payee Bluetooth off (Step 10.3)                 | `connect timeout: no route to peer` at ~6000 ms, fountain shown                     | …                        |
+| Second device, same QR (Step 10.4)              | second payer times out; payee logs one `frame accepted` only                        | …                        |
+| Wrong-PSK sender (Step 10.5)                    | `connect timeout: no route to peer` (UUID never matches)                            | …                        |
+| Garbage write to FRAME (Step 10.5, nRF Connect) | `bad framing from` or `HELLO_A proof failed from`; next real payment still succeeds | …                        |
+| Payee screen locked, iOS payer (Step 12)        | payer falls to fountain; payee logs no `frame accepted`                             | …                        |
 
 ### Findings
 
@@ -7330,7 +7390,6 @@ wrong-PSK, garbage-write and locked-screen negative cases.
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
-
 ---
 
 ### Task 10: NearbyFlow wiring, PresenceRow medium, i18n
@@ -7340,6 +7399,7 @@ Wires the BLE rung into the user-facing flow (spec §4 payee minting sequence, �
 Everything here builds on the names Tasks 1–9 created (see **Consumes**). Run the plan's filtered typecheck first (`npx tsc --noEmit -p packages/expo-wallet-toolbox/tsconfig.json 2>&1 | grep "error TS" | grep -v "core/pay/rails/handle.ts\|ui/components/pay/HandleReceive.tsx"`); if it prints anything before you start, stop and fix the earlier task — nothing in this task should be debugged against a broken baseline.
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/ui/components/ui/PresenceRow.tsx` (:81-96 props + `ICONS`; :100 signature; :167 icon call site)
 - Modify: `packages/expo-wallet-toolbox/__tests__/ui/PresenceRow.test.tsx` (append a `describe`)
 - Modify: `packages/expo-wallet-toolbox/core/localpay/deviceCaps.ts` (append `prepareBle`; `readBluetoothState` already exists from Task 6)
@@ -7355,6 +7415,7 @@ Everything here builds on the names Tasks 1–9 created (see **Consumes**). Run 
 **Interfaces:**
 
 Consumes (all must already exist from Tasks 1–9; grep each before starting):
+
 - `react-native-localpay-transport`: `getLocalPayBleTransport(): LocalPayBleTransport | null` with `bluetoothState(): string`, `prepare(timeoutMs: number): Promise<string>`
 - `core/localpay/types.ts`: `LocalPaymentTransport.kind: 'awdl' | 'nearby' | 'ble' | 'qr'`, `ReceivedFrame`, `ConfirmDelivery`
 - `core/localpay/session.ts`: `mintSession({ …, supportsBle?: boolean, hints?: number })`
@@ -7365,6 +7426,7 @@ Consumes (all must already exist from Tasks 1–9; grep each before starting):
 - Barrels `core/pay/rails/nearby.ts` and `core/index.ts` already re-export the above (Task 7). `NearbyFlow` imports from `@bsv/expo-wallet-toolbox`, which resolves to `core/index.ts` (`packages/expo-wallet-toolbox/package.json` `"main": "core/index.ts"`).
 
 Produces:
+
 - `PresenceRow` prop `medium?: 'wifi' | 'bluetooth'` (default `'wifi'`); `ready`/`waiting` glyph is `'bluetooth'` when `medium === 'bluetooth'`, else `'wifi'`. (`waiting` still draws the breathing dot, not the glyph — unchanged.)
 - `core/localpay/deviceCaps.ts`: `export async function prepareBle(timeoutMs: number = BLE_PREPARE_TIMEOUT_MS): Promise<BluetoothState>` (the one call that may show the iOS prompt; never rejects; `'unsupported'` when the accessor is null; reuses Task 6's module-private `asBluetoothState`).
 - `core/localpay/transport/race.ts`: `export type RadioKind = 'awdl' | 'nearby' | 'ble'`; `export interface RaceWinner extends ReceivedFrame { kind: RadioKind }`; `export function raceReceivers(transports: readonly LocalPaymentTransport[], session: Session, signal: AbortSignal, onError: (kind: RadioKind, error: unknown) => void): Promise<RaceWinner>`.
@@ -7379,7 +7441,6 @@ Produces:
 Open `packages/expo-wallet-toolbox/__tests__/ui/PresenceRow.test.tsx`. The `@expo/vector-icons` mock at the top of that file spreads every Ionicons prop onto a `View`, so the chosen glyph survives into `toJSON()` as a `name` prop — that is what these assertions read. Append the following at the very end of the file (after the closing `})` of the existing `describe('PresenceRow', …)`):
 
 ```tsx
-
 // The rendered tree, flattened to the Ionicons glyph names in it. The mock at
 // the top of this file spreads `name` onto a plain View, so no host node other
 // than a mocked icon carries that prop.
@@ -7483,13 +7544,13 @@ export default function PresenceRow({ state, label, peer, medium = 'wifi' }: Pre
 and the icon call site (was line 167) from
 
 ```tsx
-          <Ionicons name={ICONS[state]} size={13} color={dotColor} />
+<Ionicons name={ICONS[state]} size={13} color={dotColor} />
 ```
 
 to
 
 ```tsx
-          <Ionicons name={iconFor(state, medium)} size={13} color={dotColor} />
+<Ionicons name={iconFor(state, medium)} size={13} color={dotColor} />
 ```
 
 `ICONS` has no other reader in the file (`grep -n ICONS packages/expo-wallet-toolbox/ui/components/ui/PresenceRow.tsx` must now return nothing).
@@ -7609,7 +7670,6 @@ Expected: `Tests: 5 failed, 5 total`, each with `TypeError: (0 , _deviceCaps.pre
 Open `packages/expo-wallet-toolbox/core/localpay/deviceCaps.ts` (Task 6's file). Confirm it already has `import { getLocalPayBleTransport } from 'react-native-localpay-transport'`, the module-private `asBluetoothState(raw: unknown): BluetoothState` coercion, and the exported `readBluetoothState()` (all from Task 6). Append the following at the end of the file — it reuses `asBluetoothState`; do NOT add a second coercion helper or states array:
 
 ```ts
-
 /**
  * Instantiate the BLE managers and wait for them to settle. THE ONE CALL THAT
  * MAY SHOW THE iOS BLUETOOTH PROMPT, so the payee's minting step is the only
@@ -7741,7 +7801,10 @@ describe('raceReceivers', () => {
     nearby.fail(new Error('connect timeout: no route to peer'))
     await expect(settledOrPending(race)).resolves.toBe('pending')
     expect(onError).toHaveBeenCalledTimes(1)
-    expect(onError).toHaveBeenCalledWith('nearby', expect.objectContaining({ message: 'connect timeout: no route to peer' }))
+    expect(onError).toHaveBeenCalledWith(
+      'nearby',
+      expect.objectContaining({ message: 'connect timeout: no route to peer' })
+    )
     expect(ble.aborted()).toBe(false)
 
     ble.deliver()
@@ -7990,6 +8053,7 @@ Expected: one commit touching six files (two new tests, `race.ts`, `deviceCaps.t
 Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language block has exactly one line beginning `      local_pay_radio_fallback:` — `grep -n local_pay_radio_fallback packages/expo-wallet-toolbox/core/i18n/translations.tsx` lists the twelve anchors in block order (en, zh, hi, es, fr, ar, pt, bn, ru, id, ja, pl). Insert the six lines for that language IMMEDIATELY AFTER its anchor line. Work from the bottom (pl) upwards so the earlier line numbers stay valid, or re-run the grep after each insertion.
 
 `en` (after :714):
+
 ```ts
       local_pay_floor_peer_bt_off: 'Their Bluetooth is off, so this payment will go by code.',
       local_pay_floor_local_bt_off: 'Your Bluetooth is off. Turn it on for a faster nearby link.',
@@ -8000,6 +8064,7 @@ Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language bl
 ```
 
 `zh` (after :1230):
+
 ```ts
       local_pay_floor_peer_bt_off: '对方的蓝牙已关闭，此付款将通过二维码完成。',
       local_pay_floor_local_bt_off: '你的蓝牙已关闭。开启后可获得更快的近距离连接。',
@@ -8010,6 +8075,7 @@ Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language bl
 ```
 
 `hi` (after :1749):
+
 ```ts
       local_pay_floor_peer_bt_off: 'उनका ब्लूटूथ बंद है, इसलिए यह भुगतान कोड से होगा।',
       local_pay_floor_local_bt_off: 'आपका ब्लूटूथ बंद है। तेज़ नज़दीकी लिंक के लिए इसे चालू करें।',
@@ -8020,6 +8086,7 @@ Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language bl
 ```
 
 `es` (after :2271):
+
 ```ts
       local_pay_floor_peer_bt_off: 'Su Bluetooth está apagado, así que este pago se hará por código.',
       local_pay_floor_local_bt_off: 'Tu Bluetooth está apagado. Actívalo para un enlace cercano más rápido.',
@@ -8030,6 +8097,7 @@ Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language bl
 ```
 
 `fr` (after :2787):
+
 ```ts
       local_pay_floor_peer_bt_off: 'Leur Bluetooth est désactivé, ce paiement passera donc par le code.',
       local_pay_floor_local_bt_off: 'Votre Bluetooth est désactivé. Activez-le pour une liaison de proximité plus rapide.',
@@ -8040,6 +8108,7 @@ Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language bl
 ```
 
 `ar` (after :3299):
+
 ```ts
       local_pay_floor_peer_bt_off: 'بلوتوث الجهاز الآخر مُغلق، لذا ستتم هذه الدفعة عبر الرمز.',
       local_pay_floor_local_bt_off: 'بلوتوث جهازك مُغلق. شغّله للحصول على اتصال قريب أسرع.',
@@ -8050,6 +8119,7 @@ Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language bl
 ```
 
 `pt` (after :3814):
+
 ```ts
       local_pay_floor_peer_bt_off: 'O Bluetooth deles está desligado, então este pagamento será feito por código.',
       local_pay_floor_local_bt_off: 'Seu Bluetooth está desligado. Ligue-o para um link por perto mais rápido.',
@@ -8060,6 +8130,7 @@ Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language bl
 ```
 
 `bn` (after :4328):
+
 ```ts
       local_pay_floor_peer_bt_off: 'তাদের ব্লুটুথ বন্ধ, তাই এই পেমেন্ট কোডের মাধ্যমে হবে।',
       local_pay_floor_local_bt_off: 'আপনার ব্লুটুথ বন্ধ। দ্রুততর কাছাকাছি লিঙ্কের জন্য এটি চালু করুন।',
@@ -8070,6 +8141,7 @@ Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language bl
 ```
 
 `ru` (after :4844):
+
 ```ts
       local_pay_floor_peer_bt_off: 'У них выключен Bluetooth, поэтому этот платёж пройдёт по коду.',
       local_pay_floor_local_bt_off: 'У вас выключен Bluetooth. Включите его для более быстрой связи поблизости.',
@@ -8080,6 +8152,7 @@ Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language bl
 ```
 
 `id` (after :5359):
+
 ```ts
       local_pay_floor_peer_bt_off: 'Bluetooth mereka mati, jadi pembayaran ini akan dilakukan lewat kode.',
       local_pay_floor_local_bt_off: 'Bluetooth Anda mati. Nyalakan untuk tautan terdekat yang lebih cepat.',
@@ -8090,6 +8163,7 @@ Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language bl
 ```
 
 `ja` (after :5889):
+
 ```ts
       local_pay_floor_peer_bt_off: '相手のBluetoothがオフのため、この支払いはコードで行います。',
       local_pay_floor_local_bt_off: 'Bluetoothがオフです。オンにすると、より速い近距離リンクが使えます。',
@@ -8100,6 +8174,7 @@ Open `packages/expo-wallet-toolbox/core/i18n/translations.tsx`. Each language bl
 ```
 
 `pl` (after :6419):
+
 ```ts
       local_pay_floor_peer_bt_off: 'Ich Bluetooth jest wyłączony, więc ta płatność przejdzie przez kod.',
       local_pay_floor_local_bt_off: 'Twój Bluetooth jest wyłączony. Włącz go, aby uzyskać szybsze połączenie w pobliżu.',
@@ -8195,11 +8270,13 @@ with
   describeFloor,
   encodeSession,
 ```
+
 ```ts
   localSupportsAwdl,
   localSupportsBle,
   localSupportsNearby,
 ```
+
 ```ts
   nextPhaseAfterUnsealFailure,
   prepareBle,
@@ -8210,6 +8287,7 @@ with
   requestBlePermissions,
   requestNearbyPermissions,
 ```
+
 ```ts
   type Ack,
   type BluetoothState,
@@ -8227,7 +8305,6 @@ with
 (c) Floor copy table. Directly after the `DECLINE_KEYS` const (lines 311-316; ends with `}` just before `const NOTICE_ICONS`), add:
 
 ```ts
-
 /**
  * Why the payer is on the fountain, as one sentence they can act on. Only ever
  * rendered when selectTransport() chose QR (spec §5) — this is what the hint
@@ -8248,84 +8325,84 @@ const FLOOR_KEYS: Record<Exclude<FloorReason, 'none'>, string> = {
 (a) Replace the `nearbyError` state (lines 441-447 before the edits above, i.e. the JSDoc beginning `The AWDL fast path gave up.` through `useState<{ networkDenied: boolean } | null>(null)`) with:
 
 ```ts
-  /**
-   * A radio listener gave up, per radio. Non-fatal by design — the pairing QR
-   * is still on screen and a QR-path payer can still complete, and any OTHER
-   * radio still listening keeps the request live on that rung. Keyed by kind so
-   * the presence row can say "waiting" while one radio is alive and the notice
-   * can name the one that is not.
-   */
-  const [radioErrors, setRadioErrors] = useState<Partial<Record<RadioKind, { networkDenied: boolean }>>>({})
+/**
+ * A radio listener gave up, per radio. Non-fatal by design — the pairing QR
+ * is still on screen and a QR-path payer can still complete, and any OTHER
+ * radio still listening keeps the request live on that rung. Keyed by kind so
+ * the presence row can say "waiting" while one radio is alive and the notice
+ * can name the one that is not.
+ */
+const [radioErrors, setRadioErrors] = useState<Partial<Record<RadioKind, { networkDenied: boolean }>>>({})
 
-  /**
-   * What this device's Bluetooth radio reported. The payee learns it from
-   * prepareBle() at minting (the one call that may show the iOS prompt); the
-   * payer reads it prompt-free on scanning a session, so describeFloor can say
-   * "your Bluetooth is off" without ever prompting someone about to pay by code.
-   */
-  const [bleState, setBleState] = useState<BluetoothState>('unknown')
-  /**
-   * Android's runtime grants for BLE landed (or are not needed: iOS gates BLE
-   * through prepare() instead). Nearby's grant set is a superset of BLE's on
-   * every API level, so on a GMS device the one Nearby prompt answers both.
-   */
-  const [blePermitted, setBlePermitted] = useState(Platform.OS !== 'android')
+/**
+ * What this device's Bluetooth radio reported. The payee learns it from
+ * prepareBle() at minting (the one call that may show the iOS prompt); the
+ * payer reads it prompt-free on scanning a session, so describeFloor can say
+ * "your Bluetooth is off" without ever prompting someone about to pay by code.
+ */
+const [bleState, setBleState] = useState<BluetoothState>('unknown')
+/**
+ * Android's runtime grants for BLE landed (or are not needed: iOS gates BLE
+ * through prepare() instead). Nearby's grant set is a superset of BLE's on
+ * every API level, so on a GMS device the one Nearby prompt answers both.
+ */
+const [blePermitted, setBlePermitted] = useState(Platform.OS !== 'android')
 ```
 
 (b) Replace the Nearby permission block and `radioTransport` memo (lines 501-523: the JSDoc beginning `Nearby is usable only once BOTH hold` through the closing `)` of `const radioTransport = useMemo(`) with:
 
 ```ts
-  /**
-   * Nearby is usable only once BOTH hold: GMS is present (localSupportsNearby)
-   * and the runtime grants landed. Resolved async on mount, Android only; a
-   * denial leaves this false and the flow QR-only, silently — same posture as
-   * a GMS-less device.
-   *
-   * Spec §7: at flow entry the payee asks for Nearby's grants where GMS is
-   * present (that set covers BLE too), and otherwise for BLE's alone. The payer
-   * is never prompted for BLE here — executeSend asks lazily, only once BLE has
-   * actually been selected, so a payer landing on QR sees no prompt.
-   */
-  const [nearbyReady, setNearbyReady] = useState(false)
-  useEffect(() => {
-    if (Platform.OS !== 'android') return
-    let live = true
-    if (localSupportsNearby()) {
-      void requestNearbyPermissions().then(granted => {
-        if (!live) return
-        setNearbyReady(granted)
-        setBlePermitted(granted)
-      })
-    } else if (initialRole === 'payee' && localSupportsBle()) {
-      // localSupportsBle() is false while the radio is off (Task 9's isSupported
-      // reads BluetoothAdapter.isEnabled), so a GMS-less payee who enters with
-      // Bluetooth off stays QR-only until the screen is re-entered — the same
-      // posture as a Nearby denial.
-      void requestBlePermissions().then(granted => {
-        if (live) setBlePermitted(granted)
-      })
-    }
-    return () => {
-      live = false
-    }
-  }, [initialRole])
+/**
+ * Nearby is usable only once BOTH hold: GMS is present (localSupportsNearby)
+ * and the runtime grants landed. Resolved async on mount, Android only; a
+ * denial leaves this false and the flow QR-only, silently — same posture as
+ * a GMS-less device.
+ *
+ * Spec §7: at flow entry the payee asks for Nearby's grants where GMS is
+ * present (that set covers BLE too), and otherwise for BLE's alone. The payer
+ * is never prompted for BLE here — executeSend asks lazily, only once BLE has
+ * actually been selected, so a payer landing on QR sees no prompt.
+ */
+const [nearbyReady, setNearbyReady] = useState(false)
+useEffect(() => {
+  if (Platform.OS !== 'android') return
+  let live = true
+  if (localSupportsNearby()) {
+    void requestNearbyPermissions().then(granted => {
+      if (!live) return
+      setNearbyReady(granted)
+      setBlePermitted(granted)
+    })
+  } else if (initialRole === 'payee' && localSupportsBle()) {
+    // localSupportsBle() is false while the radio is off (Task 9's isSupported
+    // reads BluetoothAdapter.isEnabled), so a GMS-less payee who enters with
+    // Bluetooth off stays QR-only until the screen is re-entered — the same
+    // posture as a Nearby denial.
+    void requestBlePermissions().then(granted => {
+      if (live) setBlePermitted(granted)
+    })
+  }
+  return () => {
+    live = false
+  }
+}, [initialRole])
 
-  /** BLE can be listened on: radio powered on and (on Android) the grants landed. */
-  const bleReady = bleState === 'poweredOn' && blePermitted
+/** BLE can be listened on: radio powered on and (on Android) the grants landed. */
+const bleReady = bleState === 'poweredOn' && blePermitted
 
-  /**
-   * Every radio this device listens on as payee. The platform socket radio
-   * (AWDL on iOS, Nearby on Android — they share one native object, so never
-   * both) plus BLE when it is ready. Empty means QR-only. Order is irrelevant:
-   * raceReceivers starts all of them and the first frame wins (spec §6).
-   */
-  const radioTransports = useMemo<LocalPaymentTransport[]>(() => {
-    const list: LocalPaymentTransport[] = []
-    if (supportsAwdl) list.push(awdlTransport)
-    else if (nearbyReady) list.push(nearbyTransport)
-    if (bleReady) list.push(bleTransport)
-    return list
-  }, [supportsAwdl, nearbyReady, bleReady])
+/**
+ * Every radio this device listens on as payee. The platform socket radio
+ * (AWDL on iOS, Nearby on Android — they share one native object, so never
+ * both) plus BLE when it is ready. Empty means QR-only. Order is irrelevant:
+ * raceReceivers starts all of them and the first frame wins (spec §6).
+ */
+const radioTransports = useMemo<LocalPaymentTransport[]>(() => {
+  const list: LocalPaymentTransport[] = []
+  if (supportsAwdl) list.push(awdlTransport)
+  else if (nearbyReady) list.push(nearbyTransport)
+  if (bleReady) list.push(bleTransport)
+  return list
+}, [supportsAwdl, nearbyReady, bleReady])
 ```
 
 (c) In `reset` (was line 605), replace `    setNearbyError(null)` with `    setRadioErrors({})`. `bleState` is deliberately NOT reset: it is a fact about this device, not about a request.
@@ -8349,26 +8426,26 @@ to
 (b) Replace the `savePending` comment and call (was lines 780-790, from `//     `confirm` is only ever supplied by a radio receive path` through the `await savePending(...)` line) with:
 
 ```ts
-        //     `confirm` is only ever supplied by a radio receive path (the
-        //     listener effect above; the QR/retry callers below omit it) — the
-        //     same signal `Unsettled` already keys off of, reused here to
-        //     attribute the queue row to a transport. `via` is the radio
-        //     raceReceivers reported as the winner; the 'awdl' fallback covers
-        //     only the (unreachable in practice) case of a confirm handle with
-        //     no winner attached.
-        await savePending(storage, frame, confirm ? (via ?? 'awdl') : 'qr')
+//     `confirm` is only ever supplied by a radio receive path (the
+//     listener effect above; the QR/retry callers below omit it) — the
+//     same signal `Unsettled` already keys off of, reused here to
+//     attribute the queue row to a transport. `via` is the radio
+//     raceReceivers reported as the winner; the 'awdl' fallback covers
+//     only the (unreachable in practice) case of a confirm handle with
+//     no winner attached.
+await savePending(storage, frame, confirm ? (via ?? 'awdl') : 'qr')
 ```
 
 (c) In the dependency array of `settleReceived` (was line 896), replace
 
 ```ts
-    [storage, wallet, adminOriginator, radioTransport, fail, t]
+;[storage, wallet, adminOriginator, radioTransport, fail, t]
 ```
 
 with
 
 ```ts
-    [storage, wallet, adminOriginator, fail, t]
+;[storage, wallet, adminOriginator, fail, t]
 ```
 
 - [ ] **Step 21: NearbyFlow — the multi-listener effect**
@@ -8376,57 +8453,57 @@ with
 Replace the whole listener effect (was lines 906-947: from the comment block `// ── Receive: AWDL listener ──` through `}, [hostedSession, focused, radioTransport, listenerEpoch])`) with:
 
 ```ts
-  // ── Receive: radio listeners ──
-  //
-  // One listener per radio this device offers, all started together; the first
-  // frame wins and the rest are aborted before settle (raceReceivers, spec §6).
-  // The pairing QR is rendered regardless, so a QR-path payer can always
-  // complete against the same session.
+// ── Receive: radio listeners ──
+//
+// One listener per radio this device offers, all started together; the first
+// frame wins and the rest are aborted before settle (raceReceivers, spec §6).
+// The pairing QR is rendered regardless, so a QR-path payer can always
+// complete against the same session.
 
-  useEffect(() => {
-    if (!hostedSession || !focused) return
-    if (radioTransports.length === 0) return
+useEffect(() => {
+  if (!hostedSession || !focused) return
+  if (radioTransports.length === 0) return
 
-    // The Set identity is stable for the component's lifetime, but capture it so
-    // the cleanup never reaches through a ref that may have been reassigned.
-    const registry = abortsRef.current
-    const controller = new AbortController()
-    registry.add(controller)
-    setRadioErrors({})
+  // The Set identity is stable for the component's lifetime, but capture it so
+  // the cleanup never reaches through a ref that may have been reassigned.
+  const registry = abortsRef.current
+  const controller = new AbortController()
+  registry.add(controller)
+  setRadioErrors({})
 
-    raceReceivers(radioTransports, hostedSession, controller.signal, (kind, e) => {
-      if (controller.signal.aborted) return
-      // Never terminal. Every radio is an optional fast path; one failing must
-      // not unmount the pairing QR a QR-path payer is relying on, nor stop the
-      // other radios. One native error site also fires on a failed ack AFTER
-      // the frame reached JS, so flipping to a failure screen here could
-      // contradict a settle already in flight. The Local Network heuristic is
-      // about Wi-Fi radios only — a BLE failure never offers that Settings route.
-      setRadioErrors(prev => ({
-        ...prev,
-        [kind]: { networkDenied: kind !== 'ble' && looksLikeLocalNetworkDenial(messageOf(e)) }
-      }))
+  raceReceivers(radioTransports, hostedSession, controller.signal, (kind, e) => {
+    if (controller.signal.aborted) return
+    // Never terminal. Every radio is an optional fast path; one failing must
+    // not unmount the pairing QR a QR-path payer is relying on, nor stop the
+    // other radios. One native error site also fires on a failed ack AFTER
+    // the frame reached JS, so flipping to a failure screen here could
+    // contradict a settle already in flight. The Local Network heuristic is
+    // about Wi-Fi radios only — a BLE failure never offers that Settings route.
+    setRadioErrors(prev => ({
+      ...prev,
+      [kind]: { networkDenied: kind !== 'ble' && looksLikeLocalNetworkDenial(messageOf(e)) }
+    }))
+  })
+    .then(({ kind, frame, confirm }) => {
+      if (controller.signal.aborted) {
+        // The screen went away between delivery and here. The payer is
+        // holding an un-acked connection and nothing was written, so tell it
+        // rather than leaving it to time out on a green "Sent".
+        void confirm(false, 'save_failed')
+        return
+      }
+      void settleRef.current(frame, hostedSession, confirm, kind)
     })
-      .then(({ kind, frame, confirm }) => {
-        if (controller.signal.aborted) {
-          // The screen went away between delivery and here. The payer is
-          // holding an un-acked connection and nothing was written, so tell it
-          // rather than leaving it to time out on a green "Sent".
-          void confirm(false, 'save_failed')
-          return
-        }
-        void settleRef.current(frame, hostedSession, confirm, kind)
-      })
-      .catch(() => {
-        // Every radio has already been reported through onError above (or the
-        // effect was torn down). Nothing further to show.
-      })
+    .catch(() => {
+      // Every radio has already been reported through onError above (or the
+      // effect was torn down). Nothing further to show.
+    })
 
-    return () => {
-      controller.abort()
-      registry.delete(controller)
-    }
-  }, [hostedSession, focused, radioTransports, listenerEpoch])
+  return () => {
+    controller.abort()
+    registry.delete(controller)
+  }
+}, [hostedSession, focused, radioTransports, listenerEpoch])
 ```
 
 - [ ] **Step 22: NearbyFlow — mint with the device probe and BLE prepare**
@@ -8434,73 +8511,73 @@ Replace the whole listener effect (was lines 906-947: from the comment block `//
 Replace the body of `startRequest` (was lines 951-993) with:
 
 ```ts
-  const startRequest = useCallback(async () => {
-    // Zero (or blank) is the user asking the payer to choose, so it becomes an
-    // open session rather than a rejected input. Undefined, never 0 — the codec
-    // refuses a non-positive amount precisely so a corrupt zero can never be
-    // read back as "any amount".
-    const requested = satsFrom(requestAmount)
-    const sats = requested > 0 ? requested : undefined
-    // Gate on storage too, not just the wallet. Advertising with storage null
-    // means a payer can deliver a frame the payee then cannot persist, after the
-    // transport has already acked it as accepted.
-    if (!wallet || !storage) {
-      fail('generic', t('wallet_not_ready'))
-      return
-    }
-    setPhase('receive_minting')
-    setRadioErrors({})
-    setSessionQrBroken(false)
-    setSessionMismatch(false)
-    try {
-      // Prompt-free and re-read on every mint, unlike supportsAwdl (whose probe
-      // can raise the Local Network prompt): a radio switched on since the last
-      // request must be picked up without leaving the screen. `notDetermined`
-      // on iOS counts as supported so the prompt can follow inside prepareBle.
-      const bleHere = localSupportsBle()
-      // Everything the request needs, in parallel (spec §4): the identity key,
-      // the two wallet nonces, the prompt-free device probe and — only where
-      // this device has a BLE radio — the one call that may show the iOS
-      // Bluetooth prompt. It appears here, at the moment the user has asked to
-      // receive a nearby payment, the same moment the Local Network prompt
-      // already can. Minting is never slower than the slowest of these, and
-      // both probes are bounded (BLE_PREPARE_TIMEOUT_MS, DEFAULT_NET_BUDGET_MS).
-      const [{ publicKey: identityKey }, derivationPrefix, derivationSuffix, probe, bleNow] = await Promise.all([
-        wallet.getPublicKey({ identityKey: true }, adminOriginator),
-        createNonce(wallet, 'self', adminOriginator),
-        createNonce(wallet, 'self', adminOriginator),
-        probeDeviceCaps(),
-        bleHere ? prepareBle() : Promise.resolve<BluetoothState>('unsupported')
-      ])
-      setBleState(bleNow)
-      // Advertise BLE only where this device will actually listen on it: radio
-      // powered on AND (Android) the runtime grants landed. A CAP_BLE bit with
-      // no advertiser behind it would walk every cross-OS payer into a 6 s
-      // connect timeout before the fountain.
-      const bleLive = bleNow === 'poweredOn' && blePermitted
-      const session = mintSession({
-        identityKey,
-        amount: sats,
-        derivationPrefix,
-        derivationSuffix,
-        // Caps advertise what this payee can DO; the payer's ladder picks the
-        // highest rung both sides share, QR being the floor.
-        supportsAwdl,
-        supportsNearby: nearbyReady,
-        supportsBle: bleLive,
-        // prepare() settles the Bluetooth answer the prompt-free probe may have
-        // read as 'unknown' a moment earlier, so where it ran it overrides the
-        // probe's field. The hint bits are copy for the payer, not dispatch.
-        hints: capsFromProbe({ ...probe, bluetooth: bleHere ? bleNow : probe.bluetooth }),
-        os: Platform.OS === 'ios' ? 'ios' : 'android'
-      })
-      setRole('payee')
-      setHostedSession(session)
-      setPhase('receive_wait')
-    } catch (e) {
-      fail('generic', messageOf(e))
-    }
-  }, [requestAmount, wallet, storage, adminOriginator, supportsAwdl, nearbyReady, blePermitted, fail, t])
+const startRequest = useCallback(async () => {
+  // Zero (or blank) is the user asking the payer to choose, so it becomes an
+  // open session rather than a rejected input. Undefined, never 0 — the codec
+  // refuses a non-positive amount precisely so a corrupt zero can never be
+  // read back as "any amount".
+  const requested = satsFrom(requestAmount)
+  const sats = requested > 0 ? requested : undefined
+  // Gate on storage too, not just the wallet. Advertising with storage null
+  // means a payer can deliver a frame the payee then cannot persist, after the
+  // transport has already acked it as accepted.
+  if (!wallet || !storage) {
+    fail('generic', t('wallet_not_ready'))
+    return
+  }
+  setPhase('receive_minting')
+  setRadioErrors({})
+  setSessionQrBroken(false)
+  setSessionMismatch(false)
+  try {
+    // Prompt-free and re-read on every mint, unlike supportsAwdl (whose probe
+    // can raise the Local Network prompt): a radio switched on since the last
+    // request must be picked up without leaving the screen. `notDetermined`
+    // on iOS counts as supported so the prompt can follow inside prepareBle.
+    const bleHere = localSupportsBle()
+    // Everything the request needs, in parallel (spec §4): the identity key,
+    // the two wallet nonces, the prompt-free device probe and — only where
+    // this device has a BLE radio — the one call that may show the iOS
+    // Bluetooth prompt. It appears here, at the moment the user has asked to
+    // receive a nearby payment, the same moment the Local Network prompt
+    // already can. Minting is never slower than the slowest of these, and
+    // both probes are bounded (BLE_PREPARE_TIMEOUT_MS, DEFAULT_NET_BUDGET_MS).
+    const [{ publicKey: identityKey }, derivationPrefix, derivationSuffix, probe, bleNow] = await Promise.all([
+      wallet.getPublicKey({ identityKey: true }, adminOriginator),
+      createNonce(wallet, 'self', adminOriginator),
+      createNonce(wallet, 'self', adminOriginator),
+      probeDeviceCaps(),
+      bleHere ? prepareBle() : Promise.resolve<BluetoothState>('unsupported')
+    ])
+    setBleState(bleNow)
+    // Advertise BLE only where this device will actually listen on it: radio
+    // powered on AND (Android) the runtime grants landed. A CAP_BLE bit with
+    // no advertiser behind it would walk every cross-OS payer into a 6 s
+    // connect timeout before the fountain.
+    const bleLive = bleNow === 'poweredOn' && blePermitted
+    const session = mintSession({
+      identityKey,
+      amount: sats,
+      derivationPrefix,
+      derivationSuffix,
+      // Caps advertise what this payee can DO; the payer's ladder picks the
+      // highest rung both sides share, QR being the floor.
+      supportsAwdl,
+      supportsNearby: nearbyReady,
+      supportsBle: bleLive,
+      // prepare() settles the Bluetooth answer the prompt-free probe may have
+      // read as 'unknown' a moment earlier, so where it ran it overrides the
+      // probe's field. The hint bits are copy for the payer, not dispatch.
+      hints: capsFromProbe({ ...probe, bluetooth: bleHere ? bleNow : probe.bluetooth }),
+      os: Platform.OS === 'ios' ? 'ios' : 'android'
+    })
+    setRole('payee')
+    setHostedSession(session)
+    setPhase('receive_wait')
+  } catch (e) {
+    fail('generic', messageOf(e))
+  }
+}, [requestAmount, wallet, storage, adminOriginator, supportsAwdl, nearbyReady, blePermitted, fail, t])
 ```
 
 (`setBleState` and `setHostedSession` are issued in the same continuation; React 18 batches them, so `radioTransports` and `hostedSession` change together and the listener effect starts every radio in one pass. If they ever did not, the effect would simply restart once — aborting a listener that had not yet received anything, which is harmless.)
@@ -8510,27 +8587,26 @@ Replace the body of `startRequest` (was lines 951-993) with:
 (a) In `onSessionScanned` (was lines 1044-1061), directly after `setScannedSession(session)` add:
 
 ```ts
-      // Prompt-free read of this device's Bluetooth state for describeFloor.
-      // Never prepare() here: a payer who lands on QR must never be prompted.
-      setBleState(readBluetoothState())
+// Prompt-free read of this device's Bluetooth state for describeFloor.
+// Never prepare() here: a payer who lands on QR must never be prompted.
+setBleState(readBluetoothState())
 ```
 
 (b) Directly after the `sendKind` memo (was line 1074, `const sendKind = useMemo(...)`), add:
 
 ```ts
-
-  /**
-   * Why this payer is on the fountain, if it is. Evaluated only once
-   * selectTransport() chose QR (spec §5); 'none' otherwise, and 'none' when the
-   * hint bits explain nothing — the confirm screen then says nothing extra.
-   */
-  const floorReason = useMemo<FloorReason>(
-    () =>
-      sendKind === 'qr' && scannedSession
-        ? describeFloor(scannedSession, { os: Platform.OS === 'ios' ? 'ios' : 'android', bluetooth: bleState })
-        : 'none',
-    [sendKind, scannedSession, bleState]
-  )
+/**
+ * Why this payer is on the fountain, if it is. Evaluated only once
+ * selectTransport() chose QR (spec §5); 'none' otherwise, and 'none' when the
+ * hint bits explain nothing — the confirm screen then says nothing extra.
+ */
+const floorReason = useMemo<FloorReason>(
+  () =>
+    sendKind === 'qr' && scannedSession
+      ? describeFloor(scannedSession, { os: Platform.OS === 'ios' ? 'ios' : 'android', bluetooth: bleState })
+      : 'none',
+  [sendKind, scannedSession, bleState]
+)
 ```
 
 (c) In `executeSend`, replace (was lines 1198-1204):
@@ -8572,68 +8648,67 @@ The `executeSend` dependency array is unchanged: `requestBlePermissions`, `bleTr
 (a) Replace (was line 1497):
 
 ```ts
-  const radioActive = hostedSession !== null && radioTransport !== null && nearbyError === null
+const radioActive = hostedSession !== null && radioTransport !== null && nearbyError === null
 ```
 
 with
 
 ```ts
-  /** Radios that have given up, in a render-friendly shape. */
-  const radioFailures = useMemo(
-    () =>
-      (Object.entries(radioErrors) as [RadioKind, { networkDenied: boolean } | undefined][]).filter(
-        (entry): entry is [RadioKind, { networkDenied: boolean }] => entry[1] !== undefined
-      ),
-    [radioErrors]
-  )
-  /** Listening over at least one radio link right now. Goes false once every fast path gives up. */
-  const radioActive = hostedSession !== null && radioTransports.some(tr => !radioErrors[tr.kind as RadioKind])
+/** Radios that have given up, in a render-friendly shape. */
+const radioFailures = useMemo(
+  () =>
+    (Object.entries(radioErrors) as [RadioKind, { networkDenied: boolean } | undefined][]).filter(
+      (entry): entry is [RadioKind, { networkDenied: boolean }] => entry[1] !== undefined
+    ),
+  [radioErrors]
+)
+/** Listening over at least one radio link right now. Goes false once every fast path gives up. */
+const radioActive = hostedSession !== null && radioTransports.some(tr => !radioErrors[tr.kind as RadioKind])
 ```
 
 (b) In the `presence` memo (was lines 1509-1550), replace
 
 ```ts
-      // Every payer branch degrades to `qr` when the QR transport was selected,
-      // because on that path the two devices genuinely never speak. `awdl` and
-      // `nearby` are both live radio links (iOS and Android respectively), so
-      // either counts here.
-      const onRadio = sendKind === 'awdl' || sendKind === 'nearby'
+// Every payer branch degrades to `qr` when the QR transport was selected,
+// because on that path the two devices genuinely never speak. `awdl` and
+// `nearby` are both live radio links (iOS and Android respectively), so
+// either counts here.
+const onRadio = sendKind === 'awdl' || sendKind === 'nearby'
 ```
 
 with
 
 ```ts
-      // Every payer branch degrades to `qr` when the QR transport was selected,
-      // because on that path the two devices genuinely never speak. `awdl`,
-      // `nearby` and `ble` are all live radio links, so any of them counts here.
-      const onRadio = sendKind === 'awdl' || sendKind === 'nearby' || sendKind === 'ble'
+// Every payer branch degrades to `qr` when the QR transport was selected,
+// because on that path the two devices genuinely never speak. `awdl`,
+// `nearby` and `ble` are all live radio links, so any of them counts here.
+const onRadio = sendKind === 'awdl' || sendKind === 'nearby' || sendKind === 'ble'
 ```
 
 (c) Directly after the `presence` memo's closing `}, [phase, role, linked, radioActive, sendKind, t])`, add:
 
 ```ts
-
-  /**
-   * Which radio the presence row's glyph names. The payee shows Bluetooth only
-   * when BLE is the ONLY radio still listening — while Wi-Fi is alive it is the
-   * faster rung and the one a same-OS payer will land on. The payer shows the
-   * rung the ladder actually picked (spec §6).
-   */
-  const presenceMedium = useMemo<'wifi' | 'bluetooth'>(() => {
-    if (role === 'payer') return sendKind === 'ble' ? 'bluetooth' : 'wifi'
-    const live = radioTransports.filter(tr => !radioErrors[tr.kind as RadioKind])
-    return live.length > 0 && live.every(tr => tr.kind === 'ble') ? 'bluetooth' : 'wifi'
-  }, [role, sendKind, radioTransports, radioErrors])
+/**
+ * Which radio the presence row's glyph names. The payee shows Bluetooth only
+ * when BLE is the ONLY radio still listening — while Wi-Fi is alive it is the
+ * faster rung and the one a same-OS payer will land on. The payer shows the
+ * rung the ladder actually picked (spec §6).
+ */
+const presenceMedium = useMemo<'wifi' | 'bluetooth'>(() => {
+  if (role === 'payer') return sendKind === 'ble' ? 'bluetooth' : 'wifi'
+  const live = radioTransports.filter(tr => !radioErrors[tr.kind as RadioKind])
+  return live.length > 0 && live.every(tr => tr.kind === 'ble') ? 'bluetooth' : 'wifi'
+}, [role, sendKind, radioTransports, radioErrors])
 ```
 
 (d) Replace `presenceBlock` (was lines 1586-1590):
 
 ```tsx
-  const presenceBlock = presence ? (
-    <View style={styles.presenceSlot}>
-      <PresenceRow state={presence.state} label={presence.label} peer={peerName} medium={presenceMedium} />
-    </View>
-  ) : null
+const presenceBlock = presence ? (
+  <View style={styles.presenceSlot}>
+    <PresenceRow state={presence.state} label={presence.label} peer={peerName} medium={presenceMedium} />
+  </View>
+) : null
 ```
 
 - [ ] **Step 25: NearbyFlow — the two render sites**
@@ -8641,71 +8716,81 @@ with
 (a) receive_wait. Replace (was lines 1807-1835, from the comment `{/* The fast path gave up.` through the `)}` that closes `{nearbyError?.networkDenied && (`) with:
 
 ```tsx
-            {/* A radio gave up. The request is still live over QR — and over
+{
+  /* A radio gave up. The request is still live over QR — and over
                 any other radio still listening — so each of these is an
-                advisory, not a failure: the pairing QR above still works. */}
-            {radioFailures.map(([kind, err]) => (
-              <React.Fragment key={kind}>
-                <View style={styles.gapLg} />
-                <Animated.View
-                  entering={fadeIn}
-                  style={[styles.notice, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
-                >
-                  <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
-                  <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
-                    {err.networkDenied
-                      ? t('local_pay_network_denied')
-                      : kind === 'ble'
-                        ? t('local_pay_ble_unavailable')
-                        : t('local_pay_nearby_unavailable')}
-                  </Text>
-                </Animated.View>
-              </React.Fragment>
-            ))}
+                advisory, not a failure: the pairing QR above still works. */
+}
+{
+  radioFailures.map(([kind, err]) => (
+    <React.Fragment key={kind}>
+      <View style={styles.gapLg} />
+      <Animated.View
+        entering={fadeIn}
+        style={[styles.notice, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
+      >
+        <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
+        <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
+          {err.networkDenied
+            ? t('local_pay_network_denied')
+            : kind === 'ble'
+              ? t('local_pay_ble_unavailable')
+              : t('local_pay_nearby_unavailable')}
+        </Text>
+      </Animated.View>
+    </React.Fragment>
+  ))
+}
 
-            <View style={styles.gapXl} />
-            {radioFailures.some(([, err]) => err.networkDenied) && (
-              <>
-                <SecondaryButton
-                  styles={styles}
-                  colors={colors}
-                  icon="settings-outline"
-                  label={t('open_settings')}
-                  onPress={() => void Linking.openSettings()}
-                />
-                <View style={styles.gapMd} />
-              </>
-            )}
+;<View style={styles.gapXl} />
+{
+  radioFailures.some(([, err]) => err.networkDenied) && (
+    <>
+      <SecondaryButton
+        styles={styles}
+        colors={colors}
+        icon="settings-outline"
+        label={t('open_settings')}
+        onPress={() => void Linking.openSettings()}
+      />
+      <View style={styles.gapMd} />
+    </>
+  )
+}
 ```
 
 (b) send_confirm. Inside `{phase === 'send_confirm' && scannedSession && (`, the presence slot reads (was lines 1874-1875):
 
 ```tsx
-            <View style={styles.gapLg} />
-            {presenceBlock}
+;<View style={styles.gapLg} />
+{
+  presenceBlock
+}
 ```
 
 Directly after that `{presenceBlock}` line add:
 
 ```tsx
-            {floorReason !== 'none' && (
-              <>
-                <View style={styles.gapLg} />
-                {supportText(t(FLOOR_KEYS[floorReason]))}
-                {floorReason === 'local_ble_denied' && (
-                  <>
-                    <View style={styles.gapMd} />
-                    <SecondaryButton
-                      styles={styles}
-                      colors={colors}
-                      icon="settings-outline"
-                      label={t('open_settings')}
-                      onPress={() => void Linking.openSettings()}
-                    />
-                  </>
-                )}
-              </>
-            )}
+{
+  floorReason !== 'none' && (
+    <>
+      <View style={styles.gapLg} />
+      {supportText(t(FLOOR_KEYS[floorReason]))}
+      {floorReason === 'local_ble_denied' && (
+        <>
+          <View style={styles.gapMd} />
+          <SecondaryButton
+            styles={styles}
+            colors={colors}
+            icon="settings-outline"
+            label={t('open_settings')}
+            onPress={() => void Linking.openSettings()}
+          />
+        </>
+      )}
+    </>
+  )
+}
 ```
 
 (c) Confirm nothing stale remains:
@@ -8770,22 +8855,21 @@ Expected: each ends with EAS's `Build successful` and the path of a new `build-<
 
 Watch native logs while running each row — iOS: `log stream --predicate 'subsystem == "org.bsvblockchain.wallet" AND category == "LocalPayBle"' --level debug` in Terminal with the phone attached (Console.app filter `subsystem:org.bsvblockchain.wallet category:LocalPayBle`); Android: `adb logcat -s LocalPayBle:D ReactNativeJS:W`. The log strings below are the ones Task 8 (Swift, `os_log`) and Task 9 (Kotlin, `Log.d`) actually emit. Record the measured numbers next to each row in the PR description.
 
-| # | Setup | Do | Expect on screen | Expect in logs |
-|---|---|---|---|---|
-| 1 | Android payee, iPhone payer, Bluetooth on both, Wi-Fi off on both | Payee: Pay → Receive → Continue. Payer: scan. | Payee `receive_wait` presence shows the **bluetooth** glyph in the `waiting` state. Payer `send_confirm` shows the `ready` state with the bluetooth glyph and NO floor sentence. Send → `Payment sent`; payee `Payment received`. | Payee (logcat `LocalPayBle`): `prepare: poweredOn`, `payee: advertising <uuid>`, `payee: HELLO_A verified from <mac>`, `payee: frame accepted (<n> bytes, mtu <M>)`, `payee: ack ok=true delivered=true`. Payer (Console `LocalPayBle`): `scanning service=<uuid>`, `scan hit rssi=… ms=…`, `connected id=… maxWriteLen=…`, `subscribed ms=…`, `hello verified ms=…`, `frame written bytes=… ms=…`, `ack verified bytes=11 ms=…`. Note the `ms` values. |
-| 2 | Same as 1 but iPhone payee, Android payer | Same | Same, mirrored. | Payee (Console): `prepare resolved state=poweredOn`, `advertising started service=<uuid> name=bsvpay-…`, `central connected id=… maxUpdate=…`, `hello verified id=…`, `frame accepted bytes=… id=…`, `ack sent ok=1 bytes=44`. Payer (logcat): `payer: scanning for <uuid>`, `payer: found …`, `payer: connected … requesting mtu 517`, `payer: mtu <M>`, `payer: subscribed to ACK`, `payer: HELLO_B verified`, `payer: frame written in … ms`, `payer: ack verified; total … ms`. |
-| 3 | iPhone payee with Bluetooth OFF, Android payer | Payee mints; payer scans | Payee: presence in the `qr` state (no radio glyph). Payer `send_confirm`: "Their Bluetooth is off, so this payment will go by code." (`peer_bt_off`), Send → fountain. | Payee (Console): `peripheral manager state=poweredOff`, `prepare resolved state=poweredOff` within 1.5 s; no `advertising started`. Payer (logcat): no `payer: scanning` line — the ladder never picked BLE. |
-| 4a | Android payee Bluetooth ON, iPhone payer Bluetooth OFF, payer app freshly launched | Payer scans, taps Send | First attempt: `send_confirm` shows `ready` (a radio that is merely off cannot be told from on without prompting — Task 8 `isSupported`), Send fails fast and falls to the fountain with "Wireless link unavailable — show this code…" (`local_pay_radio_fallback`); no failure screen. | Payer (Console): `central manager state=poweredOff` immediately after Send, no `scanning`. |
-| 4b | Same devices, payer rescans the same QR in the same app session (or an Android payer with Bluetooth off, first scan) | Payer scans | `send_confirm` shows "Your Bluetooth is off. Turn it on for a faster nearby link." (`local_bt_off`); Send → fountain directly. | iPhone: no new `LocalPayBle` lines (the manager already reported `poweredOff`, so the ladder floors). Android payer: no `LocalPayBle` lines at all (`isSupported` reads `isEnabled`). |
-| 5 | Android payee, iPhone payer with Bluetooth permission for BSV Wallet set to Off in Settings → Privacy & Security → Bluetooth | Payer scans | "Bluetooth access is off for BSV Wallet. Allow it in Settings…" (`local_ble_denied`) plus an **Open Settings** button that lands on the app's Settings page. | Payer: no `LocalPayBle` lines — `readBluetoothState()` answered `unauthorized` prompt-free and the ladder floored. |
-| 6 | iOS↔iOS, both Bluetooth on, Wi-Fi on | Payee mints, payer scans | Presence shows the **wifi** glyph on both (AWDL outranks BLE, spec §5); payment completes over AWDL. | Payee (Console): `advertising started …` from the BLE object AND the AWDL listener's own start; after the frame lands over AWDL, `listener stopped by JS` (raceReceivers aborted the BLE loser) and NO `frame accepted` / `ack sent` from the BLE object. |
-| 7 | iOS↔iOS, both Bluetooth on, Wi-Fi on; the payee switches Bluetooth OFF mid-wait (Settings, not Control Center) | Wait 5 s, then pay over AWDL | Payee: one advisory "Bluetooth is unavailable. The code above still works." (`local_pay_ble_unavailable`); presence still `waiting` with the **wifi** glyph; the AWDL payment completes. | Payee (Console): `peripheral manager state=poweredOff` then nothing more from the BLE object; AWDL lines untouched. (Android payee equivalent: `payee: bluetooth turned off under a live listener` from Task 9's adapter receiver.) |
-| 8 | Android payee, iPhone payer, payer backgrounds the app during `send_working` | Send, press Home within 1 s | Same as the AWDL/Nearby path today (the abort path is shared): no failure screen on the payer, the held build is released (Activity shows no stuck row), payee stays on `receive_wait` with its QR. | Payee (logcat): `payee: central disconnected <mac>` (or `payee: idle reaper dropped <mac>` 30 s later) and NO `frame accepted`; a fresh scan from the payer afterwards still succeeds — advertising never stopped. |
-| 9 | Row 1 but a second Android holds a photo of the same QR and pays second | Two payers, 10 s apart | Second payer: BLE connect times out within 6 s (the payee stopped advertising at the first accept) → fountain. If the payee then scans that fountain its screen shows `already_paid` and stays settled on the first payment; the first payer is unaffected. | Payee: exactly one `payee: frame accepted` for the session; second payer's logcat: `payer: scanning for <uuid>` and no `payer: found`, then JS `[localpay] radio send failed, falling back to QR: connect timeout: no route to peer`. |
-| 10 | Android payee, Android payer that has never granted Bluetooth to BSV Wallet, no GMS on the payer (or Nearby denied) | Payer scans, taps Send, denies the runtime prompt | Payer falls to the fountain with "Wireless link unavailable — show this code to the other device instead." (`local_pay_radio_fallback`); no failure screen. | Payer JS: `[localpay] radio send failed, falling back to QR: bluetooth permission not granted`; no `LocalPayBle` lines. |
+| #   | Setup                                                                                                                        | Do                                                | Expect on screen                                                                                                                                                                                                                                                                        | Expect in logs                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Android payee, iPhone payer, Bluetooth on both, Wi-Fi off on both                                                            | Payee: Pay → Receive → Continue. Payer: scan.     | Payee `receive_wait` presence shows the **bluetooth** glyph in the `waiting` state. Payer `send_confirm` shows the `ready` state with the bluetooth glyph and NO floor sentence. Send → `Payment sent`; payee `Payment received`.                                                       | Payee (logcat `LocalPayBle`): `prepare: poweredOn`, `payee: advertising <uuid>`, `payee: HELLO_A verified from <mac>`, `payee: frame accepted (<n> bytes, mtu <M>)`, `payee: ack ok=true delivered=true`. Payer (Console `LocalPayBle`): `scanning service=<uuid>`, `scan hit rssi=… ms=…`, `connected id=… maxWriteLen=…`, `subscribed ms=…`, `hello verified ms=…`, `frame written bytes=… ms=…`, `ack verified bytes=11 ms=…`. Note the `ms` values.                             |
+| 2   | Same as 1 but iPhone payee, Android payer                                                                                    | Same                                              | Same, mirrored.                                                                                                                                                                                                                                                                         | Payee (Console): `prepare resolved state=poweredOn`, `advertising started service=<uuid> name=bsvpay-…`, `central connected id=… maxUpdate=…`, `hello verified id=…`, `frame accepted bytes=… id=…`, `ack sent ok=1 bytes=44`. Payer (logcat): `payer: scanning for <uuid>`, `payer: found …`, `payer: connected … requesting mtu 517`, `payer: mtu <M>`, `payer: subscribed to ACK`, `payer: HELLO_B verified`, `payer: frame written in … ms`, `payer: ack verified; total … ms`. |
+| 3   | iPhone payee with Bluetooth OFF, Android payer                                                                               | Payee mints; payer scans                          | Payee: presence in the `qr` state (no radio glyph). Payer `send_confirm`: "Their Bluetooth is off, so this payment will go by code." (`peer_bt_off`), Send → fountain.                                                                                                                  | Payee (Console): `peripheral manager state=poweredOff`, `prepare resolved state=poweredOff` within 1.5 s; no `advertising started`. Payer (logcat): no `payer: scanning` line — the ladder never picked BLE.                                                                                                                                                                                                                                                                        |
+| 4a  | Android payee Bluetooth ON, iPhone payer Bluetooth OFF, payer app freshly launched                                           | Payer scans, taps Send                            | First attempt: `send_confirm` shows `ready` (a radio that is merely off cannot be told from on without prompting — Task 8 `isSupported`), Send fails fast and falls to the fountain with "Wireless link unavailable — show this code…" (`local_pay_radio_fallback`); no failure screen. | Payer (Console): `central manager state=poweredOff` immediately after Send, no `scanning`.                                                                                                                                                                                                                                                                                                                                                                                          |
+| 4b  | Same devices, payer rescans the same QR in the same app session (or an Android payer with Bluetooth off, first scan)         | Payer scans                                       | `send_confirm` shows "Your Bluetooth is off. Turn it on for a faster nearby link." (`local_bt_off`); Send → fountain directly.                                                                                                                                                          | iPhone: no new `LocalPayBle` lines (the manager already reported `poweredOff`, so the ladder floors). Android payer: no `LocalPayBle` lines at all (`isSupported` reads `isEnabled`).                                                                                                                                                                                                                                                                                               |
+| 5   | Android payee, iPhone payer with Bluetooth permission for BSV Wallet set to Off in Settings → Privacy & Security → Bluetooth | Payer scans                                       | "Bluetooth access is off for BSV Wallet. Allow it in Settings…" (`local_ble_denied`) plus an **Open Settings** button that lands on the app's Settings page.                                                                                                                            | Payer: no `LocalPayBle` lines — `readBluetoothState()` answered `unauthorized` prompt-free and the ladder floored.                                                                                                                                                                                                                                                                                                                                                                  |
+| 6   | iOS↔iOS, both Bluetooth on, Wi-Fi on                                                                                         | Payee mints, payer scans                          | Presence shows the **wifi** glyph on both (AWDL outranks BLE, spec §5); payment completes over AWDL.                                                                                                                                                                                    | Payee (Console): `advertising started …` from the BLE object AND the AWDL listener's own start; after the frame lands over AWDL, `listener stopped by JS` (raceReceivers aborted the BLE loser) and NO `frame accepted` / `ack sent` from the BLE object.                                                                                                                                                                                                                           |
+| 7   | iOS↔iOS, both Bluetooth on, Wi-Fi on; the payee switches Bluetooth OFF mid-wait (Settings, not Control Center)               | Wait 5 s, then pay over AWDL                      | Payee: one advisory "Bluetooth is unavailable. The code above still works." (`local_pay_ble_unavailable`); presence still `waiting` with the **wifi** glyph; the AWDL payment completes.                                                                                                | Payee (Console): `peripheral manager state=poweredOff` then nothing more from the BLE object; AWDL lines untouched. (Android payee equivalent: `payee: bluetooth turned off under a live listener` from Task 9's adapter receiver.)                                                                                                                                                                                                                                                 |
+| 8   | Android payee, iPhone payer, payer backgrounds the app during `send_working`                                                 | Send, press Home within 1 s                       | Same as the AWDL/Nearby path today (the abort path is shared): no failure screen on the payer, the held build is released (Activity shows no stuck row), payee stays on `receive_wait` with its QR.                                                                                     | Payee (logcat): `payee: central disconnected <mac>` (or `payee: idle reaper dropped <mac>` 30 s later) and NO `frame accepted`; a fresh scan from the payer afterwards still succeeds — advertising never stopped.                                                                                                                                                                                                                                                                  |
+| 9   | Row 1 but a second Android holds a photo of the same QR and pays second                                                      | Two payers, 10 s apart                            | Second payer: BLE connect times out within 6 s (the payee stopped advertising at the first accept) → fountain. If the payee then scans that fountain its screen shows `already_paid` and stays settled on the first payment; the first payer is unaffected.                             | Payee: exactly one `payee: frame accepted` for the session; second payer's logcat: `payer: scanning for <uuid>` and no `payer: found`, then JS `[localpay] radio send failed, falling back to QR: connect timeout: no route to peer`.                                                                                                                                                                                                                                               |
+| 10  | Android payee, Android payer that has never granted Bluetooth to BSV Wallet, no GMS on the payer (or Nearby denied)          | Payer scans, taps Send, denies the runtime prompt | Payer falls to the fountain with "Wireless link unavailable — show this code to the other device instead." (`local_pay_radio_fallback`); no failure screen.                                                                                                                             | Payer JS: `[localpay] radio send failed, falling back to QR: bluetooth permission not granted`; no `LocalPayBle` lines.                                                                                                                                                                                                                                                                                                                                                             |
 
 Any row that does not match is a bug in Task 10's wiring unless the log line missing is a native one, in which case it belongs to Task 8 (Swift) or Task 9 (Kotlin) — record which and stop rather than patching around it here.
-
 
 ---
 
@@ -8798,6 +8882,7 @@ Every amended line contains the literal marker `Superseded 2026-09-02` so the ve
 Use the Edit tool for every change (exact-string replacement; it fails loudly if the "before" text has drifted). Do not use `sed -i` — the lines contain backticks, pipes and `~~` that are easy to mangle.
 
 **Files:**
+
 - Modify: `docs/superpowers/plans/2026-07-27-local-payments-awdl.md:16-17` (two Global Constraints bullets)
 - Modify: `docs/superpowers/specs/2026-07-27-local-payments-awdl-design.md:18-24` (§"Why not BLE") and `:30` ("Bluetooth, in any form" non-goal)
 - Modify: `docs/superpowers/specs/2026-07-29-offline-transport-fixes-design.md:427` (Non-goals bullet)
@@ -8807,6 +8892,7 @@ Use the Edit tool for every change (exact-string replacement; it fails loudly if
 - Test: none (jest does not cover markdown); verification is the grep in Step 8.
 
 **Interfaces:**
+
 - Consumes: nothing from code. Facts cited in the notes come from spec `2026-09-02-ble-transport-and-qr-caps-design.md` §"Why now" (entitlement removed in `de13669`/`1dc1d92`; `git grep web-browser HEAD -- ios app.json plugins eas.json package.json` is empty), §8 (`NSBluetoothAlwaysUsageDescription` + `NSBluetoothPeripheralUsageDescription` in `app.json`; podspec links `CoreBluetooth`), §2 (`bsvpay-ble/1` profile), §"Compatibility" (a Blitz session setting `0x04` is now selected for BLE).
 - Produces: six amended markdown files, one commit `docs(ble): supersede the CoreBluetooth prohibitions`.
 
@@ -8896,7 +8982,7 @@ AWDL carries no such exposure. `NSLocalNetworkUsageDescription` and `NSBonjourSe
 ## Non-goals
 ```
 
-Use the Edit tool with `old_string` = the single line `AWDL carries no such exposure. `NSLocalNetworkUsageDescription` and `NSBonjourServices` are not on the prohibited list, and no entitlement is required.` and `new_string` = that same line followed by a blank line and the new `**Superseded 2026-09-02.** …` paragraph.
+Use the Edit tool with `old_string` = the single line `AWDL carries no such exposure. `NSLocalNetworkUsageDescription`and`NSBonjourServices` are not on the prohibited list, and no entitlement is required.` and `new_string` = that same line followed by a blank line and the new `**Superseded 2026-09-02.** …` paragraph.
 
 Then the non-goal bullet. Before (originally line 30, now line 32 after the insertion above):
 
@@ -9046,6 +9132,7 @@ git diff --stat -- docs/
 ```
 
 Expected:
+
 - The first grep prints exactly three lines — `docs/superpowers/2026-08-20-morning-handoff.md:21`, `docs/superpowers/plans/2026-07-27-local-payments-awdl.md:16`, `docs/superpowers/specs/2026-07-29-offline-transport-fixes-design.md:427` — every one of them containing both `~~` and `Superseded 2026-09-02`.
 - The second grep prints nothing and `unannotated-exit=1`.
 - `git diff --stat` lists exactly six files: `docs/superpowers/2026-08-20-morning-handoff.md`, `docs/superpowers/plans/2026-07-27-local-payments-awdl.md`, `docs/superpowers/specs/2026-07-27-local-payments-awdl-design.md`, `docs/superpowers/specs/2026-07-29-offline-transport-fixes-design.md`, `docs/superpowers/specs/2026-07-31-token-payment-frame-v3-design.md`, `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md`. (`docs/1.0.0/` is pre-existing untracked content unrelated to this task; do not stage it.)
@@ -9084,19 +9171,19 @@ Expected: `git log --oneline -1` prints a new hash followed by `docs(ble): super
 
 ## Spec coverage
 
-| Spec section | Implemented by |
-|---|---|
-| §1 Placement: second HybridObject behind the same wrapper | Task 1 (Nitro spec, `nitro.json`, generated glue, `getLocalPayBleTransport()` warning once in `__DEV__`), Task 5 (`LocalPayNative`, `makeSocketTransport(kind, native, connectTimeoutMs)`, `transport/ble.ts`, 4 s / 10 s / 6 s budgets), Task 4 (`kind`/`TransportKind`/`receivedVia` gain `'ble'`), Task 7 (`core/index.ts` exports `bleTransport`, `localSupportsBle`, `requestBlePermissions`, `probeDeviceCaps`, `capsFromProbe`, `describeFloor` and the four types) |
-| §2 GATT profile `bsvpay-ble/1` | Task 8 (`BleGattProfile.swift`), Task 9 (`BleGattProfile.kt` + JUnit vectors, cross-checked byte for byte in Step 7) |
-| §3 Messages, framing, peripheral and central state machines | Task 8 (Swift `BleEngine`/`OutboundSend`), Task 9 (Kotlin server/client), Task 5 (JS forwards `"connect timeout: no route to peer"` and the oversize rejection untouched, `parseAck` unchanged) |
-| §4 Session QR capability bits, probing, minting sequence, size | Task 3 (`HINT_*`, `RUNG_MASK`, `mintSession` masking, realistic-nonce QR size test), Task 6 (`deviceCaps.ts`: `capsFromProbe`, `probeDeviceCaps` never uses `getOnline()`, `readBluetoothState`), Task 10 (`prepareBle`; `receive_minting` runs wallet calls + probe + prepare in parallel; `supportsBle`/`hints` passed to `mintSession`) |
-| §5 Selection ladder and the payer's copy | Task 4 (`localSupportsBle`, AWDL → Nearby → BLE → QR, `describeFloor` table, new CASES rows), Task 8/9 (`isSupported` semantics that make `local_bt_off`/`local_ble_denied` reachable), Task 10 (`FLOOR_KEYS`, six i18n keys × 12 languages, `floorReason` on `send_confirm` with Open Settings for `local_ble_denied`) |
-| §6 Payee multi-listener, presence medium | Task 10 (`raceReceivers` + tests, `radioTransports`, per-kind `radioErrors`, `radioActive`, `PresenceRow medium`, `presenceMedium`) |
-| §7 Permissions and prompts | Task 1 (prompt-free probes; nothing instantiates a `CB*Manager`), Task 7 (`requestBlePermissions` sets by API level), Task 8 (prompt only inside `prepare()`/`sendFrame`, `notDetermined` counts as supported), Task 9 (permission checks before every `android.bluetooth` call), Task 10 (payee asks Nearby or BLE grants at flow entry; payer asks lazily in `executeSend` and a denial falls to the fountain) |
-| §8 Native configuration | Task 1 (`app.json` plist keys, podspec frameworks, `nitro.json`, manifest `uses-feature`, `expo prebuild` + commit `ios/`), Task 8 (podspec source files, prebuild), Task 2 (proves the configuration passes App Store Connect) |
-| §9 Money-safety invariants | Task 5 (wrapper's money-safety comments and tests kept verbatim; ack after `savePending` unchanged), Task 8/9 (`hasAccepted` latch before `onFrame`, held pending-ack connection, silent reapers, HMAC'd ack, stranger refused before HELLO), Task 10 (`raceReceivers` declines `save_failed` for a frame that arrives after the race is decided; radio failure falls to the fountain without aborting the built action) |
-| Compatibility (old decoders, Blitz `0x04`) | Task 3 (decodeSession untouched; existing unknown-bits test), Task 11 (v3 frame spec note: a Blitz session setting `0x04` must implement `bsvpay-ble/1`) |
-| Testing — Jest | Task 1 (`bleAccessor`), Task 3 (`session`), Task 4 (`transportSelect`, `describeFloor`), Task 5 (`transportBle`, `transportAwdl` pin), Task 6 (`deviceCaps`), Task 7 (`blePermissions`, `nearbyRail`), Task 10 (`PresenceRow`, `prepareBle`, `race`) |
-| Testing — native / hardware | Task 8 Step 7 (iOS↔iOS + failure rows), Task 9 Steps 10–12 (Android↔Android, Android→iOS first, iOS→Android, negative cases), Task 10 Step 28 (end-to-end rows incl. floor copy, permission denial, second payer) |
-| Testing — store gate | Task 2 |
-| Rollout order 0–5 | 0: Task 2 (after Task 1 links CoreBluetooth); 1: Tasks 1, 3, 4, 5; 2: Task 8; 3: Task 9; 4: Tasks 6, 7, 10; 5: Task 11 |
+| Spec section                                                   | Implemented by                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §1 Placement: second HybridObject behind the same wrapper      | Task 1 (Nitro spec, `nitro.json`, generated glue, `getLocalPayBleTransport()` warning once in `__DEV__`), Task 5 (`LocalPayNative`, `makeSocketTransport(kind, native, connectTimeoutMs)`, `transport/ble.ts`, 4 s / 10 s / 6 s budgets), Task 4 (`kind`/`TransportKind`/`receivedVia` gain `'ble'`), Task 7 (`core/index.ts` exports `bleTransport`, `localSupportsBle`, `requestBlePermissions`, `probeDeviceCaps`, `capsFromProbe`, `describeFloor` and the four types) |
+| §2 GATT profile `bsvpay-ble/1`                                 | Task 8 (`BleGattProfile.swift`), Task 9 (`BleGattProfile.kt` + JUnit vectors, cross-checked byte for byte in Step 7)                                                                                                                                                                                                                                                                                                                                                       |
+| §3 Messages, framing, peripheral and central state machines    | Task 8 (Swift `BleEngine`/`OutboundSend`), Task 9 (Kotlin server/client), Task 5 (JS forwards `"connect timeout: no route to peer"` and the oversize rejection untouched, `parseAck` unchanged)                                                                                                                                                                                                                                                                            |
+| §4 Session QR capability bits, probing, minting sequence, size | Task 3 (`HINT_*`, `RUNG_MASK`, `mintSession` masking, realistic-nonce QR size test), Task 6 (`deviceCaps.ts`: `capsFromProbe`, `probeDeviceCaps` never uses `getOnline()`, `readBluetoothState`), Task 10 (`prepareBle`; `receive_minting` runs wallet calls + probe + prepare in parallel; `supportsBle`/`hints` passed to `mintSession`)                                                                                                                                 |
+| §5 Selection ladder and the payer's copy                       | Task 4 (`localSupportsBle`, AWDL → Nearby → BLE → QR, `describeFloor` table, new CASES rows), Task 8/9 (`isSupported` semantics that make `local_bt_off`/`local_ble_denied` reachable), Task 10 (`FLOOR_KEYS`, six i18n keys × 12 languages, `floorReason` on `send_confirm` with Open Settings for `local_ble_denied`)                                                                                                                                                    |
+| §6 Payee multi-listener, presence medium                       | Task 10 (`raceReceivers` + tests, `radioTransports`, per-kind `radioErrors`, `radioActive`, `PresenceRow medium`, `presenceMedium`)                                                                                                                                                                                                                                                                                                                                        |
+| §7 Permissions and prompts                                     | Task 1 (prompt-free probes; nothing instantiates a `CB*Manager`), Task 7 (`requestBlePermissions` sets by API level), Task 8 (prompt only inside `prepare()`/`sendFrame`, `notDetermined` counts as supported), Task 9 (permission checks before every `android.bluetooth` call), Task 10 (payee asks Nearby or BLE grants at flow entry; payer asks lazily in `executeSend` and a denial falls to the fountain)                                                           |
+| §8 Native configuration                                        | Task 1 (`app.json` plist keys, podspec frameworks, `nitro.json`, manifest `uses-feature`, `expo prebuild` + commit `ios/`), Task 8 (podspec source files, prebuild), Task 2 (proves the configuration passes App Store Connect)                                                                                                                                                                                                                                            |
+| §9 Money-safety invariants                                     | Task 5 (wrapper's money-safety comments and tests kept verbatim; ack after `savePending` unchanged), Task 8/9 (`hasAccepted` latch before `onFrame`, held pending-ack connection, silent reapers, HMAC'd ack, stranger refused before HELLO), Task 10 (`raceReceivers` declines `save_failed` for a frame that arrives after the race is decided; radio failure falls to the fountain without aborting the built action)                                                   |
+| Compatibility (old decoders, Blitz `0x04`)                     | Task 3 (decodeSession untouched; existing unknown-bits test), Task 11 (v3 frame spec note: a Blitz session setting `0x04` must implement `bsvpay-ble/1`)                                                                                                                                                                                                                                                                                                                   |
+| Testing — Jest                                                 | Task 1 (`bleAccessor`), Task 3 (`session`), Task 4 (`transportSelect`, `describeFloor`), Task 5 (`transportBle`, `transportAwdl` pin), Task 6 (`deviceCaps`), Task 7 (`blePermissions`, `nearbyRail`), Task 10 (`PresenceRow`, `prepareBle`, `race`)                                                                                                                                                                                                                       |
+| Testing — native / hardware                                    | Task 8 Step 7 (iOS↔iOS + failure rows), Task 9 Steps 10–12 (Android↔Android, Android→iOS first, iOS→Android, negative cases), Task 10 Step 28 (end-to-end rows incl. floor copy, permission denial, second payer)                                                                                                                                                                                                                                                          |
+| Testing — store gate                                           | Task 2                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Rollout order 0–5                                              | 0: Task 2 (after Task 1 links CoreBluetooth); 1: Tasks 1, 3, 4, 5; 2: Task 8; 3: Task 9; 4: Tasks 6, 7, 10; 5: Task 11                                                                                                                                                                                                                                                                                                                                                     |

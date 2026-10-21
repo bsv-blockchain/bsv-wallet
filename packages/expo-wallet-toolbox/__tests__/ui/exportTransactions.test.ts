@@ -104,22 +104,19 @@ describe('exportTransactionsAsCsv (XR-078)', () => {
     const dataRow = lines[1]
     const descriptionCell = dataRow.split(',')[2]
     // Never a raw formula character as the cell's own first character.
-    expect(/^[=+\-@]/.test(descriptionCell)) .toBe(false)
+    expect(/^[=+\-@]/.test(descriptionCell)).toBe(false)
     // The OWASP-recommended neutralization: force literal-text interpretation
     // with a leading apostrophe, so the original content is still visible
     // (and still round-trips) rather than silently dropped.
     expect(descriptionCell.startsWith("'=1+1")).toBe(true)
   })
 
-  it.each(['+1+1', '-1+1', '@SUM(A1:A9)', '\t=1+1', '\r=1+1'])(
-    'neutralizes %j the same way',
-    async (raw) => {
-      await exportTransactionsAsCsv(walletWithDescription(raw), null, 'admin')
-      const dataRow = (mockEvents.write as string).split('\n')[1]
-      const descriptionCell = dataRow.split(',')[2]
-      expect(/^[=+\-@\t\r]/.test(descriptionCell)).toBe(false)
-    }
-  )
+  it.each(['+1+1', '-1+1', '@SUM(A1:A9)', '\t=1+1', '\r=1+1'])('neutralizes %j the same way', async raw => {
+    await exportTransactionsAsCsv(walletWithDescription(raw), null, 'admin')
+    const dataRow = (mockEvents.write as string).split('\n')[1]
+    const descriptionCell = dataRow.split(',')[2]
+    expect(/^[=+\-@\t\r]/.test(descriptionCell)).toBe(false)
+  })
 
   it('leaves an ordinary description untouched', async () => {
     await exportTransactionsAsCsv(walletWithDescription('Coffee with Alice'), null, 'admin')

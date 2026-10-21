@@ -54,10 +54,7 @@ export default function PayCellRow({ title, subtitle, icon, onPress, disabled = 
       accessibilityLabel={`${title}. ${subtitle}`}
     >
       <View
-        style={[
-          styles.iconWrap,
-          { backgroundColor: colors.surfaceSunken, borderColor: colors.surfaceSunkenBorder }
-        ]}
+        style={[styles.iconWrap, { backgroundColor: colors.surfaceSunken, borderColor: colors.surfaceSunkenBorder }]}
       >
         <Ionicons name={icon} size={20} color={colors.textSecondary} />
       </View>

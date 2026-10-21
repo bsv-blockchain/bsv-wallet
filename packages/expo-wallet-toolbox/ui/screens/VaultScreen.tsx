@@ -20,7 +20,16 @@
  * key can sign.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, AppState } from 'react-native'
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  TextInput,
+  AppState
+} from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { ListRow } from '../components/ui/ListRow'
@@ -1291,7 +1300,10 @@ export function VaultScreen() {
               accessibilityState={{ disabled: keyRestoreBusy || !/^[0-9]{6,8}$/.test(keyRestorePin) }}
               style={[
                 styles.primary,
-                { backgroundColor: colors.accent, opacity: !keyRestoreBusy && /^[0-9]{6,8}$/.test(keyRestorePin) ? 1 : 0.5 }
+                {
+                  backgroundColor: colors.accent,
+                  opacity: !keyRestoreBusy && /^[0-9]{6,8}$/.test(keyRestorePin) ? 1 : 0.5
+                }
               ]}
             >
               {keyRestoreBusy ? (
@@ -1437,10 +1449,7 @@ export function VaultScreen() {
           </View>
         )}
 
-        <GroupedSection
-          header={keySectionHeader}
-          footer={t('vault_footnote')}
-        >
+        <GroupedSection header={keySectionHeader} footer={t('vault_footnote')}>
           {/* Deposits no key on the list can open (an earlier setup's) are
               counted once, here: a re-lock cannot reach them, so they are kept
               out of the two re-lock badges below. */}
@@ -1456,7 +1465,10 @@ export function VaultScreen() {
           )}
           {coverage && coverage.missingKeys.length > 0 && coverage.stale > coverage.unreachableOutputs && (
             <ListRow
-              label={t('vault_badge_missing', { count: coverage.stale - coverage.unreachableOutputs, nickname: missingNames })}
+              label={t('vault_badge_missing', {
+                count: coverage.stale - coverage.unreachableOutputs,
+                nickname: missingNames
+              })}
               icon="alert-circle-outline"
               iconColor={colors.warning}
               showChevron={false}

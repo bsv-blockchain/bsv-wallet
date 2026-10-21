@@ -1,14 +1,11 @@
 import React from 'react'
 import { render } from '@testing-library/react-native'
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-} from 'react-native-reanimated'
+import Animated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated'
 
 function AnimatedBox() {
   const opacity = useSharedValue(1)
   const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
+    opacity: opacity.value
   }))
   return <Animated.View testID="animated-box" style={animatedStyle} />
 }

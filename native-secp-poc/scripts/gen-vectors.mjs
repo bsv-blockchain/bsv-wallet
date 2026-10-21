@@ -51,13 +51,17 @@ const { BigNumber, Curve, PrivateKey, PublicKey, ECDSA, Hash, Schnorr, Signature
 const curve = new Curve()
 const N = curve.n
 
-const sha256hex = (s) => createHash('sha256').update(s, 'utf8').digest('hex')
-const toHex32 = (bn) => bn.toArray('be', 32).map((b) => b.toString(16).padStart(2, '0')).join('')
-const arrToHex = (a) => a.map((b) => b.toString(16).padStart(2, '0')).join('')
+const sha256hex = s => createHash('sha256').update(s, 'utf8').digest('hex')
+const toHex32 = bn =>
+  bn
+    .toArray('be', 32)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+const arrToHex = a => a.map(b => b.toString(16).padStart(2, '0')).join('')
 
 // Deterministic scalar in [1, n-1] from a label (sha256 output; retry on the
 // astronomically unlikely out-of-range case).
-function scalarFromLabel (label) {
+function scalarFromLabel(label) {
   for (let i = 0; ; i++) {
     const hex = sha256hex(i === 0 ? label : `${label}/retry-${i}`)
     const bn = new BigNumber(hex, 16)
@@ -65,10 +69,10 @@ function scalarFromLabel (label) {
   }
 }
 
-function privFromHex (hex) {
+function privFromHex(hex) {
   return new PrivateKey(hex, 16)
 }
-function pubHex (priv) {
+function pubHex(priv) {
   return priv.toPublicKey().encode(true, 'hex')
 }
 
@@ -129,7 +133,7 @@ const brc42 = invoices.map((invoiceNumber, i) => {
 })
 
 // ── ecdh vectors ────────────────────────────────────────────────────────────────
-const ecdh = [0, 1, 2, 3].map((i) => {
+const ecdh = [0, 1, 2, 3].map(i => {
   const aHex = scalarFromLabel(`secp-poc/ecdh/a/${i}`)
   const bHex = i === 3 ? '01'.padStart(64, '0') : scalarFromLabel(`secp-poc/ecdh/b/${i}`)
   const a = privFromHex(aHex)
@@ -142,7 +146,7 @@ const ecdh = [0, 1, 2, 3].map((i) => {
 })
 
 // ── tweak-add vectors ───────────────────────────────────────────────────────────
-const tweak = [0, 1, 2, 3].map((i) => {
+const tweak = [0, 1, 2, 3].map(i => {
   const kHex = i === 3 ? nMinus1 : scalarFromLabel(`secp-poc/tweak/k/${i}`)
   const tHex = scalarFromLabel(`secp-poc/tweak/t/${i}`)
   const k = privFromHex(kHex)
@@ -184,7 +188,7 @@ const recover = recoverInputs.map(({ priv, msg }) => {
   // what the SDK returns for EVERY recid (null = throws). recid 2/3 exercises the
   // documented x = r + n mod-p asymmetry (SDK may fabricate a point where libsecp
   // rejects the field overflow) — the Rust conformance test encodes that rule.
-  const recoveredAllFactors = [0, 1, 2, 3].map((recid) => {
+  const recoveredAllFactors = [0, 1, 2, 3].map(recid => {
     try {
       return sig.RecoverPublicKey(recid, msgBN).encode(true, 'hex')
     } catch {
@@ -202,7 +206,7 @@ const recover = recoverInputs.map(({ priv, msg }) => {
 })
 
 // ── tweakMul vectors (t·P via Point.mul) ────────────────────────────────────────
-const tweakMul = [0, 1, 2, 3, 4, 5].map((i) => {
+const tweakMul = [0, 1, 2, 3, 4, 5].map(i => {
   const kHex = i === 4 ? '01'.padStart(64, '0') : scalarFromLabel(`secp-poc/tweakmul/k/${i}`) // i=4 → P = G
   const tHex =
     i === 0
@@ -218,7 +222,7 @@ const tweakMul = [0, 1, 2, 3, 4, 5].map((i) => {
 })
 
 // ── combine vectors (A+B via Point.add) ─────────────────────────────────────────
-const combine = [0, 1, 2, 3, 4, 5].map((i) => {
+const combine = [0, 1, 2, 3, 4, 5].map(i => {
   const aHex = scalarFromLabel(`secp-poc/combine/a/${i}`)
   // i=4 → doubling (B = A); i=5 → B = G
   const bHex = i === 4 ? aHex : i === 5 ? '01'.padStart(64, '0') : scalarFromLabel(`secp-poc/combine/b/${i}`)
@@ -233,7 +237,7 @@ const combine = [0, 1, 2, 3, 4, 5].map((i) => {
 
 // ── schnorr vectors (issue #6 — Schnorr.ts ZK proof of shared secret) ───────────
 const schnorrApi = new Schnorr()
-const schnorrAccept = [0, 1, 2, 3, 4, 5].map((i) => {
+const schnorrAccept = [0, 1, 2, 3, 4, 5].map(i => {
   const aHex = i === 4 ? '01'.padStart(64, '0') : scalarFromLabel(`secp-poc/schnorr/a/${i}`)
   const bHex = i === 5 ? toHex32(N.subn(1)) : scalarFromLabel(`secp-poc/schnorr/b/${i}`)
   const rHex = scalarFromLabel(`secp-poc/schnorr/r/${i}`)
@@ -247,13 +251,7 @@ const schnorrAccept = [0, 1, 2, 3, 4, 5].map((i) => {
   const R = r.toPublicKey()
   const SPrime = B.mul(r)
   const e = new BigNumber(
-    Hash.sha256([
-      ...A.encode(true),
-      ...B.encode(true),
-      ...S.encode(true),
-      ...SPrime.encode(true),
-      ...R.encode(true)
-    ])
+    Hash.sha256([...A.encode(true), ...B.encode(true), ...S.encode(true), ...SPrime.encode(true), ...R.encode(true)])
   ).umod(N)
   const z = r.add(e.mul(a)).umod(N)
   // the REAL SDK verifier must accept the composed proof
@@ -291,9 +289,17 @@ const schnorrAccept = [0, 1, 2, 3, 4, 5].map((i) => {
 // both implementations reach the equation checks.
 const schnorrReject = (() => {
   const v = schnorrAccept[0]
-  const pt = (hexStr) => PublicKey.fromString(hexStr)
+  const pt = hexStr => PublicKey.fromString(hexStr)
   const cases = [
-    { label: 'z+1', A: v.A, B: v.B, S: v.S, R: v.R, SPrime: v.SPrime, z: toHex32(new BigNumber(v.z, 16).addn(1).umod(N)) },
+    {
+      label: 'z+1',
+      A: v.A,
+      B: v.B,
+      S: v.S,
+      R: v.R,
+      SPrime: v.SPrime,
+      z: toHex32(new BigNumber(v.z, 16).addn(1).umod(N))
+    },
     { label: 'swap R/SPrime', A: v.A, B: v.B, S: v.S, R: v.SPrime, SPrime: v.R, z: v.z },
     { label: 'wrong S', A: v.A, B: v.B, S: v.SPrime, R: v.R, SPrime: v.SPrime, z: v.z },
     { label: 'wrong A', A: schnorrAccept[1].A, B: v.B, S: v.S, R: v.R, SPrime: v.SPrime, z: v.z },
@@ -339,7 +345,7 @@ const batchSign = (() => {
 
 const batchVerify = (() => {
   // all-valid set + a set with two corruptions (wrong msg, corrupted sig s+1)
-  const valid = batchSign.map((v) => ({ msg32: v.msg32, der: v.der, pubkey: v.pubkey, valid: true }))
+  const valid = batchSign.map(v => ({ msg32: v.msg32, der: v.der, pubkey: v.pubkey, valid: true }))
   const corrupted = batchSign.slice(0, 6).map((v, i) => {
     if (i === 2) {
       // wrong message
@@ -354,7 +360,11 @@ const batchVerify = (() => {
   })
   // assert with the REAL SDK verify
   for (const c of [...valid, ...corrupted]) {
-    const verdict = ECDSA.verify(new BigNumber(c.msg32, 16), Signature.fromDER(c.der, 'hex'), PublicKey.fromString(c.pubkey))
+    const verdict = ECDSA.verify(
+      new BigNumber(c.msg32, 16),
+      Signature.fromDER(c.der, 'hex'),
+      PublicKey.fromString(c.pubkey)
+    )
     if (verdict !== c.valid) throw new Error('SDK verify disagreed with batchVerify vector construction')
   }
   return { valid, corrupted }
@@ -373,11 +383,11 @@ const batchDerive = (() => {
     '1-batch éü☃-0',
     'x'.repeat(120)
   ]
-  const derivedPrivs = invoiceNumbers.map((inv) => toHex32(root.deriveChild(cpPub, inv)))
+  const derivedPrivs = invoiceNumbers.map(inv => toHex32(root.deriveChild(cpPub, inv)))
   // pub-side: child of ROOT'S PUBKEY derived by the counterparty (their view of
   // our child key) — PublicKey.deriveChild(cpPriv, invoice) on root.toPublicKey()
   const rootPub = root.toPublicKey()
-  const derivedPubsUncompressed = invoiceNumbers.map((inv) => rootPub.deriveChild(cpPriv, inv).encode(false, 'hex'))
+  const derivedPubsUncompressed = invoiceNumbers.map(inv => rootPub.deriveChild(cpPriv, inv).encode(false, 'hex'))
   // cross-check: child pub == pubkey(child priv) — BRC-42 consistency
   derivedPrivs.forEach((childHex, i) => {
     if (privFromHex(childHex).toPublicKey().encode(false, 'hex') !== derivedPubsUncompressed[i]) {

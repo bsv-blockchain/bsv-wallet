@@ -24,12 +24,12 @@ import { BACKUP_PROTOCOL, backupKeyId, type BackupChain } from './constants'
  * of WalletPermissionsManager, so it can never raise a protocol-permission prompt or a
  * spending-authorisation gate.
  */
-export function deriveBackupWallet (primaryKey: number[], chain: BackupChain): CompletedProtoWallet {
+export function deriveBackupWallet(primaryKey: number[], chain: BackupChain): CompletedProtoWallet {
   return new CompletedProtoWallet(deriveBackupKey(primaryKey, chain))
 }
 
 /** The private key behind the backup identity for one network. */
-export function deriveBackupKey (primaryKey: number[], chain: BackupChain): PrivateKey {
+export function deriveBackupKey(primaryKey: number[], chain: BackupChain): PrivateKey {
   const deriver = new KeyDeriver(new PrivateKey(primaryKey))
   return deriver.derivePrivateKey(BACKUP_PROTOCOL, backupKeyId(chain), 'self')
 }
@@ -41,6 +41,6 @@ export function deriveBackupKey (primaryKey: number[], chain: BackupChain): Priv
  * account — there is no identity field anywhere in the API. One seed yields a DIFFERENT
  * pseudonym per network, so mainnet and testnet logs live in separate server accounts.
  */
-export function backupPseudonym (primaryKey: number[], chain: BackupChain): string {
+export function backupPseudonym(primaryKey: number[], chain: BackupChain): string {
   return deriveBackupKey(primaryKey, chain).toPublicKey().toString()
 }

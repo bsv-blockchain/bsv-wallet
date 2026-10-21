@@ -1,6 +1,7 @@
 # Report: `@bsv/message-box-client` device registration, and what it means for non-active profiles
 
 Path shorthand:
+
 - `LIB` = `/Users/personal/git/bsv-wallet/node_modules/@bsv/message-box-client/dist/src`
 - `SDK` = `/Users/personal/git/bsv-wallet/node_modules/@bsv/sdk/dist/esm/src`
 - `CORE` = `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/core`
@@ -40,6 +41,7 @@ Path shorthand:
 ## 2. Device API
 
 **`registerDevice(params, overrideHost?)`** — `LIB/MessageBoxClient.js:2484-2520`, types in `LIB/types.d.ts:191-199`.
+
 - Params are `{ fcmToken: string, deviceId?: string, platform?: 'ios'|'android'|'web' }`.
 - Validation:
   - `fcmToken` must be non-empty and at most 500 UTF-8 bytes.
@@ -52,6 +54,7 @@ Path shorthand:
 - **It does not call `assertInitialized()` or `init()`.** Host is `overrideHost ?? this.host` (`:2492`). There is no `resolveHostForRecipient`, no `LookupResolver.query`, and no WebSocket.
 
 **`listRegisteredDevices(overrideHost?, {limit?, offset?})`** — `LIB/MessageBoxClient.js:2540-2563`.
+
 - Request: `GET ${host}/devices[?limit=&offset=]`.
 - Returns `RegisteredDevice[]` (`types.d.ts:212-221`): `{id, deviceId|null, platform|null, fcmToken, active, createdAt, updatedAt, lastUsed}`.
 - `fcmToken` is a masked token of at most 64 characters (`LIB/MessageBoxClient.js:283`).
@@ -60,6 +63,7 @@ Path shorthand:
 - The Go `ListDevices` handler ignores `limit` and `offset`: it never reads the query string (`GO/pkg/handlers/devices.go:93`).
 
 **`unregisterDevice` or any delete or deactivate call does not exist.**
+
 - No `unregister`, `deregister`, `deleteDevice` or `removeDevice` appears in `dist/src/MessageBoxClient.js`, `dist/mod.js`, or `dist/umd/bundle.js`.
 - The README lists only `/registerDevice` and `/devices` (`README.md:387-388`).
 - The Go server routes are only `POST /registerDevice` and `GET /devices` (`GO/cmd/server/main.go:150-151`).
@@ -67,6 +71,7 @@ Path shorthand:
 - A device-removal flow is therefore not possible with the current library or server.
 
 **Authenticated identity.**
+
 - Both calls go through `authenticatedFetch` (`LIB/MessageBoxClient.js:687-695`), which wraps `AuthFetch.fetch`, so the identity is the wallet's BRC-103 identity key.
 - The Go handler takes the identity from the handshake, not the body. `getIdentityKey(r)` returns `middleware.ShouldGetAuthenticatedIdentity(...).ToDERHex()` (`GO/pkg/handlers/helpers.go:127-133`), and the handlers return 401 if it is empty (`devices.go:25-27`, `:83-85`).
 - The request body carries no identity. Whichever key signs the handshake owns the registration.
@@ -75,6 +80,7 @@ Path shorthand:
 ## 3. How a `MessageBoxClient` is constructed and what it needs
 
 **Constructor** — `LIB/MessageBoxClient.js:583-600`, options in `LIB/types.d.ts:25-58`.
+
 - Options are `{host?, walletClient?: WalletInterface, enableLogging?, networkPreset?, originator?, socketOptions?, serverIdentityKeysByHost?}`.
 - Default host is `https://message-box-us-1.bsvb.tech` (`:38`). The wallet's own default is `https://messagebox.bsvblockchain.tech` (`CORE/pay/rails/handle.ts:29`). The wallet always passes a host, so the library default never applies on these paths.
 - **Always pass `walletClient`.** If omitted, the constructor does `new WalletClient("auto", originator)` (`:595`).
@@ -83,6 +89,7 @@ Path shorthand:
 - The constructor itself has no network or wallet side effects.
 
 **`init()`** — `LIB/MessageBoxClient.js:625-639`.
+
 - It validates the host and calls `getIdentityKey()`, which is one `wallet.getPublicKey({identityKey:true}, originator)` (`:672-684`).
 - It does **not** advertise or anoint a host. The doc comment says so, and the code confirms it.
 - `anointHost(host)` is explicit-only (`:1534`). It queries the overlay, lists the `overlay advertisements` basket, and creates and broadcasts a transaction.
@@ -96,15 +103,16 @@ Path shorthand:
 
 **Which wallet methods the `registerDevice` path calls.** `AuthFetch` and `Peer` call these on the wallet:
 
-| Method | Where |
-|---|---|
-| `getPublicKey({identityKey:true}, originator)` | `SDK/auth/Peer.js:983` |
-| `createSignature` (protocol `[2,'auth message signature']`, counterparty = server key) | `SDK/auth/Peer.js:129`, `:306`, `:642`, `:825` |
-| `verifySignature` | `SDK/auth/Peer.js:685`, `:778`, `:869`, `:931` |
-| `createHmac` (via `createNonce`) | `SDK/auth/utils/createNonce.js:18`, called from `Peer.js:453`, `:613` |
-| `verifyHmac` (via `verifyNonce`) | `SDK/auth/utils/verifyNonce.js:31`, called from `Peer.js:669`, `:769`, `:859`, `:922` |
+| Method                                                                                 | Where                                                                                 |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `getPublicKey({identityKey:true}, originator)`                                         | `SDK/auth/Peer.js:983`                                                                |
+| `createSignature` (protocol `[2,'auth message signature']`, counterparty = server key) | `SDK/auth/Peer.js:129`, `:306`, `:642`, `:825`                                        |
+| `verifySignature`                                                                      | `SDK/auth/Peer.js:685`, `:778`, `:869`, `:931`                                        |
+| `createHmac` (via `createNonce`)                                                       | `SDK/auth/utils/createNonce.js:18`, called from `Peer.js:453`, `:613`                 |
+| `verifyHmac` (via `verifyNonce`)                                                       | `SDK/auth/utils/verifyNonce.js:31`, called from `Peer.js:669`, `:769`, `:859`, `:922` |
 
 These are called only conditionally:
+
 - `listCertificates` and `proveCertificate` run only if the server requests certificates (`SDK/auth/utils/getVerifiableCertificates.js:40`, `:56`).
 - `getPublicKey` and `createAction` for payment run only on an HTTP 402 (`SDK/auth/clients/AuthFetch.js:230`, `:601-633`).
 - Both conditions are false for the Go server in this checkout:
@@ -113,6 +121,7 @@ These are called only conditionally:
   - This holds only for this checkout. See section 6.
 
 **Does a bare `ProtoWallet` suffice? Yes, for this path.**
+
 - `ProtoWallet` implements `getPublicKey`, `createHmac`, `verifyHmac`, `createSignature` and `verifySignature` (`SDK/wallet/ProtoWallet.js:89`, `:184`, `:193`, `:210`, `:231`).
 - Its constructor takes a `PrivateKey` and wraps it in a `CachedKeyDeriver` (`ProtoWallet.js:83-87`).
 - `Peer` and `createNonce` pass an `originator` as a second argument. `ProtoWallet` methods take only `args`, so JS drops the extra argument. This is harmless.
@@ -129,9 +138,12 @@ These are called only conditionally:
 ## 4. How the wallet builds the client today
 
 **Push registration** — `CORE/context/WalletContext.tsx:2436-2450`:
+
 ```ts
-makeClient: h => new MessageBoxClient({ host: h, walletClient: permissionsManager as never, originator: adminOriginator })
+makeClient: h =>
+  new MessageBoxClient({ host: h, walletClient: permissionsManager as never, originator: adminOriginator })
 ```
+
 - It is wired once per build, after the supersession check (`:2436-2452`).
 - `host` comes from `readMessageBoxHost()` (`:2004-2012`): `AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY))`.
   - `noMessageBox` gives `undefined`.
@@ -150,6 +162,7 @@ makeClient: h => new MessageBoxClient({ host: h, walletClient: permissionsManage
 - `teardownBuiltWallet` clears the push refs (`:2816-2818`).
 
 **Other construction sites in `CORE`:**
+
 - `PeerPayClient` for `TaskCreditInbox`: `{messageBoxHost, walletClient: permissionsManager as never, originator: adminOriginator}` (`WalletContext.tsx:2105-2111`).
 - `PeerPayClient` for the outbox drain (`:2162-2166`).
 - `makePeerPayClient`, a helper with the same shape (`CORE/pay/rails/handle.ts:40-56`).
@@ -172,6 +185,7 @@ All of them use the active profile's `permissionsManager` and the admin originat
    const mb = new MessageBoxClient({ host, walletClient: proto as never })
    await mb.registerDevice({ fcmToken: token, platform }, host)
    ```
+
    - Passing `host` as `overrideHost` avoids any overlay lookup.
    - Do not call `init()` or `anointHost()`.
    - Use a fresh client each time. Each `AuthFetch` has its own session manager, so every registration does a full handshake to `${origin}/.well-known/auth` (`SDK/auth/transports/SimplifiedFetchTransport.js:88`) before the request.

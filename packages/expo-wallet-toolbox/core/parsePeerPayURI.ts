@@ -32,7 +32,10 @@ export const PEERPAY_NOTE_MAX = 120
 /** A note as a link may carry it: plain, single-line text, or nothing. */
 export function cleanPeerPayNote(raw: string | null | undefined): string | undefined {
   // eslint-disable-next-line no-control-regex
-  const text = (raw ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const text = (raw ?? '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
   return text ? Array.from(text).slice(0, PEERPAY_NOTE_MAX).join('') : undefined
 }
 

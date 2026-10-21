@@ -7,9 +7,15 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -31,21 +37,27 @@ const IDENTITY = '02' + 'ab'.repeat(32)
 const DEVICE = 'c'.repeat(32)
 const PSEUDONYM = backupPseudonym(PRIMARY, 'main')
 
-function chunkWith (counts: { provenTxs?: number, outputs?: number }, updatedAt = '2026-08-01T00:00:00.000Z'): SyncChunk {
+function chunkWith(
+  counts: { provenTxs?: number; outputs?: number },
+  updatedAt = '2026-08-01T00:00:00.000Z'
+): SyncChunk {
   const c = emptyChunk('a', 'b', IDENTITY) as unknown as Record<string, unknown[]>
   c.provenTxs = Array.from({ length: counts.provenTxs ?? 0 }, (_, i) => ({
-    provenTxId: i, rawTx: [1, 2, 3], updated_at: updatedAt
+    provenTxId: i,
+    rawTx: [1, 2, 3],
+    updated_at: updatedAt
   }))
   c.outputs = Array.from({ length: counts.outputs ?? 0 }, (_, i) => ({
-    outputId: i, updated_at: updatedAt
+    outputId: i,
+    updated_at: updatedAt
   }))
   return c as unknown as SyncChunk
 }
 
-function fakeStorage (
+function fakeStorage(
   chunk: SyncChunk,
   kv: Record<string, string> = {}
-): { getSyncChunk: jest.Mock, getKeyValue: jest.Mock, setKeyValue: jest.Mock } {
+): { getSyncChunk: jest.Mock; getKeyValue: jest.Mock; setKeyValue: jest.Mock } {
   const map = new Map<string, string>(Object.entries(kv))
   return {
     getSyncChunk: jest.fn().mockResolvedValue(chunk),
@@ -67,12 +79,16 @@ function fakeStorage (
  * holds a fixed set of records and filters them, which is what makes the
  * boundary behaviour observable.
  */
-function inclusiveSinceStorage (updatedAt: string[]): { getSyncChunk: jest.Mock, getKeyValue: jest.Mock, setKeyValue: jest.Mock } {
+function inclusiveSinceStorage(updatedAt: string[]): {
+  getSyncChunk: jest.Mock
+  getKeyValue: jest.Mock
+  setKeyValue: jest.Mock
+} {
   const rows = updatedAt.map((t, i) => ({ provenTxId: i, rawTx: [1, 2, 3], updated_at: t }))
   return {
     getSyncChunk: jest.fn(async (args: any) => {
       const since = args.since != null ? new Date(args.since).toISOString() : undefined
-      const offsets = args.offsets as { name: string, offset: number }[]
+      const offsets = args.offsets as { name: string; offset: number }[]
       const offset = offsets.find(o => o.name === 'provenTx')?.offset ?? 0
       const c = emptyChunk('a', 'b', IDENTITY) as unknown as Record<string, unknown[]>
       // `>=`, exactly as the column comparison does.
@@ -84,7 +100,7 @@ function inclusiveSinceStorage (updatedAt: string[]): { getSyncChunk: jest.Mock,
   }
 }
 
-function fakeClient (over: Partial<Record<'append' | 'manifest' | 'limits', jest.Mock>> = {}): any {
+function fakeClient(over: Partial<Record<'append' | 'manifest' | 'limits', jest.Mock>> = {}): any {
   return {
     append: over.append ?? jest.fn().mockResolvedValue({ seq: 1, sha256: 'newsha', size: 1 }),
     manifest: over.manifest ?? jest.fn().mockResolvedValue([]),
@@ -93,7 +109,9 @@ function fakeClient (over: Partial<Record<'append' | 'manifest' | 'limits', jest
     // realistic threshold to trip.
     limits:
       over.limits ??
-      jest.fn().mockResolvedValue({ maxBlobBytes: 1 << 20, maxBodyBytes: 1 << 21, serverIdentityKey: '02'.padEnd(66, 'a') }),
+      jest
+        .fn()
+        .mockResolvedValue({ maxBlobBytes: 1 << 20, maxBodyBytes: 1 << 21, serverIdentityKey: '02'.padEnd(66, 'a') }),
     index: jest.fn().mockResolvedValue([]),
     blob: jest.fn(),
     pruneGeneration: jest.fn()
@@ -110,7 +128,11 @@ describe('pushOnce', () => {
     const client = fakeClient()
     const r = await pushOnce({
       storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     expect(client.append).not.toHaveBeenCalled()
@@ -123,22 +145,32 @@ describe('pushOnce', () => {
     // block every storage read and write for the duration.
     const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
     await pushOnce({
-      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY,
-      client: fakeClient(), deviceId: DEVICE
+      storage: storage as any,
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client: fakeClient(),
+      deviceId: DEVICE
     })
 
-    expect(storage.getSyncChunk).toHaveBeenCalledWith(expect.objectContaining({
-      identityKey: IDENTITY,
-      maxRoughSize: 512_000,
-      maxItems: 200
-    }))
+    expect(storage.getSyncChunk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identityKey: IDENTITY,
+        maxRoughSize: 512_000,
+        maxItems: 200
+      })
+    )
   })
 
   it('never sends the real identity key as the log address', async () => {
     const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
     await pushOnce({
-      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY,
-      client: fakeClient(), deviceId: DEVICE
+      storage: storage as any,
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client: fakeClient(),
+      deviceId: DEVICE
     })
 
     // identityKey is needed for the LOCAL user lookup, but the log is addressed by the
@@ -152,7 +184,11 @@ describe('pushOnce', () => {
     const client = fakeClient()
     const r = await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 2, outputs: 3 })) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     expect(r.pushed).toBe(1)
@@ -170,10 +206,16 @@ describe('pushOnce', () => {
     // Advancing on failure would skip records permanently — a silent hole in the restore.
     const client = fakeClient({ append: jest.fn().mockRejectedValue(new Error('network down')) })
 
-    await expect(pushOnce({
-      storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
-    })).rejects.toThrow('network down')
+    await expect(
+      pushOnce({
+        storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
+        primaryKey: PRIMARY,
+        chain: 'main',
+        identityKey: IDENTITY,
+        client,
+        deviceId: DEVICE
+      })
+    ).rejects.toThrow('network down')
 
     const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
     expect(cursor.seq).toBe(0)
@@ -182,13 +224,20 @@ describe('pushOnce', () => {
 
   it('chains prevSha256 from the previous append', async () => {
     await saveCursor('main', PSEUDONYM, DEVICE, {
-      ...freshCursor(), seq: 1, prevSha256: 'oldsha', chunksInGeneration: 1
+      ...freshCursor(),
+      seq: 1,
+      prevSha256: 'oldsha',
+      chunksInGeneration: 1
     })
     const client = fakeClient({ append: jest.fn().mockResolvedValue({ seq: 2, sha256: 'secondsha' }) })
 
     await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     expect(client.append).toHaveBeenCalledWith(DEVICE, 1, 2, 'oldsha', expect.any(Array))
@@ -211,7 +260,11 @@ describe('pushOnce', () => {
 
     await pushOnce({
       storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client: fakeClient(),
+      deviceId: DEVICE
     })
 
     const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
@@ -233,7 +286,11 @@ describe('pushOnce', () => {
     for (let pass = 0; pass < 10; pass++) {
       await pushOnce({
         storage: storage as any,
-        primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+        primaryKey: PRIMARY,
+        chain: 'main',
+        identityKey: IDENTITY,
+        client,
+        deviceId: DEVICE
       })
     }
 
@@ -251,7 +308,11 @@ describe('pushOnce', () => {
     for (let pass = 0; pass < 2; pass++) {
       await pushOnce({
         storage: storage as any,
-        primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+        primaryKey: PRIMARY,
+        chain: 'main',
+        identityKey: IDENTITY,
+        client,
+        deviceId: DEVICE
       })
     }
 
@@ -276,7 +337,11 @@ describe('pushOnce', () => {
       for (let pass = 0; pass < 2; pass++) {
         await pushOnce({
           storage: closedWindowStorage as any,
-          primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+          primaryKey: PRIMARY,
+          chain: 'main',
+          identityKey: IDENTITY,
+          client,
+          deviceId: DEVICE
         })
       }
       expect(client.append).toHaveBeenCalledTimes(1)
@@ -291,7 +356,11 @@ describe('pushOnce', () => {
 
       await pushOnce({
         storage: afterRollbackStorage as any,
-        primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+        primaryKey: PRIMARY,
+        chain: 'main',
+        identityKey: IDENTITY,
+        client,
+        deviceId: DEVICE
       })
 
       // A silent no-op (the pre-fix behaviour) would leave this at 1 forever. The fix
@@ -324,7 +393,11 @@ describe('pushOnce', () => {
     for (let pass = 0; pass < 6; pass++) {
       await pushOnce({
         storage: storage as any,
-        primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+        primaryKey: PRIMARY,
+        chain: 'main',
+        identityKey: IDENTITY,
+        client,
+        deviceId: DEVICE
       })
     }
 
@@ -357,7 +430,11 @@ describe('pushOnce', () => {
     for (let pass = 0; pass < 10; pass++) {
       await pushOnce({
         storage: storage as any,
-        primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+        primaryKey: PRIMARY,
+        chain: 'main',
+        identityKey: IDENTITY,
+        client,
+        deviceId: DEVICE
       })
     }
 
@@ -378,7 +455,11 @@ describe('pushOnce', () => {
 
     const r = await pushOnce({
       storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client: fakeClient(),
+      deviceId: DEVICE
     })
 
     expect(r.rotated).toBe(true)
@@ -395,12 +476,18 @@ describe('pushOnce', () => {
     // Rotating with records still pending would leave a generation that is not a coherent
     // snapshot, which a restore could not trust.
     await saveCursor('main', PSEUDONYM, DEVICE, {
-      ...freshCursor(), seq: GENERATION_CHUNK_THRESHOLD, chunksInGeneration: GENERATION_CHUNK_THRESHOLD
+      ...freshCursor(),
+      seq: GENERATION_CHUNK_THRESHOLD,
+      chunksInGeneration: GENERATION_CHUNK_THRESHOLD
     })
 
     const r = await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client: fakeClient(),
+      deviceId: DEVICE
     })
 
     expect(r.rotated).toBe(false)
@@ -412,14 +499,20 @@ describe('pushOnce', () => {
     // the remote already covers risks a hole, so a fresh snapshot is the safe answer.
     const client = fakeClient({
       append: jest.fn().mockRejectedValue(new BackupHttpError(409, ERR_SEQ_CONFLICT, 'expected seq 7')),
-      manifest: jest.fn().mockResolvedValue([
-        { deviceId: DEVICE, generation: 4, headSeq: 6, headSha256: 'x', totalBytes: 1, updatedAt: 'z' }
-      ])
+      manifest: jest
+        .fn()
+        .mockResolvedValue([
+          { deviceId: DEVICE, generation: 4, headSeq: 6, headSha256: 'x', totalBytes: 1, updatedAt: 'z' }
+        ])
     })
 
     const r = await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     expect(r.pushed).toBe(0)
@@ -433,8 +526,12 @@ describe('pushOnce', () => {
     // or advance testnet bookkeeping, and each pass must address its own chain's account.
     const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
     await pushOnce({
-      storage: storage as any, primaryKey: PRIMARY, chain: 'main',
-      identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+      storage: storage as any,
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client: fakeClient(),
+      deviceId: DEVICE
     })
 
     const testPseudonym = backupPseudonym(PRIMARY, 'test')
@@ -444,8 +541,12 @@ describe('pushOnce', () => {
     // And a testnet pass addresses the testnet pseudonym, never the mainnet one.
     const testStorage = fakeStorage(chunkWith({ provenTxs: 1 }))
     await pushOnce({
-      storage: testStorage as any, primaryKey: PRIMARY, chain: 'test',
-      identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+      storage: testStorage as any,
+      primaryKey: PRIMARY,
+      chain: 'test',
+      identityKey: IDENTITY,
+      client: fakeClient(),
+      deviceId: DEVICE
     })
     expect(testStorage.getSyncChunk.mock.calls[0][0].toStorageIdentityKey).toBe(testPseudonym)
     expect((await loadCursor('main', PSEUDONYM, DEVICE)).seq).toBe(1)
@@ -453,15 +554,20 @@ describe('pushOnce', () => {
   })
 
   it('requires either a client or a baseUrl', async () => {
-    await expect(pushOnce({
-      storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, deviceId: DEVICE
-    })).rejects.toThrow(/client or a baseUrl/)
+    await expect(
+      pushOnce({
+        storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
+        primaryKey: PRIMARY,
+        chain: 'main',
+        identityKey: IDENTITY,
+        deviceId: DEVICE
+      })
+    ).rejects.toThrow(/client or a baseUrl/)
   })
 })
 
 describe('XR-011: pushOnce appData', () => {
-  async function decodedAppData (ciphertext: number[]): Promise<Record<string, unknown> | undefined> {
+  async function decodedAppData(ciphertext: number[]): Promise<Record<string, unknown> | undefined> {
     const wallet = deriveBackupWallet(PRIMARY, 'main')
     const decoded = await decodeEntry(wallet, ciphertext, 'main')
     return decoded.appData as Record<string, unknown> | undefined
@@ -475,7 +581,12 @@ describe('XR-011: pushOnce appData', () => {
     })
 
     await pushOnce({
-      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      storage: storage as any,
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     expect(client.append).toHaveBeenCalledTimes(1)
@@ -490,7 +601,12 @@ describe('XR-011: pushOnce appData', () => {
     const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
 
     await pushOnce({
-      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      storage: storage as any,
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     expect(await decodedAppData(client.append.mock.calls[0][4])).toBeUndefined()
@@ -506,7 +622,12 @@ describe('XR-011: pushOnce appData', () => {
     const storage = fakeStorage(emptyChunk('a', 'b', IDENTITY), { localpay_pending: '[{"id":"p1"}]' })
 
     const r = await pushOnce({
-      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      storage: storage as any,
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     expect(client.append).not.toHaveBeenCalled()
@@ -520,7 +641,12 @@ describe('XR-011: pushOnce appData', () => {
     const storage = fakeStorage(chunkWith({ provenTxs: 1 }), { localpay_pending: hugePending })
 
     const r = await pushOnce({
-      storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      storage: storage as any,
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     expect(r.oversized).toBe(true)
@@ -540,13 +666,15 @@ describe('XR-011: pushOnce appData', () => {
 // BRC-31-signing that payload blocked the JS thread for ~50s on device, every
 // retry, freezing the whole app.
 describe('pushOnce oversize guard', () => {
-  function chunkWithBigTx (rawTxBytes: number): SyncChunk {
+  function chunkWithBigTx(rawTxBytes: number): SyncChunk {
     const c = emptyChunk('a', 'b', IDENTITY) as unknown as Record<string, unknown[]>
-    c.provenTxs = [{
-      provenTxId: 1,
-      rawTx: Array.from({ length: rawTxBytes }, () => 7),
-      updated_at: '2026-08-01T00:00:00.000Z'
-    }]
+    c.provenTxs = [
+      {
+        provenTxId: 1,
+        rawTx: Array.from({ length: rawTxBytes }, () => 7),
+        updated_at: '2026-08-01T00:00:00.000Z'
+      }
+    ]
     return c as unknown as SyncChunk
   }
 
@@ -554,7 +682,11 @@ describe('pushOnce oversize guard', () => {
     const client = fakeClient()
     const r = await pushOnce({
       storage: fakeStorage(chunkWithBigTx(959_836)) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     expect(client.append).not.toHaveBeenCalled()
@@ -566,7 +698,11 @@ describe('pushOnce oversize guard', () => {
     const before = await loadCursor('main', PSEUDONYM, DEVICE)
     await pushOnce({
       storage: fakeStorage(chunkWithBigTx(959_836)) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client: fakeClient(),
+      deviceId: DEVICE
     })
 
     expect(await loadCursor('main', PSEUDONYM, DEVICE)).toEqual(before)
@@ -576,7 +712,11 @@ describe('pushOnce oversize guard', () => {
     const client = fakeClient()
     const r = await pushOnce({
       storage: fakeStorage(chunkWithBigTx(1000)) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     expect(client.append).toHaveBeenCalled()
@@ -595,9 +735,9 @@ describe('pushOnce oversize guard', () => {
 // appended for it — see codec.ts's encodeChunk docs on why a dedicated marker is unsafe
 // for a reader that predates it.
 describe('pushOnce seals', () => {
-  async function decodedSeal (
+  async function decodedSeal(
     ciphertext: number[]
-  ): Promise<{ generation: number, initialChunkCount: number } | undefined> {
+  ): Promise<{ generation: number; initialChunkCount: number } | undefined> {
     const wallet = deriveBackupWallet(PRIMARY, 'main')
     const decoded = await decodeEntry(wallet, ciphertext, 'main')
     return decoded.seal
@@ -610,11 +750,19 @@ describe('pushOnce seals', () => {
     // carries a seal, since the window has not closed yet.
     await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
     await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
     expect(client.append).toHaveBeenCalledTimes(2)
     for (const call of client.append.mock.calls) {
@@ -625,7 +773,11 @@ describe('pushOnce seals', () => {
     // recorded purely in the cursor.
     const closing = await pushOnce({
       storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
     expect(closing.windowClosed).toBe(true)
     expect(client.append).toHaveBeenCalledTimes(2)
@@ -634,7 +786,11 @@ describe('pushOnce seals', () => {
     // The next real chunk (a pure delta) carries the seal referencing that count.
     await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
     expect(client.append).toHaveBeenCalledTimes(3)
     expect(await decodedSeal(client.append.mock.calls[2][4])).toEqual({ generation: 1, initialChunkCount: 2 })
@@ -643,7 +799,11 @@ describe('pushOnce seals', () => {
     // move initialChunkCount, and closing itself never appends anything.
     const secondClose = await pushOnce({
       storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
     expect(secondClose.windowClosed).toBe(true)
     expect(client.append).toHaveBeenCalledTimes(3)
@@ -652,7 +812,11 @@ describe('pushOnce seals', () => {
     // A further delta still carries the ORIGINAL seal, not one referencing the later count.
     await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
     expect(client.append).toHaveBeenCalledTimes(4)
     expect(await decodedSeal(client.append.mock.calls[3][4])).toEqual({ generation: 1, initialChunkCount: 2 })
@@ -675,7 +839,11 @@ describe('pushOnce seals', () => {
 
     const r = await pushOnce({
       storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     // The back-fill itself costs no network round trip; this pass's one append is the real
@@ -691,11 +859,19 @@ describe('pushOnce seals', () => {
 
     await pushOnce({
       storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
     await pushOnce({
       storage: fakeStorage(emptyChunk('a', 'b', IDENTITY)) as any,
-      primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
     })
 
     expect(client.append).not.toHaveBeenCalled()
@@ -709,7 +885,14 @@ describe('pushOnce opt-out', () => {
     const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
     const client = fakeClient()
 
-    const r = await pushOnce({ storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY, client, deviceId: DEVICE })
+    const r = await pushOnce({
+      storage: storage as any,
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
+    })
 
     expect(r).toEqual({ pushed: 0, bytes: 0, windowClosed: false, rotated: false, optedOut: true })
     expect(storage.getSyncChunk).not.toHaveBeenCalled()
@@ -760,16 +943,26 @@ describe('pushOnce opt-out', () => {
 
       const optedOutStorage = fakeStorage(chunkWith({ provenTxs: 1 }))
       const off = await pushOnce({
-        storage: optedOutStorage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY,
-        client: fakeClient(), deviceId: DEVICE, profileIndex: 1
+        storage: optedOutStorage as any,
+        primaryKey: PRIMARY,
+        chain: 'main',
+        identityKey: IDENTITY,
+        client: fakeClient(),
+        deviceId: DEVICE,
+        profileIndex: 1
       })
       expect(off.optedOut).toBe(true)
       expect(optedOutStorage.getSyncChunk).not.toHaveBeenCalled()
 
       const client = fakeClient()
       const on = await pushOnce({
-        storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any, primaryKey: PRIMARY, chain: 'main',
-        identityKey: IDENTITY, client, deviceId: DEVICE, profileIndex: 0
+        storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
+        primaryKey: PRIMARY,
+        chain: 'main',
+        identityKey: IDENTITY,
+        client,
+        deviceId: DEVICE,
+        profileIndex: 0
       })
       expect(on.pushed).toBe(1)
       expect(client.append).toHaveBeenCalledTimes(1)
@@ -783,8 +976,13 @@ describe('pushOnce opt-out', () => {
 
       const storage = fakeStorage(chunkWith({ provenTxs: 1 }))
       const r = await pushOnce({
-        storage: storage as any, primaryKey: PRIMARY, chain: 'main', identityKey: IDENTITY,
-        client: fakeClient(), deviceId: DEVICE, profileIndex: 0
+        storage: storage as any,
+        primaryKey: PRIMARY,
+        chain: 'main',
+        identityKey: IDENTITY,
+        client: fakeClient(),
+        deviceId: DEVICE,
+        profileIndex: 0
       })
 
       expect(r.optedOut).toBe(true)
@@ -796,8 +994,12 @@ describe('pushOnce opt-out', () => {
       await setActiveProfile(1)
 
       const r = await pushOnce({
-        storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any, primaryKey: PRIMARY, chain: 'main',
-        identityKey: IDENTITY, client: fakeClient(), deviceId: DEVICE
+        storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
+        primaryKey: PRIMARY,
+        chain: 'main',
+        identityKey: IDENTITY,
+        client: fakeClient(),
+        deviceId: DEVICE
       })
 
       expect(r.optedOut).toBe(true)

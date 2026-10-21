@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **No `node_modules` patching for this feature.** Every seam used is a public, overridable method on `StorageProvider` or an injectable option. The repo does ship `patches/@bsv+wallet-toolbox-mobile+2.4.3.patch`; do not add to it.
-- **Only `attemptToPostReqsToNetwork` as a *method* is intercepted.** `processAction.js:146` calls `storage.attemptToPostReqsToNetwork(...)`, so the override applies to the internalize and non-delayed create paths. `TaskSendWaiting.js:180` calls the *module function* directly, so the monitor's normal broadcast retries are deliberately unaffected. Never change that.
+- **Only `attemptToPostReqsToNetwork` as a _method_ is intercepted.** `processAction.js:146` calls `storage.attemptToPostReqsToNetwork(...)`, so the override applies to the internalize and non-delayed create paths. `TaskSendWaiting.js:180` calls the _module function_ directly, so the monitor's normal broadcast retries are deliberately unaffected. Never change that.
 - **Spendability is governed by `transactions.status`, never by `proven_tx_reqs.status`** — verified at `storage/StorageExpoSQLite.ts:742` and `:1278`, and `storage/methods/listOutputsSql.ts:86`. An offline transaction is `transactions.status = 'unproven'` + `proven_tx_reqs.status = 'nosend'`.
 - **Do not invent a new `proven_tx_reqs.status` value.** `nosend` is already ignored by `TaskSendWaiting`, `TaskCheckForProofs`, and `TaskFailAbandoned`, is barred from counting attempts by `TaskCheckNoSends`, and is listed in `readyToSendStatuses` (`storage/storageProviderHelpers.js:14`) so it stays releasable.
 - **Nearby rail only.** Do not touch `components/pay/HandleSend.tsx`, `HandleReceive.tsx`, `AddressSend.tsx`, or `AddressReceive.tsx` beyond the offline disabling in Task 12.
@@ -28,48 +28,50 @@
 
 **Created:**
 
-| File | Responsibility |
-| --- | --- |
-| `utils/net/online.ts` | The single definition of "online": pure predicate, one-shot fetch, subscription. |
-| `hooks/useOnline.ts` | React binding for the above. |
-| `utils/headers/checkpoints.ts` | Per-chain trust anchors (height + hash), hardcoded. |
-| `utils/headers/fs.ts` | `HeaderFs` interface + `expoHeaderFs()` + `memoryHeaderFs()` so the store is testable without native modules. |
-| `utils/headers/headerStore.ts` | File-backed header window: validated append, in-memory merkle-root index, extra-root cache. |
-| `utils/headers/syncHeaders.ts` | Chunked pull from a chaintracks client into the store. |
-| `utils/headers/prewarm.ts` | Copy already-verified roots out of the local `proven_txs` table into the store. |
-| `utils/headers/OfflineFirstChaintracks.ts` | `ChaintracksClientApi` that answers roots locally and delegates everything else. |
-| `utils/offline/order.ts` | Pure release ordering and descendant discovery. |
-| `utils/offline/plan.ts` | Pure release plan + outcome-to-mutations decisions. |
-| `storage/methods/offlineActions.ts` | Thin SQL mapper for the `offline_actions` table. |
-| `utils/monitor/TaskSendOffline.ts` | Manually triggered monitor task that drives the release. |
-| `storage/methods/processOfflineActions.ts` | Imperative driver: post in order, apply outcomes, cascade. |
-| `components/pay/OfflineNotice.tsx` | Offline banner plus the queued/rejected list. |
+| File                                       | Responsibility                                                                                                |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `utils/net/online.ts`                      | The single definition of "online": pure predicate, one-shot fetch, subscription.                              |
+| `hooks/useOnline.ts`                       | React binding for the above.                                                                                  |
+| `utils/headers/checkpoints.ts`             | Per-chain trust anchors (height + hash), hardcoded.                                                           |
+| `utils/headers/fs.ts`                      | `HeaderFs` interface + `expoHeaderFs()` + `memoryHeaderFs()` so the store is testable without native modules. |
+| `utils/headers/headerStore.ts`             | File-backed header window: validated append, in-memory merkle-root index, extra-root cache.                   |
+| `utils/headers/syncHeaders.ts`             | Chunked pull from a chaintracks client into the store.                                                        |
+| `utils/headers/prewarm.ts`                 | Copy already-verified roots out of the local `proven_txs` table into the store.                               |
+| `utils/headers/OfflineFirstChaintracks.ts` | `ChaintracksClientApi` that answers roots locally and delegates everything else.                              |
+| `utils/offline/order.ts`                   | Pure release ordering and descendant discovery.                                                               |
+| `utils/offline/plan.ts`                    | Pure release plan + outcome-to-mutations decisions.                                                           |
+| `storage/methods/offlineActions.ts`        | Thin SQL mapper for the `offline_actions` table.                                                              |
+| `utils/monitor/TaskSendOffline.ts`         | Manually triggered monitor task that drives the release.                                                      |
+| `storage/methods/processOfflineActions.ts` | Imperative driver: post in order, apply outcomes, cascade.                                                    |
+| `components/pay/OfflineNotice.tsx`         | Offline banner plus the queued/rejected list.                                                                 |
 
 **Modified:**
 
-| File | Change |
-| --- | --- |
-| `storage/schema/createTables.ts` | Add the `offline_actions` table. |
-| `storage/StorageExpoSQLite.ts` | Override `attemptToPostReqsToNetwork`; add `holdReqsOffline`; expose the db to the offline modules. |
-| `services/walletServiceConfig.ts` | Accept an injected chaintracks client. |
-| `context/WalletContext.tsx` | Build the offline tracker, open + sync the store, pre-warm, register `TaskSendOffline`, re-point the three NetInfo sites. |
-| `utils/localpay/build.ts` | `finalizeDelivery` enqueues instead of broadcasting when offline. |
-| `utils/pay/rails/nearby.ts` | Re-export the offline enqueue helper. |
-| `app/pay.tsx` | Disable non-nearby cells offline; render `OfflineNotice`. |
-| `components/pay/PayCellRow.tsx` | Add a `disabled` prop. |
-| `components/pay/ReceivedOverlay.tsx` | "not yet broadcast" state. |
-| `context/i18n/translations.tsx` | New keys in all five locales. |
+| File                                 | Change                                                                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `storage/schema/createTables.ts`     | Add the `offline_actions` table.                                                                                          |
+| `storage/StorageExpoSQLite.ts`       | Override `attemptToPostReqsToNetwork`; add `holdReqsOffline`; expose the db to the offline modules.                       |
+| `services/walletServiceConfig.ts`    | Accept an injected chaintracks client.                                                                                    |
+| `context/WalletContext.tsx`          | Build the offline tracker, open + sync the store, pre-warm, register `TaskSendOffline`, re-point the three NetInfo sites. |
+| `utils/localpay/build.ts`            | `finalizeDelivery` enqueues instead of broadcasting when offline.                                                         |
+| `utils/pay/rails/nearby.ts`          | Re-export the offline enqueue helper.                                                                                     |
+| `app/pay.tsx`                        | Disable non-nearby cells offline; render `OfflineNotice`.                                                                 |
+| `components/pay/PayCellRow.tsx`      | Add a `disabled` prop.                                                                                                    |
+| `components/pay/ReceivedOverlay.tsx` | "not yet broadcast" state.                                                                                                |
+| `context/i18n/translations.tsx`      | New keys in all five locales.                                                                                             |
 
 ---
 
 ### Task 1: One definition of "online"
 
 **Files:**
+
 - Create: `utils/net/online.ts`, `hooks/useOnline.ts`
 - Modify: `context/WalletContext.tsx:1244`, `:1268-1272`, `:1333-1338`
 - Test: `__tests__/netOnline.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `isOnlineState(state: {isConnected: boolean | null; isInternetReachable: boolean | null}): boolean`, `getOnline(): Promise<boolean>`, `subscribeOnline(cb: (online: boolean) => void): () => void`, and `useOnline(): boolean`.
 
@@ -184,25 +186,25 @@ In `context/WalletContext.tsx`, add `import { getOnline, isOnlineState, subscrib
 Replace the body at `:1244-1245`:
 
 ```ts
-        if (!(await getOnline())) return
+if (!(await getOnline())) return
 ```
 
 Replace the listener at `:1268-1272`:
 
 ```ts
-    const unsubscribe = subscribeOnline(online => {
-      if (online) tryProcess()
-    })
+const unsubscribe = subscribeOnline(online => {
+  if (online) tryProcess()
+})
 ```
 
 Replace the listener at `:1333-1338`:
 
 ```ts
-    const netUnsubscribe = subscribeOnline(next => {
-      online = next
-      // Coming back online is worth a pass now rather than at the next tick.
-      if (online) void tick()
-    })
+const netUnsubscribe = subscribeOnline(next => {
+  online = next
+  // Coming back online is worth a pass now rather than at the next tick.
+  if (online) void tick()
+})
 ```
 
 Leave the `import NetInfo` line in place only if another reference survives; otherwise remove it. `isOnlineState` is imported for Task 10's use — if the linter flags it as unused now, add it in Task 10 instead.
@@ -224,10 +226,12 @@ git commit -m "refactor(net): one definition of online, replacing three copies"
 ### Task 2: Checkpoints and the header store
 
 **Files:**
+
 - Create: `utils/headers/checkpoints.ts`, `utils/headers/fs.ts`, `utils/headers/headerStore.ts`
 - Test: `__tests__/headerStore.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces:
   - `HeaderCheckpoint { height: number; hash: string }`, `HEADER_CHECKPOINTS: Record<'main' | 'test' | 'ttn', HeaderCheckpoint>`
@@ -706,10 +710,12 @@ git commit -m "feat(headers): checkpoint-anchored header window with validated a
 ### Task 3: Header sync
 
 **Files:**
+
 - Create: `utils/headers/syncHeaders.ts`
 - Test: `__tests__/syncHeaders.test.ts`
 
 **Interfaces:**
+
 - Consumes: `HeaderStore` from Task 2.
 - Produces: `syncHeaders(args: { store: HeaderStore; client: HeaderSource; chunkSize?: number; onProgress?: (tipHeight: number, presentHeight: number) => void; shouldStop?: () => boolean }): Promise<{ added: number; tipHeight: number; presentHeight: number }>` and `interface HeaderSource { getHeaders(height: number, count: number): Promise<string>; getPresentHeight(): Promise<number> }`.
 
@@ -881,10 +887,12 @@ git commit -m "feat(headers): chunked, resumable sync from chaintracks getHeader
 ### Task 4: The offline-first chain tracker
 
 **Files:**
+
 - Create: `utils/headers/OfflineFirstChaintracks.ts`
 - Test: `__tests__/offlineChaintracks.test.ts`
 
 **Interfaces:**
+
 - Consumes: `HeaderStore` from Task 2.
 - Produces: `class OfflineFirstChaintracks` with `constructor(remote: ChaintracksClientApi, online: () => Promise<boolean>)`, `setStore(store: HeaderStore): void`, `lastMissHeight: number | undefined`, and the full `ChaintracksClientApi` surface.
 
@@ -1131,11 +1139,13 @@ git commit -m "feat(headers): offline-first chain tracker with root caching"
 ### Task 5: Wire the header store into the wallet
 
 **Files:**
+
 - Create: `utils/headers/prewarm.ts`
 - Modify: `services/walletServiceConfig.ts:16-104`, `context/WalletContext.tsx` (wallet build, around `:640-700`)
 - Test: `__tests__/headerPrewarm.test.ts`
 
 **Interfaces:**
+
 - Consumes: `HEADER_CHECKPOINTS`, `HeaderStore`, `expoHeaderFs`, `syncHeaders`, `OfflineFirstChaintracks`, `getOnline`.
 - Produces: `prewarmOwnRoots(args: { rows: ProvenTxRootRow[]; store: HeaderStore }): Promise<number>` with `interface ProvenTxRootRow { height: number; merkleRoot: string }`; and `createServiceOptions(..., chaintracksOverride?: ChaintracksClientApi)`.
 
@@ -1260,12 +1270,11 @@ export function createServiceOptions(
 In each of the three returned objects, replace `chaintracks: new ChaintracksServiceClient(...)` with:
 
 ```ts
-      chaintracks:
-        chaintracksOverride ??
-        new ChaintracksServiceClient(
-          walletChain,
-          process.env?.EXPO_PUBLIC_CHAINTRACKS_URL ?? 'https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1'
-        )
+chaintracks: chaintracksOverride ??
+  new ChaintracksServiceClient(
+    walletChain,
+    process.env?.EXPO_PUBLIC_CHAINTRACKS_URL ?? 'https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1'
+  )
 ```
 
 (keeping each branch's own env var and URL — `EXPO_PUBLIC_TEST_CHAINTRACKS_URL` and `EXPO_PUBLIC_TERATEST_CHAINTRACKS_URL` respectively).
@@ -1311,20 +1320,20 @@ import { ChaintracksServiceClient } from '@bsv/wallet-toolbox-mobile'
 Immediately before the `createServices(...)` call in `buildWallet` (currently at `:640`), construct the tracker:
 
 ```ts
-        // The remote client the wrapper delegates to. Built here rather than
-        // inside createServiceOptions so the same instance is both the fallback
-        // for root misses and the source for header sync.
-        const chaintracksUrl =
-          selectedNetwork === 'main'
-            ? (process.env?.EXPO_PUBLIC_CHAINTRACKS_URL ?? 'https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1')
-            : selectedNetwork === 'test'
-              ? (process.env?.EXPO_PUBLIC_TEST_CHAINTRACKS_URL ??
-                'https://arcade-v2-testnet-us-1.bsvblockchain.tech/chaintracks/v1')
-              : (process.env?.EXPO_PUBLIC_TERATEST_CHAINTRACKS_URL ??
-                'https://arcade-v2-ttn-us-1.bsvblockchain.tech/chaintracks/v1')
-        const remoteChaintracks = new ChaintracksServiceClient(walletChain, chaintracksUrl)
-        const offlineChaintracks = new OfflineFirstChaintracks(remoteChaintracks, getOnline)
-        offlineChaintracksRef.current = offlineChaintracks
+// The remote client the wrapper delegates to. Built here rather than
+// inside createServiceOptions so the same instance is both the fallback
+// for root misses and the source for header sync.
+const chaintracksUrl =
+  selectedNetwork === 'main'
+    ? (process.env?.EXPO_PUBLIC_CHAINTRACKS_URL ?? 'https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1')
+    : selectedNetwork === 'test'
+      ? (process.env?.EXPO_PUBLIC_TEST_CHAINTRACKS_URL ??
+        'https://arcade-v2-testnet-us-1.bsvblockchain.tech/chaintracks/v1')
+      : (process.env?.EXPO_PUBLIC_TERATEST_CHAINTRACKS_URL ??
+        'https://arcade-v2-ttn-us-1.bsvblockchain.tech/chaintracks/v1')
+const remoteChaintracks = new ChaintracksServiceClient(walletChain, chaintracksUrl)
+const offlineChaintracks = new OfflineFirstChaintracks(remoteChaintracks, getOnline)
+offlineChaintracksRef.current = offlineChaintracks
 ```
 
 Add `const offlineChaintracksRef = useRef<OfflineFirstChaintracks | undefined>(undefined)` alongside the other refs in the provider, and pass the wrapper as the sixth argument to `createServices(...)`.
@@ -1346,66 +1355,67 @@ Also add the database accessor to `storage/StorageExpoSQLite.ts` now — Tasks 5
 Still in `buildWallet`, after the monitor block and before `setManagers(...)`, add:
 
 ```ts
-        // Header window: open, seed from our own validated proofs, then extend
-        // to tip. All three steps are off the critical path — the wallet is
-        // usable immediately, it just cannot verify offline until the first
-        // sync finishes.
-        InteractionManager.runAfterInteractions(() => {
-          void (async () => {
-            try {
-              const anchor = HEADER_CHECKPOINTS[walletChain as 'main' | 'test' | 'ttn']
-              if (!anchor) return
-              const store = await HeaderStore.open(expoHeaderFs(), walletChain, anchor)
-              offlineChaintracksRef.current?.setStore(store)
+// Header window: open, seed from our own validated proofs, then extend
+// to tip. All three steps are off the critical path — the wallet is
+// usable immediately, it just cannot verify offline until the first
+// sync finishes.
+InteractionManager.runAfterInteractions(() => {
+  void (async () => {
+    try {
+      const anchor = HEADER_CHECKPOINTS[walletChain as 'main' | 'test' | 'ttn']
+      if (!anchor) return
+      const store = await HeaderStore.open(expoHeaderFs(), walletChain, anchor)
+      offlineChaintracksRef.current?.setStore(store)
 
-              const db = phoneStorage?.sqliteDb
-              if (db) {
-                const rows = (await db.getAllAsync(
-                  'SELECT DISTINCT height, merkleRoot FROM proven_txs WHERE height > 0'
-                )) as { height: number; merkleRoot: string }[]
-                const warmed = await prewarmOwnRoots({ rows, store })
-                logWithTimestamp(F, `Header prewarm: ${warmed} roots from proven_txs`)
-              }
+      const db = phoneStorage?.sqliteDb
+      if (db) {
+        const rows = (await db.getAllAsync('SELECT DISTINCT height, merkleRoot FROM proven_txs WHERE height > 0')) as {
+          height: number
+          merkleRoot: string
+        }[]
+        const warmed = await prewarmOwnRoots({ rows, store })
+        logWithTimestamp(F, `Header prewarm: ${warmed} roots from proven_txs`)
+      }
 
-              if (await getOnline()) {
-                const r = await syncHeaders({
-                  store,
-                  client: remoteChaintracks,
-                  shouldStop: () => !offlineChaintracksRef.current
-                })
-                logWithTimestamp(F, `Header sync: +${r.added} to ${r.tipHeight}/${r.presentHeight}`)
-              }
-            } catch (e: any) {
-              console.warn('[WalletContext] header store unavailable:', e?.message)
-            }
-          })()
+      if (await getOnline()) {
+        const r = await syncHeaders({
+          store,
+          client: remoteChaintracks,
+          shouldStop: () => !offlineChaintracksRef.current
         })
+        logWithTimestamp(F, `Header sync: +${r.added} to ${r.tipHeight}/${r.presentHeight}`)
+      }
+    } catch (e: any) {
+      console.warn('[WalletContext] header store unavailable:', e?.message)
+    }
+  })()
+})
 ```
 
 Add a reconnect-triggered top-up next to the existing `subscribeOnline` listener from Task 1's third call site:
 
 ```ts
-  // Top the header window up whenever signal returns, so the next time we go
-  // underground the window already reaches the tip.
-  useEffect(() => {
-    if (!walletBuilt) return
-    return subscribeOnline(online => {
-      if (!online) return
-      const ct = offlineChaintracksRef.current
-      if (!ct) return
-      void (async () => {
-        try {
-          const anchor = HEADER_CHECKPOINTS[toWalletChain(selectedNetwork) as 'main' | 'test' | 'ttn']
-          if (!anchor) return
-          const store = await HeaderStore.open(expoHeaderFs(), toWalletChain(selectedNetwork), anchor)
-          ct.setStore(store)
-          await syncHeaders({ store, client: ct })
-        } catch {
-          // Best-effort. The next reconnect retries.
-        }
-      })()
-    })
-  }, [walletBuilt, selectedNetwork])
+// Top the header window up whenever signal returns, so the next time we go
+// underground the window already reaches the tip.
+useEffect(() => {
+  if (!walletBuilt) return
+  return subscribeOnline(online => {
+    if (!online) return
+    const ct = offlineChaintracksRef.current
+    if (!ct) return
+    void (async () => {
+      try {
+        const anchor = HEADER_CHECKPOINTS[toWalletChain(selectedNetwork) as 'main' | 'test' | 'ttn']
+        if (!anchor) return
+        const store = await HeaderStore.open(expoHeaderFs(), toWalletChain(selectedNetwork), anchor)
+        ct.setStore(store)
+        await syncHeaders({ store, client: ct })
+      } catch {
+        // Best-effort. The next reconnect retries.
+      }
+    })()
+  })
+}, [walletBuilt, selectedNetwork])
 ```
 
 - [ ] **Step 8: Verify**
@@ -1425,11 +1435,13 @@ git commit -m "feat(headers): inject the offline tracker and sync the window in 
 ### Task 6: The `offline_actions` table
 
 **Files:**
+
 - Modify: `storage/schema/createTables.ts` (append before the closing brace)
 - Create: `storage/methods/offlineActions.ts`
 - Test: none (SQL layer; validated on device in Task 13 — see Global Constraints)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces:
   - `type OfflineActionStatus = 'queued' | 'posting' | 'sent' | 'rejected'`
@@ -1443,12 +1455,12 @@ git commit -m "feat(headers): inject the offline tracker and sync the window in 
 In `storage/schema/createTables.ts`, insert immediately before the closing `}` of `createTables`:
 
 ```ts
-  // Offline actions — the broadcast queue and provenance record for
-  // transactions accepted with no network. The money itself lives in the normal
-  // transactions/outputs tables the whole time (that is what keeps it
-  // spendable); this table records what still needs sending, in what order it
-  // arrived, and who handed it to us.
-  await db.execAsync(`
+// Offline actions — the broadcast queue and provenance record for
+// transactions accepted with no network. The money itself lives in the normal
+// transactions/outputs tables the whole time (that is what keeps it
+// spendable); this table records what still needs sending, in what order it
+// arrived, and who handed it to us.
+await db.execAsync(`
     CREATE TABLE IF NOT EXISTS offline_actions (
       offlineActionId INTEGER PRIMARY KEY AUTOINCREMENT,
       created_at TEXT NOT NULL,
@@ -1599,10 +1611,12 @@ git commit -m "feat(offline): add the offline_actions table and its mapper"
 ### Task 7: Release ordering and cascade, as pure functions
 
 **Files:**
+
 - Create: `utils/offline/order.ts`
 - Test: `__tests__/offlineOrder.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `interface OrderableTx { txid: string; hasProof: boolean; isTxidOnly: boolean; inputTxids: string[] }`, `releaseOrder(txs: OrderableTx[]): string[]`, `descendantsOf(txid: string, txs: OrderableTx[]): string[]`.
 
@@ -1800,15 +1814,17 @@ git commit -m "feat(offline): pure release ordering and descendant cascade"
 ### Task 8: Hold the forced broadcast
 
 **Files:**
+
 - Modify: `storage/StorageExpoSQLite.ts` (add `holdReqsOffline` and the `attemptToPostReqsToNetwork` override near the existing `internalizeAction` override at `:1345`)
 - Create: `utils/offline/hold.ts`
 - Test: `__tests__/offlineHold.test.ts`
 
 **Interfaces:**
+
 - Consumes: `insertOfflineAction`, `OfflineDb` (Task 6).
 - Produces: `buildOfflineHoldResult(reqs: HeldReq[]): { status: 'success'; details: { txid: string; req: HeldReq; status: 'success' }[] }`, `interface HeldReq { txid: string }`, and `StorageExpoSQLite.holdReqsOffline(reqs: { txid: string }[], userId: number): Promise<void>`. The `sqliteDb` accessor was added in Task 5; do not add it again.
 
-**Why this seam.** `internalizeAction` forces a synchronous broadcast for every unseen txid at `storage/methods/internalizeAction.js:536`, and offline that rolls the internalize back. The only thing that call reaches is `storage.attemptToPostReqsToNetwork(...)` (`storage/methods/processAction.js:146`) — a public method on `StorageProvider` (`StorageProvider.js:449`, `.d.ts:111`). Overriding it holds the broadcast without duplicating one line of the money logic above it. `TaskSendWaiting` calls the *module function* instead (`TaskSendWaiting.js:180`), so the monitor's ordinary retries are untouched.
+**Why this seam.** `internalizeAction` forces a synchronous broadcast for every unseen txid at `storage/methods/internalizeAction.js:536`, and offline that rolls the internalize back. The only thing that call reaches is `storage.attemptToPostReqsToNetwork(...)` (`storage/methods/processAction.js:146`) — a public method on `StorageProvider` (`StorageProvider.js:449`, `.d.ts:111`). Overriding it holds the broadcast without duplicating one line of the money logic above it. `TaskSendWaiting` calls the _module function_ instead (`TaskSendWaiting.js:180`), so the monitor's ordinary retries are untouched.
 
 The transaction row is already `unproven` at this point — `findOrInsertTargetTransaction` sets `provenTx != null ? 'completed' : 'unproven'` (`internalizeAction.js:352`) — so the outputs are spendable and only the request needs holding.
 
@@ -1968,10 +1984,12 @@ git commit -m "feat(offline): hold the forced internalize broadcast when offline
 ### Task 9: The ordered release engine
 
 **Files:**
+
 - Create: `utils/offline/plan.ts`, `storage/methods/processOfflineActions.ts`
 - Test: `__tests__/offlinePlan.test.ts`
 
 **Interfaces:**
+
 - Consumes: `releaseOrder`, `descendantsOf`, `OrderableTx` (Task 7); `OfflineActionRow`, `findOfflineActions`, `updateOfflineAction`, `OfflineDb` (Task 6).
 - Produces:
   - `type PostOutcome = 'success' | 'serviceError' | 'invalidTx' | 'doubleSpend'`
@@ -2106,7 +2124,10 @@ export type PostOutcome = 'success' | 'serviceError' | 'invalidTx' | 'doubleSpen
  * a child becomes an orphan: EF carries input scripts but not parent
  * transactions, so an unbroadcast ancestor has to go out on its own first.
  */
-export function planRelease(args: { rows: OfflineActionRow[]; txs: OrderableTx[] }): { txid: string; owned: boolean }[] {
+export function planRelease(args: {
+  rows: OfflineActionRow[]
+  txs: OrderableTx[]
+}): { txid: string; owned: boolean }[] {
   const owned = new Set(args.rows.filter(r => r.status !== 'sent').map(r => r.txid))
   return releaseOrder(args.txs).map(txid => ({ txid, owned: owned.has(txid) }))
 }
@@ -2363,11 +2384,13 @@ git commit -m "feat(offline): ordered release with cascading rejection and attri
 ### Task 10: `TaskSendOffline`
 
 **Files:**
+
 - Create: `utils/monitor/TaskSendOffline.ts`
 - Modify: `context/WalletContext.tsx` (monitor block around `:833-870`, and the reconnect listener)
 - Test: `__tests__/taskSendOffline.test.ts`
 
 **Interfaces:**
+
 - Consumes: `processOfflineActions` (Task 9), `subscribeOnline` (Task 1).
 - Produces: `class TaskSendOffline` with `static taskName = 'SendOffline'`, `static checkNow: boolean`, `trigger(now): { run: boolean }`, `runTask(): Promise<string>`.
 
@@ -2499,28 +2522,28 @@ import { processOfflineActions } from '@/storage/methods/processOfflineActions'
 Inside the monitor block, immediately after `monitor.addDefaultTasks()`:
 
 ```ts
-          // Release held offline transactions when signal returns. Registered
-          // after the defaults so it sits last in the run order — the header
-          // window is topped up by then.
-          if (phoneStorage) {
-            monitor.addTask(
-              new TaskSendOffline(monitor, () =>
-                processOfflineActions({ storage: phoneStorage as any, services: services as any })
-              )
-            )
-          }
+// Release held offline transactions when signal returns. Registered
+// after the defaults so it sits last in the run order — the header
+// window is topped up by then.
+if (phoneStorage) {
+  monitor.addTask(
+    new TaskSendOffline(monitor, () =>
+      processOfflineActions({ storage: phoneStorage as any, services: services as any })
+    )
+  )
+}
 ```
 
 Add the trigger next to the header top-up effect from Task 5:
 
 ```ts
-  // One reconnect, one release pass.
-  useEffect(() => {
-    if (!walletBuilt) return
-    return subscribeOnline(online => {
-      if (online) TaskSendOffline.checkNow = true
-    })
-  }, [walletBuilt])
+// One reconnect, one release pass.
+useEffect(() => {
+  if (!walletBuilt) return
+  return subscribeOnline(online => {
+    if (online) TaskSendOffline.checkNow = true
+  })
+}, [walletBuilt])
 ```
 
 - [ ] **Step 6: Verify**
@@ -2540,10 +2563,12 @@ git commit -m "feat(offline): TaskSendOffline releases the queue on reconnect"
 ### Task 11: The payer enqueues instead of broadcasting
 
 **Files:**
+
 - Modify: `utils/localpay/build.ts:252-279`, `utils/pay/rails/nearby.ts`
 - Test: `__tests__/localpayBuild.test.ts` (extend the existing file)
 
 **Interfaces:**
+
 - Consumes: `holdReqsOffline` (Task 8), `getOnline` (Task 1).
 - Produces: `finalizeDelivery(wallet, built, ack, originator, deps?: { online?: () => Promise<boolean>; hold?: (txid: string) => Promise<void> })` — same return type as today, `DeliveryOutcome`.
 
@@ -2738,10 +2763,7 @@ Create `utils/offline/payerHold.ts`:
 import { insertOfflineAction } from '@/storage/methods/offlineActions'
 import type { StorageExpoSQLite } from '@/storage/StorageExpoSQLite'
 
-export async function holdSentPaymentOffline(args: {
-  storage: StorageExpoSQLite
-  txid: string
-}): Promise<void> {
+export async function holdSentPaymentOffline(args: { storage: StorageExpoSQLite; txid: string }): Promise<void> {
   const { storage, txid } = args
   const db = storage.sqliteDb
   const found = await storage.findProvenTxReqs({ partial: { txid } })
@@ -2764,9 +2786,9 @@ export async function holdSentPaymentOffline(args: {
 Then in `components/pay/NearbyFlow.tsx`, at the `finalizeDelivery(...)` call site, pass the dependency:
 
 ```ts
-      const outcome = await finalizeDelivery(wallet as never, built, ack, adminOriginator, {
-        hold: async txid => await holdSentPaymentOffline({ storage: storage as never, txid })
-      })
+const outcome = await finalizeDelivery(wallet as never, built, ack, adminOriginator, {
+  hold: async txid => await holdSentPaymentOffline({ storage: storage as never, txid })
+})
 ```
 
 Add `import { holdSentPaymentOffline } from '@/utils/offline/payerHold'` and make sure `storage` is in scope from `useWallet()` (it already is — `NearbyFlow` reads it for `savePending`).
@@ -2796,11 +2818,13 @@ git commit -m "feat(pay): payer queues an offline payment instead of broadcastin
 ### Task 12: The offline interface
 
 **Files:**
+
 - Create: `components/pay/OfflineNotice.tsx`
 - Modify: `components/pay/PayCellRow.tsx`, `app/pay.tsx:146-183`, `components/pay/ReceivedOverlay.tsx`, `context/i18n/translations.tsx`
 - Test: `__tests__/payScreen.test.tsx` (extend), `__tests__/offlineNotice.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `useOnline` (Task 1), `findOfflineActions` + `OfflineActionRow` (Task 6).
 - Produces: `<OfflineNotice queued={number} rejected={OfflineActionRow[]} online={boolean} />`; `PayCellRowProps` gains `disabled?: boolean`.
 
@@ -3016,65 +3040,63 @@ import { findOfflineActions, type OfflineActionRow } from '@/storage/methods/off
 Inside `PayScreen`, add state and a load:
 
 ```ts
-  const online = useOnline()
-  const { walletBuilding, walletBuilt, storage } = useWallet()
-  const [queued, setQueued] = useState(0)
-  const [rejected, setRejected] = useState<OfflineActionRow[]>([])
+const online = useOnline()
+const { walletBuilding, walletBuilt, storage } = useWallet()
+const [queued, setQueued] = useState(0)
+const [rejected, setRejected] = useState<OfflineActionRow[]>([])
 
-  // Refreshed on focus and on connectivity change: the queue only moves when
-  // the network state does.
-  useEffect(() => {
-    if (!walletBuilt) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const db = (storage as any)?.sqliteDb
-        if (!db) return
-        const rows = await findOfflineActions(db, { status: ['queued', 'posting', 'rejected'] })
-        if (cancelled) return
-        setQueued(rows.filter(r => r.status !== 'rejected').length)
-        setRejected(rows.filter(r => r.status === 'rejected'))
-      } catch {
-        // The banner is advisory. A read failure must not break the screen.
-      }
-    })()
-    return () => {
-      cancelled = true
+// Refreshed on focus and on connectivity change: the queue only moves when
+// the network state does.
+useEffect(() => {
+  if (!walletBuilt) return
+  let cancelled = false
+  void (async () => {
+    try {
+      const db = (storage as any)?.sqliteDb
+      if (!db) return
+      const rows = await findOfflineActions(db, { status: ['queued', 'posting', 'rejected'] })
+      if (cancelled) return
+      setQueued(rows.filter(r => r.status !== 'rejected').length)
+      setRejected(rows.filter(r => r.status === 'rejected'))
+    } catch {
+      // The banner is advisory. A read failure must not break the screen.
     }
-  }, [walletBuilt, storage, online])
+  })()
+  return () => {
+    cancelled = true
+  }
+}, [walletBuilt, storage, online])
 ```
 
 Change the grid to disable the online-only cells and render the notice:
 
 ```tsx
-  const grid = () => (
-    <View style={styles.grid}>
-      <OfflineNotice online={online} queued={queued} rejected={rejected} />
-      {/* Direction first: it is what the user already knows. */}
-      <View style={[styles.segment, { backgroundColor: colors.fillTertiary }]}>
-        {/* ...unchanged... */}
-      </View>
+const grid = () => (
+  <View style={styles.grid}>
+    <OfflineNotice online={online} queued={queued} rejected={rejected} />
+    {/* Direction first: it is what the user already knows. */}
+    <View style={[styles.segment, { backgroundColor: colors.fillTertiary }]}>{/* ...unchanged... */}</View>
 
-      <View style={styles.rows}>
-        {CELLS[direction].map(spec => {
-          // Handle needs a message box and address needs an overlay lookup;
-          // neither works underground. Nearby is the whole point of offline.
-          const needsInternet = !spec.cell.endsWith('nearby')
-          const disabled = !online && needsInternet
-          return (
-            <PayCellRow
-              key={spec.cell}
-              title={t(spec.titleKey)}
-              subtitle={disabled ? t('pay_offline_needs_internet') : t(spec.subtitleKey)}
-              icon={spec.icon}
-              disabled={disabled}
-              onPress={() => setCell(spec.cell)}
-            />
-          )
-        })}
-      </View>
+    <View style={styles.rows}>
+      {CELLS[direction].map(spec => {
+        // Handle needs a message box and address needs an overlay lookup;
+        // neither works underground. Nearby is the whole point of offline.
+        const needsInternet = !spec.cell.endsWith('nearby')
+        const disabled = !online && needsInternet
+        return (
+          <PayCellRow
+            key={spec.cell}
+            title={t(spec.titleKey)}
+            subtitle={disabled ? t('pay_offline_needs_internet') : t(spec.subtitleKey)}
+            icon={spec.icon}
+            disabled={disabled}
+            onPress={() => setCell(spec.cell)}
+          />
+        )
+      })}
     </View>
-  )
+  </View>
+)
 ```
 
 `<OfflineNotice>` is the first child of `styles.grid`, above the segmented control, so it inherits the grid's horizontal padding and needs none of its own.
@@ -3106,9 +3128,9 @@ export default function ReceivedOverlay({ amount, count = 1, broadcast = true, o
 Then, directly beneath the existing amount block inside the modal, add:
 
 ```tsx
-      {!broadcast && (
-        <Text style={[styles.pending, { color: colors.textSecondary }]}>{t('pay_received_not_broadcast')}</Text>
-      )}
+{
+  !broadcast && <Text style={[styles.pending, { color: colors.textSecondary }]}>{t('pay_received_not_broadcast')}</Text>
+}
 ```
 
 and to the stylesheet:
@@ -3149,25 +3171,21 @@ beforeEach(() => {
 Then add the test. The existing `useWallet` mock returns only `walletBuilding` and `walletBuilt`, so `storage` is undefined and the queue effect returns early — which is what we want here; this test is about the grid:
 
 ```tsx
-  it('disables the handle and address cells while offline', () => {
-    mockOnline = false
-    const { getByLabelText } = draw()
-    // `t` returns the key, and PayCellRow's label is `${title}. ${subtitle}`.
-    expect(getByLabelText('pay_cell_nearby_pay. pay_cell_nearby_pay_sub').props.accessibilityState.disabled).toBe(false)
-    expect(
-      getByLabelText('pay_cell_handle_pay. pay_offline_needs_internet').props.accessibilityState.disabled
-    ).toBe(true)
-    expect(
-      getByLabelText('pay_cell_address_pay. pay_offline_needs_internet').props.accessibilityState.disabled
-    ).toBe(true)
-  })
+it('disables the handle and address cells while offline', () => {
+  mockOnline = false
+  const { getByLabelText } = draw()
+  // `t` returns the key, and PayCellRow's label is `${title}. ${subtitle}`.
+  expect(getByLabelText('pay_cell_nearby_pay. pay_cell_nearby_pay_sub').props.accessibilityState.disabled).toBe(false)
+  expect(getByLabelText('pay_cell_handle_pay. pay_offline_needs_internet').props.accessibilityState.disabled).toBe(true)
+  expect(getByLabelText('pay_cell_address_pay. pay_offline_needs_internet').props.accessibilityState.disabled).toBe(
+    true
+  )
+})
 
-  it('leaves every cell enabled while online', () => {
-    const { getByLabelText } = draw()
-    expect(
-      getByLabelText('pay_cell_handle_pay. pay_cell_handle_pay_sub').props.accessibilityState.disabled
-    ).toBe(false)
-  })
+it('leaves every cell enabled while online', () => {
+  const { getByLabelText } = draw()
+  expect(getByLabelText('pay_cell_handle_pay. pay_cell_handle_pay_sub').props.accessibilityState.disabled).toBe(false)
+})
 ```
 
 If `accessibilityState` is not on the queried node (because `PressableScale` forwards props differently), assert on the subtitle text instead: `expect(getByText('pay_offline_needs_internet')).toBeTruthy()`.
@@ -3189,6 +3207,7 @@ git commit -m "feat(pay): offline notice, gated rails, and honest receipt copy"
 ### Task 13: Device validation
 
 **Files:**
+
 - Modify: `docs/superpowers/specs/2026-07-28-offline-nearby-payments-design.md` (record results)
 - Test: two physical iPhones, airplane mode
 
@@ -3247,7 +3266,7 @@ git commit -m "docs(pay): record offline nearby payment device validation"
 
 ## Deviations from the spec, for review
 
-**Two spec unit tests became device checks.** The spec's testing section asked for jest coverage of "`offline_actions` CRUD and the `CREATE TABLE IF NOT EXISTS` upgrade path from a pre-existing database" and of "transaction/req status pairs after each transition". Both need a real SQLite engine, and this repo has no storage test harness — `ls __tests__` shows 36 files, none of them touching `storage/`. Standing one up is a larger piece of work than this feature. Instead: every decision those tests would have protected is extracted into a pure module that *is* unit-tested (`utils/offline/order.ts`, `utils/offline/plan.ts`, `utils/offline/hold.ts`), the SQL layer is kept logic-free, and the status pairs are verified on hardware in Task 13 steps 3-5 and 8. If that trade is not acceptable, the fix is a separate task adding a SQLite harness before Task 6.
+**Two spec unit tests became device checks.** The spec's testing section asked for jest coverage of "`offline_actions` CRUD and the `CREATE TABLE IF NOT EXISTS` upgrade path from a pre-existing database" and of "transaction/req status pairs after each transition". Both need a real SQLite engine, and this repo has no storage test harness — `ls __tests__` shows 36 files, none of them touching `storage/`. Standing one up is a larger piece of work than this feature. Instead: every decision those tests would have protected is extracted into a pure module that _is_ unit-tested (`utils/offline/order.ts`, `utils/offline/plan.ts`, `utils/offline/hold.ts`), the SQL layer is kept logic-free, and the status pairs are verified on hardware in Task 13 steps 3-5 and 8. If that trade is not acceptable, the fix is a separate task adding a SQLite harness before Task 6.
 
 **The internalize seam changed.**
 

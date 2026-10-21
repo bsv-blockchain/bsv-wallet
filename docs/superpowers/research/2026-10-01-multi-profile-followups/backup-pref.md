@@ -3,6 +3,7 @@ PKG = /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox. All paths bel
 ## 1. Preference inventory
 
 **Storage and defaults (core/backup/preference.ts)**
+
 - The key is the global bare string `backupPushEnabled` (`BACKUP_PUSH_ENABLED_KEY`, :19), in AsyncStorage. It has no profile scoping.
 - The read is `!== 'false'`, so a missing key, an unrecognised value or a thrown read all mean ON (:22-29).
 - The write stores `'true'` or `'false'` explicitly (:31-33). The module doc (:1-16) says absence must never mean off.
@@ -12,29 +13,30 @@ PKG = /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox. All paths bel
 
 **Read sites**
 
-| # | Site | What it does |
-|---|---|---|
-| R1 | core/backup/push.ts:83 | First statement of `pushOnce`. When off it returns `optedOut` before touching the DB or cursor (:79-85). |
-| R2 | core/backup/status.ts:30 | `getBackupUploadState(chain, pseudonym)` reads `enabled`. Called from ui/screens/WalletCheckScreen.tsx:151 with `getBackupPseudonym(selectedNetwork)`. |
-| R3 | ui/screens/WalletConfigScreen.tsx:219-221 | Mount effect with `[]` deps; sets `backupPushOn` state. |
-| R4 | ui/screens/VaultScreen.tsx:466-473 (read at :469) | `privateBackupEnabled`, injected as `backupEnabled` at :555. |
-| R5 | ui/screens/VaultTransferScreen.tsx:163-170 (read at :166) | Same callback; used at :326, :346, :400. |
-| R6 | core/services/vault/transfers.ts:2101-2107 (read at :2103) | `defaultPrivateBackupEnabled`, used by `requirePrivateBackup` (:2111-2116). Callers are :2270, :3119 and :3218, each preceded by `requireReleased` (:2264, :3118, :3215). `requireReleased` throws unless `scopeToken.profileIndex` is 0 (:2093-2095). |
+| #   | Site                                                       | What it does                                                                                                                                                                                                                                           |
+| --- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R1  | core/backup/push.ts:83                                     | First statement of `pushOnce`. When off it returns `optedOut` before touching the DB or cursor (:79-85).                                                                                                                                               |
+| R2  | core/backup/status.ts:30                                   | `getBackupUploadState(chain, pseudonym)` reads `enabled`. Called from ui/screens/WalletCheckScreen.tsx:151 with `getBackupPseudonym(selectedNetwork)`.                                                                                                 |
+| R3  | ui/screens/WalletConfigScreen.tsx:219-221                  | Mount effect with `[]` deps; sets `backupPushOn` state.                                                                                                                                                                                                |
+| R4  | ui/screens/VaultScreen.tsx:466-473 (read at :469)          | `privateBackupEnabled`, injected as `backupEnabled` at :555.                                                                                                                                                                                           |
+| R5  | ui/screens/VaultTransferScreen.tsx:163-170 (read at :166)  | Same callback; used at :326, :346, :400.                                                                                                                                                                                                               |
+| R6  | core/services/vault/transfers.ts:2101-2107 (read at :2103) | `defaultPrivateBackupEnabled`, used by `requirePrivateBackup` (:2111-2116). Callers are :2270, :3119 and :3218, each preceded by `requireReleased` (:2264, :3118, :3215). `requireReleased` throws unless `scopeToken.profileIndex` is 0 (:2093-2095). |
 
 **Write sites**
 
-| # | Site | What it does |
-|---|---|---|
-| W1 | ui/screens/WalletConfigScreen.tsx:245 | Toggle. The off path first awaits a confirm alert (:234-242). Handler deps are `[backupPushOn, t]` (:249). |
-| W2 | core/backup/erase.ts:50 | `eraseRemoteBackup` writes `false` as step 1, before the server delete. |
+| #   | Site                                  | What it does                                                                                               |
+| --- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| W1  | ui/screens/WalletConfigScreen.tsx:245 | Toggle. The off path first awaits a confirm alert (:234-242). Handler deps are `[backupPushOn, t]` (:249). |
+| W2  | core/backup/erase.ts:50               | `eraseRemoteBackup` writes `false` as step 1, before the server delete.                                    |
 
 - The erase caller loops all three chains for the active profile (WalletConfigScreen.tsx:293-295). It derives `primaryKey` for `activeProfile` at :279-283, so the server account is already per profile. Only the flag is global.
 - Real bug today: erasing profile N's backup (W2) turns off pushing for every profile, because every profile's R1 reads the same flag. Likewise an opt-out on profile 0 silently stops profile 1's backup, which preference.ts:4-8 says must never happen.
 
 **Checked, not read or write sites**
+
 - Restore flows: preference.ts:10-11 says `restoreOnImport` never consults it. The restore block at WalletContext.tsx:1573-1666 has no reference.
 - Discovery: core/profiles/discovery.ts does not import it. It only probes manifests (:62-64).
-- core/recovery/*: no reference (grep).
+- core/recovery/\*: no reference (grep).
 - Backup attestation (core/services/vault/backupAttestation.ts): a different flag (phrase or shares acknowledged).
   - It is already keyed by identity key (`scopeKey` :33), so it is per profile by construction.
   - It is swept by prefix in `clearAll` (:71-75).
@@ -117,7 +119,8 @@ PKG = /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox. All paths bel
     - Update spec :86 and plan :19 to move `backupPushEnabled` from shared to per-profile.
     - If a new string is added, for example a profile note on the Private backup section (WalletConfigScreen.tsx:954-982), all 12 locales are needed (`__tests__/i18n/translationParity.test.ts`). The existing `profile_settings_scope_note` (:607-610, translations.tsx:1126) footers the Configuration section only.
 
-**Tests to update or add** (under PKG/__tests__)
+**Tests to update or add** (under PKG/**tests**)
+
 - **backup/preference.test.ts**
   - The key assertions at :54, :56 and :69 stay valid for profile 0.
   - Add `__resetProfilesForTests()` to `beforeEach`.

@@ -30,29 +30,29 @@
 
 **Created**
 
-| File | Responsibility |
-|---|---|
-| `services/vault/backupAttestation.ts` | Per-wallet record that a backup happened. Get/set/clear, AsyncStorage, identity-scoped. |
-| `components/vault/PhraseBackupSheet.tsx` | Reveals the 12 words and takes the "I have written these down" attestation. |
-| `__tests__/backupShares.test.ts` | Payload framing, classification, round-trip, leading-zero, legacy. |
-| `__tests__/vault/backupAttestation.test.ts` | Scoping, clear-on-logout, corrupt-value tolerance. |
+| File                                        | Responsibility                                                                          |
+| ------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `services/vault/backupAttestation.ts`       | Per-wallet record that a backup happened. Get/set/clear, AsyncStorage, identity-scoped. |
+| `components/vault/PhraseBackupSheet.tsx`    | Reveals the 12 words and takes the "I have written these down" attestation.             |
+| `__tests__/backupShares.test.ts`            | Payload framing, classification, round-trip, leading-zero, legacy.                      |
+| `__tests__/vault/backupAttestation.test.ts` | Scoping, clear-on-logout, corrupt-value tolerance.                                      |
 
 **Modified**
 
-| File | Change |
-|---|---|
-| `utils/backupShares.ts` | Framing + classification; split the two producers by name. |
-| `utils/printRecoveryShares.ts` | Print from entropy; return a result union; keep legacy path for WIF wallets. |
-| `app/auth/scan-shares.tsx` | Classify on recovery; persist the mnemonic for v2; warn for legacy. |
-| `services/vault/types.ts` | New `backup-required` error code. |
-| `services/vault/transfers.ts` | Gate inside `depositToVault`. |
-| `components/vault/EnrollWizard.tsx` | New `backup` first step; corrected recovery copy. |
-| `app/vault-transfer.tsx` | Blocked-deposit alert; fix the broken unknown-code i18n fallback. |
-| `context/WalletContext.tsx` | Clear attestations on logout. |
-| `context/i18n/translations.tsx` | New `en` strings; correct the two false ones. |
-| `app/auth/mnemonic.tsx` | Use the shared print util. |
-| `app/wallet-config.tsx` | Use the shared print util. |
-| `__tests__/vault/transfers.test.ts` | Seed the attestation; cover the gate and the withdrawal exemption. |
+| File                                | Change                                                                       |
+| ----------------------------------- | ---------------------------------------------------------------------------- |
+| `utils/backupShares.ts`             | Framing + classification; split the two producers by name.                   |
+| `utils/printRecoveryShares.ts`      | Print from entropy; return a result union; keep legacy path for WIF wallets. |
+| `app/auth/scan-shares.tsx`          | Classify on recovery; persist the mnemonic for v2; warn for legacy.          |
+| `services/vault/types.ts`           | New `backup-required` error code.                                            |
+| `services/vault/transfers.ts`       | Gate inside `depositToVault`.                                                |
+| `components/vault/EnrollWizard.tsx` | New `backup` first step; corrected recovery copy.                            |
+| `app/vault-transfer.tsx`            | Blocked-deposit alert; fix the broken unknown-code i18n fallback.            |
+| `context/WalletContext.tsx`         | Clear attestations on logout.                                                |
+| `context/i18n/translations.tsx`     | New `en` strings; correct the two false ones.                                |
+| `app/auth/mnemonic.tsx`             | Use the shared print util.                                                   |
+| `app/wallet-config.tsx`             | Use the shared print util.                                                   |
+| `__tests__/vault/transfers.test.ts` | Seed the attestation; cover the gate and the withdrawal exemption.           |
 
 ---
 
@@ -61,10 +61,12 @@
 The pure crypto core. Everything else depends on it, and it is the only part with a silent-wrong-wallet failure mode, so it lands first with full coverage.
 
 **Files:**
+
 - Modify: `utils/backupShares.ts:1-27` (header comment and the producer)
 - Test: `__tests__/backupShares.test.ts` (create)
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks.
 - Produces:
   - `ENTROPY_BYTES = 16`, `PAYLOAD_BYTES = 32`
@@ -124,7 +126,11 @@ describe('payload framing', () => {
     // PrivateKey is a BigNumber: a payload starting 0x00 comes back short.
     expect(padPayload([1, 2, 3])).toHaveLength(PAYLOAD_BYTES)
     expect(padPayload([1, 2, 3]).slice(-3)).toEqual([1, 2, 3])
-    expect(padPayload([1, 2, 3]).slice(0, 29).every(b => b === 0)).toBe(true)
+    expect(
+      padPayload([1, 2, 3])
+        .slice(0, 29)
+        .every(b => b === 0)
+    ).toBe(true)
   })
 
   test('rejects an over-wide payload rather than silently truncating', () => {
@@ -184,16 +190,18 @@ describe('share round-trip', () => {
     const result = recoverSecretFromShares(shares.slice(0, 2))
     expect(result.kind).toBe('entropy')
     expect(result.kind === 'entropy' && result.entropy).toEqual(entropy)
-    expect(
-      result.kind === 'entropy' && Mnemonic.fromEntropy(result.entropy).toString()
-    ).toBe(mnemonic.toString())
+    expect(result.kind === 'entropy' && Mnemonic.fromEntropy(result.entropy).toString()).toBe(mnemonic.toString())
   })
 
   test('any two of three shares recover the same secret', () => {
     const entropy = entropyOf(Mnemonic.fromRandom(128))
     const shares = generateEntropyShares(entropy)
 
-    for (const pair of [[0, 1], [0, 2], [1, 2]]) {
+    for (const pair of [
+      [0, 1],
+      [0, 2],
+      [1, 2]
+    ]) {
       const r = recoverSecretFromShares([shares[pair[0]], shares[pair[1]]])
       expect(r.kind === 'entropy' && r.entropy).toEqual(entropy)
     }
@@ -270,9 +278,7 @@ export const ENTROPY_BYTES = 16
 export const PAYLOAD_BYTES = 32
 
 /** What a recombined payload turned out to be. */
-export type RecoveredSecret =
-  | { kind: 'entropy'; entropy: number[] }
-  | { kind: 'legacy'; primaryKey: number[] }
+export type RecoveredSecret = { kind: 'entropy'; entropy: number[] } | { kind: 'legacy'; primaryKey: number[] }
 
 /** Wrap 16 bytes of entropy in the tagged 32-byte payload. */
 export function frameEntropy(entropy: number[]): number[] {
@@ -303,9 +309,7 @@ export function classifyPayload(raw: number[]): RecoveredSecret {
   const tag = payload.slice(ENTROPY_BYTES)
   const expected = Hash.sha256(entropy).slice(0, PAYLOAD_BYTES - ENTROPY_BYTES)
 
-  return tag.every((b, i) => b === expected[i])
-    ? { kind: 'entropy', entropy }
-    : { kind: 'legacy', primaryKey: payload }
+  return tag.every((b, i) => b === expected[i]) ? { kind: 'entropy', entropy } : { kind: 'legacy', primaryKey: payload }
 }
 
 // ── Share generation ─────────────────────────────────────────────────────────
@@ -315,11 +319,7 @@ export function classifyPayload(raw: number[]): RecoveredSecret {
  * @param entropy 16 bytes, from Mnemonic.toEntropy()
  * @returns Share strings in the format base58(x).base58(y).threshold.integrity
  */
-export function generateEntropyShares(
-  entropy: number[],
-  threshold: number = 2,
-  totalShares: number = 3
-): string[] {
+export function generateEntropyShares(entropy: number[], threshold: number = 2, totalShares: number = 3): string[] {
   return new PrivateKey(frameEntropy(entropy)).toBackupShares(threshold, totalShares)
 }
 
@@ -383,10 +383,12 @@ git commit -m "feat(backup): split mnemonic entropy in a tagged 32-byte payload"
 ## Task 2: Print shares from entropy
 
 **Files:**
+
 - Modify: `utils/printRecoveryShares.ts` (whole file)
 - Test: `__tests__/printRecoveryShares.test.ts` (create)
 
 **Interfaces:**
+
 - Consumes: `generateEntropyShares`, `generateLegacyKeyShares` from Task 1.
 - Produces:
   - `type PrintSharesResult = { ok: true; format: 'entropy' | 'legacy' } | { ok: false; reason: 'no-material' | 'unsupported-word-count' }`
@@ -432,9 +434,7 @@ describe('printRecoveryShares', () => {
 
     const recovered = recoverSecretFromShares(shares.slice(0, 2))
     expect(recovered.kind).toBe('entropy')
-    expect(
-      recovered.kind === 'entropy' && Mnemonic.fromEntropy(recovered.entropy).toString()
-    ).toBe(mnemonic.toString())
+    expect(recovered.kind === 'entropy' && Mnemonic.fromEntropy(recovered.entropy).toString()).toBe(mnemonic.toString())
   })
 
   test('refuses a 24-word wallet, because 32 bytes of entropy leaves no room for the tag', async () => {
@@ -453,9 +453,7 @@ describe('printRecoveryShares', () => {
     const html = (printAsync.mock.calls[0][0] as { html: string }).html
     const recovered = recoverSecretFromShares(sharesFromHtml(html).slice(0, 2))
     expect(recovered.kind).toBe('legacy')
-    expect(recovered.kind === 'legacy' && recovered.primaryKey).toEqual(
-      Array.from(PrivateKey.fromWif(wif).toArray())
-    )
+    expect(recovered.kind === 'legacy' && recovered.primaryKey).toEqual(Array.from(PrivateKey.fromWif(wif).toArray()))
   })
 
   test('reports no material rather than throwing', async () => {
@@ -511,12 +509,7 @@ Replace the entire contents of `utils/printRecoveryShares.ts`:
  */
 import { Mnemonic, PrivateKey } from '@bsv/sdk'
 import * as Print from 'expo-print'
-import {
-  ENTROPY_BYTES,
-  generateEntropyShares,
-  generateLegacyKeyShares,
-  generatePrintHTML
-} from './backupShares'
+import { ENTROPY_BYTES, generateEntropyShares, generateLegacyKeyShares, generatePrintHTML } from './backupShares'
 import { recoverMnemonicWallet } from './mnemonicWallet'
 
 export interface PrintSharesSources {
@@ -537,9 +530,7 @@ export type PrintSharesResult =
  * message. A dismissed print sheet still rejects from expo-print and is the
  * caller's business.
  */
-export async function printRecoveryShares(
-  sources: PrintSharesSources
-): Promise<PrintSharesResult> {
+export async function printRecoveryShares(sources: PrintSharesSources): Promise<PrintSharesResult> {
   let shares: string[]
   let identityKey: string
   let format: 'entropy' | 'legacy'
@@ -598,7 +589,7 @@ Replace the `.instructions` block inside the page template:
 Then pass the format from `printRecoveryShares`, replacing the print call:
 
 ```ts
-  await Print.printAsync({ html: await generatePrintHTML(shares, identityKey, format) })
+await Print.printAsync({ html: await generatePrintHTML(shares, identityKey, format) })
 ```
 
 - [ ] **Step 5: Run the test to verify it passes**
@@ -623,10 +614,12 @@ git commit -m "feat(backup): print entropy-format shares, refuse 24-word phrases
 Without this the format change buys nothing — a restored wallet would still have no phrase and still be barred from the vault.
 
 **Files:**
+
 - Modify: `app/auth/scan-shares.tsx:83-125` (`handleRecovery`), plus imports at `:11` and the hook destructure at `:20-21`
 - Test: covered by Task 1 and 2 units plus manual verification in Task 13. No new unit test — this function is UI-bound and its logic is one branch over already-tested primitives.
 
 **Interfaces:**
+
 - Consumes: `recoverSecretFromShares`, `RecoveredSecret` from Task 1.
 - Produces: nothing other tasks consume.
 
@@ -649,8 +642,8 @@ import { Mnemonic } from '@bsv/sdk'
 Replace lines 20-21:
 
 ```tsx
-  const { buildWalletFromRecoveredKey, buildWalletFromMnemonic } = useWallet()
-  const { setRecoveredKey, setMnemonic, deleteRecoveredKey } = useLocalStorage()
+const { buildWalletFromRecoveredKey, buildWalletFromMnemonic } = useWallet()
+const { setRecoveredKey, setMnemonic, deleteRecoveredKey } = useLocalStorage()
 ```
 
 - [ ] **Step 3: Rewrite handleRecovery**
@@ -658,83 +651,83 @@ Replace lines 20-21:
 Replace lines 83-125 with:
 
 ```tsx
-  /**
-   * Two formats reach this point.
-   *
-   * Entropy shares (current) rebuild the phrase, so the wallet is stored as a
-   * mnemonic wallet — identical to one that never lost its phone. Any stale
-   * recoveredKey is removed afterwards so two secrets cannot coexist and
-   * disagree; it is removed only AFTER the mnemonic write succeeds, because
-   * setMnemonic sits behind a biometric prompt and a refusal between the two
-   * would leave no wallet at all.
-   *
-   * Legacy shares carry the hardened primary key and cannot rebuild the
-   * phrase, so they keep the old WIF path and the user is told what that costs.
-   */
-  const handleRecovery = async (shareStrings: string[]) => {
-    setRecovering(true)
-    try {
-      const secret = recoverSecretFromShares(shareStrings)
+/**
+ * Two formats reach this point.
+ *
+ * Entropy shares (current) rebuild the phrase, so the wallet is stored as a
+ * mnemonic wallet — identical to one that never lost its phone. Any stale
+ * recoveredKey is removed afterwards so two secrets cannot coexist and
+ * disagree; it is removed only AFTER the mnemonic write succeeds, because
+ * setMnemonic sits behind a biometric prompt and a refusal between the two
+ * would leave no wallet at all.
+ *
+ * Legacy shares carry the hardened primary key and cannot rebuild the
+ * phrase, so they keep the old WIF path and the user is told what that costs.
+ */
+const handleRecovery = async (shareStrings: string[]) => {
+  setRecovering(true)
+  try {
+    const secret = recoverSecretFromShares(shareStrings)
 
-      if (secret.kind === 'entropy') {
-        const mnemonic = Mnemonic.fromEntropy(secret.entropy).toString()
+    if (secret.kind === 'entropy') {
+      const mnemonic = Mnemonic.fromEntropy(secret.entropy).toString()
 
-        if (!(await setMnemonic(mnemonic))) return await retryOrReset(shareStrings)
-        // Only after the phrase is safely stored: a refusal between the two
-        // writes would otherwise leave the wallet with neither secret.
-        await deleteRecoveredKey()
-        await buildWalletFromMnemonic(mnemonic)
-      } else {
-        const wif = new PrivateKey(secret.primaryKey).toWif()
-
-        if (!(await setRecoveredKey(wif))) return await retryOrReset(shareStrings)
-        await buildWalletFromRecoveredKey(wif)
-
-        await showAlert({
-          title: t('scan_shares_legacy_title'),
-          message: t('scan_shares_legacy_message'),
-          buttons: [{ text: t('scan_shares_legacy_ack'), key: 'ok' }]
-        })
-      }
-
-      setRecovered(true)
-      setCelebrating(true)
-    } catch (err: any) {
-      console.error('[ScanShares] Recovery failed:', err)
-      setError(err.message || t('scan_shares_recovery_failed'))
-      haptics.error()
-      // Allow re-scanning
-      setRecovered(false)
-      setScannedShares([])
-      setThreshold(null)
-      lastScannedRef.current = ''
-    } finally {
-      setRecovering(false)
-    }
-  }
-
-  /**
-   * Both formats store their secret behind the biometric latch, and both have
-   * to survive a refusal the same way: offer a retry, or reset the scanner so
-   * the user can start over.
-   */
-  const retryOrReset = async (shareStrings: string[]): Promise<void> => {
-    const choice = await showAlert({
-      title: 'Biometric Access Required',
-      message: 'Biometric access is needed to protect your wallet keys. Please try again.',
-      buttons: [
-        { text: 'Cancel', style: 'cancel', key: 'cancel' },
-        { text: 'Try Again', key: 'retry' },
-      ],
-    })
-    if (choice === 'cancel') {
-      setScannedShares([])
-      setThreshold(null)
-      lastScannedRef.current = ''
+      if (!(await setMnemonic(mnemonic))) return await retryOrReset(shareStrings)
+      // Only after the phrase is safely stored: a refusal between the two
+      // writes would otherwise leave the wallet with neither secret.
+      await deleteRecoveredKey()
+      await buildWalletFromMnemonic(mnemonic)
     } else {
-      await handleRecovery(shareStrings)
+      const wif = new PrivateKey(secret.primaryKey).toWif()
+
+      if (!(await setRecoveredKey(wif))) return await retryOrReset(shareStrings)
+      await buildWalletFromRecoveredKey(wif)
+
+      await showAlert({
+        title: t('scan_shares_legacy_title'),
+        message: t('scan_shares_legacy_message'),
+        buttons: [{ text: t('scan_shares_legacy_ack'), key: 'ok' }]
+      })
     }
+
+    setRecovered(true)
+    setCelebrating(true)
+  } catch (err: any) {
+    console.error('[ScanShares] Recovery failed:', err)
+    setError(err.message || t('scan_shares_recovery_failed'))
+    haptics.error()
+    // Allow re-scanning
+    setRecovered(false)
+    setScannedShares([])
+    setThreshold(null)
+    lastScannedRef.current = ''
+  } finally {
+    setRecovering(false)
   }
+}
+
+/**
+ * Both formats store their secret behind the biometric latch, and both have
+ * to survive a refusal the same way: offer a retry, or reset the scanner so
+ * the user can start over.
+ */
+const retryOrReset = async (shareStrings: string[]): Promise<void> => {
+  const choice = await showAlert({
+    title: 'Biometric Access Required',
+    message: 'Biometric access is needed to protect your wallet keys. Please try again.',
+    buttons: [
+      { text: 'Cancel', style: 'cancel', key: 'cancel' },
+      { text: 'Try Again', key: 'retry' }
+    ]
+  })
+  if (choice === 'cancel') {
+    setScannedShares([])
+    setThreshold(null)
+    lastScannedRef.current = ''
+  } else {
+    await handleRecovery(shareStrings)
+  }
+}
 ```
 
 Add `PrivateKey` to the `@bsv/sdk` import from Step 1:
@@ -763,10 +756,12 @@ git commit -m "feat(backup): store a restored phrase as a mnemonic wallet"
 ## Task 4: Backup attestation store
 
 **Files:**
+
 - Create: `services/vault/backupAttestation.ts`
 - Test: `__tests__/vault/backupAttestation.test.ts` (create)
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks.
 - Produces:
   - `type BackupMedium = 'phrase' | 'shares'`
@@ -964,9 +959,11 @@ git commit -m "feat(vault): record a per-wallet backup attestation"
 ## Task 5: Clear attestations on logout
 
 **Files:**
+
 - Modify: `context/WalletContext.tsx:1713-1729` (`logout`)
 
 **Interfaces:**
+
 - Consumes: `backupAttestation.clearAll` from Task 4.
 - Produces: nothing.
 
@@ -983,10 +980,10 @@ import { backupAttestation } from '@/services/vault/backupAttestation'
 In the `logout` callback, immediately after `deleteRecoveredKey()`, add:
 
 ```tsx
-      // The attestation is per wallet. "Delete Wallet" routes here, so leaving
-      // it behind would let the NEXT wallet on this device inherit a backup it
-      // never made.
-      backupAttestation.clearAll()
+// The attestation is per wallet. "Delete Wallet" routes here, so leaving
+// it behind would let the NEXT wallet on this device inherit a backup it
+// never made.
+backupAttestation.clearAll()
 ```
 
 - [ ] **Step 3: Typecheck**
@@ -1009,11 +1006,13 @@ git commit -m "fix(vault): drop backup attestations on logout"
 ## Task 6: Gate deposits
 
 **Files:**
+
 - Modify: `services/vault/types.ts:24-52` (`VaultErrorCode`)
 - Modify: `services/vault/transfers.ts:225-232` (`depositToVault` preamble) and the import block at `:40-42`
 - Test: `__tests__/vault/transfers.test.ts` — update `makeFakeWallet`, seed the existing deposit tests, add gate coverage
 
 **Interfaces:**
+
 - Consumes: `backupAttestation` from Task 4.
 - Produces: `VaultErrorCode` gains `'backup-required'`.
 
@@ -1111,35 +1110,44 @@ describe('depositToVault', () => {
 Add a withdrawal-exemption test at the end of the `describe('withdrawFromVault', ...)` block. Copy the setup from the existing partial-withdrawal test in that block verbatim, omit any `backupAttestation.set` call, and assert it succeeds:
 
 ```ts
-  test('a partial withdrawal still re-vaults its remainder with no attestation', async () => {
-    // Regression guard: nextDepositKey is the funnel for the re-vaulted
-    // remainder as well as for deposits. Gating there would block most
-    // WITHDRAWALS — locking users out of their own money is the exact failure
-    // this feature exists to prevent. Note the absent backupAttestation.set.
-    await enrollFakeMeta()
-    const fx = vaultOutputsFixture() // two 6000-sat outputs = 12000
-    const w = makeFakeWallet({
-      async listOutputs() {
-        return { outputs: fx.map(({ src: _s, ...o }) => o), BEEF: stitchBeef(fx) }
-      },
-      async createAction(args: any) {
-        const tx = new Transaction()
-        for (const inp of args.inputs) {
-          const f = fx.find(x => x.outpoint === inp.outpoint)!
-          tx.addInput({ sourceTransaction: f.src, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
-        }
-        for (const out of args.outputs) tx.addOutput({ satoshis: out.satoshis, lockingScript: P2PKH.prototype.lock.call(new P2PKH(), Utils.toArray(derivedPkh('vault/50'), 'hex')) })
-        return { signableTransaction: { tx: tx.toAtomicBEEF(), reference: 'ref-gate' } }
+test('a partial withdrawal still re-vaults its remainder with no attestation', async () => {
+  // Regression guard: nextDepositKey is the funnel for the re-vaulted
+  // remainder as well as for deposits. Gating there would block most
+  // WITHDRAWALS — locking users out of their own money is the exact failure
+  // this feature exists to prevent. Note the absent backupAttestation.set.
+  await enrollFakeMeta()
+  const fx = vaultOutputsFixture() // two 6000-sat outputs = 12000
+  const w = makeFakeWallet({
+    async listOutputs() {
+      return { outputs: fx.map(({ src: _s, ...o }) => o), BEEF: stitchBeef(fx) }
+    },
+    async createAction(args: any) {
+      const tx = new Transaction()
+      for (const inp of args.inputs) {
+        const f = fx.find(x => x.outpoint === inp.outpoint)!
+        tx.addInput({
+          sourceTransaction: f.src,
+          sourceOutputIndex: 0,
+          sequence: 0xffffffff,
+          unlockingScript: new UnlockingScript([])
+        })
       }
-    })
-
-    await withdrawFromVault(w, ADMIN, 5000, 'Withdraw 5000')
-
-    const ca = w.calls.createAction[0] as any
-    expect(ca.outputs).toHaveLength(1)
-    expect(ca.outputs[0].basket).toBe(VAULT_BASKET)
-    expect(ca.outputs[0].satoshis).toBe(1000)
+      for (const out of args.outputs)
+        tx.addOutput({
+          satoshis: out.satoshis,
+          lockingScript: P2PKH.prototype.lock.call(new P2PKH(), Utils.toArray(derivedPkh('vault/50'), 'hex'))
+        })
+      return { signableTransaction: { tx: tx.toAtomicBEEF(), reference: 'ref-gate' } }
+    }
   })
+
+  await withdrawFromVault(w, ADMIN, 5000, 'Withdraw 5000')
+
+  const ca = w.calls.createAction[0] as any
+  expect(ca.outputs).toHaveLength(1)
+  expect(ca.outputs[0].basket).toBe(VAULT_BASKET)
+  expect(ca.outputs[0].satoshis).toBe(1000)
+})
 ```
 
 `vaultOutputsFixture` is defined at the top of the `withdrawFromVault` describe block, so this test must live inside that block.
@@ -1163,23 +1171,23 @@ import { backupAttestation } from './backupAttestation'
 Then replace the first two lines of `depositToVault`'s body:
 
 ```ts
-  if (satoshis < DUST_LIMIT) throw new VaultError('below-dust', 'Deposit below dust limit')
+if (satoshis < DUST_LIMIT) throw new VaultError('below-dust', 'Deposit below dust limit')
 
-  // Depositing into a wallet with no recovery path would hide funds behind a
-  // hardware key the user cannot get past. Advisory — the wizard is the real
-  // gate — but it also covers the deep link straight to the transfer screen.
-  //
-  // DELIBERATELY NOT in nextDepositKey, even though that is the single funnel
-  // for every vault-basket output: partial withdrawals re-vault their
-  // remainder through it, so a check there would block withdrawals.
-  //
-  // Checked BEFORE nextDepositKey so a refusal does not burn a deposit index.
-  const { publicKey: identityKey } = await w.getPublicKey({ identityKey: true }, adminOriginator)
-  if (!(await backupAttestation.get(identityKey))) {
-    throw new VaultError('backup-required', 'Back up this wallet before depositing')
-  }
+// Depositing into a wallet with no recovery path would hide funds behind a
+// hardware key the user cannot get past. Advisory — the wizard is the real
+// gate — but it also covers the deep link straight to the transfer screen.
+//
+// DELIBERATELY NOT in nextDepositKey, even though that is the single funnel
+// for every vault-basket output: partial withdrawals re-vault their
+// remainder through it, so a check there would block withdrawals.
+//
+// Checked BEFORE nextDepositKey so a refusal does not burn a deposit index.
+const { publicKey: identityKey } = await w.getPublicKey({ identityKey: true }, adminOriginator)
+if (!(await backupAttestation.get(identityKey))) {
+  throw new VaultError('backup-required', 'Back up this wallet before depositing')
+}
 
-  const key = await nextDepositKey()
+const key = await nextDepositKey()
 ```
 
 - [ ] **Step 5: Fill in the withdrawal-exemption test**
@@ -1206,9 +1214,11 @@ git commit -m "feat(vault): refuse deposits until the wallet is backed up"
 ## Task 7: Phrase reveal sheet
 
 **Files:**
+
 - Create: `components/vault/PhraseBackupSheet.tsx`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks.
 - Produces: `PhraseBackupSheet: React.FC<{ mnemonic: string; onAttest: () => void; onCancel: () => void }>`
 
@@ -1277,9 +1287,7 @@ export const PhraseBackupSheet: React.FC<{
 
       <View style={[styles.warnBox, { borderColor: colors.warning }]}>
         <Ionicons name="warning-outline" size={16} color={colors.warning} />
-        <Text style={[styles.warnText, { color: colors.textSecondary }]}>
-          {t('vault_phrase_warning')}
-        </Text>
+        <Text style={[styles.warnText, { color: colors.textSecondary }]}>{t('vault_phrase_warning')}</Text>
       </View>
 
       <PressableScale onPress={() => setAcknowledged(a => !a)} style={styles.checkRow}>
@@ -1288,9 +1296,7 @@ export const PhraseBackupSheet: React.FC<{
           size={22}
           color={acknowledged ? colors.accent : colors.textTertiary}
         />
-        <Text style={[styles.checkLabel, { color: colors.textPrimary }]}>
-          {t('vault_phrase_attest')}
-        </Text>
+        <Text style={[styles.checkLabel, { color: colors.textPrimary }]}>{t('vault_phrase_attest')}</Text>
       </PressableScale>
 
       <PressableScale
@@ -1304,20 +1310,13 @@ export const PhraseBackupSheet: React.FC<{
           }
         ]}
       >
-        <Text
-          style={[
-            styles.primaryLabel,
-            { color: acknowledged ? colors.textOnAccent : colors.textTertiary }
-          ]}
-        >
+        <Text style={[styles.primaryLabel, { color: acknowledged ? colors.textOnAccent : colors.textTertiary }]}>
           {t('vault_phrase_done')}
         </Text>
       </PressableScale>
 
       <PressableScale onPress={onCancel} style={styles.secondary}>
-        <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>
-          {t('vault_back')}
-        </Text>
+        <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>{t('vault_back')}</Text>
       </PressableScale>
     </ScrollView>
   )
@@ -1399,9 +1398,11 @@ git commit -m "feat(vault): add the phrase reveal and attestation sheet"
 ## Task 8: The backup step in the wizard
 
 **Files:**
+
 - Modify: `components/vault/EnrollWizard.tsx` — `Step` union at `:31`, state and callbacks at `:44-98`, the `intro` block at `:146-201`, `RecoveryPaths` at `:316-341`, styles at `:343`
 
 **Interfaces:**
+
 - Consumes: `PhraseBackupSheet` (Task 7), `backupAttestation` (Task 4), `printRecoveryShares` returning `PrintSharesResult` (Task 2).
 - Produces: nothing.
 
@@ -1426,47 +1427,44 @@ import { useWallet } from '@/context/WalletContext'
 Replace line 46 (`const [step, setStep] = useState<Step>('intro')`) with:
 
 ```tsx
-  const [step, setStep] = useState<Step>('backup')
-  const [medium, setMedium] = useState<BackupMedium | null>(null)
-  const [revealed, setRevealed] = useState<string | null>(null)
+const [step, setStep] = useState<Step>('backup')
+const [medium, setMedium] = useState<BackupMedium | null>(null)
+const [revealed, setRevealed] = useState<string | null>(null)
 ```
 
 Add `useEffect` to the React import on line 13, then add below the state block:
 
 ```tsx
-  const { managers, adminOriginator } = useWallet()
+const { managers, adminOriginator } = useWallet()
 
-  /** The wallet identity is the attestation's scope key. */
-  const identity = useCallback(async (): Promise<string | null> => {
-    const r = await managers?.permissionsManager?.getPublicKey(
-      { identityKey: true },
-      adminOriginator
-    )
-    return r?.publicKey ?? null
-  }, [managers, adminOriginator])
+/** The wallet identity is the attestation's scope key. */
+const identity = useCallback(async (): Promise<string | null> => {
+  const r = await managers?.permissionsManager?.getPublicKey({ identityKey: true }, adminOriginator)
+  return r?.publicKey ?? null
+}, [managers, adminOriginator])
 
-  // A user who already backed up on a previous visit should not be asked twice.
-  useEffect(() => {
-    let alive = true
-    void (async () => {
-      const key = await identity()
-      if (!key) return
-      const existing = await backupAttestation.get(key)
-      if (alive && existing) setMedium(existing.medium)
-    })()
-    return () => {
-      alive = false
-    }
-  }, [identity])
+// A user who already backed up on a previous visit should not be asked twice.
+useEffect(() => {
+  let alive = true
+  void (async () => {
+    const key = await identity()
+    if (!key) return
+    const existing = await backupAttestation.get(key)
+    if (alive && existing) setMedium(existing.medium)
+  })()
+  return () => {
+    alive = false
+  }
+}, [identity])
 
-  const attest = useCallback(
-    async (m: BackupMedium) => {
-      const key = await identity()
-      if (key) await backupAttestation.set(key, m)
-      setMedium(m)
-    },
-    [identity]
-  )
+const attest = useCallback(
+  async (m: BackupMedium) => {
+    const key = await identity()
+    if (key) await backupAttestation.set(key, m)
+    setMedium(m)
+  },
+  [identity]
+)
 ```
 
 - [ ] **Step 3: Rewrite the print handler to use the result union**
@@ -1474,28 +1472,28 @@ Add `useEffect` to the React import on line 13, then add below the state block:
 Replace `onPrintShares` (lines 70-84):
 
 ```tsx
-  const onPrintShares = useCallback(async () => {
-    if (printing) return
-    setPrinting(true)
-    try {
-      const result = await printRecoveryShares({
-        mnemonic: await getMnemonic(),
-        recoveredKeyWif: await getRecoveredKey?.()
-      })
-      if (result.ok) {
-        // Only a resolved print sheet counts. A cancelled one produced no paper.
-        await attest('shares')
-      } else if (result.reason === 'unsupported-word-count') {
-        showToast(t('vault_shares_word_count'), { type: 'error' })
-      } else {
-        showToast(t('vault_shares_unavailable'), { type: 'error' })
-      }
-    } catch {
-      // Print sheet dismissed or unavailable — not an error worth blocking on.
-    } finally {
-      setPrinting(false)
+const onPrintShares = useCallback(async () => {
+  if (printing) return
+  setPrinting(true)
+  try {
+    const result = await printRecoveryShares({
+      mnemonic: await getMnemonic(),
+      recoveredKeyWif: await getRecoveredKey?.()
+    })
+    if (result.ok) {
+      // Only a resolved print sheet counts. A cancelled one produced no paper.
+      await attest('shares')
+    } else if (result.reason === 'unsupported-word-count') {
+      showToast(t('vault_shares_word_count'), { type: 'error' })
+    } else {
+      showToast(t('vault_shares_unavailable'), { type: 'error' })
     }
-  }, [printing, getMnemonic, getRecoveredKey, attest])
+  } catch {
+    // Print sheet dismissed or unavailable — not an error worth blocking on.
+  } finally {
+    setPrinting(false)
+  }
+}, [printing, getMnemonic, getRecoveredKey, attest])
 ```
 
 - [ ] **Step 4: Add the phrase-reveal handler**
@@ -1503,19 +1501,19 @@ Replace `onPrintShares` (lines 70-84):
 Add below `onPrintShares`:
 
 ```tsx
-  const onRevealPhrase = useCallback(async () => {
-    setError(null)
-    // getMnemonic() is behind the biometric latch, so the reveal is
-    // re-authenticated without a second prompt of our own.
-    const mnemonic = await getMnemonic()
-    if (!mnemonic) {
-      setError(t('vault_requires_mnemonic'))
-      haptics.error()
-      return
-    }
-    setRevealed(mnemonic)
-    setStep('phrase')
-  }, [getMnemonic])
+const onRevealPhrase = useCallback(async () => {
+  setError(null)
+  // getMnemonic() is behind the biometric latch, so the reveal is
+  // re-authenticated without a second prompt of our own.
+  const mnemonic = await getMnemonic()
+  if (!mnemonic) {
+    setError(t('vault_requires_mnemonic'))
+    haptics.error()
+    return
+  }
+  setRevealed(mnemonic)
+  setStep('phrase')
+}, [getMnemonic])
 ```
 
 - [ ] **Step 5: Add the backup step render**
@@ -1523,87 +1521,73 @@ Add below `onPrintShares`:
 Insert immediately before the `// ── intro ──` comment on line 145:
 
 ```tsx
-  // ── backup (prerequisite) ───────────────────────────────────────────
-  if (step === 'backup') {
-    return (
-      <ScrollView contentContainerStyle={styles.body}>
-        <Ionicons
-          name="shield-checkmark-outline"
-          size={48}
-          color={colors.textPrimary}
-          style={styles.hero}
-        />
-        <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_backup_title')}</Text>
-        <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_backup_intro')}</Text>
+// ── backup (prerequisite) ───────────────────────────────────────────
+if (step === 'backup') {
+  return (
+    <ScrollView contentContainerStyle={styles.body}>
+      <Ionicons name="shield-checkmark-outline" size={48} color={colors.textPrimary} style={styles.hero} />
+      <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_backup_title')}</Text>
+      <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_backup_intro')}</Text>
 
-        <BackupRow
-          icon="document-text-outline"
-          title={t('vault_backup_phrase_title')}
-          subtitle={t('vault_backup_phrase_sub')}
-          done={medium === 'phrase'}
-          busy={false}
-          onPress={onRevealPhrase}
-        />
-        <BackupRow
-          icon="print-outline"
-          title={t('vault_backup_shares_title')}
-          subtitle={t('vault_backup_shares_sub')}
-          done={medium === 'shares'}
-          busy={printing}
-          onPress={onPrintShares}
-        />
-
-        <Text style={[styles.fine, { color: colors.textTertiary }]}>
-          {t('vault_backup_either_note')}
-        </Text>
-
-        {error && <Text style={[styles.err, { color: colors.error }]}>{error}</Text>}
-        <PressableScale
-          haptic="confirm"
-          onPress={medium ? () => setStep('intro') : undefined}
-          style={[
-            styles.primary,
-            {
-              backgroundColor: medium ? colors.accent : colors.backgroundSecondary,
-              opacity: medium ? 1 : 0.6
-            }
-          ]}
-        >
-          <Text
-            style={[
-              styles.primaryLabel,
-              { color: medium ? colors.textOnAccent : colors.textTertiary }
-            ]}
-          >
-            {t('vault_continue')}
-          </Text>
-        </PressableScale>
-        <PressableScale onPress={onCancel} style={styles.secondary}>
-          <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>
-            {t('vault_cancel')}
-          </Text>
-        </PressableScale>
-      </ScrollView>
-    )
-  }
-
-  // ── phrase reveal ───────────────────────────────────────────────────
-  if (step === 'phrase' && revealed) {
-    return (
-      <PhraseBackupSheet
-        mnemonic={revealed}
-        onAttest={async () => {
-          await attest('phrase')
-          setRevealed(null)
-          setStep('backup')
-        }}
-        onCancel={() => {
-          setRevealed(null)
-          setStep('backup')
-        }}
+      <BackupRow
+        icon="document-text-outline"
+        title={t('vault_backup_phrase_title')}
+        subtitle={t('vault_backup_phrase_sub')}
+        done={medium === 'phrase'}
+        busy={false}
+        onPress={onRevealPhrase}
       />
-    )
-  }
+      <BackupRow
+        icon="print-outline"
+        title={t('vault_backup_shares_title')}
+        subtitle={t('vault_backup_shares_sub')}
+        done={medium === 'shares'}
+        busy={printing}
+        onPress={onPrintShares}
+      />
+
+      <Text style={[styles.fine, { color: colors.textTertiary }]}>{t('vault_backup_either_note')}</Text>
+
+      {error && <Text style={[styles.err, { color: colors.error }]}>{error}</Text>}
+      <PressableScale
+        haptic="confirm"
+        onPress={medium ? () => setStep('intro') : undefined}
+        style={[
+          styles.primary,
+          {
+            backgroundColor: medium ? colors.accent : colors.backgroundSecondary,
+            opacity: medium ? 1 : 0.6
+          }
+        ]}
+      >
+        <Text style={[styles.primaryLabel, { color: medium ? colors.textOnAccent : colors.textTertiary }]}>
+          {t('vault_continue')}
+        </Text>
+      </PressableScale>
+      <PressableScale onPress={onCancel} style={styles.secondary}>
+        <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>{t('vault_cancel')}</Text>
+      </PressableScale>
+    </ScrollView>
+  )
+}
+
+// ── phrase reveal ───────────────────────────────────────────────────
+if (step === 'phrase' && revealed) {
+  return (
+    <PhraseBackupSheet
+      mnemonic={revealed}
+      onAttest={async () => {
+        await attest('phrase')
+        setRevealed(null)
+        setStep('backup')
+      }}
+      onCancel={() => {
+        setRevealed(null)
+        setStep('backup')
+      }}
+    />
+  )
+}
 ```
 
 - [ ] **Step 6: Strip the print button out of the intro step**
@@ -1611,11 +1595,9 @@ Insert immediately before the `// ── intro ──` comment on line 145:
 In the `intro` block, delete the `PressableScale` calling `onPrintShares` and the `vault_print_shares_note` `Text` beneath it (originally lines 167-182). The `RecoveryPaths` card and everything else stay. Then point the intro's Back affordance at the new first step by replacing the `onCancel` on line 194:
 
 ```tsx
-        <PressableScale onPress={() => setStep('backup')} style={styles.secondary}>
-          <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>
-            {t('vault_back')}
-          </Text>
-        </PressableScale>
+<PressableScale onPress={() => setStep('backup')} style={styles.secondary}>
+  <Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>{t('vault_back')}</Text>
+</PressableScale>
 ```
 
 - [ ] **Step 7: Add the BackupRow component**
@@ -1707,9 +1689,11 @@ git commit -m "feat(vault): require a backup before enrollment can proceed"
 Three existing strings assert that shares cannot open the vault. Under BRC-157 that is false, and leaving it would tell users their vault backup is worthless.
 
 **Files:**
+
 - Modify: `context/i18n/translations.tsx:190-205` (corrections) and `:300` (new keys at the `vault_off` anchor)
 
 **Interfaces:**
+
 - Consumes: key names referenced by Tasks 3, 8 and 10.
 - Produces: the `en` strings those tasks render.
 
@@ -1725,9 +1709,9 @@ In the `en` block, replace `vault_recovery_path_phrase` (lines 193-194):
 Delete `vault_print_shares_note` (lines 201-202) entirely, along with the three-line comment above `vault_print_shares_cta` (lines 197-199). Replace that comment with:
 
 ```tsx
-      // Backup shares split the mnemonic ENTROPY (BRC-157), so any two rebuild
-      // the phrase — and therefore the vault. The printed sheet is
-      // seed-equivalent paper.
+// Backup shares split the mnemonic ENTROPY (BRC-157), so any two rebuild
+// the phrase — and therefore the vault. The printed sheet is
+// seed-equivalent paper.
 ```
 
 Keep `vault_print_shares_cta` — Task 11 still uses it in Settings.
@@ -1817,9 +1801,11 @@ git commit -m "feat(vault): copy for the backup step, and correct the share clai
 The transfer screen renders errors as one inline red footnote, and its fallback for unknown codes is broken — `t()` returns the key itself for a missing string, which is truthy, so `|| t('vault_err_generic')` never fires and a raw key ships to the user.
 
 **Files:**
+
 - Modify: `app/vault-transfer.tsx:76-88` (the catch block)
 
 **Interfaces:**
+
 - Consumes: `vault_err_backup_required` and the `vault_deposit_blocked_*` strings from Task 9.
 - Produces: nothing.
 
@@ -1901,10 +1887,12 @@ git commit -m "fix(vault): surface a blocked deposit and repair the error fallba
 Three call sites generate shares. Two inline the whole pipeline and would keep minting legacy paper.
 
 **Files:**
+
 - Modify: `app/auth/mnemonic.tsx:124-137`
 - Modify: `app/wallet-config.tsx:130-161`
 
 **Interfaces:**
+
 - Consumes: `printRecoveryShares` returning `PrintSharesResult` (Task 2).
 - Produces: nothing.
 
@@ -1913,25 +1901,23 @@ Three call sites generate shares. Two inline the whole pipeline and would keep m
 In `app/auth/mnemonic.tsx`, replace `handlePrintRecoveryShares` with:
 
 ```tsx
-  const handlePrintRecoveryShares = async () => {
-    if (isPrinting) return
-    setIsPrinting(true)
-    try {
-      const result = await printRecoveryShares({ mnemonic, recoveredKeyWif: null })
-      if (!result.ok) {
-        showToast(
-          result.reason === 'unsupported-word-count'
-            ? t('vault_shares_word_count')
-            : t('vault_shares_unavailable'),
-          { type: 'error' }
-        )
-      }
-    } catch (error: any) {
-      console.info('[Mnemonic] Print recovery shares did not complete:', error?.message)
-    } finally {
-      setIsPrinting(false)
+const handlePrintRecoveryShares = async () => {
+  if (isPrinting) return
+  setIsPrinting(true)
+  try {
+    const result = await printRecoveryShares({ mnemonic, recoveredKeyWif: null })
+    if (!result.ok) {
+      showToast(
+        result.reason === 'unsupported-word-count' ? t('vault_shares_word_count') : t('vault_shares_unavailable'),
+        { type: 'error' }
+      )
     }
+  } catch (error: any) {
+    console.info('[Mnemonic] Print recovery shares did not complete:', error?.message)
+  } finally {
+    setIsPrinting(false)
   }
+}
 ```
 
 Replace the `generateBackupShares` / `generatePrintHTML` / `Print` imports with:
@@ -1947,28 +1933,28 @@ Remove `recoverMnemonicWallet`, `expo-print` and `backupShares` imports if nothi
 In `app/wallet-config.tsx`, replace `handlePrintRecoveryShares` with:
 
 ```tsx
-  const handlePrintRecoveryShares = async () => {
-    if (isPrinting) return
-    setIsPrinting(true)
-    try {
-      const result = await printRecoveryShares({
-        mnemonic: await getMnemonic(),
-        recoveredKeyWif: await getRecoveredKey()
-      })
-      if (!result.ok) {
-        showToast(
-          result.reason === 'unsupported-word-count'
-            ? t('vault_shares_word_count')
-            : 'Unable to access wallet key. Please authenticate and try again.',
-          { type: 'error' }
-        )
-      }
-    } catch (error: any) {
-      console.info('[WalletConfig] Print recovery shares did not complete:', error?.message)
-    } finally {
-      setIsPrinting(false)
+const handlePrintRecoveryShares = async () => {
+  if (isPrinting) return
+  setIsPrinting(true)
+  try {
+    const result = await printRecoveryShares({
+      mnemonic: await getMnemonic(),
+      recoveredKeyWif: await getRecoveredKey()
+    })
+    if (!result.ok) {
+      showToast(
+        result.reason === 'unsupported-word-count'
+          ? t('vault_shares_word_count')
+          : 'Unable to access wallet key. Please authenticate and try again.',
+        { type: 'error' }
+      )
     }
+  } catch (error: any) {
+    console.info('[WalletConfig] Print recovery shares did not complete:', error?.message)
+  } finally {
+    setIsPrinting(false)
   }
+}
 ```
 
 Apply the same import cleanup as Step 1.
@@ -2051,6 +2037,7 @@ git push origin feat/wallet-backup-log
 Independently rejectable: it needs a new native dependency and a rebuild, and on iOS it cannot actually block a screenshot — only detect one after the fact. Android's `FLAG_SECURE` does block. Skip this task if the rebuild cost is not worth partial coverage.
 
 **Files:**
+
 - Modify: `package.json`, `components/vault/PhraseBackupSheet.tsx`, `app/auth/mnemonic.tsx`
 
 - [ ] **Step 1: Add the dependency**
@@ -2066,15 +2053,15 @@ In both `components/vault/PhraseBackupSheet.tsx` and the phrase-display branch o
 ```tsx
 import * as ScreenCapture from 'expo-screen-capture'
 
-  useEffect(() => {
-    // Android FLAG_SECURE genuinely blocks capture. iOS cannot block it — this
-    // only makes the attempt detectable — so do not describe it as protection
-    // in user-facing copy.
-    void ScreenCapture.preventScreenCaptureAsync()
-    return () => {
-      void ScreenCapture.allowScreenCaptureAsync()
-    }
-  }, [])
+useEffect(() => {
+  // Android FLAG_SECURE genuinely blocks capture. iOS cannot block it — this
+  // only makes the attempt detectable — so do not describe it as protection
+  // in user-facing copy.
+  void ScreenCapture.preventScreenCaptureAsync()
+  return () => {
+    void ScreenCapture.allowScreenCaptureAsync()
+  }
+}, [])
 ```
 
 - [ ] **Step 3: Rebuild and verify on both platforms**

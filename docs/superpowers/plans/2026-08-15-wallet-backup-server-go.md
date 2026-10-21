@@ -4,7 +4,7 @@
 
 **Goal:** A Go HTTP service that stores append-only, opaque encrypted blobs for wallet backup and recovery, authenticated by BRC-103/104, structurally incapable of reading what it stores.
 
-**Architecture:** A small chi service in the house style of `go-uhrp-storage-server`. Clients authenticate with `go-bsv-middleware`; the authenticated identity key *is* the account address, and no request anywhere carries a client-supplied identity. Blobs are AES-GCM ciphertext the server never decrypts, stored in Postgres `bytea` behind a `BlobStore` interface, organised as `(pseudonym, deviceId, generation, seq)` with two generations retained and no idle expiry.
+**Architecture:** A small chi service in the house style of `go-uhrp-storage-server`. Clients authenticate with `go-bsv-middleware`; the authenticated identity key _is_ the account address, and no request anywhere carries a client-supplied identity. Blobs are AES-GCM ciphertext the server never decrypts, stored in Postgres `bytea` behind a `BlobStore` interface, organised as `(pseudonym, deviceId, generation, seq)` with two generations retained and no idle expiry.
 
 **Tech Stack:** Go 1.26.3, chi v5, `github.com/bsv-blockchain/go-sdk`, `github.com/bsv-blockchain/go-bsv-middleware`, Postgres (`lib/pq`), `log/slog`, `database/sql`, testify, Docker.
 
@@ -23,33 +23,35 @@
 
 ## File Structure
 
-| File | Responsibility |
-|---|---|
-| `cmd/server/main.go` | Composition root: config, logger, wallet, store, server, graceful shutdown |
-| `internal/config/config.go` | `Config` struct + `Load()` from `os.Getenv` |
-| `internal/logger/logger.go` | `Configure(level, format) *slog.Logger` |
-| `internal/wallet/wallet.go` | Server identity from hex key |
-| `internal/server/server.go` | chi router, middleware chain, route groups |
-| `internal/server/middlewares/identity.go` | `RequireIdentityKey`, `GetIdentityKey` |
-| `internal/server/responses/responses.go` | `WriteJSON` / `WriteError` envelope |
-| `internal/server/handlers/append.go` | `POST /v1/log/{deviceId}` |
-| `internal/server/handlers/read.go` | `GET` index, blob, manifest |
-| `internal/server/handlers/prune.go` | `DELETE /v1/generation/{deviceId}/{generation}` |
-| `internal/server/handlers/health.go` | `GET /health` |
-| `internal/blobstore/blobstore.go` | `BlobStore` interface + `BlobKey` |
-| `internal/blobstore/postgres.go` | Postgres implementation |
-| `internal/store/migrations.go` | Idempotent `CREATE TABLE IF NOT EXISTS` list |
-| `test-client/` | Node + `@bsv/sdk` AuthFetch interop tests |
+| File                                      | Responsibility                                                             |
+| ----------------------------------------- | -------------------------------------------------------------------------- |
+| `cmd/server/main.go`                      | Composition root: config, logger, wallet, store, server, graceful shutdown |
+| `internal/config/config.go`               | `Config` struct + `Load()` from `os.Getenv`                                |
+| `internal/logger/logger.go`               | `Configure(level, format) *slog.Logger`                                    |
+| `internal/wallet/wallet.go`               | Server identity from hex key                                               |
+| `internal/server/server.go`               | chi router, middleware chain, route groups                                 |
+| `internal/server/middlewares/identity.go` | `RequireIdentityKey`, `GetIdentityKey`                                     |
+| `internal/server/responses/responses.go`  | `WriteJSON` / `WriteError` envelope                                        |
+| `internal/server/handlers/append.go`      | `POST /v1/log/{deviceId}`                                                  |
+| `internal/server/handlers/read.go`        | `GET` index, blob, manifest                                                |
+| `internal/server/handlers/prune.go`       | `DELETE /v1/generation/{deviceId}/{generation}`                            |
+| `internal/server/handlers/health.go`      | `GET /health`                                                              |
+| `internal/blobstore/blobstore.go`         | `BlobStore` interface + `BlobKey`                                          |
+| `internal/blobstore/postgres.go`          | Postgres implementation                                                    |
+| `internal/store/migrations.go`            | Idempotent `CREATE TABLE IF NOT EXISTS` list                               |
+| `test-client/`                            | Node + `@bsv/sdk` AuthFetch interop tests                                  |
 
 ---
 
 ### Task 1: Scaffold, config, logger, health endpoint
 
 **Files:**
+
 - Create: `go.mod`, `cmd/server/main.go`, `internal/config/config.go`, `internal/logger/logger.go`, `internal/server/server.go`, `internal/server/responses/responses.go`, `internal/server/handlers/health.go`
 - Test: `internal/config/config_test.go`, `internal/server/handlers/health_test.go`
 
 **Interfaces:**
+
 - Consumes: nothing
 - Produces: `config.Config{Port, ServerPrivateKey, DatabaseURL, LogLevel, LogFormat, MaxBlobBytes}`, `config.Load() (*Config, error)`, `logger.Configure(level, format string) *slog.Logger`, `responses.WriteJSON(w, status int, payload any)`, `responses.WriteError(w, status int, code, description string)`, `server.New(...) *http.Server`.
 
@@ -292,11 +294,13 @@ git commit -m "feat: scaffold service with config, logger, responses and health"
 ### Task 2: Server identity and BRC-103/104 auth
 
 **Files:**
+
 - Create: `internal/wallet/wallet.go`, `internal/server/middlewares/identity.go`
 - Modify: `internal/server/server.go`
 - Test: `internal/server/middlewares/identity_test.go`
 
 **Interfaces:**
+
 - Consumes: `config.Config` from Task 1
 - Produces: `wallet.NewServerIdentity(hexKey string) (sdkwallet.Interface, error)`, `middlewares.RequireIdentityKey(next http.Handler) http.Handler`, `middlewares.GetIdentityKey(ctx context.Context) *ec.PublicKey`, and a router with the auth boundary in place.
 
@@ -531,10 +535,12 @@ git commit -m "feat: BRC-103/104 auth boundary with identity-only account addres
 ### Task 3: Blob store, schema and migrations
 
 **Files:**
+
 - Create: `internal/blobstore/blobstore.go`, `internal/blobstore/postgres.go`, `internal/store/migrations.go`
 - Test: `internal/blobstore/postgres_test.go`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks
 - Produces:
 
@@ -718,10 +724,12 @@ git commit -m "feat: postgres blob store with contiguous-seq append and pseudony
 ### Task 4: Append handler
 
 **Files:**
+
 - Create: `internal/server/handlers/append.go`
 - Test: `internal/server/handlers/append_test.go`
 
 **Interfaces:**
+
 - Consumes: `blobstore.BlobStore`, `middlewares.GetIdentityKey`, `middlewares.WithIdentityKey`
 - Produces: `handlers.Append(store blobstore.BlobStore, maxBytes int64) http.HandlerFunc`
 
@@ -886,10 +894,12 @@ git commit -m "feat: append handler with size cap and auth-derived addressing"
 ### Task 5: Read handlers — manifest, index, blob
 
 **Files:**
+
 - Create: `internal/server/handlers/read.go`
 - Test: `internal/server/handlers/read_test.go`
 
 **Interfaces:**
+
 - Consumes: `blobstore.BlobStore`
 - Produces: `handlers.Manifest(store)`, `handlers.Index(store)`, `handlers.Blob(store)` — all `http.HandlerFunc`
 
@@ -950,10 +960,12 @@ git commit -m "feat: manifest, index and blob read handlers"
 ### Task 6: Generation pruning and retention
 
 **Files:**
+
 - Create: `internal/server/handlers/prune.go`
 - Test: `internal/server/handlers/prune_test.go`, `internal/blobstore/retention_test.go`
 
 **Interfaces:**
+
 - Consumes: `blobstore.BlobStore.DeleteGeneration`
 - Produces: `handlers.PruneGeneration(store) http.HandlerFunc`
 
@@ -1049,9 +1061,11 @@ git commit -m "feat: generation pruning with a two-generation retention floor"
 ### Task 7: Cross-tenant security suite
 
 **Files:**
+
 - Create: `internal/server/security_test.go`
 
 **Interfaces:**
+
 - Consumes: the full router from Task 2 and all handlers
 - Produces: proof that identity A cannot reach identity B's data on **every** route.
 
@@ -1134,9 +1148,11 @@ git commit -m "test: prove no route leaks across authenticated identities"
 ### Task 8: TypeScript interop test
 
 **Files:**
+
 - Create: `test-client/package.json`, `test-client/backup.test.ts`, `docker-compose.test.yml`
 
 **Interfaces:**
+
 - Consumes: the running server
 - Produces: proof that the real `@bsv/sdk` `AuthFetch` client can complete the handshake and round-trip a blob. Unit tests cannot prove this — they never exercise BRC-103/104 framing.
 
@@ -1151,7 +1167,7 @@ import { randomBytes } from 'crypto'
 
 const BASE = process.env.SERVER_URL ?? 'http://localhost:8080'
 
-function clientFor (priv = PrivateKey.fromRandom()): { fetch: AuthFetch, key: string } {
+function clientFor(priv = PrivateKey.fromRandom()): { fetch: AuthFetch; key: string } {
   const wallet = new CompletedProtoWallet(priv)
   return { fetch: new AuthFetch(wallet), key: priv.toPublicKey().toString() }
 }
@@ -1165,7 +1181,7 @@ describe('backup log interop', () => {
     const put = await fetch.fetch(`${BASE}/v1/log/${device}?seq=1&generation=1`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
-      body: blob,
+      body: blob
     })
     expect(put.status).toBe(201)
 
@@ -1184,7 +1200,7 @@ describe('backup log interop', () => {
     expect((await fetch.fetch(url, { ...opts, body: randomBytes(16) })).status).toBe(409)
   })
 
-  it('does not expose one identity\'s blob to another', async () => {
+  it("does not expose one identity's blob to another", async () => {
     const alice = clientFor()
     const bob = clientFor()
     const device = randomBytes(16).toString('hex')
@@ -1192,7 +1208,7 @@ describe('backup log interop', () => {
     await alice.fetch.fetch(`${BASE}/v1/log/${device}?seq=1&generation=1`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
-      body: Buffer.from('alice-secret'),
+      body: Buffer.from('alice-secret')
     })
 
     // Same device id, different authenticated identity: must not resolve.
@@ -1224,10 +1240,12 @@ git commit -m "test: TypeScript AuthFetch interop against the live server"
 ### Task 9: Ops — Docker, CI, graceful shutdown
 
 **Files:**
+
 - Create: `Dockerfile`, `.dockerignore`, `docker-compose.yml`, `.env.example`, `.github/workflows/go.yml`, `.github/workflows/docker-publish.yml`
 - Modify: `cmd/server/main.go`
 
 **Interfaces:**
+
 - Consumes: everything above
 - Produces: a deployable image and CI.
 
@@ -1330,7 +1348,7 @@ This is additive — `pay402.PaymentMiddleware` wraps routes with a `CalculatePr
 so nothing in this plan needs to anticipate it. Two constraints if it happens:
 
 - Payment must not re-link the pseudonym to the user's real identity. BRC-228 removes the
-  identity key from the *remittance*, but its own spec states inputs and change are signed
+  identity key from the _remittance_, but its own spec states inputs and change are signed
   by the real wallet and that it is "not graph-private". The residual leak is chain-graph
   correlation of the funding UTXOs.
 - The pseudonymous client wallet **cannot pay**: `CompletedProtoWallet.createAction`

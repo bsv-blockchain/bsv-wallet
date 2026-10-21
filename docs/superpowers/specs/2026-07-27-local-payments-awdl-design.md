@@ -72,22 +72,22 @@ Transport selection is a pure function of the scanned QR and the local platform:
 
 The payee mints a session and renders it as a QR:
 
-| Field | Bytes | Purpose |
-|---|---|---|
-| `v` | 1 | format version |
-| `caps` | 1 | bitfield; bit 0 = payee accepts AWDL |
-| `sessionId` | 16 | random; becomes the Bonjour instance name |
-| `psk` | 32 | random; TLS pre-shared key |
-| `identityKey` | 33 | payee compressed pubkey |
-| `amount` | ~5, **optional** | varint satoshis; **absent = open request, the payer chooses** |
-| `derivationPrefix` | ~16 | BRC-29 nonce |
-| `derivationSuffix` | ~16 | BRC-29 nonce |
+| Field              | Bytes            | Purpose                                                       |
+| ------------------ | ---------------- | ------------------------------------------------------------- |
+| `v`                | 1                | format version                                                |
+| `caps`             | 1                | bitfield; bit 0 = payee accepts AWDL                          |
+| `sessionId`        | 16               | random; becomes the Bonjour instance name                     |
+| `psk`              | 32               | random; TLS pre-shared key                                    |
+| `identityKey`      | 33               | payee compressed pubkey                                       |
+| `amount`           | ~5, **optional** | varint satoshis; **absent = open request, the payer chooses** |
+| `derivationPrefix` | ~16              | BRC-29 nonce                                                  |
+| `derivationSuffix` | ~16              | BRC-29 nonce                                                  |
 
 ≈ 120 bytes → a small static QR, instant to scan.
 
 **`amount` is optional** (resolves open question 1 below). The payee either names a
 figure or leaves the request open; on an open request the payer enters the amount on
-their confirm screen. On the wire the key is *omitted*, never written as null —
+their confirm screen. On the wire the key is _omitted_, never written as null —
 `decodeSession` treats absent as open and refuses an explicit null, so the
 "payer chooses" path can only be reached by a shape `encodeSession` actually
 produces. Present-but-invalid stays a hard `CodecError`
@@ -97,10 +97,10 @@ would put a live Send button under a value nobody chose.
 This changes exactly one check in the payee's settle path, and the distinction is
 load-bearing:
 
-| Check | Applies when | Why |
-|---|---|---|
-| `derivationPrefix` / `derivationSuffix` match | **always** | The nonces are the whole binding — they are the per-session values the payee minted and the payer echoed back, and matching them is what proves the frame was built for *this* request. Never conditional. |
-| `frame.amount === session.amount` | **only when the payee named an amount** | It pins the figure the payee is about to read to the figure they asked for. On an open request there is no requested figure to contradict, so there is nothing to compare against; inventing a comparison would either reject every legitimate open payment or merely look like a check while always passing. |
+| Check                                         | Applies when                            | Why                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `derivationPrefix` / `derivationSuffix` match | **always**                              | The nonces are the whole binding — they are the per-session values the payee minted and the payer echoed back, and matching them is what proves the frame was built for _this_ request. Never conditional.                                                                                                    |
+| `frame.amount === session.amount`             | **only when the payee named an amount** | It pins the figure the payee is about to read to the figure they asked for. On an open request there is no requested figure to contradict, so there is nothing to compare against; inventing a comparison would either reject every legitimate open payment or merely look like a check while always passing. |
 
 The payer side mirrors this: `buildPaymentFrame` takes the amount as an explicit
 argument rather than reading `session.amount`, so the single figure that becomes a
@@ -114,6 +114,7 @@ plain error rather than a `noSend` action holding inputs.
 ## AWDL path
 
 **Payee** starts an `NWListener`:
+
 - Bonjour service `_bsvpay._tcp`, instance name from `sessionId`
 - `NWParameters.includePeerToPeer = true`
 - TLS via `sec_protocol_options_add_pre_shared_key(psk, sessionId)`
@@ -128,7 +129,7 @@ The PSK does the work. Only a device that physically saw the QR can complete the
 
 Replay is bounded by `sessionId` being single-use: the payee stops listening after the first successful transfer and refuses a `sessionId` it has already settled.
 
-**Threat not covered:** an attacker who photographs the QR before the payer scans it can impersonate the payer. They can only *send* money to the payee, so this is not a theft vector. Noted rather than mitigated.
+**Threat not covered:** an attacker who photographs the QR before the payer scans it can impersonate the payer. They can only _send_ money to the payee, so this is not a theft vector. Noted rather than mitigated.
 
 ## QR path
 
@@ -138,7 +139,7 @@ The payer builds and signs the transaction, then renders the `PaymentFrame` as a
 
 Payload is the signed **AtomicBEEF** plus routing fields — the same encoding the AWDL path uses.
 
-> **Amended during implementation.** This section originally specified a bare rawtx on the QR path, with the payee fetching ancestors by txid at internalize time, giving a ~350–450 byte frame. That is not what shipped, and the shipped behaviour is the correct one: a bare rawtx makes the payee's `internalizeAction` depend on network reachability at exactly the moment two devices may have chosen a local hand-off *because* connectivity is poor. Carrying ancestry keeps the receive side offline-capable and keeps one encoding across both transports.
+> **Amended during implementation.** This section originally specified a bare rawtx on the QR path, with the payee fetching ancestors by txid at internalize time, giving a ~350–450 byte frame. That is not what shipped, and the shipped behaviour is the correct one: a bare rawtx makes the payee's `internalizeAction` depend on network reachability at exactly the moment two devices may have chosen a local hand-off _because_ connectivity is poor. Carrying ancestry keeps the receive side offline-capable and keeps one encoding across both transports.
 >
 > The cost is size: AtomicBEEF grows with input count, so a multi-input payment can exceed what a symbol will hold. `MAX_FRAME_QR_CHARS` (2,200 chars, `utils/localpay/codec.ts`) is the ceiling; the payer checks against it before rendering and reports `local_pay_too_large` rather than handing an oversize payload to the encoder, which would otherwise throw out of render. A single-input payment fits comfortably (v40 byte-mode holds 2,331 B at EC level M).
 
@@ -181,6 +182,7 @@ A received frame is persisted **before** any internalize attempt, so neither a c
 `modules/local-pay-transport/`, authored with the Expo Modules API (Swift) to match Expo 55 / RN 0.83.6 / New Architecture.
 
 Surface:
+
 ```
 advertise(instanceName, psk) -> events: ready | connected | frame | error | closed
 browseAndConnect(instanceName, psk, timeoutMs) -> connection handle
@@ -192,8 +194,9 @@ send(handle, bytes) / close(handle)
 ## Configuration
 
 `app.json`:
+
 - `NSBonjourServices`: `["_expo._tcp", "_bsvpay._tcp"]`
-- `NSLocalNetworkUsageDescription`: replace the Expo Dev Launcher default currently shipping (*"Expo Dev Launcher uses the local network to discover and connect to development servers on your computer"*) with a real user-facing string. **This is worth fixing on its own merits** — shipping dev-tooling copy as a purpose string is a 5.1.1 exposure independent of this feature.
+- `NSLocalNetworkUsageDescription`: replace the Expo Dev Launcher default currently shipping (_"Expo Dev Launcher uses the local network to discover and connect to development servers on your computer"_) with a real user-facing string. **This is worth fixing on its own merits** — shipping dev-tooling copy as a purpose string is a 5.1.1 exposure independent of this feature.
 
 No entitlement. No background modes.
 
@@ -211,13 +214,13 @@ No entitlement. No background modes.
 
 ## Risks
 
-| Risk | Severity | Handling |
-|---|---|---|
-| Local Network permission denied — feature is dead | high | Explicit UX, not a silent failure. Detect and offer a route to Settings. |
-| AWDL flakiness when both devices are also on infrastructure Wi-Fi | high | Device testing before commitment; QR fallback is always available |
-| Expo module + New Arch integration | medium | Public API only; spike the module before the screen |
-| Guideline 3.1.1 — QR codes and crypto wallets as unlock mechanisms | low | Don't present this as unlocking content. Existing `handle402()` engages that far more directly. |
-| iOS-only fast path is a two-tier experience | low | Accepted; QR keeps Android functional |
+| Risk                                                               | Severity | Handling                                                                                        |
+| ------------------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------- |
+| Local Network permission denied — feature is dead                  | high     | Explicit UX, not a silent failure. Detect and offer a route to Settings.                        |
+| AWDL flakiness when both devices are also on infrastructure Wi-Fi  | high     | Device testing before commitment; QR fallback is always available                               |
+| Expo module + New Arch integration                                 | medium   | Public API only; spike the module before the screen                                             |
+| Guideline 3.1.1 — QR codes and crypto wallets as unlock mechanisms | low      | Don't present this as unlocking content. Existing `handle402()` engages that far more directly. |
+| iOS-only fast path is a two-tier experience                        | low      | Accepted; QR keeps Android functional                                                           |
 
 ## Open questions
 

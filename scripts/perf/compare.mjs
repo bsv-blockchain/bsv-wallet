@@ -38,7 +38,12 @@ for (const key of Object.keys(baseline.results)) {
   const i = improved.results[key] ?? {}
   if (b.ops_per_sec && i.ops_per_sec) {
     const ratio = (i.ops_per_sec / b.ops_per_sec).toFixed(2)
-    rows.push({ key, base: `${b.ops_per_sec.toLocaleString()} ops/s`, imp: `${i.ops_per_sec.toLocaleString()} ops/s`, ratio: `${ratio}x` })
+    rows.push({
+      key,
+      base: `${b.ops_per_sec.toLocaleString()} ops/s`,
+      imp: `${i.ops_per_sec.toLocaleString()} ops/s`,
+      ratio: `${ratio}x`
+    })
   } else if (typeof b.count === 'number' && typeof i.count === 'number') {
     const ratio = i.count === 0 ? '∞' : (b.count / Math.max(1, i.count)).toFixed(2)
     rows.push({ key, base: b.count.toLocaleString(), imp: i.count.toLocaleString(), ratio: `${ratio}x fewer` })
@@ -53,7 +58,16 @@ const colWidths = {
 }
 
 const pad = (s, w) => s.padEnd(w)
-const sep = '+' + '-'.repeat(colWidths.key + 2) + '+' + '-'.repeat(colWidths.base + 2) + '+' + '-'.repeat(colWidths.imp + 2) + '+' + '-'.repeat(colWidths.ratio + 2) + '+'
+const sep =
+  '+' +
+  '-'.repeat(colWidths.key + 2) +
+  '+' +
+  '-'.repeat(colWidths.base + 2) +
+  '+' +
+  '-'.repeat(colWidths.imp + 2) +
+  '+' +
+  '-'.repeat(colWidths.ratio + 2) +
+  '+'
 
 let md = `# Perf bench — baseline vs improved\n\nBaseline at: ${baseline.when}\nImproved at: ${improved.when}\n\n## Label diff (baseline run vs improved run)\n\n`
 md += sep + '\n'
@@ -86,11 +100,13 @@ if (h2hRows.length) {
   const sW = Math.max(...h2hRows.map(r => r.slow.length), 'Slow path'.length)
   const fW = Math.max(...h2hRows.map(r => r.fast.length), 'Fast path'.length)
   const rW = Math.max(...h2hRows.map(r => r.ratio.length), 'Δ'.length)
-  const sep2 = '+' + '-'.repeat(nW + 2) + '+' + '-'.repeat(sW + 2) + '+' + '-'.repeat(fW + 2) + '+' + '-'.repeat(rW + 2) + '+'
+  const sep2 =
+    '+' + '-'.repeat(nW + 2) + '+' + '-'.repeat(sW + 2) + '+' + '-'.repeat(fW + 2) + '+' + '-'.repeat(rW + 2) + '+'
   md += sep2 + '\n'
   md += `| ${pad('Scenario', nW)} | ${pad('Slow path', sW)} | ${pad('Fast path', fW)} | ${pad('Δ', rW)} |\n`
   md += sep2 + '\n'
-  for (const r of h2hRows) md += `| ${pad(r.name, nW)} | ${pad(r.slow, sW)} | ${pad(r.fast, fW)} | ${pad(r.ratio, rW)} |\n`
+  for (const r of h2hRows)
+    md += `| ${pad(r.name, nW)} | ${pad(r.slow, sW)} | ${pad(r.fast, fW)} | ${pad(r.ratio, rW)} |\n`
   md += sep2 + '\n'
 }
 

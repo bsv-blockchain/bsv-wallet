@@ -26,11 +26,13 @@
 ### Task 1: Wallet becomes the root route
 
 **Files:**
+
 - Delete: `app/index.tsx` (the 1788-line Browser screen)
 - Rename: `app/wallet.tsx` → `app/index.tsx` (then edit)
 - Modify: `app/_layout.tsx:143-190` (Stack screens), `app/transactions.tsx:12`, `app/pay.tsx:226`, `components/pay/PaymentSuccessOverlay.tsx:114`, `components/pay/NearbyFlow.tsx:1789`
 
 **Interfaces:**
+
 - Consumes: nothing from other tasks.
 - Produces: route `/` = Wallet screen. Route `/wallet` no longer exists — every later task must reference `/`.
 
@@ -46,21 +48,21 @@ git mv app/wallet.tsx app/index.tsx
 Remove the import `import tabStore from '@/stores/TabStore'` (old wallet.tsx line 54). Add `Linking` to the existing `react-native` import block (lines 21-29). Replace the body of `onExplorer` (old lines 370-388) with:
 
 ```tsx
-  /** Open the transaction on a block explorer in the system browser. */
-  const onExplorer = useCallback(
-    (txid: string) => {
-      const base =
-        selectedNetwork === 'main'
-          ? 'https://whatsonchain.com'
-          : selectedNetwork === 'teratest'
-            ? 'https://woc-ttn.bsvblockchain.tech'
-            : 'https://test.whatsonchain.com'
-      Linking.openURL(`${base}/tx/${txid}`).catch(() => {
-        showToast(t('explorer_open_failed', { defaultValue: 'Could not open block explorer' }), { type: 'error' })
-      })
-    },
-    [selectedNetwork, t]
-  )
+/** Open the transaction on a block explorer in the system browser. */
+const onExplorer = useCallback(
+  (txid: string) => {
+    const base =
+      selectedNetwork === 'main'
+        ? 'https://whatsonchain.com'
+        : selectedNetwork === 'teratest'
+          ? 'https://woc-ttn.bsvblockchain.tech'
+          : 'https://test.whatsonchain.com'
+    Linking.openURL(`${base}/tx/${txid}`).catch(() => {
+      showToast(t('explorer_open_failed', { defaultValue: 'Could not open block explorer' }), { type: 'error' })
+    })
+  },
+  [selectedNetwork, t]
+)
 ```
 
 No navigation: the user stays on the Wallet while the OS opens the link.
@@ -68,13 +70,16 @@ No navigation: the user stays on the Wallet while the OS opens the link.
 - [ ] **Step 3: Update the Stack in `app/_layout.tsx`**
 
 In the `<Stack>` block (lines 143-190):
+
 - Delete the long "One Browser, ever" comment (lines 153-170) and replace with:
 
 ```tsx
-                            {/* The Wallet (index) takes no params, so there is only
+{
+  /* The Wallet (index) takes no params, so there is only
                                 one identity to collapse — `dangerouslySingular` keeps
                                 repeated navigations to '/' returning to the existing
-                                screen instead of stacking live duplicates. */}
+                                screen instead of stacking live duplicates. */
+}
 ```
 
 - Change `<Stack.Screen name="index" dangerouslySingular options={{ orientation: 'default' }} />` (line 171) to `<Stack.Screen name="index" dangerouslySingular />` (the wallet stays portrait like every other screen; the orientation escape hatch existed for the browser).
@@ -120,11 +125,13 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 2: Deep linking — peerpay and pairing only
 
 **Files:**
+
 - Rewrite: `app/+native-intent.ts`, `hooks/useDeepLinking.ts`
 - Modify: `app/connections.tsx:40,108`
 - Delete: `utils/externalUrlRouter.ts`, `__tests__/externalUrlRouter.test.ts`
 
 **Interfaces:**
+
 - Consumes: route `/` = Wallet (Task 1).
 - Produces: `useDeepLinking(): void` (same export name, consumed by `app/_layout.tsx`'s `DeepLinkHandler`). Pairing scheme is now `bsv-wallet://pair`.
 
@@ -270,10 +277,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 3: Remove Web2/Web3 mode and browser onboarding
 
 **Files:**
+
 - Delete: `context/BrowserModeContext.tsx`, `components/onboarding/DefaultBrowserPrompt.tsx`, `components/onboarding/Web3BenefitsModal.tsx`, `components/onboarding/Web3BenefitsModalHandler.tsx`
 - Modify: `app/_layout.tsx`, `app/settings.tsx:7,24,94`, `app/wallet-config.tsx:9,56,450,454`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `useBrowserMode`/`isWeb2Mode` no longer exist anywhere.
 
@@ -331,6 +340,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 4: Delete the browser subsystem
 
 **Files (all deletions):**
+
 - `components/browser/` — entire directory (17 files)
 - `utils/webview/` — entire directory (12 files)
 - `stores/TabStore.tsx`, `stores/BookmarkStore.tsx`, `stores/uiStore.ts`
@@ -341,6 +351,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Tests: `__tests__/documentStartScript.test.ts`, `__tests__/iframeWalletRoundTrip.test.ts`, `__tests__/injectedPolyfills.test.ts`, `__tests__/messageSizeCeiling.test.ts`, `__tests__/walletByteJson.test.ts`, `__tests__/walletOrigin.test.ts`, `__tests__/walletResponseScript.test.ts`, `__tests__/webAppManifest.test.ts`, `__tests__/manual/manifestProbe.test.ts`
 
 **Interfaces:**
+
 - Consumes: Tasks 1-3 (removed every importer of these files).
 - Produces: nothing — pure deletion.
 
@@ -386,10 +397,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 5: Rename — config, strings, dependencies
 
 **Files:**
+
 - Modify: `app.json`, `package.json`, `eas.json`, `app/_layout.tsx:125`, `context/UserContext.tsx:85`, `context/WalletConnectionContext.tsx:356,408`, `context/theme/tokens.ts:2`, `utils/backupShares.ts:245`
 - Delete: `plugins/withWebBrowserEntitlement.js`
 
 **Interfaces:**
+
 - Consumes: Tasks 1-4 done (no browser code left to reference old names).
 - Produces: the identity in Global Constraints. Task 6 prebuild reads `app.json`.
 
@@ -458,9 +471,11 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 6: Regenerate iOS native project
 
 **Files:**
+
 - Regenerate: `ios/` (entire directory — `ios/BSVBrowser*` becomes `ios/BSVWallet*`)
 
 **Interfaces:**
+
 - Consumes: Task 5's `app.json`.
 - Produces: buildable iOS project for `org.bsvassociation.wallet`.
 
@@ -508,6 +523,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 7: README rewrite
 
 **Files:**
+
 - Rewrite: `README.md`
 
 **Interfaces:** none.
@@ -559,6 +575,7 @@ Expected: no output.
 - [ ] **Step 3: Simulator smoke test**
 
 Boot the app in the iOS simulator. Verify:
+
 1. First screen is the Wallet (balance → Pay / Get paid / Vault → activity).
 2. Pay, settings, wallet-config, vault, connections, transactions (redirects to `/`) all navigate and return.
 3. An activity row's explorer action opens WhatsOnChain in Safari, app stays on Wallet.

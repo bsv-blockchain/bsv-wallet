@@ -21,8 +21,7 @@ function adapt(db: DatabaseSync) {
       db.exec(sql)
     },
     getAllAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).all(...(params as never[])),
-    getFirstAsync: async (sql: string, params: unknown[] = []) =>
-      db.prepare(sql).get(...(params as never[])) ?? null,
+    getFirstAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).get(...(params as never[])) ?? null,
     runAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).run(...(params as never[]))
   }
 }
@@ -208,13 +207,17 @@ describe('the queries behind the balance', () => {
     await seedOutput({ status: 'unproven', basketId: dflt, satoshis: 234, vout: 1 })
 
     const seen = recordSql()
-    const r = await listOutputsSql(storage, { userId: 1, identityKey: 'k' } as never, {
-      basket: sdk.specOpWalletBalance,
-      tags: [],
-      tagQueryMode: 'any',
-      limit: 10,
-      offset: 0
-    } as never)
+    const r = await listOutputsSql(
+      storage,
+      { userId: 1, identityKey: 'k' } as never,
+      {
+        basket: sdk.specOpWalletBalance,
+        tags: [],
+        tagQueryMode: 'any',
+        limit: 10,
+        offset: 0
+      } as never
+    )
 
     expect(r).toEqual({ totalOutputs: 1234, outputs: [] })
     expect(seen.some(q => q.includes('SUM("satoshis")'))).toBe(true)
@@ -226,13 +229,17 @@ describe('the queries behind the balance', () => {
     const vault = await seedBasket('admin vault')
     await seedOutput({ status: 'sending', basketId: vault, satoshis: 400_000 })
 
-    const r = await listOutputsSql(storage, { userId: 1, identityKey: 'k' } as never, {
-      basket: 'admin vault',
-      tags: [],
-      tagQueryMode: 'any',
-      limit: 10,
-      offset: 0
-    } as never)
+    const r = await listOutputsSql(
+      storage,
+      { userId: 1, identityKey: 'k' } as never,
+      {
+        basket: 'admin vault',
+        tags: [],
+        tagQueryMode: 'any',
+        limit: 10,
+        offset: 0
+      } as never
+    )
 
     expect(r.outputs.map(o => o.satoshis)).toEqual([400_000])
   })
@@ -250,14 +257,22 @@ describe('the queries behind the balance', () => {
       limit: 64
     }
 
-    const first = await listOutputsSql(storage, { userId: 1, identityKey: 'k' } as never, {
-      ...args,
-      offset: 0
-    } as never)
-    const second = await listOutputsSql(storage, { userId: 1, identityKey: 'k' } as never, {
-      ...args,
-      offset: 64
-    } as never)
+    const first = await listOutputsSql(
+      storage,
+      { userId: 1, identityKey: 'k' } as never,
+      {
+        ...args,
+        offset: 0
+      } as never
+    )
+    const second = await listOutputsSql(
+      storage,
+      { userId: 1, identityKey: 'k' } as never,
+      {
+        ...args,
+        offset: 64
+      } as never
+    )
 
     expect(first.outputs).toHaveLength(64)
     expect(second.outputs).toHaveLength(1)

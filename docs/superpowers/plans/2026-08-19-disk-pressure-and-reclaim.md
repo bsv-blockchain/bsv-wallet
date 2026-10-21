@@ -27,10 +27,12 @@
 ### Task 1: Typed storage errors
 
 **Files:**
+
 - Create: `storage/errors.ts`
 - Create: `__tests__/storage/errors.test.ts`
 
 **Interfaces:**
+
 - Produces: `type StorageErrorCode = 'disk-full' | 'disk-io' | 'locked' | 'unknown'`
 - Produces: `class StorageError extends Error { code: StorageErrorCode; cause?: unknown }`
 - Produces: `storageErrorFromSqlite(e: unknown): StorageError | null` — null when the failure is not recognisably a storage-pressure problem.
@@ -100,10 +102,12 @@ git commit -m "feat(storage): typed storage errors classified from sqlite messag
 ### Task 2: The free-space probe
 
 **Files:**
+
 - Create: `utils/diskSpace.ts`
 - Create: `__tests__/diskSpace.test.ts`
 
 **Interfaces:**
+
 - Produces: `DISK_WARN_BYTES = 200 * 1024 * 1024`, `DISK_BLOCK_BYTES = 50 * 1024 * 1024`
 - Produces: `type DiskPressure = 'ok' | 'warn' | 'block' | 'unknown'`
 - Produces: `availableDiskBytes(): number | null` — null when the native getter gives nothing usable.
@@ -161,14 +165,16 @@ git commit -m "feat(storage): absolute-threshold disk-space probe that fails ope
 ### Task 3: Wire both into the single write choke point
 
 **Files:**
+
 - Modify: `storage/StorageExpoSQLite.ts` (`transaction()` :147-170)
 
 **Interfaces:**
+
 - Consumes: `storageErrorFromSqlite` (Task 1), `availableDiskBytes`/`diskPressure` (Task 2).
 
 Every wallet write funnels through `transaction()`, so one wrapper covers `createAction`, `internalizeAction` and all CRUD without touching call sites.
 
-**Pre-emptive checking is not optional.** `withExclusiveTransactionAsync` awaits ROLLBACK inside its catch *before* assigning the error, so a rollback that also fails under disk pressure propagates instead and the original diagnosis is destroyed. A space check before BEGIN is the only way to be sure what happened.
+**Pre-emptive checking is not optional.** `withExclusiveTransactionAsync` awaits ROLLBACK inside its catch _before_ assigning the error, so a rollback that also fails under disk pressure propagates instead and the original diagnosis is destroyed. A space check before BEGIN is the only way to be sure what happened.
 
 - [ ] **Step 1: Add the pre-write gate and the post-failure classifier**
 
@@ -190,11 +196,13 @@ git commit -m "feat(storage): refuse writes on a full disk and classify the fail
 ### Task 4: The read-only reclaim report
 
 **Files:**
+
 - Create: `storage/methods/reclaim.ts`
 - Create: `__tests__/storage/reclaim.test.ts`
 - Modify: `storage/StorageExpoSQLite.ts` (add `reclaimReport()`)
 
 **Interfaces:**
+
 - Produces: `RECLAIM_CANDIDATES_SQL`, `RECLAIM_SIZES_SQL`
 - Produces: `interface ReclaimReport { dbBytes: number | null; perTable: { table: string; blobBytes: number; rows: number }[]; inputBEEF: { rows: number; bytes: number }; excluded: { reason: string; rows: number }[] }`
 - Produces: `reclaimReport(): Promise<ReclaimReport>` on `StorageExpoSQLite`.
@@ -213,8 +221,12 @@ const db = () => {
   const d = new DatabaseSync(':memory:')
   d.exec(`CREATE TABLE transactions (transactionId INTEGER PRIMARY KEY, updated_at TEXT, status TEXT,
     provenTxId INTEGER, txid TEXT, inputBEEF BLOB, rawTx BLOB)`)
-  d.exec('CREATE TABLE proven_txs (provenTxId INTEGER PRIMARY KEY, txid TEXT, height INTEGER, rawTx BLOB, merklePath BLOB)')
-  d.exec('CREATE TABLE proven_tx_reqs (provenTxReqId INTEGER PRIMARY KEY, txid TEXT, status TEXT, rawTx BLOB, inputBEEF BLOB)')
+  d.exec(
+    'CREATE TABLE proven_txs (provenTxId INTEGER PRIMARY KEY, txid TEXT, height INTEGER, rawTx BLOB, merklePath BLOB)'
+  )
+  d.exec(
+    'CREATE TABLE proven_tx_reqs (provenTxReqId INTEGER PRIMARY KEY, txid TEXT, status TEXT, rawTx BLOB, inputBEEF BLOB)'
+  )
   d.exec('CREATE TABLE offline_actions (id INTEGER PRIMARY KEY, txid TEXT, status TEXT)')
   return d
 }
@@ -223,12 +235,16 @@ it('counts reclaimable inputBEEF bytes and reports what was excluded', () => {
   const d = db()
   // Reclaimable: completed, proven, deep enough, no pending req or queued action.
   d.prepare('INSERT INTO proven_txs VALUES (?,?,?,?,?)').run(1, 'aa', 100, new Uint8Array(10), new Uint8Array(10))
-  d.prepare(`INSERT INTO transactions (transactionId, updated_at, status, provenTxId, txid, inputBEEF)
-    VALUES (?,?,?,?,?,?)`).run(1, '2026-01-01', 'completed', 1, 'aa', new Uint8Array(5000))
+  d.prepare(
+    `INSERT INTO transactions (transactionId, updated_at, status, provenTxId, txid, inputBEEF)
+    VALUES (?,?,?,?,?,?)`
+  ).run(1, '2026-01-01', 'completed', 1, 'aa', new Uint8Array(5000))
   // Excluded: a proven_tx_reqs row that is not completed.
   d.prepare('INSERT INTO proven_txs VALUES (?,?,?,?,?)').run(2, 'bb', 100, new Uint8Array(10), new Uint8Array(10))
-  d.prepare(`INSERT INTO transactions (transactionId, updated_at, status, provenTxId, txid, inputBEEF)
-    VALUES (?,?,?,?,?,?)`).run(2, '2026-01-01', 'completed', 2, 'bb', new Uint8Array(9000))
+  d.prepare(
+    `INSERT INTO transactions (transactionId, updated_at, status, provenTxId, txid, inputBEEF)
+    VALUES (?,?,?,?,?,?)`
+  ).run(2, '2026-01-01', 'completed', 2, 'bb', new Uint8Array(9000))
   d.prepare('INSERT INTO proven_tx_reqs VALUES (?,?,?,?,?)').run(1, 'bb', 'sending', null, null)
 
   const rows = d.prepare(RECLAIM_CANDIDATES_SQL).all(1000, '2027-01-01') as { txid: string; bytes: number }[]
@@ -261,11 +277,13 @@ git commit -m "feat(storage): read-only reclaim report, measured before anything
 ### Task 5: Null `transactions.inputBEEF`, and nothing else
 
 **Files:**
+
 - Modify: `storage/methods/reclaim.ts` (add the UPDATE)
 - Modify: `storage/StorageExpoSQLite.ts` (add `reclaimInputBeef()`)
 - Modify: `__tests__/storage/reclaim.test.ts`
 
 **Interfaces:**
+
 - Produces: `RECLAIM_INPUT_BEEF_SQL`
 - Produces: `reclaimInputBeef(opts: { tipHeight: number; cutoff: string }): Promise<{ rows: number }>`
 
@@ -276,13 +294,21 @@ Needs raw `db.runAsync`: `updateTransaction` cannot write NULL, because `sqlUpda
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
-it('nulls only the rows the predicate allows', () => { /* as above, then assert */ })
+it('nulls only the rows the predicate allows', () => {
+  /* as above, then assert */
+})
 
-it('keeps inputBEEF for a transaction with a queued offline action', () => { /* ... */ })
+it('keeps inputBEEF for a transaction with a queued offline action', () => {
+  /* ... */
+})
 
-it('keeps inputBEEF within the 100-confirmation reorg horizon', () => { /* ... */ })
+it('keeps inputBEEF within the 100-confirmation reorg horizon', () => {
+  /* ... */
+})
 
-it('is a no-op on a database with nothing reclaimable', () => { /* ... */ })
+it('is a no-op on a database with nothing reclaimable', () => {
+  /* ... */
+})
 ```
 
 Each assertion checks the surviving rows by txid, so a predicate that is too broad fails loudly rather than reclaiming more than intended.
@@ -315,10 +341,12 @@ git commit -m "feat(storage): reclaim inputBEEF from settled transactions"
 ### Task 6: Surface it
 
 **Files:**
+
 - Modify: `app/wallet-config.tsx` (a Storage row in Data & Security)
 - Modify: `context/i18n/translations.tsx` (12 locales)
 
 **Interfaces:**
+
 - Consumes: `reclaimReport`, `reclaimInputBeef`, `availableDiskBytes`.
 
 Shows the database size and free space, and offers the reclaim as an explicit action with a confirmation naming what it removes. `showAlert`, not `showToast` — storage-full can cost a signed transaction, which is a decision, and Toast auto-dismisses in two seconds.

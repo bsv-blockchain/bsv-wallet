@@ -55,10 +55,10 @@ export interface TokenAssetStatus {
 
 export interface TokenAssetInfo {
   assetId: string
-  label: string            // e.g. "Acme Dollar"
-  ticker: string           // e.g. "USDX"
+  label: string // e.g. "Acme Dollar"
+  ticker: string // e.g. "USDX"
   decimals: number
-  issuerName?: string      // e.g. "Acme Bank" — used in every failure/settling copy
+  issuerName?: string // e.g. "Acme Bank" — used in every failure/settling copy
   overlayUrl: string
   overlayIdentityKey: string
 }
@@ -87,7 +87,7 @@ export interface TokenActivityRow {
   baseUnits: number
   counterpartyKey?: string
   status: TokenActivityStatus
-  at: string               // ISO
+  at: string // ISO
   refusedCode?: string
   /** `payloadHash` of the linkage bytes this refusal was recorded against (amendment §9.1/§9.3). */
   refusedPayloadHash?: string

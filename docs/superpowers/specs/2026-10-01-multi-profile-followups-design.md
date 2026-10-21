@@ -40,10 +40,12 @@ Change: the key goes through `profileScopedKey`. Profile 0 keeps the bare `backu
 A profile is a pure function of the seed (`m/0'/n'`), so it can never be destroyed. Remove means: forget it on this device and withdraw its public handle.
 
 Eligibility:
+
 - Only the active profile, and never profile 0.
 - Only while no profile switch is in flight, and only while online.
 
 The zero-balance proof is `assertProfileEmpty`. It runs on the open storage, fails closed on any error, and blocks removal if any of these is true:
+
 - any `outputs` row for the user with `spendable = 1`, in any basket (this covers tokens);
 - any `transactions` row whose status is not `completed` or `failed`;
 - any `offline_actions` row in `queued`, `posting`, `parked` or `import_hold`;
@@ -56,6 +58,7 @@ The zero-balance proof is `assertProfileEmpty`. It runs on the open storage, fai
 The rule is strict on every network, and it covers every network's database. The open storage is one network's file, but removal deletes the profile's databases on all of them (a profile whose network was switched keeps its earlier networks' files). So the same checks, minus the inbox pass (which needs an open wallet), also run on every other file the registry lists for the identity, each on its own connection. A file with no user for the identity, or never migrated, counts as empty; a file that cannot be opened or read blocks. What they find is reported as `other-network`, and the UI tells the user to switch the profile to that network and clear it there.
 
 Steps, in order. Everything before step 5 aborts cleanly:
+
 1. Guards and `assertProfileEmpty`.
 2. Release the handle, if the registry for the profile's network reports one for this identity. A new `releaseHandle` journals and PUTs a `released: true` certificate signed by the live wallet. If the lookup or release fails, or the registry has not answered within 20 seconds, the whole removal aborts. The confirm copy warns about the 30-day cooldown. The release is a network round trip while the profile's inbox tasks keep running, so the emptiness proof is taken again straight after it.
 3. Keep the remote backup. A removed profile can reappear after a reinstall and seed import; it is empty and can be removed again.
@@ -70,6 +73,7 @@ Steps, in order. Everything before step 5 aborts cleanly:
 7. On every startup, purge again for each tombstoned record. This is idempotent and covers a crash between the tombstone and the purge. It finds the files through the database registry, so a file that could not be deleted keeps its registry entry (Delete Wallet drops it regardless, so that a rebuilt wallet is never pointed back at the file); an entry goes once its file is gone.
 
 Store semantics:
+
 - The array stays dense, and tombstones keep their index.
 - An index is never reused. `appendProfile` already uses `profiles.length`, and a reused index would bring back the same identity.
 - `active` never points at a tombstone. Parse clamps it to the nearest live profile, and `setActiveProfile` and `switchProfile` refuse a tombstone.
@@ -77,6 +81,7 @@ Store semantics:
 - Discovery leaves tombstoned indices as they are. On a fresh device there are no tombstones, which is decision (b): keep backups.
 
 UI: the Profile screen gets a "Remove profile" destructive row for the active profile when it isn't profile 0.
+
 - The row first runs the check. If it fails, it explains why (funds, pending activity, money on another network, offline).
 - If it passes, a confirm dialog says what happens and mentions the handle cooldown when relevant.
 - A failure after the confirm happens under the switch cover, which is dismissed in the same tick the answer arrives. iOS drops a second Modal presented while the first is still dismissing, and an alert that is dropped never settles, so the explanation waits for the cover to fade (500 ms) before it is shown.
@@ -86,6 +91,7 @@ UI: the Profile screen gets a "Remove profile" destructive row for the active pr
 ### Server (go-message-box-server; production runs MongoDB)
 
 Device rows become unique per (identity key, FCM token) instead of per token.
+
 - SQL (sqlite and postgres): migrate the table to `UNIQUE(identity_key, fcm_token)`. The upsert becomes `ON CONFLICT(identity_key, fcm_token)`.
 - Mongo:
   - Documents gain an explicit `fcmToken` field, backfilled from the legacy `_id`.
@@ -101,6 +107,7 @@ The FCM data payload gains `recipient` (the recipient identity key, compressed h
 New authenticated endpoint `POST /unregisterDevice {fcmToken}`. It deactivates or deletes only the caller identity's row for that token.
 
 Tests cover:
+
 - two identities on one token both receiving pushes;
 - re-registration staying idempotent;
 - legacy Mongo document migration;

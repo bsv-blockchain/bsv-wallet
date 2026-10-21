@@ -687,12 +687,7 @@ export class StorageExpoSQLite extends StorageProvider {
     return names
   }
 
-  private async sqlInsert(
-    table: string,
-    entity: Record<string, any>,
-    pkCol: string,
-    trx?: TrxToken
-  ): Promise<number> {
+  private async sqlInsert(table: string, entity: Record<string, any>, pkCol: string, trx?: TrxToken): Promise<number> {
     const db = this.getDB(trx)
     const cols: string[] = []
     const placeholders: string[] = []
@@ -1112,9 +1107,7 @@ export class StorageExpoSQLite extends StorageProvider {
     // fetch it at all: `SELECT *` would copy every matching output's
     // lockingScript out of SQLite and across the bridge into JS — on the JS
     // thread — only to be discarded below, which adds up across a page of them.
-    const columns = args.noScript
-      ? (await this.tableColumns('outputs')).filter(c => c !== 'lockingScript')
-      : undefined
+    const columns = args.noScript ? (await this.tableColumns('outputs')).filter(c => c !== 'lockingScript') : undefined
 
     const rows = await this.sqlFind<any>(
       'outputs',
@@ -1152,12 +1145,7 @@ export class StorageExpoSQLite extends StorageProvider {
     tagIds?: number[],
     isQueryModeAll?: boolean
   ): Promise<{ count: number; total: number }> {
-    return await this.sqlSum(
-      'outputs',
-      'satoshis',
-      args as any,
-      this.outputExtraClauses(args, tagIds, isQueryModeAll)
-    )
+    return await this.sqlSum('outputs', 'satoshis', args as any, this.outputExtraClauses(args, tagIds, isQueryModeAll))
   }
 
   async findOutputTags(args: FindOutputTagsArgs): Promise<TableOutputTag[]> {
@@ -1688,11 +1676,7 @@ export class StorageExpoSQLite extends StorageProvider {
    */
   async reclaimInputBeef(tipHeight: number, cutoff: string): Promise<{ rows: number }> {
     if (!this.isAvailable()) await this.makeAvailable()
-    const result = await this.getDB().runAsync(RECLAIM_INPUT_BEEF_SQL, [
-      new Date().toISOString(),
-      tipHeight,
-      cutoff
-    ])
+    const result = await this.getDB().runAsync(RECLAIM_INPUT_BEEF_SQL, [new Date().toISOString(), tipHeight, cutoff])
     return { rows: result.changes ?? 0 }
   }
 
@@ -2155,7 +2139,9 @@ export class StorageExpoSQLite extends StorageProvider {
       const tokenTxids = await this.tokenSettlementTxids(reqApis.map(r => r.txid))
       if (tokenTxids.size === 0) return tokenTxids
       const reqs = reqApis.filter(r => tokenTxids.has(r.txid)).map(r => new EntityProvenTxReq(r))
-      devLog(`[StorageExpoSQLite] holding ${reqs.length} token req(s) from the monitor's retry for the settlement drain`)
+      devLog(
+        `[StorageExpoSQLite] holding ${reqs.length} token req(s) from the monitor's retry for the settlement drain`
+      )
       await this.holdTokenReqs(reqs)
       return tokenTxids
     } catch (e) {

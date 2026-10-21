@@ -28,10 +28,7 @@ const PROOFS = [
   },
   {
     name: 'CRT forgery harness (proof bar §4.1)',
-    args: [
-      path.join(vaultTests, 'r1comb.test.ts'),
-      '--testNamePattern', 'rejects the signature-free CRT forgery'
-    ]
+    args: [path.join(vaultTests, 'r1comb.test.ts'), '--testNamePattern', 'rejects the signature-free CRT forgery']
   },
   {
     name: 'clean-device I1 proof (proof bar §4.2)',

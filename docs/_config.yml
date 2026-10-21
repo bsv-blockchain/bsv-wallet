@@ -7,5 +7,5 @@
 # Setting `exclude` replaces github-pages' default list, which only excluded
 # CNAME, so CNAME is restated here.
 exclude:
-  - "*.md"
+  - '*.md'
   - CNAME

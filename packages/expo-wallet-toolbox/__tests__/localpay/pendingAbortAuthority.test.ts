@@ -28,9 +28,7 @@ describe('pending-abort authority tag (real crypto)', () => {
   })
 
   it('never authenticates a missing tag (legacy/untagged/forged entry)', async () => {
-    await expect(
-      verifyPendingAbortAuthorityTag(adminWallet, ADMIN_ORIGINATOR, 'ref-1', undefined)
-    ).resolves.toBe(false)
+    await expect(verifyPendingAbortAuthorityTag(adminWallet, ADMIN_ORIGINATOR, 'ref-1', undefined)).resolves.toBe(false)
   })
 
   it('fails closed on a malformed/corrupted tag instead of throwing', async () => {

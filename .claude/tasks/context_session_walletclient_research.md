@@ -1,8 +1,11 @@
 # WalletClient Architecture Research
+
 ## Session: WalletClient Communication Substrate Deep Dive
+
 ## Date: 2026-03-02
 
 ## Summary
+
 Complete analysis of how `WalletClient` from `@bsv/sdk` works, what it connects to,
 all available communication substrates, and the `WalletInterface` it expects on the
 provider side. This determines what we need to implement for a browser extension
@@ -19,17 +22,20 @@ Everything revolves around `WalletInterface` defined in:
 The wallet backend IS a `WalletInterface`. The interface has 28 methods:
 
 ### Transaction Methods
+
 1. `createAction(args, originator?)` - create a BSV transaction
 2. `signAction(args, originator?)` - sign a partially-built transaction
 3. `abortAction(args, originator?)` - abort a pending transaction
 4. `internalizeAction(args, originator?)` - import an external transaction
 
 ### Output/UTXO Methods
+
 5. `listActions(args, originator?)` - list transaction history
 6. `listOutputs(args, originator?)` - list UTXOs
 7. `relinquishOutput(args, originator?)` - remove output from basket
 
 ### Cryptographic Methods (BRC-42 / BRC-43)
+
 8. `getPublicKey(args, originator?)` - derive public key
 9. `revealCounterpartyKeyLinkage(args, originator?)` - BRC-42 key linkage
 10. `revealSpecificKeyLinkage(args, originator?)` - BRC-42 key linkage
@@ -41,16 +47,19 @@ The wallet backend IS a `WalletInterface`. The interface has 28 methods:
 16. `verifySignature(args, originator?)` - ECDSA verification
 
 ### Certificate Methods (BRC-64/65)
+
 17. `acquireCertificate(args, originator?)` - acquire identity cert
 18. `listCertificates(args, originator?)` - list stored certs
 19. `proveCertificate(args, originator?)` - prove cert fields to verifier
 20. `relinquishCertificate(args, originator?)` - delete cert
 
 ### Discovery Methods
+
 21. `discoverByIdentityKey(args, originator?)` - find identity by key
 22. `discoverByAttributes(args, originator?)` - find identity by attributes
 
 ### Status/Info Methods
+
 23. `isAuthenticated(args, originator?)` - check auth state
 24. `waitForAuthentication(args, originator?)` - block until authed
 25. `getHeight(args, originator?)` - BSV chain height
@@ -73,6 +82,7 @@ new WalletClient(
 ```
 
 ### Named Substrate Strings
+
 - `'auto'` - tries all substrates, picks first that works
 - `'Cicada'` - binary wire protocol over HTTP to localhost:3301
 - `'XDM'` - cross-document messaging (iframe postMessage to parent)
@@ -82,6 +92,7 @@ new WalletClient(
 - `'secure-json-api'` - JSON over HTTPS to localhost:2121
 
 ### Direct WalletInterface
+
 You can pass any object that implements `WalletInterface` directly.
 This is how embedded wallets work (no transport needed).
 
@@ -90,6 +101,7 @@ This is how embedded wallets work (no transport needed).
 ## Auto-Discovery Order (in `connectToSubstrate()`)
 
 When `substrate === 'auto'`, WalletClient tries these in parallel, picks first success:
+
 1. `WindowCWISubstrate` - checks `window.CWI`
 2. `WalletWireTransceiver(HTTPWalletWire)` - binary HTTP to localhost:3301 (Cicada)
 3. `HTTPWalletJSON` at `https://localhost:2121` (secure JSON)
@@ -108,12 +120,14 @@ Detection is done by calling `getVersion({})` on each and checking for `{ versio
 **File:** `substrates/window.CWI.ts`
 **Class:** `WindowCWISubstrate`
 **How it works:**
+
 - Reads `window.CWI` at construction time
 - All method calls delegate directly to `window.CWI.methodName(args, originator)`
 - Completely synchronous delegation - no message passing
 - This is the **browser extension injection pattern**
 
 **What must be provided by the extension:**
+
 ```typescript
 // The extension content script injects this onto the page's window:
 window.CWI = {
@@ -135,6 +149,7 @@ The injected object is trusted by definition since it comes from the extension.
 **File:** `substrates/XDM.ts`
 **Class:** `XDMSubstrate`
 **How it works:**
+
 - Sends messages to `window.parent` via `postMessage`
 - Message format (outbound from app to wallet frame):
   ```javascript
@@ -170,6 +185,7 @@ The wallet owns the parent frame and listens for postMessage calls.
 **File:** `substrates/ReactNativeWebView.ts`
 **Class:** `ReactNativeWebView`
 **How it works:**
+
 - Same message format as XDM but JSON-stringified
 - Sends via `window.ReactNativeWebView.postMessage(JSON.stringify(msg))`
 - Receives via `window.addEventListener('message', ...)` with `JSON.parse(e.data)`
@@ -181,6 +197,7 @@ The wallet owns the parent frame and listens for postMessage calls.
 
 **Files:** `substrates/HTTPWalletWire.ts`, `substrates/WalletWireTransceiver.ts`
 **How it works:**
+
 - `WalletWireTransceiver` is the `WalletInterface` adapter
 - `HTTPWalletWire` is the actual transport (implements `WalletWire` interface)
 - `WalletWire` interface: `{ transmitToWallet(message: number[]): Promise<number[]> }`
@@ -189,12 +206,14 @@ The wallet owns the parent frame and listens for postMessage calls.
 - Returns binary response
 
 **Binary wire protocol:**
+
 - Byte 0: call code (1-28, see WalletWireCalls enum)
 - Byte 1: originator string byte length
 - Bytes 2..N: originator string UTF-8
 - Bytes N+1..: call-specific binary payload
 
 **Server-side handler:** `WalletWireProcessor`
+
 - Implements `WalletWire` interface on the wallet side
 - Receives binary message, decodes it, calls `this.wallet.methodName(args, originator)`
 - Re-encodes the response to binary
@@ -207,6 +226,7 @@ The wallet owns the parent frame and listens for postMessage calls.
 **File:** `substrates/HTTPWalletJSON.ts`
 **Class:** `HTTPWalletJSON`
 **How it works:**
+
 - Posts JSON to `http://localhost:3321/<callName>` (default)
 - Content-Type: `application/json`
 - Request body: `JSON.stringify(args)` (just the args, no originator in body)
@@ -238,6 +258,7 @@ This is the most relevant pattern for building a Brave/Chrome extension wallet.
 ### How MetaMask-style injection works (and BSV equivalent):
 
 **Content Script (injected by extension into every page):**
+
 ```javascript
 // The content script injects a script tag that runs in page context
 // OR uses executeScript to inject the provider
@@ -253,13 +274,14 @@ window.CWI = {
 
   async getVersion(args, originator) {
     return { version: 'bsv-wallet-1.0.0' }
-  },
+  }
 
   // ... all other methods
 }
 ```
 
 **Message flow:**
+
 ```
 Web App
   └─ new WalletClient('window.CWI')
@@ -309,6 +331,7 @@ The extension content script injects `window.CWI` implementing all 28 methods.
 WalletClient with `'auto'` or `'window.CWI'` picks it up automatically.
 
 **Provider object shape:**
+
 ```typescript
 interface CWIProvider {
   // All 28 methods of WalletInterface
@@ -317,6 +340,7 @@ interface CWIProvider {
 ```
 
 **Bridge pattern:**
+
 - Content script creates `window.CWI` object
 - Methods forward calls to background via `chrome.runtime.sendMessage`
 - Background has the actual `WalletInterface` implementation (Wallet class)

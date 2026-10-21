@@ -10,15 +10,15 @@ Take the app from functionally good to delightful per Apple's Human Interface Gu
 
 ## Decisions Made
 
-| Decision | Choice |
-|---|---|
-| Focus | All four areas: consistency, signature moments, chrome, onboarding |
-| Platform | iOS-first; Android gets functional fallbacks (blur → solid, haptic no-ops) |
-| Motion personality | **Quiet Precision** (Apple Pay temperament): fast (≤350ms), small movements, settles instantly, one crisp haptic. Celebration reserved for exactly three moments. |
-| Delivery | One comprehensive pass (single effort, not phased shipping) |
-| Architecture | **Primitives-first, then sweep**: build missing design-system primitives once, then mechanically adopt across all screens |
-| Alert replacement | **Glass Alert Card** (center-positioned, HIG-classic) for decisions; **Toast** for pure notices |
-| Scroll-collapsing address bar | **Explicitly cut** — address bar stays fixed (owner decision, perf posture) |
+| Decision                      | Choice                                                                                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Focus                         | All four areas: consistency, signature moments, chrome, onboarding                                                                                                |
+| Platform                      | iOS-first; Android gets functional fallbacks (blur → solid, haptic no-ops)                                                                                        |
+| Motion personality            | **Quiet Precision** (Apple Pay temperament): fast (≤350ms), small movements, settles instantly, one crisp haptic. Celebration reserved for exactly three moments. |
+| Delivery                      | One comprehensive pass (single effort, not phased shipping)                                                                                                       |
+| Architecture                  | **Primitives-first, then sweep**: build missing design-system primitives once, then mechanically adopt across all screens                                         |
+| Alert replacement             | **Glass Alert Card** (center-positioned, HIG-classic) for decisions; **Toast** for pure notices                                                                   |
+| Scroll-collapsing address bar | **Explicitly cut** — address bar stays fixed (owner decision, perf posture)                                                                                       |
 
 ## Part 1 — Motion & Haptic System (foundation)
 
@@ -35,13 +35,13 @@ Take the app from functionally good to delightful per Apple's Human Interface Gu
 
 Semantic vocabulary, not ad-hoc calls:
 
-| Semantic | iOS mapping | Used for |
-|---|---|---|
-| `tap` | `selectionAsync` | segmented controls, pickers, tab select |
-| `confirm` | `impactAsync(Light)` | button commits, toggle on |
+| Semantic  | iOS mapping                  | Used for                                      |
+| --------- | ---------------------------- | --------------------------------------------- |
+| `tap`     | `selectionAsync`             | segmented controls, pickers, tab select       |
+| `confirm` | `impactAsync(Light)`         | button commits, toggle on                     |
 | `success` | `notificationAsync(Success)` | payment sent, permission granted, backup done |
-| `warning` | `notificationAsync(Warning)` | deny, destructive confirm step |
-| `error` | `notificationAsync(Error)` | failed tx, invalid input |
+| `warning` | `notificationAsync(Warning)` | deny, destructive confirm step                |
+| `error`   | `notificationAsync(Error)`   | failed tx, invalid input                      |
 
 Android: `tap`/`confirm` no-op; notification types map to vibration only where Material expects it. Target ~30 call sites (currently 2 ad-hoc sites).
 

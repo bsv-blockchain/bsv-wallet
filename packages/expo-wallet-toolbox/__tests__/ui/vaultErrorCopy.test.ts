@@ -4,8 +4,7 @@
  * with `{{placeholders}}` left in it), and copy that names keys or amounts
  * must degrade to param-free copy when the caller has nothing to name.
  */
-const mockT = (k: string, o?: Record<string, unknown>) =>
-  o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k
+const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
 
 // `mockT` is referenced lazily (inside an arrow) so the hoisted factory never
 // touches it before the `const` above has initialised.
@@ -17,14 +16,49 @@ import { vaultErrorCopy, RETRYABLE_VAULT_ERRORS } from '../../ui/components/vaul
 import type { VaultErrorCode } from '../../core/services/vault/types'
 
 const ALL_CODES: VaultErrorCode[] = [
-  'unsupported-platform', 'no-key', 'wrong-key', 'pin-required', 'pin-invalid', 'pin-locked',
-  'puk-invalid', 'puk-locked', 'touch-timeout', 'key-removed-mid-op', 'ceremony-active',
-  'scope-changed', 'mgmt-key-custom', 'attestation-invalid', 'slot-occupied', 'enrollment-partial', 'template-invalid',
-  'serial-mismatch', 'user-cancelled', 'not-enrolled', 'driver-unavailable', 'vault-empty',
-  'amount-exceeds-balance', 'below-dust', 'no-transaction', 'nfc-lost', 'too-many-inputs',
-  'requires-online', 'not-released', 'not-on-mainnet', 'backup-off', 'not-enough-keys', 'key-already-enrolled',
-  'key-not-adopted', 'too-many-keys', 'too-many-active-keys', 'last-keys', 'relock-required', 'action-pending', 'key-not-committed', 'key-cannot-cover',
-  'too-small-to-relock', 'bad-version'
+  'unsupported-platform',
+  'no-key',
+  'wrong-key',
+  'pin-required',
+  'pin-invalid',
+  'pin-locked',
+  'puk-invalid',
+  'puk-locked',
+  'touch-timeout',
+  'key-removed-mid-op',
+  'ceremony-active',
+  'scope-changed',
+  'mgmt-key-custom',
+  'attestation-invalid',
+  'slot-occupied',
+  'enrollment-partial',
+  'template-invalid',
+  'serial-mismatch',
+  'user-cancelled',
+  'not-enrolled',
+  'driver-unavailable',
+  'vault-empty',
+  'amount-exceeds-balance',
+  'below-dust',
+  'no-transaction',
+  'nfc-lost',
+  'too-many-inputs',
+  'requires-online',
+  'not-released',
+  'not-on-mainnet',
+  'backup-off',
+  'not-enough-keys',
+  'key-already-enrolled',
+  'key-not-adopted',
+  'too-many-keys',
+  'too-many-active-keys',
+  'last-keys',
+  'relock-required',
+  'action-pending',
+  'key-not-committed',
+  'key-cannot-cover',
+  'too-small-to-relock',
+  'bad-version'
 ]
 
 describe('vaultErrorCopy', () => {

@@ -14,11 +14,7 @@ const config = getDefaultConfig(__dirname)
 // under the project root itself, so they are not separate watch folders to drop.
 const existingBlockList = config.resolver.blockList
 config.resolver.blockList = [
-  ...(Array.isArray(existingBlockList)
-    ? existingBlockList
-    : existingBlockList
-      ? [existingBlockList]
-      : []),
+  ...(Array.isArray(existingBlockList) ? existingBlockList : existingBlockList ? [existingBlockList] : []),
   /\/\.claude\/worktrees\/.*/,
   /\/\.worktrees\/.*/
 ]
@@ -54,7 +50,7 @@ config.transformer.assetPlugins = ['expo-asset/tools/hashAssetFiles']
 // Add COEP and COOP headers required for SharedArrayBuffer (used by expo-sqlite on web)
 config.server = config.server || {}
 const originalEnhanceMiddleware = config.server.enhanceMiddleware
-config.server.enhanceMiddleware = (middleware) => {
+config.server.enhanceMiddleware = middleware => {
   const enhanced = originalEnhanceMiddleware ? originalEnhanceMiddleware(middleware) : middleware
   return (req, res, next) => {
     res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')

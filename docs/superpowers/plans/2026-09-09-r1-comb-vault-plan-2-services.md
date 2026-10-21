@@ -15,7 +15,7 @@
 
 ## Interface Contract
 
-```markdown
+````markdown
 # R1C vault — cross-plan interface contract
 
 Three implementation plans share these exact names and signatures. A plan may ADD private helpers
@@ -30,12 +30,12 @@ File: `core/services/vault/r1comb.ts`. Imports only `@bsv/sdk` and `@noble/curve
 ```ts
 export const COMB_ROWS = 6
 export const COMB_COLS = 43
-export const TABLE_SIZE = 32                 // entries per base point
-export const COORD_WIDTH = 33                // OP_NUM2BIN width per coordinate
+export const TABLE_SIZE = 32 // entries per base point
+export const COORD_WIDTH = 33 // OP_NUM2BIN width per coordinate
 export const SALT_BYTES = 32
-export const R1C_UNLOCK_LEN = 2560           // declared unlockingScriptLength (hard max is 2,539)
+export const R1C_UNLOCK_LEN = 2560 // declared unlockingScriptLength (hard max is 2,539)
 export const R1C_MAX_KEYS = 5
-export function R1C_LOCK_LEN(n: number): number            // 27855 for n=1; 27831 + 25n for 2<=n<=5; throws otherwise
+export function R1C_LOCK_LEN(n: number): number // 27855 for n=1; 27831 + 25n for 2<=n<=5; throws otherwise
 
 /** 65-byte SEC1 (04‖X‖Y) or 33-byte compressed hex in → 33-byte compressed, lowercase hex out. Throws VaultError('template-invalid') on anything else. */
 export function compressPubkey(sec1Hex: string): string
@@ -60,16 +60,33 @@ export function decodeDerSignature(der: number[]): { r: bigint; s: bigint }
 /** R = u1·G + u2·Q for e = LE(hash256(preimage)); returns the FULL affine x, or null if R is the point at infinity. */
 export function fullR(a: { preimage: number[]; rSig: bigint; s: bigint; pubkeyHex33: string }): bigint | null
 /** The 71-push unlocking script (spec §2.4): r, u2', u1', 64 coords, salt, s, sInv, preimage. Throws VaultError('template-invalid') if fullR is null. */
-export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex33: string; saltHex64: string }): UnlockingScript
+export function buildUnlock(a: {
+  preimage: number[]
+  derSig: number[]
+  pubkeyHex33: string
+  saltHex64: string
+}): UnlockingScript
 /** Run @bsv/sdk Spend with EXPLICIT strict flags (MINIMALDATA on, UTXO_AFTER_CHRONICLE on, SIGHASH_FORKID, STRICTENC) — returns true or throws the interpreter error. */
-export function verifyVaultInput(a: { tx: Transaction; inputIndex: number; sourceSatoshis: number; lockingScript: LockingScript; unlockingScript: UnlockingScript }): true
+export function verifyVaultInput(a: {
+  tx: Transaction
+  inputIndex: number
+  sourceSatoshis: number
+  lockingScript: LockingScript
+  unlockingScript: UnlockingScript
+}): true
 
-export interface VaultInstructionsV4 { v: 4; type: 'R1C'; salt: string /* 64 hex */; keys: string[] /* 33-byte compressed pubkeys, lowercase hex, commitment order */ }
+export interface VaultInstructionsV4 {
+  v: 4
+  type: 'R1C'
+  salt: string /* 64 hex */
+  keys: string[] /* 33-byte compressed pubkeys, lowercase hex, commitment order */
+}
 export type VaultInstructions = VaultInstructionsV4
 export function encodeVaultInstructions(i: VaultInstructionsV4): string
 /** Fails closed: null for anything not exactly v4/R1C with valid salt and 1..5 valid keys. */
 export function decodeVaultInstructions(ci?: string): VaultInstructionsV4 | null
 ```
+````
 
 `VaultError` / `VaultErrorCode` come from `core/services/vault/types.ts` (Plan 2 edits the code list; Plan 1 only uses `'template-invalid'`, which already exists).
 
@@ -80,89 +97,127 @@ Test file: `__tests__/vault/r1comb.test.ts`. Fixture path for goldens: `docs/exa
 `core/services/vault/types.ts` — `VaultErrorCode` union gains: `'not-released' | 'backup-off' | 'not-enough-keys' | 'key-already-enrolled' | 'too-many-keys' | 'last-keys' | 'relock-required' | 'key-not-committed' | 'key-cannot-cover' | 'too-small-to-relock' | 'bad-version'`; loses `'seal-corrupt' | 'bad-passphrase' | 'bad-mnemonic' | 'bad-derivation-index' | 'backup-required'`. `SealedBlob` removed. Everything else unchanged.
 
 `core/services/vault/vaultStore.ts`
+
 ```ts
-export interface VaultKeyRecord { serial: string; slot: number; pubkey: string /* 33-byte compressed lowercase hex */; nickname: string; enrolledAt: number }
-export interface VaultMetaV5 { v: 5; createdAt: number; lastUsedAt?: number; lastUsedSerial?: string; keys: VaultKeyRecord[] }
+export interface VaultKeyRecord {
+  serial: string
+  slot: number
+  pubkey: string /* 33-byte compressed lowercase hex */
+  nickname: string
+  enrolledAt: number
+}
+export interface VaultMetaV5 {
+  v: 5
+  createdAt: number
+  lastUsedAt?: number
+  lastUsedSerial?: string
+  keys: VaultKeyRecord[]
+}
 export type VaultMeta = VaultMetaV5
 export const vaultStore: {
-  isEnrolled(): Promise<boolean>                       // meta != null (meta-only)
-  getMeta(): Promise<VaultMeta | null>                 // null unless v === 5
+  isEnrolled(): Promise<boolean> // meta != null (meta-only)
+  getMeta(): Promise<VaultMeta | null> // null unless v === 5
   setMeta(m: VaultMeta): Promise<void>
-  addKey(k: VaultKeyRecord): Promise<VaultMeta>        // throws VaultError('too-many-keys') at 5, ('key-already-enrolled') on duplicate serial
-  removeKey(serial: string): Promise<VaultMeta>        // throws VaultError('last-keys') when keys.length <= 2
+  addKey(k: VaultKeyRecord): Promise<VaultMeta> // throws VaultError('too-many-keys') at 5, ('key-already-enrolled') on duplicate serial
+  removeKey(serial: string): Promise<VaultMeta> // throws VaultError('last-keys') when keys.length <= 2
   renameKey(serial: string, nickname: string): Promise<VaultMeta>
   noteLastUsed(serial: string): Promise<void>
-  migrateLegacySeal(): Promise<void>                   // SecureStore.deleteItemAsync('vault_seal_v1'), swallow errors
+  migrateLegacySeal(): Promise<void> // SecureStore.deleteItemAsync('vault_seal_v1'), swallow errors
   clear(): Promise<void>
 }
 ```
 
 `core/services/vault/VaultKeyService.ts`
+
 ```ts
 export const VAULT_SLOT = 0x82
 export const VAULT_MIN_KEYS = 2
 export const VAULT_MAX_KEYS = 5
 export type EnrollPhase = 'connecting' | 'pin-check' | 'generating' | 'done'
 export async function enrollKey(args: {
-  pendingSerials: string[]                             // serials already enrolled OR pending in this wizard run
+  pendingSerials: string[] // serials already enrolled OR pending in this wizard run
   nickname?: string
   onPhase: (p: EnrollPhase) => void
   getPin: () => Promise<string>
   requestPinChange?: (retries: number) => Promise<{ oldPin: string; newPin: string }>
-}): Promise<VaultKeyRecord>                            // one card session; generateVaultKey(0x82) with 'cached'/'once'; compressPubkey on the result; throws 'key-already-enrolled' | 'pin-locked' | 'pin-invalid' | 'no-key' | 'user-cancelled' | 'key-removed-mid-op' | 'driver-unavailable'
-export async function finalizeEnrollment(records: VaultKeyRecord[]): Promise<void>   // throws 'not-enough-keys' (<2) / 'too-many-keys' (>5); writes meta v5
-export async function addVaultKey(record: VaultKeyRecord): Promise<VaultMeta>        // vaultStore.addKey
-export async function disableVault(): Promise<void>                                  // vaultStore.clear()
+}): Promise<VaultKeyRecord> // one card session; generateVaultKey(0x82) with 'cached'/'once'; compressPubkey on the result; throws 'key-already-enrolled' | 'pin-locked' | 'pin-invalid' | 'no-key' | 'user-cancelled' | 'key-removed-mid-op' | 'driver-unavailable'
+export async function finalizeEnrollment(records: VaultKeyRecord[]): Promise<void> // throws 'not-enough-keys' (<2) / 'too-many-keys' (>5); writes meta v5
+export async function addVaultKey(record: VaultKeyRecord): Promise<VaultMeta> // vaultStore.addKey
+export async function disableVault(): Promise<void> // vaultStore.clear()
 ```
 
 `core/services/vault/session.ts` — `withKeySession` now rejects: `session-failed` → `VaultError(code === 'user-cancelled' ? 'user-cancelled' : 'no-key')`; `detached` before `work` resolves → `VaultError('key-removed-mid-op')`; attach timeout (default 65_000 ms, injectable) → `VaultError('no-key')`.
 
 `core/services/vault/driver.ts`
+
 ```ts
 export interface VaultDriver {
   isSupported(): boolean
   sessionBased: boolean
-  start(message?: string): void                        // message = localised NFC alert text (iOS); ignored elsewhere
+  start(message?: string): void // message = localised NFC alert text (iOS); ignored elsewhere
   stop(): void
   onKeyEvent(cb: (e: KeyEvent) => void): () => void
   getKeyInfo(): Promise<{ serial: string; firmwareVersion: string; pinRetries: number }>
   verifyPin(pin: string): Promise<{ ok: boolean; retriesLeft: number }>
   changePin(oldPin: string, newPin: string): Promise<{ ok: boolean; retriesLeft: number }>
-  generateVaultKey(slot: number): Promise<{ publicKey: string }>   // adapter passes 'cached', 'once'
+  generateVaultKey(slot: number): Promise<{ publicKey: string }> // adapter passes 'cached', 'once'
   readVaultPublicKey(slot: number): Promise<{ publicKey: string } | null>
   signEcdsa(slot: number, pin: string, digest: string): Promise<{ signature: string }>
 }
 // ecdh REMOVED from VaultDriver and from NativeYubiKeyPiv usage (native method may remain; unused).
 ```
+
 Native: `packages/react-native-yubikey/src/specs/YubiKeyPiv.nitro.ts` `startDiscovery(message: string): void`; Swift sets `YubiKitExternalLocalization.nfcScanAlertMessage = message` before starting; Kotlin ignores. Regenerate nitrogen output (`npx nitrogen` in the package; commit generated files).
 
 `core/services/vault/mockYubiKey.ts` — `MockYubiKey` keeps a `Map<serial, { priv: Uint8Array | null; pub: string | null; pin: string; pinRetries: number; pinVerified: boolean }>`; `insertKey(serial)` selects/creates a record; `setPin(pin)` applies to the current serial; `signEcdsa` signs with the current serial's key; `ecdh` and the `softwareEcdh` import removed; `start(message?)` accepted. `devMock.ts`: module-held instance; `setMockDriverEnabled(on)`, `setMockPresentKey(serial: 'MOCK-DEV-1' | 'MOCK-DEV-2' | 'MOCK-DEV-3')`, `getMockPresentKey()`.
 
 `core/services/vault/ceremony.ts`
+
 ```ts
 export type VaultProgress = { phase: 'preparing'; signed?: number; total?: number } | { phase: 'broadcasting' }
-export interface CeremonyState { phase: CeremonyPhase; reason?: string; error?: { code: VaultErrorCode; retriesLeft?: number }; armedUntil?: number; progress?: { signed: number; total: number } }
+export interface CeremonyState {
+  phase: CeremonyPhase
+  reason?: string
+  error?: { code: VaultErrorCode; retriesLeft?: number }
+  armedUntil?: number
+  progress?: { signed: number; total: number }
+}
 export interface VaultSigner {
   readonly serial: string
-  readonly pubkey: string                              // 33-byte compressed lowercase hex
+  readonly pubkey: string // 33-byte compressed lowercase hex
   /** Sign one 32-byte digest (64 hex). Retries in place on touch-timeout / nfc-lost / key-removed-mid-op (re-opens the session on session-based transports, re-checks serial + PIN); on session-based transports re-opens a fresh session every VAULT_INPUTS_PER_TAP calls. Throws 'key-removed-mid-op' after release(). */
-  sign(digestHex: string, progress?: { index: number; total: number }): Promise<number[]>   // DER bytes
+  sign(digestHex: string, progress?: { index: number; total: number }): Promise<number[]> // DER bytes
   release(): void
 }
-export interface CeremonyStoreView { getMeta(): Promise<{ keys: { serial: string; slot: number; pubkey: string }[] } | null> }
+export interface CeremonyStoreView {
+  getMeta(): Promise<{ keys: { serial: string; slot: number; pubkey: string }[] } | null>
+}
 export class CeremonyController {
-  constructor(deps: { getDriver: () => VaultDriver | null; store: CeremonyStoreView; retentionMs: number; attachTimeoutMs?: number; inputsPerTap?: number })
-  requestSigner(reason: string, chosenSerial: string): Promise<VaultSigner>  // 'serial-mismatch' if the tapped card is not chosenSerial; 'not-enrolled' if chosenSerial not in meta
+  constructor(deps: {
+    getDriver: () => VaultDriver | null
+    store: CeremonyStoreView
+    retentionMs: number
+    attachTimeoutMs?: number
+    inputsPerTap?: number
+  })
+  requestSigner(reason: string, chosenSerial: string): Promise<VaultSigner> // 'serial-mismatch' if the tapped card is not chosenSerial; 'not-enrolled' if chosenSerial not in meta
   noteProgress(p: VaultProgress): void
-  submitPin(pin: string): void; cancel(): void; retry(): void; notifyKeyDetached(): void; subscribe(cb): () => void
-  onArmed?: (s: VaultSigner) => void; onRelock?: (why: 'timeout' | 'detached' | 'manual') => void
+  submitPin(pin: string): void
+  cancel(): void
+  retry(): void
+  notifyKeyDetached(): void
+  subscribe(cb): () => void
+  onArmed?: (s: VaultSigner) => void
+  onRelock?: (why: 'timeout' | 'detached' | 'manual') => void
 }
 ```
+
 `core/services/vault/ceremonyHost.ts`: `export function requestVaultSigner(reason: string, chosenSerial: string): Promise<VaultSigner>`; `noteVaultProgress(p: VaultProgress)`; `VAULT_RETENTION_MS = 120_000`; `VAULT_INPUTS_PER_TAP = 16`.
 
 `core/toolboxConfig.ts`: `ToolboxConfig.vaultEnabled?: boolean` (default false); `export function isVaultEnabled(): boolean` — returns `current?.vaultEnabled ?? false`, never throws.
 
 `core/services/vault/transfers.ts`
+
 ```ts
 export const VAULT_BASKET = 'admin vault'
 export const VAULT_DEPOSIT_MIN = 100_000
@@ -191,11 +246,13 @@ export function estimateRelockFee(inputCount: number, lockLen: number, satPerKb?
 export interface VaultWallet { createAction(args: unknown, originator: string): Promise<CreateActionResult>; signAction(...); listOutputs(...); abortAction(...); listActions?(...) }
 // Kept as legacy (unchanged API): reclaimStagingOutputs, ReclaimResult, VAULT_STAGING_BASKET. Removed: sweepVaultWithHD, VaultWallet.getPublicKey, VaultWallet.createSignature is kept ONLY because reclaimStagingOutputs uses it.
 ```
+
 Withdraw internals (spec §4.2): listOutputs (limit 1000, entire transactions, includeCustomInstructions) → decode v4 → filter by chosen pubkey → sort desc → cap → per input `commitment(pubkey, salt) ∈ bakedCommitments(lock from BEEF)` else `key-not-committed` → amount checks (`key-cannot-cover`, `too-many-inputs`, `amount-exceeds-balance`) → createAction `{ version: 2, inputs: [{ outpoint, unlockingScriptLength: R1C_UNLOCK_LEN, inputDescription }], outputs (re-vault remainder ≥ VAULT_DEPOSIT_MIN with fresh salt, current keys), inputBEEF, options: { randomizeOutputs: false, acceptDelayedBroadcast: false, trustSelf: 'known' } }` → parse signable tx; assert version 2 (`bad-version` + abortAction) → preimages + `pushTxDerCheck` for each (on failure abortAction and re-create with `sequenceNumber` bumped on that input; max 8 attempts) → `requestVaultSigner(reason, chosenSerial)` → sign sequentially with progress → release → buildUnlock + verifyVaultInput per input → signAction `{ reference, spends, options: { acceptDelayedBroadcast: true } }`. On any failure before signAction: abortAction.
 
 ## Plan 3 — UI (screens, components, i18n, routes, home button)
 
 Consumes everything above. Produces:
+
 - `ui/components/vault/EnrollWizard.tsx`: `export const EnrollWizard: React.FC<{ mode: 'enroll' | 'add-key'; onDone: () => void; onCancel: () => void }>` — steps `intro | key | more | done` (add-key mode: single `key` step then done).
 - `ui/components/vault/KeyChooser.tsx`: `export const KeyChooser: React.FC<{ keys: VaultKeyRecord[]; selected?: string; onSelect: (serial: string) => void }>`.
 - `ui/components/vault/vaultErrorCopy.ts`: `export function vaultErrorCopy(code: VaultErrorCode | undefined, params?: Record<string, unknown>): string` (merges `ERROR_COPY` and `translateVaultError`).
@@ -206,7 +263,8 @@ Consumes everything above. Produces:
 - `ui/screens/WalletHomeScreen.tsx`: Vault button rendered only when `isVaultEnabled()`; keeps `router.push('/vault')`. `SettingsScreen.tsx` `/vault` row same gate.
 - i18n: all twelve locales in `core/i18n/translations.tsx`; parity test `__tests__/i18n/translationParity.test.ts` must pass; dead keys removed in the same commit as their code.
 - Host wiring (repo root): `app/_layout.tsx` passes `vaultEnabled: process.env.EXPO_PUBLIC_VAULT_ENABLED === 'true'` to `configureToolbox`; `eas.json` profiles: development/dev-physical `EXPO_PUBLIC_VAULT_ENABLED=true`, production omitted (false).
-```
+
+````
 
 ## Global Constraints
 
@@ -333,7 +391,7 @@ describe('VaultErrorCode (R1C)', () => {
     expect(e.details).toEqual({ tapped: 'A', chosen: 'B' })
   })
 })
-```
+````
 
 - [ ] **Step 2: Run it**
 
@@ -391,10 +449,10 @@ In `T/core/services/vault/types.ts`, replace lines 55–72 (from `  /** Vault pa
 Also delete lines 41–43's stale mention of `seal-corrupt`? No — leave `'seal-corrupt'` (line 35) untouched until Task 12; only the comment block above `'template-invalid'` (lines 36–42) is rewritten now to:
 
 ```ts
-  /** A vault key digest, DER signature, pubkey or script failed a structural
-   * check (r1comb.ts throws it for malformed SEC1 points, DER, or a lock that
-   * is not an R1C lock). Distinct from 'wrong-key', which vaultErrorFromNative
-   * may reclassify to 'nfc-lost'. */
+/** A vault key digest, DER signature, pubkey or script failed a structural
+ * check (r1comb.ts throws it for malformed SEC1 points, DER, or a lock that
+ * is not an R1C lock). Distinct from 'wrong-key', which vaultErrorFromNative
+ * may reclassify to 'nfc-lost'. */
 ```
 
 Also replace the `VaultError` class (today directly below the `VaultErrorCode` union) with:
@@ -437,11 +495,13 @@ git commit -m "feat(expo-wallet-toolbox): add R1C vault error codes" -m "Co-Auth
 ### Task 2: `vaultEnabled` host flag
 
 **Files:**
+
 - Modify: `T/core/toolboxConfig.ts` (interface at lines 43–58, `ResolvedConfig` 60–63, `configureToolbox` 108–116, new export after `getServiceConfig` line 137)
 - Modify: `T/core/index.ts` lines 30–36 (the `toolboxConfig` export list)
 - Test: `T/__tests__/toolboxConfig.test.ts` (append a describe)
 
 **Interfaces:**
+
 - Produces: `ToolboxConfig.vaultEnabled?: boolean`; `export function isVaultEnabled(): boolean`.
 
 - [ ] **Step 1: Failing tests**
@@ -485,6 +545,7 @@ describe('isVaultEnabled', () => {
 In `T/core/toolboxConfig.ts`:
 
 Add to `ToolboxConfig` after `services?` (line 57):
+
 ```ts
   /**
    * Release gate for the YubiKey vault (spec §0, D15). Default false: the home
@@ -497,6 +558,7 @@ Add to `ToolboxConfig` after `services?` (line 57):
 ```
 
 Change `ResolvedConfig` to:
+
 ```ts
 interface ResolvedConfig {
   backupUrl: string
@@ -506,15 +568,17 @@ interface ResolvedConfig {
 ```
 
 In `configureToolbox`, the assignment becomes:
+
 ```ts
-  current = {
-    backupUrl: config.backupUrl == null ? '' : normalizeBackupUrl(config.backupUrl),
-    services: config.services ?? {},
-    vaultEnabled: config.vaultEnabled === true
-  }
+current = {
+  backupUrl: config.backupUrl == null ? '' : normalizeBackupUrl(config.backupUrl),
+  services: config.services ?? {},
+  vaultEnabled: config.vaultEnabled === true
+}
 ```
 
 After `getServiceConfig` add:
+
 ```ts
 /**
  * Whether this build may enrol vault hardware or create vault outputs.
@@ -546,11 +610,13 @@ git commit -m "feat(expo-wallet-toolbox): vaultEnabled host flag and isVaultEnab
 ### Task 3: vaultStore meta v5 and `migrateLegacySeal`
 
 **Files:**
+
 - Modify: `T/core/services/vault/vaultStore.ts` (whole file, 104 lines → rewritten)
 - Modify: `T/core/context/VaultContext.tsx` (imports at lines 13–18; add one `useEffect` after line 47)
 - Test: `T/__tests__/vault/vaultStore.test.ts` (rewrite), `T/__tests__/context/vaultProviderMigration.test.tsx` (create)
 
 **Interfaces:**
+
 - Consumes: `VaultError` from `./types`.
 - Produces (contract): `VaultKeyRecord`, `VaultMetaV5`, `VaultMeta`, `vaultStore.{isEnrolled,getMeta,setMeta,addKey,removeKey,renameKey,noteLastUsed,migrateLegacySeal,clear}`.
 - Allowed tsc residuals after this commit: `VaultKeyService.ts` (`VaultMetaV4`, `setSeal`), `ceremonyHost.ts` (`getSeal`, `m.slot`, `m.yubiSerial`), `transfers.ts` (`takeNextIndex`), `ui/screens/VaultScreen.tsx` (`meta?.yubiSerial`). All rewritten in Tasks 7–10 / Plan 3.
@@ -575,11 +641,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -717,7 +791,6 @@ describe('vaultStore v5', () => {
     secureItems['vault_seal_v1'] = 'legacy-sealed-blob'
     await vaultStore.migrateLegacySeal()
     expect(secureItems['vault_seal_v1']).toBeUndefined()
-
     ;(SecureStore.deleteItemAsync as jest.Mock).mockRejectedValueOnce(new Error('keychain locked'))
     await expect(vaultStore.migrateLegacySeal()).resolves.toBeUndefined()
   })
@@ -892,11 +965,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -959,20 +1040,20 @@ import { vaultStore } from '../services/vault/vaultStore'
 and after line 47 (`useEffect(() => ceremony.subscribe(setState), [])`) add:
 
 ```ts
-  // One-time cleanup of the K1-era sealed blob (spec §3.2). Fire-and-forget:
-  // migrateLegacySeal swallows its own errors.
-  useEffect(() => {
-    void vaultStore.migrateLegacySeal()
-  }, [])
+// One-time cleanup of the K1-era sealed blob (spec §3.2). Fire-and-forget:
+// migrateLegacySeal swallows its own errors.
+useEffect(() => {
+  void vaultStore.migrateLegacySeal()
+}, [])
 ```
 
 Also replace the comment at lines 49–54 with:
 
 ```ts
-  // Effects of a completed ceremony: the open cue, and nothing else. `onArmed`
-  // deliberately ignores its VaultSigner argument — the signer is owned by the
-  // transfer that requested it (transfers.ts obtains it from ceremonyHost) and
-  // must never reach React state (see VaultSigner in services/vault/ceremony.ts).
+// Effects of a completed ceremony: the open cue, and nothing else. `onArmed`
+// deliberately ignores its VaultSigner argument — the signer is owned by the
+// transfer that requested it (transfers.ts obtains it from ceremonyHost) and
+// must never reach React state (see VaultSigner in services/vault/ceremony.ts).
 ```
 
 - [ ] **Step 8: Verify**
@@ -992,6 +1073,7 @@ git commit -m "feat(expo-wallet-toolbox)!: vault meta v5 key list, migrateLegacy
 ### Task 4: driver `start(message?)` / `'cached'`, rejecting `withKeySession`, multi-serial mock, dev present-key selector
 
 **Files:**
+
 - Modify: `T/core/services/vault/driver.ts` (interface lines 27–50; `NativeYubiKeyPiv` 54–67; `adaptNative` 111–169)
 - Modify: `T/core/services/vault/session.ts` (whole file)
 - Modify: `T/core/services/vault/mockYubiKey.ts` (whole file)
@@ -999,6 +1081,7 @@ git commit -m "feat(expo-wallet-toolbox)!: vault meta v5 key list, migrateLegacy
 - Test: `T/__tests__/vault/mockYubiKey.test.ts` (edit), `T/__tests__/vault/session.test.ts` (create), `T/__tests__/vault/devMock.test.ts` (create)
 
 **Interfaces:**
+
 - Produces: `VaultDriver` per contract (no `ecdh`, `start(message?: string)`); `withKeySession<T>(driver, work, onWaiting?, opts?: { nfcMessage?: string; attachTimeoutMs?: number })` — the 4th parameter is an ADDITIVE optional extension (the contract asks for an injectable timeout without naming the seam; flagged in the summary); `MockYubiKey` with per-serial records and a test-visible `startMessage` getter; `setMockDriverEnabled(on: boolean)`, `setMockPresentKey(serial: MockPresentKey)`, `getMockPresentKey(): MockPresentKey`, `export type MockPresentKey = 'MOCK-DEV-1' | 'MOCK-DEV-2' | 'MOCK-DEV-3'`.
 - Allowed tsc residuals after this commit: Task 3's list plus `ceremony.ts` (`driver.ecdh`, `seal`), which Task 6 rewrites.
 
@@ -1074,64 +1157,69 @@ describe('native adapter', () => {
 (d) Append a multi-serial suite at the end of the `describe('MockYubiKey', ...)` block (after the `attach/detach events` test, before its closing `})`):
 
 ```ts
-  test('keeps one record per serial: insertKey switches keys, PINs and retries', async () => {
-    const mock = new MockYubiKey()
-    mock.insertKey('A')
-    const { publicKey: pubA } = await mock.generateVaultKey(0x82)
-    mock.setPin('111111')
+test('keeps one record per serial: insertKey switches keys, PINs and retries', async () => {
+  const mock = new MockYubiKey()
+  mock.insertKey('A')
+  const { publicKey: pubA } = await mock.generateVaultKey(0x82)
+  mock.setPin('111111')
 
-    mock.insertKey('B')
-    expect(await mock.readVaultPublicKey(0x82)).toBeNull() // B has no key yet
-    const { publicKey: pubB } = await mock.generateVaultKey(0x82)
-    expect(pubB).not.toBe(pubA)
-    // B still has the default PIN; A's change did not leak across serials.
-    expect((await mock.verifyPin('123456')).ok).toBe(true)
-    expect((await mock.verifyPin('111111')).ok).toBe(false)
+  mock.insertKey('B')
+  expect(await mock.readVaultPublicKey(0x82)).toBeNull() // B has no key yet
+  const { publicKey: pubB } = await mock.generateVaultKey(0x82)
+  expect(pubB).not.toBe(pubA)
+  // B still has the default PIN; A's change did not leak across serials.
+  expect((await mock.verifyPin('123456')).ok).toBe(true)
+  expect((await mock.verifyPin('111111')).ok).toBe(false)
 
-    mock.insertKey('A')
-    expect((await mock.readVaultPublicKey(0x82))!.publicKey).toBe(pubA)
-    expect((await mock.verifyPin('111111')).ok).toBe(true)
-  })
+  mock.insertKey('A')
+  expect((await mock.readVaultPublicKey(0x82))!.publicKey).toBe(pubA)
+  expect((await mock.verifyPin('111111')).ok).toBe(true)
+})
 
-  test('re-inserting a serial does not reset its PIN verification or its lockout', async () => {
-    const mock = new MockYubiKey()
-    mock.insertKey('A')
-    await mock.generateVaultKey(0x82)
-    await mock.verifyPin('123456')
-    mock.insertKey('B')
-    mock.insertKey('A')
-    // pinPolicy=once is per session: a swap ends the session, so the PIN must
-    // be presented again.
-    await expect(mock.signEcdsa(0x82, '', 'ab'.repeat(32))).rejects.toMatchObject({ code: 'pin-required' })
+test('re-inserting a serial does not reset its PIN verification or its lockout', async () => {
+  const mock = new MockYubiKey()
+  mock.insertKey('A')
+  await mock.generateVaultKey(0x82)
+  await mock.verifyPin('123456')
+  mock.insertKey('B')
+  mock.insertKey('A')
+  // pinPolicy=once is per session: a swap ends the session, so the PIN must
+  // be presented again.
+  await expect(mock.signEcdsa(0x82, '', 'ab'.repeat(32))).rejects.toMatchObject({ code: 'pin-required' })
 
-    mock.insertKey('L')
-    await mock.verifyPin('000000')
-    await mock.verifyPin('000000')
-    await mock.verifyPin('000000')
-    mock.insertKey('A')
-    mock.insertKey('L')
-    expect((await mock.getKeyInfo()).pinRetries).toBe(0) // still locked after a re-tap
-  })
+  mock.insertKey('L')
+  await mock.verifyPin('000000')
+  await mock.verifyPin('000000')
+  await mock.verifyPin('000000')
+  mock.insertKey('A')
+  mock.insertKey('L')
+  expect((await mock.getKeyInfo()).pinRetries).toBe(0) // still locked after a re-tap
+})
 
-  test('signEcdsa signs with the CURRENT serial key', async () => {
-    const mock = new MockYubiKey()
-    mock.insertKey('A')
-    await mock.generateVaultKey(0x82)
-    mock.insertKey('B')
-    const { publicKey: pubB } = await mock.generateVaultKey(0x82)
-    await mock.verifyPin('123456')
-    const digest = 'cd'.repeat(32)
-    const { signature } = await mock.signEcdsa(0x82, '123456', digest)
-    const sig = p256.Signature.fromBytes(Uint8Array.from(Utils.toArray(signature, 'hex')), 'der')
-    const compressedB = p256.Point.fromBytes(Uint8Array.from(Utils.toArray(pubB, 'hex'))).toBytes(true)
-    expect(p256.verify(sig.toBytes(), Uint8Array.from(Utils.toArray(digest, 'hex')), compressedB, { prehash: false, lowS: false })).toBe(true)
-  })
+test('signEcdsa signs with the CURRENT serial key', async () => {
+  const mock = new MockYubiKey()
+  mock.insertKey('A')
+  await mock.generateVaultKey(0x82)
+  mock.insertKey('B')
+  const { publicKey: pubB } = await mock.generateVaultKey(0x82)
+  await mock.verifyPin('123456')
+  const digest = 'cd'.repeat(32)
+  const { signature } = await mock.signEcdsa(0x82, '123456', digest)
+  const sig = p256.Signature.fromBytes(Uint8Array.from(Utils.toArray(signature, 'hex')), 'der')
+  const compressedB = p256.Point.fromBytes(Uint8Array.from(Utils.toArray(pubB, 'hex'))).toBytes(true)
+  expect(
+    p256.verify(sig.toBytes(), Uint8Array.from(Utils.toArray(digest, 'hex')), compressedB, {
+      prehash: false,
+      lowS: false
+    })
+  ).toBe(true)
+})
 
-  test('start(message) records the alert text for tests to read', () => {
-    const mock = new MockYubiKey()
-    mock.start('Hold your YubiKey here')
-    expect(mock.startMessage).toBe('Hold your YubiKey here')
-  })
+test('start(message) records the alert text for tests to read', () => {
+  const mock = new MockYubiKey()
+  mock.start('Hold your YubiKey here')
+  expect(mock.startMessage).toBe('Hold your YubiKey here')
+})
 ```
 
 - [ ] **Step 2: Run**
@@ -1232,7 +1320,13 @@ interface MockKeyRecord {
   pinVerified: boolean
 }
 
-const freshRecord = (): MockKeyRecord => ({ priv: null, pub: null, pin: DEFAULT_PIN, pinRetries: 3, pinVerified: false })
+const freshRecord = (): MockKeyRecord => ({
+  priv: null,
+  pub: null,
+  pin: DEFAULT_PIN,
+  pinRetries: 3,
+  pinVerified: false
+})
 
 export class MockYubiKey implements VaultDriver {
   private listeners = new Set<(e: KeyEvent) => void>()
@@ -1498,9 +1592,13 @@ describe('withKeySession', () => {
   test('NFC: the key detaching while work is in flight rejects with key-removed-mid-op', async () => {
     const m = nfcMock()
     let finish!: () => void
-    const p = withKeySession(m, () => new Promise<string>(resolve => {
-      finish = () => resolve('late')
-    }))
+    const p = withKeySession(
+      m,
+      () =>
+        new Promise<string>(resolve => {
+          finish = () => resolve('late')
+        })
+    )
     await flush()
     m.insertKey('MOCK-1')
     await flush()
@@ -1740,12 +1838,14 @@ git commit -m "feat(expo-wallet-toolbox)!: cached-touch driver, rejecting withKe
 ### Task 5: Native NFC alert text — `startDiscovery(message)`
 
 **Files:**
+
 - Modify: `Y/src/specs/YubiKeyPiv.nitro.ts` line 5
 - Modify: `Y/ios/HybridYubiKeyPiv.swift` lines 64–77 (`startDiscovery`) and lines 308–310 (stale `ALWAYS` comment in the ecdh path)
 - Modify: `Y/android/src/main/java/com/margelo/nitro/yubikeypiv/HybridYubiKeyPiv.kt` line 79 (`startDiscovery`) and lines 296–298 (stale `ALWAYS` comment)
 - Regenerate: `Y/nitrogen/generated/**`
 
 **Interfaces:**
+
 - Produces: nitro `startDiscovery(message: string): void`; Swift `func startDiscovery(message: String) throws`; Kotlin `override fun startDiscovery(message: String)`.
 
 No jest covers native code; the checks are codegen + grep + a build.
@@ -1845,13 +1945,16 @@ git commit -m "feat(yubikey): startDiscovery(message) sets the NFC alert text fr
 ```
 
 ---
+
 ### Task 6: ceremony.ts — `VaultSigner`, `requestSigner(reason, chosenSerial)`, resumable sign loop, batch reopen, `progress`
 
 **Files:**
+
 - Modify: `T/core/services/vault/ceremony.ts` (972 lines today; the regions listed in Step 3 are replaced, everything else stays byte-for-byte)
 - Rewrite: `T/__tests__/vault/ceremony.test.ts`
 
 **Interfaces:**
+
 - Consumes: `VaultDriver` (Task 4 shape — `start(message?)`, `signEcdsa(slot, pin, digest)`, no `ecdh`), `VaultError`/`VaultErrorCode` from `./types`, `Utils` from `@bsv/sdk`. Tests use `compressPubkey` from `./r1comb` (Plan 1 — must exist) and `p256` from `@noble/curves/nist.js`.
 - Produces (contract): `VaultProgress`, `CeremonyState.progress?`, `VaultSigner`, exported `CeremonyStoreView`, `CeremonyController` constructor `deps.inputsPerTap?`, `requestSigner(reason, chosenSerial)`, `noteProgress(p)`, `onArmed?: (s: VaultSigner) => void`. Removed: `VaultKeyHandle`, `requestKey`, `getSeal`, `unwrapVaultKey`, the `seal` parameter everywhere. `requireChosenSerial`'s `serial-mismatch` throw populates `VaultError.details = { tapped, chosen }` (Task 1's convention).
 - Allowed tsc residuals after this commit: `ceremonyHost.ts` (`VaultKeyHandle`, `requestKey`, `getSeal`, `m.slot`/`m.yubiSerial` — Task 7), `transfers.ts` (`VaultKeyHandle`, `requestVaultKey`, `takeNextIndex`, the missing `./k1`/`./vaultDerivation` modules — Tasks 9–11), `VaultKeyService.ts` (Task 8), `ui/screens/VaultScreen.tsx` (Plan 3).
@@ -1859,6 +1962,7 @@ git commit -m "feat(yubikey): startDiscovery(message) sets the NFC alert text fr
 **What changes and what does not.** The arm flow (insert → serial → PIN) is untouched in shape; only its inputs change: the ceremony now reads the store's KEY LIST, resolves `chosenSerial` against it (`not-enrolled` before any hardware prompt if absent), and compares the tapped serial to the CHOSEN key (`serial-mismatch`, detail naming both). There is no touch at arm time any more — the old `unwrapVaultKey` (one ECDH) is gone and its `RETRYABLE_TAP_ERRORS` retry loop moves, generalised, into `VaultSigner.sign()`: every card signature runs inside it, retrying the SAME digest after a dropped tap (Retry prompt; on session-based transports close + reopen with serial and PIN re-checked). On session-based transports `sign()` also closes and reopens the session every `inputsPerTap` successful signatures. Generation fencing, retention (`startArmTimer`/`checkArmTimeout`/`enforceArmTimeout`/ceiling), `cancel()`, `notifyKeyDetached()`, `notifyKeyAttached()`, `notifySessionFailed()`, the `KeyEventSession` boxing, `run()`'s finally and `release()`'s identity check are byte-for-byte or semantically unchanged; only types and names inside them move from "handle" to "signer".
 
 Three decisions this task makes that the contract does not spell out (flagged in the plan summary, not resolved by renaming anything):
+
 1. **NFC alert text.** `VaultDriver.start(message?)` wants the localised sheet text, the ceremony must not import i18n, and `requestSigner` has no message parameter. The ceremony passes the caller's `reason` string to `driver.start(...)` on every session it opens (initial arm and each reopen). Plan 3 supplies a `reason` that reads correctly on the iOS sheet; "batch b of n" is shown by the in-app sheet from `state.progress` under `waiting-for-key`, since YubiKit fixes the alert text for the life of one session anyway (Task 5).
 2. **A joiner naming a different serial.** Concurrent `requestSigner` calls still share one in-flight ceremony, but only when they name the SAME serial; a call naming a different serial while one is running is rejected at once with `serial-mismatch` and does not disturb the in-flight attempt. (transfers.ts never overlaps ceremonies; this is a guard, not a feature.)
 3. **Detach vs. dropped tap.** A driver-EMITTED `detached` while a signer is live still relocks through `notifyKeyDetached()` exactly as today (WalletContext's USB listener and the session's own subscription both route there). Only a REJECTION of `driver.signEcdsa` with `touch-timeout` / `nfc-lost` / `key-removed-mid-op` is resumable. Whether an iOS field drop mid-command produces the rejection, the event, or both is decided by the native adapter and belongs to the §0 device run; the ceremony's behaviour for each is pinned by the tests below.
@@ -2271,7 +2375,7 @@ describe('CeremonyController: NFC session failure before a key connects', () => 
     signer.release()
   })
 
-  test('the NFC alert text is the caller\'s reason, on the first session and on every reopen', async () => {
+  test("the NFC alert text is the caller's reason, on the first session and on every reopen", async () => {
     // Decision 1 in this task's preamble: the ceremony has no i18n and
     // requestSigner has no message parameter, so `reason` IS the sheet text.
     const h = await makeCeremony({ sessionBased: true, inputsPerTap: 1 })
@@ -2288,7 +2392,7 @@ describe('CeremonyController: NFC session failure before a key connects', () => 
 })
 
 describe('vault signer', () => {
-  test('one tap yields a signer whose DER signature verifies against the chosen key\'s enrolled pubkey', async () => {
+  test("one tap yields a signer whose DER signature verifies against the chosen key's enrolled pubkey", async () => {
     const h = await makeCeremony()
     const signer = await armA(h, 'test withdrawal')
     expect(signer.serial).toBe(SERIAL_A)
@@ -2301,7 +2405,7 @@ describe('vault signer', () => {
     signer.release()
   })
 
-  test('choosing MOCK-B signs with B\'s slot key, not A\'s', async () => {
+  test("choosing MOCK-B signs with B's slot key, not A's", async () => {
     const { ceremony: c, mock, pubA, pubB } = await makeCeremony()
     const p = c.requestSigner('x', SERIAL_B)
     mock.insertKey(SERIAL_B)
@@ -2478,7 +2582,7 @@ describe('vault signer', () => {
     await expect(signer.sign(DIGEST)).rejects.toMatchObject({ code: 'key-removed-mid-op' })
   })
 
-  test('persistent reader: WalletContext\'s notifyKeyDetached during a retry wait does the same', async () => {
+  test("persistent reader: WalletContext's notifyKeyDetached during a retry wait does the same", async () => {
     // After arming, a persistent reader's ceremony drops its own listener and
     // relies on WalletContext's always-on one, which calls notifyKeyDetached.
     const h = await makeCeremony()
@@ -2570,7 +2674,10 @@ describe('vault signer', () => {
     // Between batches the sheet sees waiting-for-key WITH the position, so it
     // can say "batch 2 of 3" while the iOS system sheet is down.
     const waits = snapshots.filter(s => s.phase === 'waiting-for-key').map(s => s.progress)
-    expect(waits).toEqual([{ signed: 8, total: 20 }, { signed: 16, total: 20 }])
+    expect(waits).toEqual([
+      { signed: 8, total: 20 },
+      { signed: 16, total: 20 }
+    ])
 
     signer.release()
     expect(stopSpy).toHaveBeenCalledTimes(3)
@@ -3807,10 +3914,12 @@ git commit -m "feat(expo-wallet-toolbox)!: ceremony yields a VaultSigner — cho
 ### Task 7: ceremonyHost.ts — `requestVaultSigner`, `VAULT_INPUTS_PER_TAP`, v5 store view
 
 **Files:**
+
 - Modify: `T/core/services/vault/ceremonyHost.ts` (whole file, 46 lines → rewritten)
 - Create: `T/__tests__/vault/ceremonyHost.test.ts`
 
 **Interfaces:**
+
 - Consumes: `CeremonyController`, `VaultProgress`, `VaultSigner` from `./ceremony` (Task 6); `getVaultDriver` from `./driver`; `vaultStore` (meta v5, Task 3).
 - Produces (contract): `ceremony` (singleton), `VAULT_RETENTION_MS = 120_000`, `VAULT_INPUTS_PER_TAP = 16`, `requestVaultSigner(reason, chosenSerial): Promise<VaultSigner>`, `noteVaultProgress(p: VaultProgress): void`. Removed: `requestVaultKey`.
 - Allowed tsc residuals after this commit: `transfers.ts` (`requestVaultKey`, `VaultKeyHandle`, `takeNextIndex`, missing `./k1`/`./vaultDerivation` — Tasks 9–11), `VaultKeyService.ts` (Task 8), `ui/screens/VaultScreen.tsx` (Plan 3). `WalletContext.tsx` keeps compiling: it imports only `VAULT_RETENTION_MS` and `ceremony` (`notifyKeyDetached`/`notifyKeyAttached`, unchanged).
@@ -3837,11 +3946,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -4032,10 +4149,12 @@ git commit -m "feat(expo-wallet-toolbox)!: ceremonyHost vends VaultSigner for a 
 ### Task 8: VaultKeyService.ts — `enrollKey`, `finalizeEnrollment(records)`, `addVaultKey`, `disableVault`
 
 **Files:**
+
 - Modify: `T/core/services/vault/VaultKeyService.ts` (whole file, 312 lines → rewritten)
 - Rewrite: `T/__tests__/vault/vaultKeyService.test.ts`
 
 **Interfaces:**
+
 - Consumes: `getVaultDriver` (`./driver`), `withKeySession(driver, work, onWaiting?, opts?)` (Task 4's 4-parameter form), `compressPubkey` (`./r1comb`, Plan 1), `vaultStore`/`VaultKeyRecord`/`VaultMeta` (Task 3), `VaultError`.
 - Produces (contract): `VAULT_SLOT = 0x82`, `VAULT_MIN_KEYS = 2`, `VAULT_MAX_KEYS = 5`, `EnrollPhase`, `enrollKey(args): Promise<VaultKeyRecord>`, `finalizeEnrollment(records): Promise<void>`, `addVaultKey(record): Promise<VaultMeta>`, `disableVault(): Promise<void>`. Removed: `enrollVault`, `recoverVaultHD`, `resealToNewKey`, `PendingEnrollment`, `adoptExisting`, the `'adopting'` phase, the passphrase check, every seed/seal line.
 - Additive to the contract (flagged in the summary): `enrollKey` accepts an optional `nfcMessage?: string`, forwarded to `withKeySession`'s `opts.nfcMessage` so the iOS scan sheet can say "Hold your YubiKey here to set it up" (spec §4.2 step 6). Omitting it yields the native default wording.
@@ -4066,11 +4185,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -4262,7 +4389,11 @@ describe('enrollKey', () => {
     const startSpy = jest.spyOn(nfc, 'start').mockImplementation(() => {
       order.push('session-start')
       // simulate the tap connecting
-      ;(nfc as unknown as { emit: (e: unknown) => void }).emit({ type: 'attached', serial: 'MOCK-1', transport: 'mock' })
+      ;(nfc as unknown as { emit: (e: unknown) => void }).emit({
+        type: 'attached',
+        serial: 'MOCK-1',
+        transport: 'mock'
+      })
     })
     const stopSpy = jest.spyOn(nfc, 'stop')
     const phases: string[] = []
@@ -4299,7 +4430,11 @@ describe('enrollKey', () => {
     const nfc = nfcMock()
     setMockDriver(nfc)
     jest.spyOn(nfc, 'start').mockImplementation(() => {
-      ;(nfc as unknown as { emit: (e: unknown) => void }).emit({ type: 'attached', serial: 'MOCK-1', transport: 'mock' })
+      ;(nfc as unknown as { emit: (e: unknown) => void }).emit({
+        type: 'attached',
+        serial: 'MOCK-1',
+        transport: 'mock'
+      })
     })
     // The card is pulled while the PIN verify is in flight; the verify never answers.
     jest.spyOn(nfc, 'verifyPin').mockImplementationOnce(() => {
@@ -4535,7 +4670,9 @@ export async function finalizeEnrollment(records: VaultKeyRecord[]): Promise<voi
   const serials = records.map(r => r.serial)
   const dupeSerial = serials.find((s, i) => serials.indexOf(s) !== i)
   if (dupeSerial !== undefined) {
-    throw new VaultError('key-already-enrolled', 'Duplicate serial in the enrollment', undefined, { serial: dupeSerial })
+    throw new VaultError('key-already-enrolled', 'Duplicate serial in the enrollment', undefined, {
+      serial: dupeSerial
+    })
   }
   await vaultStore.setMeta({ v: 5, createdAt: Date.now(), keys: records })
 }
@@ -4571,10 +4708,12 @@ git commit -m "feat(expo-wallet-toolbox)!: multi-key enrollment — enrollKey, f
 ### Task 9: transfers.ts — hardware-free deposit; legacy reclaim kept; K1 spend core removed
 
 **Files:**
+
 - Modify: `T/core/services/vault/transfers.ts` (1,151 lines today → ~560 after this task; Tasks 10–11 append the withdraw / re-lock / coverage sections)
 - Rewrite: `T/__tests__/vault/transfers.test.ts` (deposit + legacy reclaim suites; Task 10 inserts the withdraw fixtures and suites, Task 11 appends re-lock / coverage / balance)
 
 **Interfaces:**
+
 - Consumes: `SALT_BYTES`, `buildLock`, `commitment`, `encodeVaultInstructions` from `./r1comb` (Plan 1); `isVaultEnabled` (`../../toolboxConfig`, Task 2); `isBackupPushEnabled` (`../../backup/preference`, existing: `core/backup/preference.ts:22`, `Promise<boolean>`, never throws); `randomBytes` (`./random`); `VAULT_MIN_KEYS` (`./VaultKeyService`, Task 8); `vaultStore`/`VaultKeyRecord` (Task 3).
 - Produces (contract): `VAULT_BASKET`, `VAULT_DEPOSIT_MIN = 100_000`, `VAULT_MAX_INPUTS = 32`, `VAULT_HARD_MAX_INPUTS = 48`, `VaultTransferOptions` (+ `vaultEnabled?`, `backupEnabled?`), `VaultSpendResult` (new shape — type only here; Task 10 returns it), `VaultKeyCoverage` (type only here; Task 11 computes it), `VaultWallet` (see below), `depositToVault(w, adminOriginator, satoshis, opts?)`; unchanged legacy API: `reclaimStagingOutputs`, `ReclaimResult`, `VAULT_STAGING_BASKET`, `SpendingReferenceLookup`, `VaultActionRow`. `getVaultBalance` is kept byte-for-byte in this task (Task 11 makes it v4-only). Removed here: `depositToVault`'s `reason` parameter, `sweepVaultWithHD`, `spendVaultOutputs`, `prepareSpends`, `nextDepositTarget`, `VaultKeySource`, `PreparedSpend`, `VaultSpendResult.remainingInputs`, `withdrawFromVault` (re-added by Task 10 with the new signature), the `backup-required` gate, every `./k1` / `./vaultDerivation` / `./ceremony` import.
 - **Why the whole K1 spend core goes in THIS task and not Task 12:** Plan 1 Task 7 deletes `k1.ts` (Plan 1 File Structure, "Delete (Task 7 only)"), and this plan's prerequisite is Plan 1 merged first. `transfers.ts` therefore cannot even LOAD under jest until its `./k1` and `./vaultDerivation` imports are gone, and everything that used them (`spendVaultOutputs`, `prepareSpends`, `nextDepositTarget`, `sweepVaultWithHD`) goes with the imports. Task 12's "remove sweepVaultWithHD" item is therefore already done here; Task 12 only greps to prove it.
@@ -4600,14 +4739,20 @@ Replace `T/__tests__/vault/transfers.test.ts` with:
  *
  * Plan 1's r1comb.ts must exist.
  */
-import { Beef, BigNumber, ECDSA, LockingScript, P2PKH, PrivateKey, Spend, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
-import { p256 } from '@noble/curves/nist.js'
 import {
-  R1C_LOCK_LEN,
-  bakedCommitments,
-  commitment,
-  decodeVaultInstructions
-} from '../../core/services/vault/r1comb'
+  Beef,
+  BigNumber,
+  ECDSA,
+  LockingScript,
+  P2PKH,
+  PrivateKey,
+  Spend,
+  Transaction,
+  UnlockingScript,
+  Utils
+} from '@bsv/sdk'
+import { p256 } from '@noble/curves/nist.js'
+import { R1C_LOCK_LEN, bakedCommitments, commitment, decodeVaultInstructions } from '../../core/services/vault/r1comb'
 
 // Own AsyncStorage mock, matching __tests__/backup/erase.test.ts: the vault
 // suites install a different one and a global mapper makes the resolver
@@ -4618,11 +4763,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -4875,9 +5028,9 @@ describe('depositToVault', () => {
 
     it('backup-off when the injected backup gate is off (D13)', async () => {
       await seedMeta()
-      await expect(
-        depositToVault(wallet, ADMIN, 250_000, { backupEnabled: async () => false })
-      ).rejects.toMatchObject({ code: 'backup-off' })
+      await expect(depositToVault(wallet, ADMIN, 250_000, { backupEnabled: async () => false })).rejects.toMatchObject({
+        code: 'backup-off'
+      })
       expect(wallet.createAction).not.toHaveBeenCalled()
     })
 
@@ -4948,8 +5101,16 @@ describe('reclaimStagingOutputs', () => {
 
   it('sweeps every decodable staging output regardless of amount, skipping undecodable ones', async () => {
     fakeStagingUtxos.push(
-      { outpoint: `${'ab'.repeat(32)}.0`, satoshis: 250_017, customInstructions: JSON.stringify({ v: 1, type: 'staging', keyID: 'staging aaaa' }) },
-      { outpoint: `${'cd'.repeat(32)}.1`, satoshis: 99_999, customInstructions: JSON.stringify({ v: 1, type: 'staging', keyID: 'staging bbbb' }) },
+      {
+        outpoint: `${'ab'.repeat(32)}.0`,
+        satoshis: 250_017,
+        customInstructions: JSON.stringify({ v: 1, type: 'staging', keyID: 'staging aaaa' })
+      },
+      {
+        outpoint: `${'cd'.repeat(32)}.1`,
+        satoshis: 99_999,
+        customInstructions: JSON.stringify({ v: 1, type: 'staging', keyID: 'staging bbbb' })
+      },
       { outpoint: `${'ef'.repeat(32)}.0`, satoshis: 12_345, customInstructions: 'not json at all' }
     )
     const r = await reclaimStagingOutputs(wallet, ADMIN)
@@ -5027,11 +5188,21 @@ describe('reclaimStagingOutputs', () => {
       // fixtures would never catch it.
       const addStaging = () => {
         for (const c of coins) {
-          tx.addInput({ sourceTransaction: c.src, sourceOutputIndex: 0, sequence: 0xfffffffe, unlockingScript: new UnlockingScript([]) })
+          tx.addInput({
+            sourceTransaction: c.src,
+            sourceOutputIndex: 0,
+            sequence: 0xfffffffe,
+            unlockingScript: new UnlockingScript([])
+          })
         }
       }
       const addFunding = () =>
-        tx.addInput({ sourceTransaction: fundSrc, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
+        tx.addInput({
+          sourceTransaction: fundSrc,
+          sourceOutputIndex: 0,
+          sequence: 0xffffffff,
+          unlockingScript: new UnlockingScript([])
+        })
       if (opts.stagingFirst) {
         addStaging()
         addFunding()
@@ -5257,9 +5428,7 @@ function decodeStagingInstructions(s: string | undefined): StagingInstructions |
  * — and optional, so a caller that has no storage handle keeps the original
  * paged-scan heal. See findSpendingReferences in StorageExpoSQLite.
  */
-export type SpendingReferenceLookup = (
-  outpoints: string[]
-) => Promise<{ reference: string; status: string }[]>
+export type SpendingReferenceLookup = (outpoints: string[]) => Promise<{ reference: string; status: string }[]>
 
 /**
  * Injected dependencies for a vault transfer.
@@ -5454,7 +5623,10 @@ async function requireKeys(): Promise<VaultKeyRecord[]> {
   const meta = await vaultStore.getMeta()
   if (!meta) throw new VaultError('not-enrolled', 'Vault is not set up')
   if (meta.keys.length < VAULT_MIN_KEYS) {
-    throw new VaultError('not-enough-keys', `A vault needs at least ${VAULT_MIN_KEYS} keys; ${meta.keys.length} enrolled`)
+    throw new VaultError(
+      'not-enough-keys',
+      `A vault needs at least ${VAULT_MIN_KEYS} keys; ${meta.keys.length} enrolled`
+    )
   }
   return meta.keys
 }
@@ -5532,10 +5704,12 @@ git commit -m "feat(expo-wallet-toolbox)!: hardware-free R1C vault deposit; K1 s
 ### Task 10: transfers.ts — `withdrawFromVault(w, adminOriginator, amount, reason, chosenSerial, opts)`
 
 **Files:**
+
 - Modify: `T/core/services/vault/transfers.ts` (extend two import lines; append the selection + spend core + `withdrawFromVault` after `reclaimStagingOutputs`)
 - Modify: `T/__tests__/vault/transfers.test.ts` (extend imports; insert the withdraw fixtures after the top-level `beforeEach`; append the withdraw suites at the end)
 
 **Interfaces:**
+
 - Consumes (all from Plan 1's `./r1comb`): `R1C_UNLOCK_LEN`, `VaultInstructionsV4`, `bakedCommitments(lock)`, `buildUnlock({ preimage, derSig, pubkeyHex33, saltHex64 })`, `commitment`, `decodeVaultInstructions`, `pushTxDerCheck(preimage)`, `sighashPreimage(tx, inputIndex, sourceSatoshis)`, `signerDigest(preimage)`, `verifyVaultInput({ tx, inputIndex, sourceSatoshis, lockingScript, unlockingScript })`; `requestVaultSigner`, `noteVaultProgress` (`./ceremonyHost`, Task 7); `Beef`, `LockingScript` from `@bsv/sdk`; `freeReservedInputs`, `requireOnline`, `requireReleased`, `newVaultOutput`, `VAULT_DEPOSIT_MIN`, `VAULT_MAX_INPUTS`, `VAULT_HARD_MAX_INPUTS` (Task 9). SDK fields: `CreateActionArgs.version`, `CreateActionInput.sequenceNumber` (`node_modules/@bsv/sdk/dist/types/src/wallet/Wallet.interfaces.d.ts:212–218, 329–338`), `SignActionArgs { spends, reference, options }` (`:366`).
 - Produces (contract): `withdrawFromVault(w, adminOriginator, amount: number | 'all', reason, chosenSerial, opts?): Promise<VaultSpendResult>`. Private helpers `selectVaultInputs`, `createSignableVaultTx`, `spendVaultOutputs` are shared with Task 11's `relockVault`.
 - Structure kept from today's `spendVaultOutputs` (`transfers.ts:862–1083` before Task 9): the `setTimeout(0)` yield before listing and before every signature, the `freeReservedInputs` retry-once around `createAction`, SEQUENTIAL signing (never `tx.sign()`), abort-on-any-failure before `signAction`, and the deferred-broadcast finish OUTSIDE the abort try (`:1062–1082`).
@@ -5591,10 +5765,10 @@ import {
 (d) At the END of the top-level `beforeEach` callback (after `;(requestVaultSigner as jest.Mock).mockReset()`) add:
 
 ```ts
-  lastSignable = undefined
-  signerRelease = jest.fn()
-  signCalls = []
-  armWith(PRIV_A, PUB_A, 'A-1')
+lastSignable = undefined
+signerRelease = jest.fn()
+signCalls = []
+armWith(PRIV_A, PUB_A, 'A-1')
 ```
 
 (e) Insert the fixture block after the top-level `afterEach(() => jest.restoreAllMocks())` line and before `// ── deposit ─…`:
@@ -5653,7 +5827,11 @@ async function seedVault(
   wallet.listOutputs.mockImplementation(async (args: any) =>
     args?.basket === VAULT_BASKET
       ? {
-          outputs: fx.map(f => ({ outpoint: f.outpoint, satoshis: f.satoshis, customInstructions: f.customInstructions })),
+          outputs: fx.map(f => ({
+            outpoint: f.outpoint,
+            satoshis: f.satoshis,
+            customInstructions: f.customInstructions
+          })),
           BEEF: stitchBeef(fx)
         }
       : args?.basket === VAULT_STAGING_BASKET
@@ -5665,7 +5843,12 @@ async function seedVault(
     if (opts.fundingFirst) {
       const fund = new Transaction()
       fund.addOutput({ satoshis: 50_000, lockingScript: new P2PKH().lock(Utils.toArray('44'.repeat(20), 'hex')) })
-      tx.addInput({ sourceTransaction: fund, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
+      tx.addInput({
+        sourceTransaction: fund,
+        sourceOutputIndex: 0,
+        sequence: 0xffffffff,
+        unlockingScript: new UnlockingScript([])
+      })
     }
     for (const inp of args.inputs ?? []) {
       const f = fx.find(x => x.outpoint === inp.outpoint)!
@@ -5735,7 +5918,13 @@ const validateSpends = (fx: VaultFixture[]): void => {
     const unlockingScript = UnlockingScript.fromHex(saArgs.spends[idx].unlockingScript)
     expect(unlockingScript.toBinary().length).toBeLessThanOrEqual(R1C_UNLOCK_LEN)
     expect(
-      verifyVaultInput({ tx, inputIndex: idx, sourceSatoshis: f.satoshis, lockingScript: f.lockingScript, unlockingScript })
+      verifyVaultInput({
+        tx,
+        inputIndex: idx,
+        sourceSatoshis: f.satoshis,
+        lockingScript: f.lockingScript,
+        unlockingScript
+      })
     ).toBe(true)
   }
 }
@@ -5770,7 +5959,11 @@ describe('withdrawFromVault', () => {
     expect(caArgs.version).toBe(2) // spec §2.6: every vault spend is version 2
     expect(caArgs.inputs).toHaveLength(2)
     for (const i of caArgs.inputs) {
-      expect(i).toEqual({ outpoint: i.outpoint, unlockingScriptLength: R1C_UNLOCK_LEN, inputDescription: 'Vault withdrawal' })
+      expect(i).toEqual({
+        outpoint: i.outpoint,
+        unlockingScriptLength: R1C_UNLOCK_LEN,
+        inputDescription: 'Vault withdrawal'
+      })
       expect(i.unlockingScriptLength).toBe(2560)
     }
     // Largest first.
@@ -5801,8 +5994,12 @@ describe('withdrawFromVault', () => {
     validateSpends(fx)
   }, 60_000)
 
-  it('signs the digest of each input\'s REAL preimage, sequentially, with per-input progress, then reports broadcasting', async () => {
-    const fx = [vaultFixture(300_000, [PUB_A, PUB_B]), vaultFixture(200_000, [PUB_A, PUB_B]), vaultFixture(100_000, [PUB_A, PUB_B])]
+  it("signs the digest of each input's REAL preimage, sequentially, with per-input progress, then reports broadcasting", async () => {
+    const fx = [
+      vaultFixture(300_000, [PUB_A, PUB_B]),
+      vaultFixture(200_000, [PUB_A, PUB_B]),
+      vaultFixture(100_000, [PUB_A, PUB_B])
+    ]
     await seedVault(fx)
     await withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw from vault', 'A-1')
 
@@ -5832,7 +6029,7 @@ describe('withdrawFromVault', () => {
     expect((await vaultStore.getMeta())!.lastUsedSerial).toBe('A-1')
   }, 60_000)
 
-  it('returns cappedInputs 0 and an empty unreachable set when every output is the chosen key\'s and fits', async () => {
+  it("returns cappedInputs 0 and an empty unreachable set when every output is the chosen key's and fits", async () => {
     await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
     const r = await withdrawAll()
     expect(r).toEqual({ txid: 'feedface'.repeat(8), cappedInputs: 0, unreachable: { count: 0, satoshis: 0, keys: [] } })
@@ -5874,7 +6071,7 @@ describe('withdrawFromVault', () => {
     expect(wallet.createAction.mock.calls[0][0].inputs).toHaveLength(VAULT_MAX_INPUTS)
   }, 120_000)
 
-  it('choosing B selects only B\'s outputs and reports A\'s as unreachable, naming A', async () => {
+  it("choosing B selects only B's outputs and reports A's as unreachable, naming A", async () => {
     armWith(PRIV_B, PUB_B, 'B-1')
     const shared = vaultFixture(300_000, [PUB_A, PUB_B])
     const bOnly = vaultFixture(400_000, [PUB_B])
@@ -5894,7 +6091,7 @@ describe('withdrawFromVault', () => {
     expect(r.unreachable).toEqual({ count: 1, satoshis: 700_000, keys: [{ serial: undefined, pubkey: removed }] })
   }, 60_000)
 
-  it('key-not-committed when the REAL lock lacks the chosen key\'s commitment although customInstructions claims it — before any reservation or tap', async () => {
+  it("key-not-committed when the REAL lock lacks the chosen key's commitment although customInstructions claims it — before any reservation or tap", async () => {
     const liar = vaultFixture(300_000, [PUB_A, PUB_B], [PUB_B]) // record says A+B, lock says B
     await seedVault([liar])
     const err = await withdrawAll().catch(e => e)
@@ -5942,7 +6139,11 @@ describe('withdrawFromVault', () => {
     await seedMeta()
     wallet.listOutputs.mockResolvedValueOnce({
       outputs: [
-        { outpoint: `${'aa'.repeat(32)}.0`, satoshis: 250_000, customInstructions: JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/0' }) },
+        {
+          outpoint: `${'aa'.repeat(32)}.0`,
+          satoshis: 250_000,
+          customInstructions: JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/0' })
+        },
         { outpoint: `${'bb'.repeat(32)}.0`, satoshis: 250_000, customInstructions: 'not json' }
       ]
     })
@@ -5951,7 +6152,9 @@ describe('withdrawFromVault', () => {
 
   it('not-enrolled for an unknown chosen serial, before listing anything', async () => {
     await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
-    await expect(withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw', 'Z-9')).rejects.toMatchObject({ code: 'not-enrolled' })
+    await expect(withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw', 'Z-9')).rejects.toMatchObject({
+      code: 'not-enrolled'
+    })
     expect(wallet.listOutputs).not.toHaveBeenCalled()
   })
 
@@ -5972,7 +6175,12 @@ describe('withdrawFromVault', () => {
     const [caArgs] = wallet.createAction.mock.calls[0]
     expect(caArgs.outputs).toHaveLength(1)
     const out = caArgs.outputs[0]
-    expect(out).toMatchObject({ satoshis: 400_000, basket: VAULT_BASKET, outputDescription: 'Vault change', tags: ['vault'] })
+    expect(out).toMatchObject({
+      satoshis: 400_000,
+      basket: VAULT_BASKET,
+      outputDescription: 'Vault change',
+      tags: ['vault']
+    })
     expect(Utils.toArray(out.lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(3))
     const ci = decodeVaultInstructions(out.customInstructions)!
     expect(ci.keys).toEqual([PUB_A, PUB_B, KEY_C.pubkey])
@@ -6013,7 +6221,7 @@ describe('withdrawFromVault', () => {
     expect(wallet.signAction).not.toHaveBeenCalled()
   })
 
-  it('a pushTxDerCheck hit aborts the reservation and re-creates the action with that input\'s sequenceNumber bumped', async () => {
+  it("a pushTxDerCheck hit aborts the reservation and re-creates the action with that input's sequenceNumber bumped", async () => {
     const fx = [vaultFixture(300_000, [PUB_A, PUB_B])]
     await seedVault(fx)
     const check = jest.spyOn(r1comb, 'pushTxDerCheck').mockReturnValueOnce({ ok: false, s: 0n })
@@ -6040,7 +6248,16 @@ describe('withdrawFromVault', () => {
     expect(wallet.createAction).toHaveBeenCalledTimes(8)
     expect(wallet.abortAction).toHaveBeenCalledTimes(8)
     const seqs = wallet.createAction.mock.calls.map(([a]: [any]) => a.inputs[0].sequenceNumber)
-    expect(seqs).toEqual([undefined, 0xfffffffe, 0xfffffffd, 0xfffffffc, 0xfffffffb, 0xfffffffa, 0xfffffff9, 0xfffffff8])
+    expect(seqs).toEqual([
+      undefined,
+      0xfffffffe,
+      0xfffffffd,
+      0xfffffffc,
+      0xfffffffb,
+      0xfffffffa,
+      0xfffffff9,
+      0xfffffff8
+    ])
     expect(requestVaultSigner).not.toHaveBeenCalled()
     expect(wallet.signAction).not.toHaveBeenCalled()
   }, 60_000)
@@ -6065,7 +6282,9 @@ describe('withdrawFromVault', () => {
 
   it('aborts the reservation when the tap itself fails (serial-mismatch from the ceremony)', async () => {
     await seedVault([vaultFixture(300_000, [PUB_A, PUB_B])])
-    ;(requestVaultSigner as jest.Mock).mockRejectedValueOnce(new VaultError('serial-mismatch', 'Tapped key B-1, chose key A-1'))
+    ;(requestVaultSigner as jest.Mock).mockRejectedValueOnce(
+      new VaultError('serial-mismatch', 'Tapped key B-1, chose key A-1')
+    )
     await expect(withdrawAll()).rejects.toMatchObject({ code: 'serial-mismatch' })
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
     expect(wallet.signAction).not.toHaveBeenCalled()
@@ -6169,7 +6388,12 @@ describe('withdraw self-heals a double-spend from stuck reservations', () => {
         actions: [
           { status: 'unsigned', reference: 'ref-orphan', inputs: [{ sourceOutpoint: h.fx[0].outpoint }] },
           { status: 'unsigned', reference: 'ref-other', inputs: [{ sourceOutpoint: `${'ee'.repeat(32)}.0` }] },
-          { txid: 'cd'.repeat(32), status: 'completed', reference: 'ref-done', inputs: [{ sourceOutpoint: h.fx[0].outpoint }] }
+          {
+            txid: 'cd'.repeat(32),
+            status: 'completed',
+            reference: 'ref-done',
+            inputs: [{ sourceOutpoint: h.fx[0].outpoint }]
+          }
         ]
       }
     })
@@ -6256,7 +6480,14 @@ describe('withdraw self-heals a double-spend from stuck reservations', () => {
     const fx = [vaultFixture(300_000, [PUB_A, PUB_B])]
     await seedVault(fx)
     wallet.listActions.mockResolvedValue({
-      actions: [{ txid: 'cd'.repeat(32), status: 'completed', reference: 'ref-done', inputs: [{ sourceOutpoint: fx[0].outpoint }] }]
+      actions: [
+        {
+          txid: 'cd'.repeat(32),
+          status: 'completed',
+          reference: 'ref-done',
+          inputs: [{ sourceOutpoint: fx[0].outpoint }]
+        }
+      ]
     })
     wallet.createAction.mockImplementation(async () => {
       throw unspendableError(fx[0].outpoint)
@@ -6288,9 +6519,21 @@ describe('withdraw self-heals a double-spend from stuck reservations', () => {
 (a) Replace the two import lines:
 
 ```ts
-import { Beef, Hash, LockingScript, P2PKH, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'
+import {
+  Beef,
+  Hash,
+  LockingScript,
+  P2PKH,
+  PublicKey,
+  Transaction,
+  TransactionSignature,
+  UnlockingScript,
+  Utils
+} from '@bsv/sdk'
 ```
+
 and
+
 ```ts
 import {
   R1C_UNLOCK_LEN,
@@ -6308,7 +6551,9 @@ import {
   verifyVaultInput
 } from './r1comb'
 ```
+
 and add, after the `../../toolboxConfig` import:
+
 ```ts
 import { noteVaultProgress, requestVaultSigner } from './ceremonyHost'
 ```
@@ -6316,7 +6561,6 @@ import { noteVaultProgress, requestVaultSigner } from './ceremonyHost'
 (b) Append after the last line of `reclaimStagingOutputs` (the end of the file after Task 9):
 
 ```ts
-
 // ── withdraw / re-lock: selection (spec §4.2 steps 2–3) ───────────────────
 
 /** How many times the signable transaction may be re-created to dodge a
@@ -6573,7 +6817,7 @@ async function createSignableVaultTx(
         )
       }
       const bad = sel.selected[badAt]
-      const current = sequences.get(bad.outpoint) ?? (tx.inputs[prepared[badAt].inputIndex].sequence ?? 0xffffffff)
+      const current = sequences.get(bad.outpoint) ?? tx.inputs[prepared[badAt].inputIndex].sequence ?? 0xffffffff
       sequences.set(bad.outpoint, current - 1)
     } catch (e) {
       await w.abortAction({ reference }, adminOriginator).catch(() => {})
@@ -6611,7 +6855,11 @@ async function spendVaultOutputs(
   opts?: VaultTransferOptions
 ): Promise<VaultSpendResult> {
   const built = await createSignableVaultTx(w, adminOriginator, sel, reason, plan, opts)
-  const result = (txid: string): VaultSpendResult => ({ txid, cappedInputs: sel.cappedInputs, unreachable: sel.unreachable })
+  const result = (txid: string): VaultSpendResult => ({
+    txid,
+    cappedInputs: sel.cappedInputs,
+    unreachable: sel.unreachable
+  })
   if (built.kind === 'done') return result(built.txid)
   const { tx, reference, prepared } = built
   const { chosen, selected } = sel
@@ -6631,7 +6879,12 @@ async function spendVaultOutputs(
         // infinity — a 2^-256 event; it unwinds through the abort below.
         unlocks.push({
           inputIndex,
-          unlockingScript: buildUnlock({ preimage, derSig: der, pubkeyHex33: signer.pubkey, saltHex64: selected[i].ci.salt })
+          unlockingScript: buildUnlock({
+            preimage,
+            derSig: der,
+            pubkeyHex33: signer.pubkey,
+            saltHex64: selected[i].ci.salt
+          })
         })
       }
     } finally {
@@ -6750,10 +7003,12 @@ git commit -m "feat(expo-wallet-toolbox)!: chosen-key vault withdrawal — v2 ac
 ### Task 11: transfers.ts — `relockVault`, `estimateRelockFee`, `getVaultKeyCoverage`, `orphanedIfRemoved`, v4-only `getVaultBalance`
 
 **Files:**
+
 - Modify: `T/core/services/vault/transfers.ts` (add `R1C_LOCK_LEN` to the r1comb import; replace `getVaultBalance`; append the re-lock and coverage sections)
 - Modify: `T/__tests__/vault/transfers.test.ts` (extend the transfers import; append suites)
 
 **Interfaces:**
+
 - Consumes: everything Task 10 wired (`selectVaultInputs`, `spendVaultOutputs`, `newVaultOutput`, `requireReleased`, `requireOnline`), plus `R1C_LOCK_LEN(n)` and `decodeVaultInstructions` from `./r1comb`.
 - Produces (contract): `relockVault(w, adminOriginator, reason, chosenSerial, opts?): Promise<VaultSpendResult>` (throws `too-small-to-relock` | `not-released`), `estimateRelockFee(inputCount, lockLen, satPerKb = 100): number`, `getVaultKeyCoverage(w, adminOriginator): Promise<VaultKeyCoverage>`, `orphanedIfRemoved(w, adminOriginator, pubkey): Promise<number>` (spec §3.4: the count of vault outputs that would lose every remaining committed key if `pubkey` were removed — Plan 3's Remove handler refuses with `relock-required` whenever this is > 0), `getVaultBalance` counting decodable v4 outputs only (and now passing `includeCustomInstructions: true`, which listOutputs needs to return the field at all).
 - Fee arithmetic: the contract's `ceil(size/1000)·satPerKb·1.1` is computed in INTEGERS — `ceil(kb·satPerKb·11 / 10)` — because `11200 * 1.1` is `12320.000000000002` in IEEE doubles and a naive `Math.ceil` would charge one satoshi too many. Same value, no float.
@@ -6830,7 +7085,12 @@ describe('relockVault', () => {
     expect(caArgs.outputs).toHaveLength(1)
     const out = caArgs.outputs[0]
     const fee = estimateRelockFee(2, R1C_LOCK_LEN(3))
-    expect(out).toMatchObject({ satoshis: 1_000_000 - fee, basket: VAULT_BASKET, outputDescription: 'Vault re-lock', tags: ['vault'] })
+    expect(out).toMatchObject({
+      satoshis: 1_000_000 - fee,
+      basket: VAULT_BASKET,
+      outputDescription: 'Vault re-lock',
+      tags: ['vault']
+    })
     expect(Utils.toArray(out.lockingScript, 'hex')).toHaveLength(R1C_LOCK_LEN(3))
     const ci = decodeVaultInstructions(out.customInstructions)!
     expect(ci.keys).toEqual([PUB_A, PUB_B, KEY_C.pubkey])
@@ -6888,7 +7148,9 @@ describe('relockVault', () => {
     const r = await relock()
     expect(r.unreachable).toEqual({ count: 1, satoshis: 400_000, keys: [{ serial: 'B-1', pubkey: PUB_B }] })
     expect(wallet.createAction.mock.calls[0][0].inputs.map((i: any) => i.outpoint)).toEqual([mine.outpoint])
-    expect(wallet.createAction.mock.calls[0][0].outputs[0].satoshis).toBe(500_000 - estimateRelockFee(1, R1C_LOCK_LEN(2)))
+    expect(wallet.createAction.mock.calls[0][0].outputs[0].satoshis).toBe(
+      500_000 - estimateRelockFee(1, R1C_LOCK_LEN(2))
+    )
     validateSpends([mine])
   }, 60_000)
 
@@ -6899,7 +7161,9 @@ describe('relockVault', () => {
     expect(r.cappedInputs).toBe(1)
     const [caArgs] = wallet.createAction.mock.calls[0]
     expect(caArgs.inputs).toHaveLength(VAULT_MAX_INPUTS)
-    expect(caArgs.outputs[0].satoshis).toBe(VAULT_MAX_INPUTS * 300_000 - estimateRelockFee(VAULT_MAX_INPUTS, R1C_LOCK_LEN(2)))
+    expect(caArgs.outputs[0].satoshis).toBe(
+      VAULT_MAX_INPUTS * 300_000 - estimateRelockFee(VAULT_MAX_INPUTS, R1C_LOCK_LEN(2))
+    )
   }, 120_000)
 })
 
@@ -6921,7 +7185,11 @@ describe('getVaultKeyCoverage', () => {
         rec([PUB_A, PUB_B]), // current
         rec([PUB_A]), // stale: B was added after this deposit → "not yet open to Safe"
         rec([PUB_A, PUB_B, removed]), // stale: a removed key can still open it
-        { outpoint: `${'ee'.repeat(32)}.0`, satoshis: 5, customInstructions: JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/0' }) }, // ignored
+        {
+          outpoint: `${'ee'.repeat(32)}.0`,
+          satoshis: 5,
+          customInstructions: JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/0' })
+        }, // ignored
         { outpoint: `${'ff'.repeat(32)}.0`, satoshis: 5, customInstructions: '{' } // ignored
       ]
     })
@@ -6938,21 +7206,41 @@ describe('getVaultKeyCoverage', () => {
   it('is all-zero for an empty vault and for a vault whose every output matches the current set', async () => {
     await seedMeta([KEY_A, KEY_B])
     wallet.listOutputs.mockResolvedValueOnce({ outputs: [] })
-    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({ outputs: 0, stale: 0, missingKeys: [], removedKeyOutputs: 0 })
+    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({
+      outputs: 0,
+      stale: 0,
+      missingKeys: [],
+      removedKeyOutputs: 0
+    })
 
     wallet.listOutputs.mockResolvedValueOnce({ outputs: [rec([PUB_A, PUB_B]), rec([PUB_B, PUB_A])] }) // order is irrelevant
-    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({ outputs: 2, stale: 0, missingKeys: [], removedKeyOutputs: 0 })
+    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({
+      outputs: 2,
+      stale: 0,
+      missingKeys: [],
+      removedKeyOutputs: 0
+    })
   })
 
   it('with no key list every output is stale and open to a removed key, and nothing is missing', async () => {
     wallet.listOutputs.mockResolvedValueOnce({ outputs: [rec([PUB_A, PUB_B]), rec([PUB_A])] })
-    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({ outputs: 2, stale: 2, missingKeys: [], removedKeyOutputs: 2 })
+    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({
+      outputs: 2,
+      stale: 2,
+      missingKeys: [],
+      removedKeyOutputs: 2
+    })
   })
 
   it('missingKeys follows meta order and lists each key once however many outputs lack it', async () => {
     await seedMeta([KEY_A, KEY_B, KEY_C])
     wallet.listOutputs.mockResolvedValueOnce({ outputs: [rec([PUB_A]), rec([PUB_A]), rec([PUB_B])] })
-    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({ outputs: 3, stale: 3, missingKeys: [PUB_A, PUB_B, KEY_C.pubkey], removedKeyOutputs: 0 })
+    expect(await getVaultKeyCoverage(wallet, ADMIN)).toEqual({
+      outputs: 3,
+      stale: 3,
+      missingKeys: [PUB_A, PUB_B, KEY_C.pubkey],
+      removedKeyOutputs: 0
+    })
   })
 })
 
@@ -6961,16 +7249,42 @@ describe('orphanedIfRemoved', () => {
     await seedMeta([KEY_A, KEY_B])
     wallet.listOutputs.mockResolvedValueOnce({
       outputs: [
-        { outpoint: `${'ab'.repeat(32)}.0`, satoshis: 1, customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'cd'.repeat(32), keys: [PUB_A, PUB_B] }) },
-        { outpoint: `${'ab'.repeat(32)}.1`, satoshis: 1, customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'ce'.repeat(32), keys: [PUB_A] }) }
+        {
+          outpoint: `${'ab'.repeat(32)}.0`,
+          satoshis: 1,
+          customInstructions: encodeVaultInstructions({
+            v: 4,
+            type: 'R1C',
+            salt: 'cd'.repeat(32),
+            keys: [PUB_A, PUB_B]
+          })
+        },
+        {
+          outpoint: `${'ab'.repeat(32)}.1`,
+          satoshis: 1,
+          customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'ce'.repeat(32), keys: [PUB_A] })
+        }
       ]
     })
     expect(await orphanedIfRemoved(wallet, ADMIN, PUB_A)).toBe(1)
 
     wallet.listOutputs.mockResolvedValueOnce({
       outputs: [
-        { outpoint: `${'ab'.repeat(32)}.0`, satoshis: 1, customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'cd'.repeat(32), keys: [PUB_A, PUB_B] }) },
-        { outpoint: `${'ab'.repeat(32)}.1`, satoshis: 1, customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'ce'.repeat(32), keys: [PUB_A] }) }
+        {
+          outpoint: `${'ab'.repeat(32)}.0`,
+          satoshis: 1,
+          customInstructions: encodeVaultInstructions({
+            v: 4,
+            type: 'R1C',
+            salt: 'cd'.repeat(32),
+            keys: [PUB_A, PUB_B]
+          })
+        },
+        {
+          outpoint: `${'ab'.repeat(32)}.1`,
+          satoshis: 1,
+          customInstructions: encodeVaultInstructions({ v: 4, type: 'R1C', salt: 'ce'.repeat(32), keys: [PUB_A] })
+        }
       ]
     })
     expect(await orphanedIfRemoved(wallet, ADMIN, PUB_B)).toBe(0)
@@ -6990,7 +7304,11 @@ describe('getVaultBalance', () => {
       outputs: [
         v4(3000),
         v4(4500),
-        { outpoint: 'v3.0', satoshis: 1000, customInstructions: JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/0' }) },
+        {
+          outpoint: 'v3.0',
+          satoshis: 1000,
+          customInstructions: JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/0' })
+        },
         { outpoint: 'bad.0', satoshis: 2000, customInstructions: 'not json' },
         { outpoint: 'none.0', satoshis: 700 }
       ]
@@ -7030,7 +7348,10 @@ describe('getVaultBalance', () => {
  * asked, and without it everything would read as undecodable.
  */
 export async function getVaultBalance(w: VaultWallet, adminOriginator: string): Promise<number> {
-  const res = await w.listOutputs({ basket: VAULT_BASKET, includeCustomInstructions: true, limit: 1000 }, adminOriginator)
+  const res = await w.listOutputs(
+    { basket: VAULT_BASKET, includeCustomInstructions: true, limit: 1000 },
+    adminOriginator
+  )
   return res.outputs.reduce(
     (sum, o) => sum + (decodeVaultInstructions(o.customInstructions) ? (o.satoshis ?? 0) : 0),
     0
@@ -7041,7 +7362,6 @@ export async function getVaultBalance(w: VaultWallet, adminOriginator: string): 
 (c) Append at the END of the file (after `withdrawFromVault`):
 
 ```ts
-
 // ── re-lock (spec §4.3) ──────────────────────────────────────────────────
 
 /**
@@ -7090,7 +7410,10 @@ export async function relockVault(
   await requireOnline(opts)
   const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, 'all')
   if (sel.keys.length < VAULT_MIN_KEYS) {
-    throw new VaultError('not-enough-keys', `A vault needs at least ${VAULT_MIN_KEYS} keys; ${sel.keys.length} enrolled`)
+    throw new VaultError(
+      'not-enough-keys',
+      `A vault needs at least ${VAULT_MIN_KEYS} keys; ${sel.keys.length} enrolled`
+    )
   }
   const fee = estimateRelockFee(sel.selected.length, R1C_LOCK_LEN(sel.keys.length))
   const relocked = sel.acc - fee
@@ -7130,7 +7453,10 @@ export async function getVaultKeyCoverage(w: VaultWallet, adminOriginator: strin
   const meta = await vaultStore.getMeta()
   const current = meta?.keys.map(k => k.pubkey) ?? []
   const currentSet = new Set(current)
-  const res = await w.listOutputs({ basket: VAULT_BASKET, includeCustomInstructions: true, limit: 1000 }, adminOriginator)
+  const res = await w.listOutputs(
+    { basket: VAULT_BASKET, includeCustomInstructions: true, limit: 1000 },
+    adminOriginator
+  )
   const records = res.outputs
     .map(o => decodeVaultInstructions(o.customInstructions))
     .filter((ci): ci is VaultInstructionsV4 => ci != null)
@@ -7165,7 +7491,10 @@ export async function getVaultKeyCoverage(w: VaultWallet, adminOriginator: strin
 export async function orphanedIfRemoved(w: VaultWallet, adminOriginator: string, pubkey: string): Promise<number> {
   const meta = await vaultStore.getMeta()
   const remaining = new Set((meta?.keys.map(k => k.pubkey) ?? []).filter(pk => pk !== pubkey))
-  const res = await w.listOutputs({ basket: VAULT_BASKET, includeCustomInstructions: true, limit: 1000 }, adminOriginator)
+  const res = await w.listOutputs(
+    { basket: VAULT_BASKET, includeCustomInstructions: true, limit: 1000 },
+    adminOriginator
+  )
   const records = res.outputs
     .map(o => decodeVaultInstructions(o.customInstructions))
     .filter((ci): ci is VaultInstructionsV4 => ci != null)
@@ -7193,6 +7522,7 @@ git commit -m "feat(expo-wallet-toolbox): relockVault with current keys, estimat
 **Execution order (binding, see the "## Execution order" section above):** P1 Tasks 1–6 → P2 Tasks 1–11 → **P1 Task 7** → **this task** → Plan 3. By the time this task starts, P1 Task 7 has already run: `core/index.ts:269` already reads `export * from './services/vault/r1comb'` and `k1.ts` / `__tests__/vault/k1.test.ts` / `scripts/k1-spend-proof.ts` are already gone. This task never runs before P1 Task 7.
 
 **Files:**
+
 - Delete: `T/core/services/vault/sealing.ts`, `vaultDerivation.ts`, `vaultPassphrase.ts`; `T/__tests__/vault/sealing.test.ts`, `vaultDerivation.test.ts`, `vaultPassphrase.test.ts`
 - Modify: `T/core/services/vault/types.ts` (lines 1–22 header + `SealedBlob`; the `'seal-corrupt'` entry with its comment; the four-code "REMOVED IN TASK 12" block Task 1 left)
 - Modify: `T/core/index.ts` lines 254–256 (comment) and 268, 270, 271 (three `export *` lines)
@@ -7201,6 +7531,7 @@ git commit -m "feat(expo-wallet-toolbox): relockVault with current keys, estimat
 - NOT touched: `k1.ts`, `__tests__/vault/k1.test.ts`, `scripts/k1-spend-proof.ts` and `core/index.ts:269` — owned by Plan 1 Task 7 exclusively (its File Structure: "Delete (Task 7 only)" / "Modify (Task 7 only) core/index.ts:269"). Rule for the barrel: Plan 1 Task 7 owns the `k1` → `r1comb` line; this task owns removing the other three, only.
 
 **Interfaces:**
+
 - Produces: `VaultErrorCode` without `'seal-corrupt' | 'bad-passphrase' | 'bad-mnemonic' | 'bad-derivation-index' | 'backup-required'`; no `SealedBlob`; the `core` barrel without `sealing`/`vaultDerivation`/`vaultPassphrase`; package `0.5.0`.
 - Allowed tsc residuals after this commit — the four Plan 3 `ui/` files named in the Global Constraints PLUS ONE MORE (flagged in the summary): `ui/components/vault/PassphraseField.tsx` imports `normalizeVaultPassphrase` through the package barrel, which this task removes. Plan 3 deletes that file (contract: "Deleted: … PassphraseField.tsx"). Nothing else outside those five files may error.
 
@@ -7463,7 +7794,7 @@ New:
   `VaultProgress.signed/total`.
 - Transfers: `depositToVault(w, adminOriginator, satoshis, opts?)` needs no
   hardware; `withdrawFromVault(w, adminOriginator, amount, reason,
-  chosenSerial, opts?)`; `relockVault`; `estimateRelockFee`;
+chosenSerial, opts?)`; `relockVault`; `estimateRelockFee`;
   `getVaultKeyCoverage`; `VaultSpendResult { txid, cappedInputs, unreachable }`;
   `VaultTransferOptions.vaultEnabled` / `backupEnabled`; error codes
   `not-released`, `backup-off`, `not-enough-keys`, `key-already-enrolled`,
@@ -7496,7 +7827,6 @@ Behaviour changes:
   `StorageExpoSQLite.releaseVaultStagingStrandedByInvalidTx`.
   `VaultWallet.getPublicKey` and `createSignature` survive only for that
   reclaim.
-
 ```
 
 In `T/package.json` change line 3 to `  "version": "0.5.0",`.
@@ -7507,6 +7837,7 @@ In `T/package.json` change line 3 to `  "version": "0.5.0",`.
 cd /Users/personal/git/bsv-wallet
 npx jest packages/expo-wallet-toolbox
 ```
+
 → every suite passes, including the untouched `__tests__/i18n/translationParity.test.ts`, `__tests__/vault/guard.test.ts`, `__tests__/vault/backupAttestation.test.ts`, `__tests__/vault/types.test.ts` and the `__tests__/ui/*` suites (none imports a deleted module by path — `PassphraseField.tsx` reaches `normalizeVaultPassphrase` through the barrel, which under Babel is simply `undefined` until Plan 3 deletes the file). Expected new vault totals: `ceremony` 52, `ceremonyHost` 5, `vaultKeyService` 22, `transfers` 76, `vaultStore` 16, `session` 7, `devMock` 4, `mockYubiKey` 26, `types` 4.
 
 Type-check gate: confirm which tsconfig applies before running it — `ls packages/expo-wallet-toolbox/tsconfig*.json` → `packages/expo-wallet-toolbox/tsconfig.json` exists, so every `tsc` call in this plan targets it with `-p` (there is also a root `tsconfig.json`, but it is not used here; if the package tsconfig ever stopped existing, fall back to `-p tsconfig.json` from the repo root). The gate itself: the ONLY remaining errors after this task may be inside `packages/expo-wallet-toolbox/ui/**`.
@@ -7515,16 +7846,20 @@ Type-check gate: confirm which tsconfig applies before running it — `ls packag
 cd /Users/personal/git/bsv-wallet
 npx tsc --noEmit -p packages/expo-wallet-toolbox/tsconfig.json 2>&1 | grep -v '^packages/expo-wallet-toolbox/ui/' | grep -c 'error TS'
 ```
+
 → `0`. Then confirm the residual set inside `ui/` didn't grow silently:
+
 ```
 npx tsc --noEmit -p packages/expo-wallet-toolbox/tsconfig.json 2>&1 | grep '^packages/expo-wallet-toolbox/ui/' | cut -d'(' -f1 | sort -u
 ```
+
 → exactly the five Plan 3 files: `ui/components/vault/EnrollWizard.tsx`, `ui/screens/VaultTransferScreen.tsx`, `ui/screens/VaultRecoverScreen.tsx`, `ui/screens/VaultScreen.tsx`, `ui/components/vault/PassphraseField.tsx`.
 
 ```
 grep -rn --include='*.ts' --include='*.tsx' -E "vault/(sealing|vaultDerivation|vaultPassphrase|k1)['\"]|from '\./(sealing|vaultDerivation|vaultPassphrase|k1)'" packages app
 grep -rn --include='*.ts' --include='*.tsx' -E "sweepVaultWithHD|requestVaultKey|VaultKeyHandle|SealedBlob|seal-corrupt|bad-passphrase|bad-mnemonic|bad-derivation-index|backup-required|getSeal|setSeal|takeNextIndex" packages/expo-wallet-toolbox/core packages/expo-wallet-toolbox/__tests__ packages/expo-wallet-toolbox/ui app
 ```
+
 → the first grep prints nothing. The second prints ONLY Plan 3's residuals — `ui/components/vault/EnrollWizard.tsx` (`bad-mnemonic`), `ui/screens/VaultRecoverScreen.tsx` (`bad-mnemonic`, `sweepVaultWithHD`), `ui/screens/VaultTransferScreen.tsx` (`backup-required`), `core/context/VaultContext.tsx` if Plan 3 has not yet rewritten its comment (Task 3 already replaced the `VaultKeyHandle` sentence there, so normally no hit) — and one prose line outside the vault, `core/services/secrets/types.ts:16` ("Mirrors the vault's SealedBlob conventions"), which this plan leaves alone (not in the File Structure; a comment, not code).
 
 `ls packages/expo-wallet-toolbox/core/services/vault/` → `VaultKeyService.ts backupAttestation.ts ceremony.ts ceremonyHost.ts devMock.ts driver.ts guard.ts mockYubiKey.ts r1comb.ts random.ts session.ts transfers.ts types.ts vaultStore.ts` — fourteen files, no `k1.ts`, no seed-era module.
@@ -7544,10 +7879,12 @@ git commit -m "feat(expo-wallet-toolbox)!: remove the K1 sealed-seed vault (seal
 ### Task 13: Vault salts survive backup and database import (spec §7 "Restore")
 
 **Files:**
+
 - Test: create `T/__tests__/vault/restoreSalt.test.ts`
 - No source changes. `encodeVaultInstructions`/`decodeVaultInstructions` (Plan 1, `r1comb.ts`), `encodeChunk`/`decodeChunk`/`emptyChunk` (`core/backup/codec.ts`), `deriveBackupWallet` (`core/backup/derive.ts`), `createTables` (`core/storage/schema/createTables.ts`) and `StorageExpoSQLite` are all already exported for this test to import directly by relative path (this task does not touch the package barrel).
 
 **Interfaces:**
+
 - Consumes: `encodeVaultInstructions`, `decodeVaultInstructions`, `type VaultInstructionsV4` (Plan 1, `./r1comb`); `encodeChunk`, `decodeChunk`, `emptyChunk` (`../../core/backup/codec`); `deriveBackupWallet` (`../../core/backup/derive`); `createTables` (`../../core/storage/schema/createTables`); `StorageExpoSQLite` (`../../core/storage/StorageExpoSQLite`).
 - Produces: nothing new — a regression test pinning spec §7 Restore's jest-testable half: a vault deposit's salt and key list live ONLY in an output's `customInstructions` (spec §3.5), so restore correctness reduces to two independent claims — (1) the encrypted backup chunk codec round-trips that string byte-for-byte, and (2) a database import (a whole-file restore) preserves it in the `outputs` table.
 - **What this task does NOT cover.** `ui/importDatabases.ts` / `ui/exportDatabases.ts` call native expo-sqlite APIs (`serializeAsync`, `deserializeDatabaseAsync`, `backupDatabaseAsync`) that jest cannot load (`__tests__/__mocks__/expo-sqlite.js` throws on any call, per its own comment) — those two files have no jest-testable path at all, so this task exercises the underlying file-copy invariant they both rely on instead of calling them directly. The end-to-end check — back up a real vault, wipe the device, restore from the real backup (or import a real exported `.db` file) on hardware, and SPEND from the recovered output with an enrolled YubiKey — needs a physical YubiKey and a second device; it is a §0 manual checklist item, not a jest task.
@@ -7593,7 +7930,11 @@ import { decodeChunk, emptyChunk, encodeChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import { createTables } from '../../core/storage/schema/createTables'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
-import { decodeVaultInstructions, encodeVaultInstructions, type VaultInstructionsV4 } from '../../core/services/vault/r1comb'
+import {
+  decodeVaultInstructions,
+  encodeVaultInstructions,
+  type VaultInstructionsV4
+} from '../../core/services/vault/r1comb'
 
 const KEY = new PrivateKey(7).toArray('be', 32)
 const NOW = '2026-09-10T00:00:00.000Z'
@@ -7614,8 +7955,7 @@ function adapt(db: DatabaseSync) {
       db.exec(sql)
     },
     getAllAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).all(...(params as never[])),
-    getFirstAsync: async (sql: string, params: unknown[] = []) =>
-      db.prepare(sql).get(...(params as never[])) ?? null,
+    getFirstAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).get(...(params as never[])) ?? null,
     runAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).run(...(params as never[]))
   }
 }
@@ -7701,6 +8041,7 @@ describe('vault salts survive a database file copy and reopen (import)', () => {
 ```
 npx jest packages/expo-wallet-toolbox/__tests__/vault/restoreSalt.test.ts
 ```
+
 → `2 passed`. Neither test needs a source change: both exercise existing exports directly (`encodeChunk`/`decodeChunk`/`emptyChunk`, `deriveBackupWallet`, `createTables`, `StorageExpoSQLite`, `encodeVaultInstructions`/`decodeVaultInstructions`), so there is no red step here — this task pins an invariant that already holds, the way `__tests__/backup/codec.test.ts` pins the binary-field round trip.
 
 - [ ] **Step 3: Commit**
@@ -7716,31 +8057,31 @@ git commit -m "test(expo-wallet-toolbox): pin vault salts surviving backup encod
 
 **Spec §3–§6 → task map (this plan).**
 
-| Spec item | Where |
-|---|---|
-| §3.1 fresh key, `'cached'/'once'`, compressed pubkey recorded | Task 4 (adapter), Task 8 (`enrollKey` → `compressPubkey`); `compressPubkey` itself is Plan 1 |
-| §3.2 meta v5, `isEnrolled` meta-only, `migrateLegacySeal` on mount, `getSeal` gone from the ceremony view | Task 3; Tasks 6–7 |
-| §3.3 step 2 (duplicate refusal before the slot is touched, `pin-locked`, PIN before tap, `generateVaultKey`, compress → pending record) and the rejecting `withKeySession` | Task 8; Task 4. Steps 1, 3–6 (copy, sub-states, leave-confirm, PUK copy) are Plan 3 |
-| §3.4 add / remove / rename / lastUsed persistence; `addVaultKey`; coverage badges data; re-lock; disable; per-key orphan check for removal | Task 3 (`addKey`/`removeKey`/`renameKey`/`noteLastUsed`), Task 8 (`addVaultKey`, `disableVault`), Task 11 (`getVaultKeyCoverage`, `relockVault`, `orphanedIfRemoved`) |
-| §3.5 recovery = any key + wallet DB; Export wallet data row | Design outcome of Tasks 3/9 (salts in customInstructions, nothing else); the row and `useExportWalletData` are Plan 3 |
-| §4.1 deposit gates (`not-released`, `backup-off`, `not-enough-keys`, `below-dust`, online), salt + commitments + one createAction with the labels/options | Task 9. Steps 2 (first-deposit confirm) and 5 (`ensureWalletExists`) are Plan 3 |
-| §4.2 step 1 chooser | Plan 3 (`KeyChooser`); the service takes `chosenSerial` (Task 10) |
-| §4.2 steps 2–3 list → decode → filter → sort → cap → BEEF commitment check → `key-not-committed` / `key-cannot-cover` / `too-many-inputs` / `amount-exceeds-balance` | Task 10 (`selectVaultInputs`) |
-| §4.2 step 4 remainder rule | Task 10 (fold below `VAULT_DEPOSIT_MIN`; re-vault to current keys with a fresh salt); the confirm copy is Plan 3 |
-| §4.2 step 5 `version: 2`, `unlockingScriptLength`, `inputBEEF`, `trustSelf`, version assertion (`bad-version`), `pushTxDerCheck` re-create with `sequenceNumber` bumped (bound 8) | Task 10 (`createSignableVaultTx`) |
-| §4.2 step 6 chosen-serial check, `verifyPin`, batches of `VAULT_INPUTS_PER_TAP`, per-tap alert text, resume at input k after a dropped tap, cancel/non-retryable aborts | Tasks 6–7 (ceremony/host), Task 5 (alert text plumbing), Task 10 (abort). Alert text = `reason` (decision flagged) |
-| §4.2 step 7 DER → `fullR` → 71-push unlock → strict local `Spend` → `signAction` delayed | Task 10 (`buildUnlock`/`verifyVaultInput` are Plan 1) |
-| §4.2 step 8 `VaultSpendResult { txid, cappedInputs, unreachable }`, `VaultProgress.signed/total`, pinned `CeremonyState` keys extended | Task 10; Task 6. The two post-transfer alerts are Plan 3 |
-| §4.3 re-lock as its own spend mode, one output `acc − fee`, `estimateRelockFee`, `too-small-to-relock`, "one pass per tap while `cappedInputs > 0`" | Task 11 (the pass loop is the screen's — Plan 3) |
-| §4.4 new codes / removed codes | Task 1 / Task 12. `vaultErrorCopy` is Plan 3 |
-| §5.1 `r1comb.ts`, `scripts/r1c-spend-proof.ts` | Plan 1 |
-| §5.2 `types`, `vaultStore`, `VaultKeyService`, `session`, `ceremony`/`ceremonyHost`, `driver`, `mockYubiKey`/`devMock`, `transfers`, `toolboxConfig`, `core` barrel, 0.5.0 changelog | Tasks 1/12, 3, 8, 4, 6/7, 4/5, 4, 9–11, 2, 12, 12 |
-| §5.2 `WalletHomeScreen` / `SettingsScreen` gate, `ui` barrel | Plan 3 |
-| §5.3 delete `sealing`/`vaultDerivation`/`vaultPassphrase` (+ tests), the `backup-required` gate, `guard.ts` prose, Swift/Kotlin `ALWAYS` prose | Task 12, Task 9, Task 12, Task 5. `k1.ts`/`k1.test.ts`/`scripts/k1-spend-proof.ts` are Plan 1 Task 7; the `ui/` deletions, `app/vault-recover.tsx`, `EnrollWizard`'s attestation imports and `WalletContext.tsx`'s vault comments are Plan 3 |
-| §5.4 UI | Plan 3 |
-| §5.5 `vaultEnabled` gates deposit / re-vault / re-lock; never a plain withdrawal | Task 2 (flag), Tasks 9–11 (`requireReleased`). Home button, Settings row, route hero, `app/_layout.tsx`, `eas.json` are Plan 3 |
-| §6 no key material on the phone (signer, not handle); D13 refusal; residual (1) flag + D4b; (2) sequence bump; (3) local validation | Task 6; Task 9; Tasks 2 + 10; Task 10; Task 10. Residual (4) listOutputs cap stays deferred; D5 malleability is accepted with no code |
-| §7 codec/store, enrollment-with-mock, transfers-with-mock, batch resume; salts surviving backup encode/decode and a database file copy | Tasks 3, 8, 9–11, 6, 13. Goldens/round trips/negatives are Plan 1; the end-to-end device restore-then-spend (real backup or real exported `.db`, on hardware, followed by a spend) is a §0 manual checklist item, not a jest task — flagged |
+| Spec item                                                                                                                                                                            | Where                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §3.1 fresh key, `'cached'/'once'`, compressed pubkey recorded                                                                                                                        | Task 4 (adapter), Task 8 (`enrollKey` → `compressPubkey`); `compressPubkey` itself is Plan 1                                                                                                                                                 |
+| §3.2 meta v5, `isEnrolled` meta-only, `migrateLegacySeal` on mount, `getSeal` gone from the ceremony view                                                                            | Task 3; Tasks 6–7                                                                                                                                                                                                                            |
+| §3.3 step 2 (duplicate refusal before the slot is touched, `pin-locked`, PIN before tap, `generateVaultKey`, compress → pending record) and the rejecting `withKeySession`           | Task 8; Task 4. Steps 1, 3–6 (copy, sub-states, leave-confirm, PUK copy) are Plan 3                                                                                                                                                          |
+| §3.4 add / remove / rename / lastUsed persistence; `addVaultKey`; coverage badges data; re-lock; disable; per-key orphan check for removal                                           | Task 3 (`addKey`/`removeKey`/`renameKey`/`noteLastUsed`), Task 8 (`addVaultKey`, `disableVault`), Task 11 (`getVaultKeyCoverage`, `relockVault`, `orphanedIfRemoved`)                                                                        |
+| §3.5 recovery = any key + wallet DB; Export wallet data row                                                                                                                          | Design outcome of Tasks 3/9 (salts in customInstructions, nothing else); the row and `useExportWalletData` are Plan 3                                                                                                                        |
+| §4.1 deposit gates (`not-released`, `backup-off`, `not-enough-keys`, `below-dust`, online), salt + commitments + one createAction with the labels/options                            | Task 9. Steps 2 (first-deposit confirm) and 5 (`ensureWalletExists`) are Plan 3                                                                                                                                                              |
+| §4.2 step 1 chooser                                                                                                                                                                  | Plan 3 (`KeyChooser`); the service takes `chosenSerial` (Task 10)                                                                                                                                                                            |
+| §4.2 steps 2–3 list → decode → filter → sort → cap → BEEF commitment check → `key-not-committed` / `key-cannot-cover` / `too-many-inputs` / `amount-exceeds-balance`                 | Task 10 (`selectVaultInputs`)                                                                                                                                                                                                                |
+| §4.2 step 4 remainder rule                                                                                                                                                           | Task 10 (fold below `VAULT_DEPOSIT_MIN`; re-vault to current keys with a fresh salt); the confirm copy is Plan 3                                                                                                                             |
+| §4.2 step 5 `version: 2`, `unlockingScriptLength`, `inputBEEF`, `trustSelf`, version assertion (`bad-version`), `pushTxDerCheck` re-create with `sequenceNumber` bumped (bound 8)    | Task 10 (`createSignableVaultTx`)                                                                                                                                                                                                            |
+| §4.2 step 6 chosen-serial check, `verifyPin`, batches of `VAULT_INPUTS_PER_TAP`, per-tap alert text, resume at input k after a dropped tap, cancel/non-retryable aborts              | Tasks 6–7 (ceremony/host), Task 5 (alert text plumbing), Task 10 (abort). Alert text = `reason` (decision flagged)                                                                                                                           |
+| §4.2 step 7 DER → `fullR` → 71-push unlock → strict local `Spend` → `signAction` delayed                                                                                             | Task 10 (`buildUnlock`/`verifyVaultInput` are Plan 1)                                                                                                                                                                                        |
+| §4.2 step 8 `VaultSpendResult { txid, cappedInputs, unreachable }`, `VaultProgress.signed/total`, pinned `CeremonyState` keys extended                                               | Task 10; Task 6. The two post-transfer alerts are Plan 3                                                                                                                                                                                     |
+| §4.3 re-lock as its own spend mode, one output `acc − fee`, `estimateRelockFee`, `too-small-to-relock`, "one pass per tap while `cappedInputs > 0`"                                  | Task 11 (the pass loop is the screen's — Plan 3)                                                                                                                                                                                             |
+| §4.4 new codes / removed codes                                                                                                                                                       | Task 1 / Task 12. `vaultErrorCopy` is Plan 3                                                                                                                                                                                                 |
+| §5.1 `r1comb.ts`, `scripts/r1c-spend-proof.ts`                                                                                                                                       | Plan 1                                                                                                                                                                                                                                       |
+| §5.2 `types`, `vaultStore`, `VaultKeyService`, `session`, `ceremony`/`ceremonyHost`, `driver`, `mockYubiKey`/`devMock`, `transfers`, `toolboxConfig`, `core` barrel, 0.5.0 changelog | Tasks 1/12, 3, 8, 4, 6/7, 4/5, 4, 9–11, 2, 12, 12                                                                                                                                                                                            |
+| §5.2 `WalletHomeScreen` / `SettingsScreen` gate, `ui` barrel                                                                                                                         | Plan 3                                                                                                                                                                                                                                       |
+| §5.3 delete `sealing`/`vaultDerivation`/`vaultPassphrase` (+ tests), the `backup-required` gate, `guard.ts` prose, Swift/Kotlin `ALWAYS` prose                                       | Task 12, Task 9, Task 12, Task 5. `k1.ts`/`k1.test.ts`/`scripts/k1-spend-proof.ts` are Plan 1 Task 7; the `ui/` deletions, `app/vault-recover.tsx`, `EnrollWizard`'s attestation imports and `WalletContext.tsx`'s vault comments are Plan 3 |
+| §5.4 UI                                                                                                                                                                              | Plan 3                                                                                                                                                                                                                                       |
+| §5.5 `vaultEnabled` gates deposit / re-vault / re-lock; never a plain withdrawal                                                                                                     | Task 2 (flag), Tasks 9–11 (`requireReleased`). Home button, Settings row, route hero, `app/_layout.tsx`, `eas.json` are Plan 3                                                                                                               |
+| §6 no key material on the phone (signer, not handle); D13 refusal; residual (1) flag + D4b; (2) sequence bump; (3) local validation                                                  | Task 6; Task 9; Tasks 2 + 10; Task 10; Task 10. Residual (4) listOutputs cap stays deferred; D5 malleability is accepted with no code                                                                                                        |
+| §7 codec/store, enrollment-with-mock, transfers-with-mock, batch resume; salts surviving backup encode/decode and a database file copy                                               | Tasks 3, 8, 9–11, 6, 13. Goldens/round trips/negatives are Plan 1; the end-to-end device restore-then-spend (real backup or real exported `.db`, on hardware, followed by a spend) is a §0 manual checklist item, not a jest task — flagged  |
 
 **Contract conformance.** Every name and signature in the Interface Contract for Plan 2 is produced verbatim by Tasks 1–12; nothing is renamed or re-typed. Additive only: `withKeySession`'s 4th `opts` parameter (Task 4), `enrollKey.nfcMessage?` (Task 8), `CeremonyController`'s `requireChosenSerial`/`noteSigning` private helpers (Task 6), transfers' private `selectVaultInputs`/`createSignableVaultTx`/`spendVaultOutputs`/`newVaultOutput`/`requireReleased`/`requireKeys` (Tasks 9–11), and `VaultWallet.getPublicKey` KEPT (Task 9 — needed by the legacy reclaim the contract itself keeps).
 
@@ -7756,4 +8097,3 @@ git commit -m "test(expo-wallet-toolbox): pin vault salts surviving backup encod
 8. Re-lock labels `['vault', 'vault-relock']` and `inputDescription: 'Vault re-lock'` are this plan's choice (Task 11); the spec names none.
 9. `core/services/secrets/types.ts:16` still says "Mirrors the vault's SealedBlob conventions" (prose, outside this plan's files).
 10. §7's jest-testable half — a backup chunk round trip and a database-file-copy round trip preserving an output's customInstructions — is covered by Task 13. The end-to-end half (restore a real backup, or import a real exported `.db`, on a physical device, then SPEND from the recovered vault with an enrolled YubiKey) is still not in any plan's task list — it needs hardware and is flagged as a §0 manual checklist item.
-

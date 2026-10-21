@@ -126,8 +126,17 @@ const action = (over: Partial<ActivityAction> = {}): ActivityAction =>
 function draw(over: Partial<ActivityAction> = {}) {
   const noop = () => {}
   return render(
-    <ActivityRow action={action(over)} currency="BSV" rowKey="k" expanded={false} busy={false}
-      onToggle={noop} onExplorer={noop} onRefreshTx={noop} onAbort={noop} />
+    <ActivityRow
+      action={action(over)}
+      currency="BSV"
+      rowKey="k"
+      expanded={false}
+      busy={false}
+      onToggle={noop}
+      onExplorer={noop}
+      onRefreshTx={noop}
+      onAbort={noop}
+    />
   )
 }
 
@@ -174,8 +183,16 @@ it('does not re-derive the point when a poll hands the row an equal but fresh ac
   // listActions builds a new action object and a new labels array per row on
   // every poll, so the memo must key on the label contents, not the array.
   const noop = () => {}
-  const props = { currency: 'BSV' as const, rowKey: 'k', expanded: false, busy: false,
-    onToggle: noop, onExplorer: noop, onRefreshTx: noop, onAbort: noop }
+  const props = {
+    currency: 'BSV' as const,
+    rowKey: 'k',
+    expanded: false,
+    busy: false,
+    onToggle: noop,
+    onExplorer: noop,
+    onRefreshTx: noop,
+    onAbort: noop
+  }
   const r = render(<ActivityRow {...props} action={action({ labels: ['peerpay', PAYEE_KEY] })} />)
   expect(sigilPointOf).toHaveBeenCalledTimes(1)
   r.rerender(<ActivityRow {...props} action={action({ labels: ['peerpay', PAYEE_KEY] })} />)
@@ -255,8 +272,12 @@ it('tints the tile per counterparty, so two senders get two colours', () => {
   expect(b.backgroundColor).toMatch(/^#[0-9a-f]{6}$/)
   expect(a.backgroundColor).not.toBe(b.backgroundColor)
   // The useTheme stub reports the light theme unless a test flips it.
-  expect(a.backgroundColor).toBe(sigilPalette(counterpartyHue({ kind: 'identityKey', value: SENDER_A }), false).background)
-  expect(b.backgroundColor).toBe(sigilPalette(counterpartyHue({ kind: 'identityKey', value: SENDER_B }), false).background)
+  expect(a.backgroundColor).toBe(
+    sigilPalette(counterpartyHue({ kind: 'identityKey', value: SENDER_A }), false).background
+  )
+  expect(b.backgroundColor).toBe(
+    sigilPalette(counterpartyHue({ kind: 'identityKey', value: SENDER_B }), false).background
+  )
 })
 
 it('paints the tile and the sigil from the dark palette on a dark theme', () => {
@@ -264,7 +285,12 @@ it('paints the tile and the sigil from the dark palette on a dark theme', () => 
   // two-tone palette exists to prevent, so the theme flag has to reach
   // sigilPalette, not be defaulted away.
   mockDark = true
-  const tree = draw({ satoshis: 1000, isOutgoing: false, labels: ['peerpay'], senderIdentityKey: SENDER_A }).toJSON() as Tree
+  const tree = draw({
+    satoshis: 1000,
+    isOutgoing: false,
+    labels: ['peerpay'],
+    senderIdentityKey: SENDER_A
+  }).toJSON() as Tree
   const hue = counterpartyHue({ kind: 'identityKey', value: SENDER_A })
   const dark = sigilPalette(hue, true)
   const light = sigilPalette(hue, false)
@@ -283,8 +309,16 @@ it('recolours a mounted row when the theme flips without re-deriving the point',
   // and the theme can change under a row that stays mounted. A poll hands
   // the row an equal but fresh action, which is what re-renders it here.
   const noop = () => {}
-  const props = { currency: 'BSV' as const, rowKey: 'k', expanded: false, busy: false,
-    onToggle: noop, onExplorer: noop, onRefreshTx: noop, onAbort: noop }
+  const props = {
+    currency: 'BSV' as const,
+    rowKey: 'k',
+    expanded: false,
+    busy: false,
+    onToggle: noop,
+    onExplorer: noop,
+    onRefreshTx: noop,
+    onAbort: noop
+  }
   const inbound = () => action({ satoshis: 1000, isOutgoing: false, labels: ['peerpay'], senderIdentityKey: SENDER_A })
   const tileColour = (tree: Tree) => {
     const tile = findParentOf(tree, 'RNSVGSvgView')
@@ -344,10 +378,7 @@ describe('token rows', () => {
   const TOKEN_SENDER = '02' + '33'.repeat(32)
   const TOKEN_SENDER_2 = '03' + '44'.repeat(32)
 
-  const drawToken = (
-    token: React.ComponentProps<typeof ActivityRow>['token'],
-    over: Partial<ActivityAction> = {}
-  ) => {
+  const drawToken = (token: React.ComponentProps<typeof ActivityRow>['token'], over: Partial<ActivityAction> = {}) => {
     const noop = () => {}
     return render(
       <ActivityRow

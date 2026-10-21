@@ -825,7 +825,11 @@ function UniversalSendInner(
       // XR-051: without this, an unauthenticated resend_request could not be
       // told apart from a legitimate one and would be surfaced (and kept
       // being surfaced) as pending forever.
-      await listPendingResendRequests({ client, storage, listPeerPayAction: makeListPeerPayAction(wallet, adminOriginator) })
+      await listPendingResendRequests({
+        client,
+        storage,
+        listPeerPayAction: makeListPeerPayAction(wallet, adminOriginator)
+      })
     } catch {
       // Home owns the unanswered-resend banner; a failed poll here is retryable.
     }
@@ -924,7 +928,18 @@ function UniversalSendInner(
         statusNote: outcome.kind === 'paid_live' ? t('direct_pay_sent_live') : t('pay_sent_handed_to_wallet')
       })
     },
-    [peerPayClient, storage, wallet, adminOriginator, messageBoxUrl, note, recipient.selectedIdentity, loadOutbox, t, directPay]
+    [
+      peerPayClient,
+      storage,
+      wallet,
+      adminOriginator,
+      messageBoxUrl,
+      note,
+      recipient.selectedIdentity,
+      loadOutbox,
+      t,
+      directPay
+    ]
   )
 
   const sendAddress = useCallback(

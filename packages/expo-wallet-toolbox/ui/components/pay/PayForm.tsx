@@ -184,9 +184,7 @@ export function PayCta({
       ) : (
         <>
           <Ionicons name={icon} size={20} color={enabled ? colors.textOnAccent : colors.textTertiary} />
-          <Text style={[styles.ctaText, { color: enabled ? colors.textOnAccent : colors.textTertiary }]}>
-            {text}
-          </Text>
+          <Text style={[styles.ctaText, { color: enabled ? colors.textOnAccent : colors.textTertiary }]}>{text}</Text>
         </>
       )}
     </PressableScale>

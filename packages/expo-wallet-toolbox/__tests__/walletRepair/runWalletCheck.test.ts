@@ -20,7 +20,16 @@ describe('runWalletCheck', () => {
     // Coins last: it is the only step that can take minutes, so everything
     // quick has reported before the user is left waiting on anything.
     expect(order).toEqual(['records-status', 'records-release', 'tokens', 'proofs', 'inbox', 'sweep', 'coins'])
-    expect(steps).toEqual(['online', 'records', 'tokens', 'proofs', 'backup', 'phrase_backup', 'missed_payments', 'coins'])
+    expect(steps).toEqual([
+      'online',
+      'records',
+      'tokens',
+      'proofs',
+      'backup',
+      'phrase_backup',
+      'missed_payments',
+      'coins'
+    ])
     expect(summary.freedCoins).toBe(4) // 2 released UTXOs + 1 restored input + 1 removed token tx
     expect(summary.recoveredPayments).toBe(1)
     expect(summary.repairedProofs).toBe(1)
@@ -234,7 +243,12 @@ describe('skipping a check', () => {
   it('still reads as clear when the only non-ok steps were skipped', async () => {
     const c = controller()
     c.skip('coins')
-    const r = await runWalletCheck(base, () => {}, () => {}, c.skips)
+    const r = await runWalletCheck(
+      base,
+      () => {},
+      () => {},
+      c.skips
+    )
     expect(r.allOk).toBe(true)
     expect(r.allClear).toBe(true)
   })
@@ -244,7 +258,12 @@ describe('skipping a check', () => {
     for (const id of ['online', 'records', 'tokens', 'proofs', 'missed_payments', 'backup', 'phrase_backup', 'coins']) {
       c.skip(id)
     }
-    const r = await runWalletCheck(base, () => {}, () => {}, c.skips)
+    const r = await runWalletCheck(
+      base,
+      () => {},
+      () => {},
+      c.skips
+    )
     expect(r.steps.every(s => s.status === 'skipped')).toBe(true)
     expect(r.allClear).toBe(false)
   })
@@ -262,7 +281,12 @@ describe('skipping a check', () => {
   })
 
   it('runs every step when nothing is skipped', async () => {
-    const r = await runWalletCheck(base, () => {}, () => {}, controller().skips)
+    const r = await runWalletCheck(
+      base,
+      () => {},
+      () => {},
+      controller().skips
+    )
     expect(r.steps.map(s => s.status)).toEqual(Array(8).fill('ok'))
     expect(r.allClear).toBe(true)
   })

@@ -102,12 +102,15 @@ export async function deriveVaultMarkerScript(
   chain: VaultScopeToken['chain'],
   saltKeyId: string
 ): Promise<LockingScript> {
-  const { publicKey } = await w.getPublicKey({
-    protocolID: [...VAULT_MARKER_PROTOCOL],
-    keyID: vaultChainKeyId(chain, saltKeyId),
-    counterparty: 'self',
-    seekPermission: false
-  }, adminOriginator)
+  const { publicKey } = await w.getPublicKey(
+    {
+      protocolID: [...VAULT_MARKER_PROTOCOL],
+      keyID: vaultChainKeyId(chain, saltKeyId),
+      counterparty: 'self',
+      seekPermission: false
+    },
+    adminOriginator
+  )
   return new P2PKH().lock(PublicKey.fromString(publicKey).toAddress())
 }
 
@@ -160,13 +163,16 @@ export async function encryptVaultDescriptorPlaintext(
   saltKeyId: string,
   plaintext: string
 ): Promise<number[]> {
-  const { ciphertext } = await w.encrypt({
-    plaintext: Utils.toArray(plaintext, 'utf8') as number[],
-    protocolID: [...VAULT_DESCRIPTOR_PROTOCOL],
-    keyID: vaultChainKeyId(chain, saltKeyId),
-    counterparty: 'self',
-    seekPermission: false
-  }, adminOriginator)
+  const { ciphertext } = await w.encrypt(
+    {
+      plaintext: Utils.toArray(plaintext, 'utf8') as number[],
+      protocolID: [...VAULT_DESCRIPTOR_PROTOCOL],
+      keyID: vaultChainKeyId(chain, saltKeyId),
+      counterparty: 'self',
+      seekPermission: false
+    },
+    adminOriginator
+  )
   if (!Array.isArray(ciphertext) || ciphertext.length === 0 || ciphertext.length > MAX_DESCRIPTOR_CIPHERTEXT_BYTES) {
     throw new VaultError('template-invalid', 'Vault descriptor ciphertext exceeds its byte budget')
   }
@@ -183,12 +189,15 @@ export async function decryptVaultDescriptorPlaintext(
   saltKeyId: string,
   ciphertext: number[]
 ): Promise<string> {
-  const { plaintext } = await w.decrypt({
-    ciphertext,
-    protocolID: [...VAULT_DESCRIPTOR_PROTOCOL],
-    keyID: vaultChainKeyId(chain, saltKeyId),
-    counterparty: 'self'
-  }, adminOriginator)
+  const { plaintext } = await w.decrypt(
+    {
+      ciphertext,
+      protocolID: [...VAULT_DESCRIPTOR_PROTOCOL],
+      keyID: vaultChainKeyId(chain, saltKeyId),
+      counterparty: 'self'
+    },
+    adminOriginator
+  )
   return Utils.toUTF8(plaintext)
 }
 
@@ -199,9 +208,7 @@ export async function decryptVaultDescriptorPlaintext(
  * — and optional, so a caller that has no storage handle keeps the original
  * paged-scan heal. See findSpendingReferences in StorageExpoSQLite.
  */
-export type SpendingReferenceLookup = (
-  outpoints: string[]
-) => Promise<{ reference: string; status: string }[]>
+export type SpendingReferenceLookup = (outpoints: string[]) => Promise<{ reference: string; status: string }[]>
 
 /**
  * Injected dependencies for a vault transfer.
@@ -315,7 +322,10 @@ export interface VaultWallet {
    * output-creating operation trusts local meta. */
   verifyHmac(args: unknown, originator: string): Promise<{ valid: boolean }>
   createAction(args: unknown, originator: string): Promise<CreateActionResult>
-  signAction(args: unknown, originator: string): Promise<{
+  signAction(
+    args: unknown,
+    originator: string
+  ): Promise<{
     txid?: string
     tx?: number[]
   }>
@@ -403,7 +413,9 @@ let vaultMutationTail: Promise<void> = Promise.resolve()
 async function withVaultMutation<T>(work: () => Promise<T>): Promise<T> {
   let release!: () => void
   const predecessor = vaultMutationTail
-  vaultMutationTail = new Promise<void>(resolve => { release = resolve })
+  vaultMutationTail = new Promise<void>(resolve => {
+    release = resolve
+  })
   await predecessor
   try {
     return await work()
@@ -447,7 +459,7 @@ async function scanVaultOutputPages(
   adminOriginator: string,
   include: 'locking scripts' | 'entire transactions',
   onPage: (outputs: ListOutputsResult['outputs'], page: ListOutputsResult) => void | Promise<void>,
-  scopeToken?: VaultScopeToken,
+  scopeToken?: VaultScopeToken
 ): Promise<number> {
   const seen = new Set<string>()
   let offset = 0
@@ -494,7 +506,8 @@ async function scanVaultOutputPages(
     }
     offset += page.outputs.length
     if (expectedTotal !== undefined) {
-      if (offset > expectedTotal) throw new VaultError('no-transaction', 'Vault output listing exceeded its reported total')
+      if (offset > expectedTotal)
+        throw new VaultError('no-transaction', 'Vault output listing exceeded its reported total')
       if (offset === expectedTotal) break
       // Some storage providers return fewer rows than requested. A short page
       // is not the end while the authoritative total says rows remain.
@@ -557,12 +570,26 @@ interface VerifiedVaultOutput {
  * the serial list), so there is no separate claim to falsify: deriving IS
  * the authentication.
  */
-export async function resolveVaultSalt(w: VaultWallet, adminOriginator: string, ci: VaultInstructions): Promise<string> {
+export async function resolveVaultSalt(
+  w: VaultWallet,
+  adminOriginator: string,
+  ci: VaultInstructions
+): Promise<string> {
   if (ci.v === 6) return ci.salt
-  return await deriveVaultSalt(w, adminOriginator, ci.saltKeyId, ci.keys.map(key => key.serial))
+  return await deriveVaultSalt(
+    w,
+    adminOriginator,
+    ci.saltKeyId,
+    ci.keys.map(key => key.serial)
+  )
 }
 
-function verifyInstructionsAgainstLock(ci: VaultInstructions, lockingScript: LockingScript, where: string, salt: string): void {
+function verifyInstructionsAgainstLock(
+  ci: VaultInstructions,
+  lockingScript: LockingScript,
+  where: string,
+  salt: string
+): void {
   let baked: string[]
   try {
     baked = bakedCommitments(lockingScript)
@@ -604,7 +631,10 @@ async function verifyListedVaultOutput(
     throw new VaultError('no-transaction', `Vault output ${output.outpoint} source has an invalid value`)
   }
   if (sourceSatoshis !== output.satoshis) {
-    throw new VaultError('no-transaction', `Vault output ${output.outpoint} value disagrees with its source transaction`)
+    throw new VaultError(
+      'no-transaction',
+      `Vault output ${output.outpoint} value disagrees with its source transaction`
+    )
   }
   const salt = await resolveVaultSalt(w, adminOriginator, ci)
   verifyInstructionsAgainstLock(ci, source.lockingScript, `Vault output ${output.outpoint}`, salt)
@@ -615,7 +645,8 @@ function sumVaultSatoshis(outputs: readonly Pick<VerifiedVaultOutput, 'satoshis'
   let sum = 0
   for (const output of outputs) {
     sum += output.satoshis
-    if (!Number.isSafeInteger(sum)) throw new VaultError('no-transaction', `${where} value exceeds the safe integer range`)
+    if (!Number.isSafeInteger(sum))
+      throw new VaultError('no-transaction', `${where} value exceeds the safe integer range`)
   }
   return sum
 }
@@ -642,23 +673,29 @@ async function reduceVerifiedVaultOutputs<T>(
   if (!expectedChain) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
   const state = initial()
   const inventory = emptyVaultSaltInventory()
-  const outputs = await scanVaultOutputPages(w, adminOriginator, 'entire transactions', async (listed, page) => {
-    if (listed.length === 0) return
-    if (!page.BEEF?.length) {
-      throw new VaultError('no-transaction', 'Vault output listing did not include source transactions')
-    }
-    let sources: Beef
-    try {
-      sources = Beef.fromBinary(page.BEEF)
-    } catch {
-      throw new VaultError('no-transaction', 'Vault output listing returned malformed source transactions')
-    }
-    for (const listedOutput of listed) {
-      const output = await verifyListedVaultOutput(w, adminOriginator, listedOutput, sources)
-      rememberVaultSalt(inventory, output.ci, output.lockingScript, output.outpoint, expectedChain, output.salt)
-      reduce(state, output, sources)
-    }
-  }, scopeToken)
+  const outputs = await scanVaultOutputPages(
+    w,
+    adminOriginator,
+    'entire transactions',
+    async (listed, page) => {
+      if (listed.length === 0) return
+      if (!page.BEEF?.length) {
+        throw new VaultError('no-transaction', 'Vault output listing did not include source transactions')
+      }
+      let sources: Beef
+      try {
+        sources = Beef.fromBinary(page.BEEF)
+      } catch {
+        throw new VaultError('no-transaction', 'Vault output listing returned malformed source transactions')
+      }
+      for (const listedOutput of listed) {
+        const output = await verifyListedVaultOutput(w, adminOriginator, listedOutput, sources)
+        rememberVaultSalt(inventory, output.ci, output.lockingScript, output.outpoint, expectedChain, output.salt)
+        reduce(state, output, sources)
+      }
+    },
+    scopeToken
+  )
   assertVaultScope(scopeToken)
   await verifyVaultSaltDerivations(w, adminOriginator, inventory)
   assertVaultScope(scopeToken)
@@ -679,13 +716,15 @@ async function reduceVerifiedVaultOutputs<T>(
 }
 
 const sameInstructionKeys = (a: readonly VaultKeyRecord[], b: Readonly<VaultInstructions['keys']>): boolean =>
-  a.length === b.length && a.every((key, i) => (
-    key.serial === b[i].serial &&
-    key.slot === b[i].slot &&
-    key.pubkey === b[i].pubkey &&
-    key.nickname === b[i].nickname &&
-    key.enrolledAt === b[i].enrolledAt
-  ))
+  a.length === b.length &&
+  a.every(
+    (key, i) =>
+      key.serial === b[i].serial &&
+      key.slot === b[i].slot &&
+      key.pubkey === b[i].pubkey &&
+      key.nickname === b[i].nickname &&
+      key.enrolledAt === b[i].enrolledAt
+  )
 
 /** Refuse to combine two enrollments or use a cache older than an output. Old
  * revisions are expected until a re-lock, but the active revision must carry
@@ -740,9 +779,10 @@ async function scanVaultActions(
 ): Promise<void> {
   if (!w.listActions) throw new VaultError('no-transaction', 'Wallet cannot inspect pending vault actions')
   const seen = new Set<string>()
-  const pageSize = details.includeInputSourceLockingScripts || details.includeOutputLockingScripts
-    ? VAULT_SCRIPT_ACTION_PAGE
-    : VAULT_ACTION_PAGE
+  const pageSize =
+    details.includeInputSourceLockingScripts || details.includeOutputLockingScripts
+      ? VAULT_SCRIPT_ACTION_PAGE
+      : VAULT_ACTION_PAGE
   const scan = async (query: Record<string, unknown>): Promise<void> => {
     let expectedTotal: number | undefined
     let offset = 0
@@ -751,7 +791,8 @@ async function scanVaultActions(
       const page = await w.listActions!({ labels: ['vault'], limit: pageSize, offset, ...query }, adminOriginator)
       assertVaultScope(scopeToken)
       const actions = page?.actions
-      if (!Array.isArray(actions)) throw new VaultError('no-transaction', 'Vault action listing returned an invalid page')
+      if (!Array.isArray(actions))
+        throw new VaultError('no-transaction', 'Vault action listing returned an invalid page')
       if (actions.length > pageSize) {
         throw new VaultError('no-transaction', 'Vault action listing exceeded its requested page size')
       }
@@ -781,7 +822,8 @@ async function scanVaultActions(
       }
       offset += actions.length
       if (expectedTotal !== undefined) {
-        if (offset > expectedTotal) throw new VaultError('no-transaction', 'Vault action listing exceeded its reported total')
+        if (offset > expectedTotal)
+          throw new VaultError('no-transaction', 'Vault action listing exceeded its reported total')
         if (offset === expectedTotal) break
         continue
       }
@@ -790,7 +832,9 @@ async function scanVaultActions(
   }
   await scan(details)
   if (!includeFailed) return
-  const ordinaryLabels = Array.isArray(details.labels) ? details.labels.filter(label => typeof label === 'string') : ['vault']
+  const ordinaryLabels = Array.isArray(details.labels)
+    ? details.labels.filter(label => typeof label === 'string')
+    : ['vault']
   await scan({ ...details, labels: [toolboxSdk.specOpFailedActions, ...ordinaryLabels] })
 }
 
@@ -842,7 +886,8 @@ async function isValidHeldVaultDeposit(
   if (inputs.length === 0 || inputs.length > VAULT_HARD_MAX_INPUTS) return false
   for (const input of inputs) {
     if (!input.sourceOutpoint || !/^[0-9a-fA-F]{64}[.:]\d+$/.test(input.sourceOutpoint)) return false
-    if (!Number.isSafeInteger(input.sourceSatoshis) || input.sourceSatoshis! < 0 || !input.sourceLockingScript) return false
+    if (!Number.isSafeInteger(input.sourceSatoshis) || input.sourceSatoshis! < 0 || !input.sourceLockingScript)
+      return false
     try {
       const sourceLock = LockingScript.fromHex(input.sourceLockingScript)
       if (isR1CSourceScript(input.sourceLockingScript) || !isStandardP2PKH(sourceLock)) return false
@@ -855,7 +900,8 @@ async function isValidHeldVaultDeposit(
   if (outputs.length < 1 || outputs.length > 4) return false
   const indices = new Set<number>()
   for (const output of outputs) {
-    if (!Number.isSafeInteger(output.outputIndex) || output.outputIndex < 0 || indices.has(output.outputIndex)) return false
+    if (!Number.isSafeInteger(output.outputIndex) || output.outputIndex < 0 || indices.has(output.outputIndex))
+      return false
     indices.add(output.outputIndex)
   }
   const vaultOutputs = outputs.filter(output => output.basket === VAULT_BASKET)
@@ -870,7 +916,8 @@ async function isValidHeldVaultDeposit(
     ci.vaultId !== meta.vaultId ||
     ci.createdAt !== meta.createdAt ||
     ci.revision > meta.revision
-  ) return false
+  )
+    return false
   if (ci.revision === meta.revision && !sameInstructionKeys(meta.keys, ci.keys)) return false
   let lock: LockingScript
   let salt: string
@@ -906,7 +953,11 @@ async function isValidHeldVaultDeposit(
       const parsedDescriptor = parseVaultDescriptorScript(LockingScript.fromHex(descriptorOutput.lockingScript))
       if (!parsedDescriptor) return false
       const descriptorPlaintext = await decryptVaultDescriptorPlaintext(
-        w, adminOriginator, expectedChain, ci.saltKeyId, parsedDescriptor.ciphertext
+        w,
+        adminOriginator,
+        expectedChain,
+        ci.saltKeyId,
+        parsedDescriptor.ciphertext
       )
       if (descriptorPlaintext !== output.customInstructions) return false
     } catch {
@@ -927,11 +978,7 @@ async function isValidHeldVaultDeposit(
     const implicit = outputs.filter(candidate => candidate !== output)
     if (implicit.length === 1) {
       const change = implicit[0]
-      if (
-        !Number.isSafeInteger(change.satoshis) ||
-        change.satoshis <= 0 ||
-        !change.lockingScript
-      ) return false
+      if (!Number.isSafeInteger(change.satoshis) || change.satoshis <= 0 || !change.lockingScript) return false
       try {
         if (!isStandardP2PKH(LockingScript.fromHex(change.lockingScript))) return false
       } catch {
@@ -942,14 +989,7 @@ async function isValidHeldVaultDeposit(
     }
   }
   if (saltInventory) {
-    rememberVaultSalt(
-      saltInventory,
-      ci,
-      lock,
-      vaultActionOutputId(action, output.outputIndex),
-      expectedChain,
-      salt
-    )
+    rememberVaultSalt(saltInventory, ci, lock, vaultActionOutputId(action, output.outputIndex), expectedChain, salt)
   }
   return true
 }
@@ -973,33 +1013,39 @@ async function reconcileHeldVaultDeposits(
   const unsigned: string[] = []
   const saltInventory = emptyVaultSaltInventory()
   let signed = 0
-  await scanVaultActions(w, adminOriginator, {
-    labels: [],
-    includeLabels: true,
-    includeInputs: true,
-    includeInputSourceLockingScripts: true,
-    includeOutputs: true,
-    includeOutputLockingScripts: true
-  }, async action => {
-    const labels = new Set(action.labels ?? [])
-    if (!labels.has('vault-deposit') || action.status === 'completed' || action.status === 'failed') return
-    // A deposit that reached the network is a live unconfirmed deposit, not a
-    // held reservation: there is nothing to abort and nothing to reconcile,
-    // and its vault output is authenticated on the ordinary listOutputs path
-    // like any other. `unproven` is what the activity list shows as
-    // "Accepted" and can stand for many minutes, so treating it as held would
-    // block every vault transfer — including the re-lock the refusal asks
-    // for — until the merkle proof arrives.
-    if (BROADCAST_ACTION_STATUSES.has(action.status)) return
-    if (
-      !PENDING_ACTION_STATUSES.has(action.status) ||
-      !(await isValidHeldVaultDeposit(w, adminOriginator, action, meta, expectedChain, saltInventory))
-    ) {
-      throw new VaultError('action-pending', 'A Vault deposit has an unknown or potentially broadcast state')
-    }
-    if (action.status === 'unsigned') unsigned.push(action.reference!)
-    else signed++
-  }, scopeToken)
+  await scanVaultActions(
+    w,
+    adminOriginator,
+    {
+      labels: [],
+      includeLabels: true,
+      includeInputs: true,
+      includeInputSourceLockingScripts: true,
+      includeOutputs: true,
+      includeOutputLockingScripts: true
+    },
+    async action => {
+      const labels = new Set(action.labels ?? [])
+      if (!labels.has('vault-deposit') || action.status === 'completed' || action.status === 'failed') return
+      // A deposit that reached the network is a live unconfirmed deposit, not a
+      // held reservation: there is nothing to abort and nothing to reconcile,
+      // and its vault output is authenticated on the ordinary listOutputs path
+      // like any other. `unproven` is what the activity list shows as
+      // "Accepted" and can stand for many minutes, so treating it as held would
+      // block every vault transfer — including the re-lock the refusal asks
+      // for — until the merkle proof arrives.
+      if (BROADCAST_ACTION_STATUSES.has(action.status)) return
+      if (
+        !PENDING_ACTION_STATUSES.has(action.status) ||
+        !(await isValidHeldVaultDeposit(w, adminOriginator, action, meta, expectedChain, saltInventory))
+      ) {
+        throw new VaultError('action-pending', 'A Vault deposit has an unknown or potentially broadcast state')
+      }
+      if (action.status === 'unsigned') unsigned.push(action.reference!)
+      else signed++
+    },
+    scopeToken
+  )
   assertVaultScope(scopeToken)
   await verifyVaultSaltDerivations(w, adminOriginator, saltInventory)
   assertVaultScope(scopeToken)
@@ -1090,22 +1136,28 @@ export async function resolveHeldVaultDeposit(
       const expectedChain = captured.chain ?? vaultStore.getScope()?.chain
       if (!expectedChain) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
       let held: VaultActionRow | undefined
-      await scanVaultActions(w, adminOriginator, {
-        labels: [],
-        includeLabels: true,
-        includeInputs: true,
-        includeInputSourceLockingScripts: true,
-        includeOutputs: true,
-        includeOutputLockingScripts: true
-      }, async action => {
-        if (action.status === 'unsigned') return
-        if (!PENDING_ACTION_STATUSES.has(action.status) || BROADCAST_ACTION_STATUSES.has(action.status)) return
-        if (await isValidHeldVaultDeposit(w, adminOriginator, action, meta, expectedChain)) {
-          held = action
-        } else if (isValidHeldVaultSpend(action)) {
-          held = action
-        }
-      }, captured)
+      await scanVaultActions(
+        w,
+        adminOriginator,
+        {
+          labels: [],
+          includeLabels: true,
+          includeInputs: true,
+          includeInputSourceLockingScripts: true,
+          includeOutputs: true,
+          includeOutputLockingScripts: true
+        },
+        async action => {
+          if (action.status === 'unsigned') return
+          if (!PENDING_ACTION_STATUSES.has(action.status) || BROADCAST_ACTION_STATUSES.has(action.status)) return
+          if (await isValidHeldVaultDeposit(w, adminOriginator, action, meta, expectedChain)) {
+            held = action
+          } else if (isValidHeldVaultSpend(action)) {
+            held = action
+          }
+        },
+        captured
+      )
       assertVaultScope(captured)
       if (!held?.txid) return { kind: 'nothing-held' }
       const txid = held.txid
@@ -1163,44 +1215,56 @@ async function inspectHiddenVaultReservations(
   repairUnsigned: boolean
 ): Promise<boolean> {
   const abortable: string[] = []
-  await scanVaultActions(w, adminOriginator, {
-    labels: [],
-    includeLabels: true,
-    includeInputs: true,
-    includeInputSourceLockingScripts: true
-  }, action => {
-    // Completed history cannot reserve or hide an output. Ignore it before
-    // interpreting old labels or source scripts; pre-release Vault actions
-    // may use a different template and are not recovery authority.
-    if (action.status === 'completed') return
-    const inputs = action.inputs ?? []
-    const r1cInputs = inputs.filter(input => isR1CSourceScript(input.sourceLockingScript))
-    const claimsVaultSpend = actionClaimsVaultSpend(action)
-    if (claimsVaultSpend && (inputs.length === 0 || r1cInputs.length !== inputs.length)) {
-      throw new VaultError('template-invalid', 'Vault action history has missing or malformed R1C source scripts')
-    }
-    if (r1cInputs.length === 0) return
-    for (const input of r1cInputs) {
-      if (
-        input.sourceSatoshis !== undefined &&
-        (!Number.isSafeInteger(input.sourceSatoshis) || input.sourceSatoshis < 0)
-      ) {
-        throw new VaultError('no-transaction', 'Vault action history has an invalid source value')
+  await scanVaultActions(
+    w,
+    adminOriginator,
+    {
+      labels: [],
+      includeLabels: true,
+      includeInputs: true,
+      includeInputSourceLockingScripts: true
+    },
+    action => {
+      // Completed history cannot reserve or hide an output. Ignore it before
+      // interpreting old labels or source scripts; pre-release Vault actions
+      // may use a different template and are not recovery authority.
+      if (action.status === 'completed') return
+      const inputs = action.inputs ?? []
+      const r1cInputs = inputs.filter(input => isR1CSourceScript(input.sourceLockingScript))
+      const claimsVaultSpend = actionClaimsVaultSpend(action)
+      if (claimsVaultSpend && (inputs.length === 0 || r1cInputs.length !== inputs.length)) {
+        throw new VaultError('template-invalid', 'Vault action history has missing or malformed R1C source scripts')
       }
-    }
-    if (repairUnsigned && action.status === 'unsigned' && !action.txid && action.reference && r1cInputs.length === inputs.length) {
-      abortable.push(action.reference)
-      return
-    }
-    // A spend already posted to the network is not holding its source back: it
-    // has SPENT it, listOutputs is right to omit it, and whatever the spend
-    // created is listed in its place. Blocking here would fail every balance
-    // read, coverage check and transfer for as long as the spend sits at
-    // 'unproven' — and, because the transfer screen waits for the balance to
-    // settle, would report a completed withdrawal as a failure.
-    if (BROADCAST_ACTION_STATUSES.has(action.status)) return
-    throw new VaultError('action-pending', 'A pending or failed action is holding a Vault output')
-  }, scopeToken)
+      if (r1cInputs.length === 0) return
+      for (const input of r1cInputs) {
+        if (
+          input.sourceSatoshis !== undefined &&
+          (!Number.isSafeInteger(input.sourceSatoshis) || input.sourceSatoshis < 0)
+        ) {
+          throw new VaultError('no-transaction', 'Vault action history has an invalid source value')
+        }
+      }
+      if (
+        repairUnsigned &&
+        action.status === 'unsigned' &&
+        !action.txid &&
+        action.reference &&
+        r1cInputs.length === inputs.length
+      ) {
+        abortable.push(action.reference)
+        return
+      }
+      // A spend already posted to the network is not holding its source back: it
+      // has SPENT it, listOutputs is right to omit it, and whatever the spend
+      // created is listed in its place. Blocking here would fail every balance
+      // read, coverage check and transfer for as long as the spend sits at
+      // 'unproven' — and, because the transfer screen waits for the balance to
+      // settle, would report a completed withdrawal as a failure.
+      if (BROADCAST_ACTION_STATUSES.has(action.status)) return
+      throw new VaultError('action-pending', 'A pending or failed action is holding a Vault output')
+    },
+    scopeToken
+  )
   for (const reference of abortable) {
     assertVaultScope(scopeToken)
     await w.abortAction({ reference }, adminOriginator)
@@ -1235,12 +1299,14 @@ function vaultActionOutputId(action: VaultActionRow, outputIndex: number): strin
   if (!Number.isSafeInteger(outputIndex) || outputIndex < 0) {
     throw new VaultError('template-invalid', 'Vault action history contains an invalid output index')
   }
-  const actionId = typeof action.txid === 'string' && /^[0-9a-fA-F]{64}$/.test(action.txid)
-    ? action.txid.toLowerCase()
-    : action.reference
-      ? `ref:${action.reference}`
-      : undefined
-  if (!actionId) throw new VaultError('template-invalid', 'Vault action history output has no stable transaction identity')
+  const actionId =
+    typeof action.txid === 'string' && /^[0-9a-fA-F]{64}$/.test(action.txid)
+      ? action.txid.toLowerCase()
+      : action.reference
+        ? `ref:${action.reference}`
+        : undefined
+  if (!actionId)
+    throw new VaultError('template-invalid', 'Vault action history output has no stable transaction identity')
   return `${actionId}.${outputIndex}`
 }
 
@@ -1281,10 +1347,9 @@ function rememberVaultSalt(
     throw new VaultError('template-invalid', 'Vault output belongs to a different network')
   }
   const scriptHash = Utils.toHex(Hash.sha256(lock.toBinary()))
-  const outputFingerprint = Utils.toHex(Hash.sha256(Utils.toArray(
-    `${scriptHash}\u0000${encodeVaultInstructionsAny(ci)}`,
-    'utf8'
-  ) as number[]))
+  const outputFingerprint = Utils.toHex(
+    Hash.sha256(Utils.toArray(`${scriptHash}\u0000${encodeVaultInstructionsAny(ci)}`, 'utf8') as number[])
+  )
   const knownOutput = inventory.outputFingerprints.get(outputId)
   if (knownOutput !== undefined && knownOutput !== outputFingerprint) {
     throw new VaultError('template-invalid', 'One Vault output has conflicting authenticated representations')
@@ -1310,16 +1375,20 @@ export async function deriveVaultSalt(
   serials: readonly string[]
 ): Promise<string> {
   try {
-    const derived = await w.createHmac({
-      protocolID: [...VAULT_SALT_PROTOCOL],
-      keyID: saltKeyId,
-      counterparty: 'self',
-      data: vaultSaltHmacData(serials),
-      seekPermission: false
-    }, adminOriginator)
+    const derived = await w.createHmac(
+      {
+        protocolID: [...VAULT_SALT_PROTOCOL],
+        keyID: saltKeyId,
+        counterparty: 'self',
+        data: vaultSaltHmacData(serials),
+        seekPermission: false
+      },
+      adminOriginator
+    )
     const hmac = derived.hmac
     if (
-      !Array.isArray(hmac) || hmac.length !== SALT_BYTES ||
+      !Array.isArray(hmac) ||
+      hmac.length !== SALT_BYTES ||
       hmac.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 0xff)
     ) {
       throw new Error('non-canonical HMAC')
@@ -1341,7 +1410,10 @@ async function verifyVaultSaltDerivations(
   for (const claim of inventory.derivationClaims.values()) {
     const actualSalt = await deriveVaultSalt(w, adminOriginator, claim.saltKeyId, claim.serials)
     if (actualSalt !== claim.salt) {
-      throw new VaultError('template-invalid', `Vault salt derivation ${claim.saltKeyId} does not belong to this wallet`)
+      throw new VaultError(
+        'template-invalid',
+        `Vault salt derivation ${claim.saltKeyId} does not belong to this wallet`
+      )
     }
   }
 }
@@ -1355,43 +1427,48 @@ async function addHistoricalVaultSaltInventory(
 ): Promise<void> {
   const expectedChain = scopeToken?.chain ?? vaultStore.getScope()?.chain
   if (!expectedChain) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
-  await scanVaultActions(w, adminOriginator, {
-    labels: [],
-    includeOutputs: true,
-    includeOutputLockingScripts: true
-  }, async action => {
-    for (const output of action.outputs ?? []) {
-      if (output.basket !== VAULT_BASKET) continue
-      const ci = decodeVaultInstructions(output.customInstructions)
-      if (!ci || !output.lockingScript) {
-        throw new VaultError('template-invalid', 'Vault history contains unreadable recovery metadata or script')
+  await scanVaultActions(
+    w,
+    adminOriginator,
+    {
+      labels: [],
+      includeOutputs: true,
+      includeOutputLockingScripts: true
+    },
+    async action => {
+      for (const output of action.outputs ?? []) {
+        if (output.basket !== VAULT_BASKET) continue
+        const ci = decodeVaultInstructions(output.customInstructions)
+        if (!ci || !output.lockingScript) {
+          throw new VaultError('template-invalid', 'Vault history contains unreadable recovery metadata or script')
+        }
+        let lock: LockingScript
+        try {
+          lock = LockingScript.fromHex(output.lockingScript)
+        } catch {
+          throw new VaultError('template-invalid', 'Vault history contains a malformed locking script')
+        }
+        const salt = await resolveVaultSalt(w, adminOriginator, ci)
+        verifyInstructionsAgainstLock(ci, lock, 'Vault history output', salt)
+        // Salt/script reuse is wallet-global, so retain valid history from prior
+        // enrollments after a drained Vault is disabled and set up again. Only a
+        // record claiming the current enrollment ID must agree with its immutable
+        // creation time, may not be newer than the local active revision, and
+        // must carry the active ordered key set when revisions are equal.
+        if (
+          ci.vaultId === meta.vaultId &&
+          (ci.createdAt !== meta.createdAt ||
+            ci.revision > meta.revision ||
+            (ci.revision === meta.revision && !sameInstructionKeys(meta.keys, ci.keys)))
+        ) {
+          throw new VaultError('template-invalid', 'Vault history conflicts with the active vault enrollment')
+        }
+        rememberVaultSalt(inventory, ci, lock, vaultActionOutputId(action, output.outputIndex), expectedChain, salt)
       }
-      let lock: LockingScript
-      try {
-        lock = LockingScript.fromHex(output.lockingScript)
-      } catch {
-        throw new VaultError('template-invalid', 'Vault history contains a malformed locking script')
-      }
-      const salt = await resolveVaultSalt(w, adminOriginator, ci)
-      verifyInstructionsAgainstLock(ci, lock, 'Vault history output', salt)
-      // Salt/script reuse is wallet-global, so retain valid history from prior
-      // enrollments after a drained Vault is disabled and set up again. Only a
-      // record claiming the current enrollment ID must agree with its immutable
-      // creation time, may not be newer than the local active revision, and
-      // must carry the active ordered key set when revisions are equal.
-      if (
-        ci.vaultId === meta.vaultId &&
-        (
-          ci.createdAt !== meta.createdAt ||
-          ci.revision > meta.revision ||
-          (ci.revision === meta.revision && !sameInstructionKeys(meta.keys, ci.keys))
-        )
-      ) {
-        throw new VaultError('template-invalid', 'Vault history conflicts with the active vault enrollment')
-      }
-      rememberVaultSalt(inventory, ci, lock, vaultActionOutputId(action, output.outputIndex), expectedChain, salt)
-    }
-  }, scopeToken, true)
+    },
+    scopeToken,
+    true
+  )
   assertVaultScope(scopeToken)
   await verifyVaultSaltDerivations(w, adminOriginator, inventory)
   assertVaultScope(scopeToken)
@@ -1506,7 +1583,8 @@ async function abortActions(
       for (let i = 0; i < actions.length; i++) {
         const a = actions[i]
         const rowId = a.reference ?? a.txid
-        if (!rowId || seenRows.has(rowId)) throw new Error(`action listing repeated or omitted identity at ${offset + i}`)
+        if (!rowId || seenRows.has(rowId))
+          throw new Error(`action listing repeated or omitted identity at ${offset + i}`)
         seenRows.add(rowId)
         if (!matches(a)) continue
         seen.push(`${a.status}${a.reference ? '' : '/no-ref'}`)
@@ -1551,7 +1629,13 @@ async function abortReservingTxids(
 ): Promise<number> {
   if (txids.length === 0) return 0
   const want = new Set(txids)
-  return await abortActions(w, adminOriginator, a => a.txid != null && want.has(a.txid), { stopAfter: want.size }, scopeToken)
+  return await abortActions(
+    w,
+    adminOriginator,
+    a => a.txid != null && want.has(a.txid),
+    { stopAfter: want.size },
+    scopeToken
+  )
 }
 
 /** Abort the orphaned transactions holding these outpoints, matched on each
@@ -1723,10 +1807,7 @@ function recoveredSupersedesExisting(existing: VaultMeta, recovered: VaultMeta):
  * always runs; the existing record is kept only when it is not superseded
  * (recoveredSupersedesExisting), and restored the same way — through
  * vaultStore.restoreVerifiedMeta — when it is. */
-export async function recoverVaultMetaFromOutputs(
-  w: VaultWallet,
-  adminOriginator: string
-): Promise<VaultMeta | null> {
+export async function recoverVaultMetaFromOutputs(w: VaultWallet, adminOriginator: string): Promise<VaultMeta | null> {
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
     assertVaultScope(scopeToken)
@@ -1735,10 +1816,11 @@ export async function recoverVaultMetaFromOutputs(
       w,
       adminOriginator,
       () => [] as { instructions: VaultInstructions; txid: string }[],
-      (records, output) => records.push({
-        instructions: output.ci,
-        txid: output.outpoint.slice(0, 64).toLowerCase()
-      }),
+      (records, output) =>
+        records.push({
+          instructions: output.ci,
+          txid: output.outpoint.slice(0, 64).toLowerCase()
+        }),
       scopeToken
     )
     if (scan.outputs === 0) return existing
@@ -1859,88 +1941,88 @@ export async function disableVaultWhenSafe(
     if (await vaultHasOutputs(w, adminOriginator, scopeToken)) return false
 
     let blocked = false
-    await scanVaultActions(w, adminOriginator, {
-      labels: [],
-      includeLabels: true,
-      includeInputs: true,
-      includeInputSourceLockingScripts: true,
-      includeOutputs: true,
-      includeOutputLockingScripts: true
-    }, async action => {
-      const labels = new Set(action.labels ?? [])
-      const inputs = action.inputs ?? []
-      const r1cInputs = inputs.filter(input => isR1CSourceScript(input.sourceLockingScript))
-      const claimsSpend = actionClaimsVaultSpend(action)
-      // A posted transaction (BROADCAST_ACTION_STATUSES) reserves nothing this
-      // check cannot already see: it has a txid and its outputs are ordinary
-      // unconfirmed UTXOs, which is why reconcileHeldVaultDeposits skips the
-      // same statuses. Only a signed-but-unposted action can hold a Vault
-      // source back invisibly, and `unproven` can stand for hours — or never
-      // resolve locally — so treating it as live refuses a drained Vault its
-      // disablement for as long as the merkle proof is missing.
-      const reserving =
-        PENDING_ACTION_STATUSES.has(action.status) && !BROADCAST_ACTION_STATUSES.has(action.status)
-      // Only a live action can still be holding a Vault source back, and its
-      // source scripts are evidence for that decision only while it is live.
-      // Settled history cannot satisfy this rule and must not be asked to:
-      // storage RESTORES the sources of a terminally failed action and clears
-      // their `spentBy`, which is exactly what empties `inputs` here, and
-      // completed pre-release spends predate this template (see
-      // inspectHiddenVaultReservations). Demanding exact R1C sources from
-      // either shape reads an ordinary drained history as malformed and
-      // refuses to disable an empty Vault for good.
-      if (reserving && claimsSpend && (inputs.length === 0 || r1cInputs.length !== inputs.length)) {
-        throw new VaultError('template-invalid', 'Vault action history has missing or malformed R1C source scripts')
-      }
-      const vaultOutputs = (action.outputs ?? []).filter(output => output.basket === VAULT_BASKET)
-      for (const output of vaultOutputs) {
-        const ci = decodeVaultInstructions(output.customInstructions)
-        if (!ci || !output.lockingScript) {
-          throw new VaultError('template-invalid', 'Vault action history has unreadable output metadata or script')
+    await scanVaultActions(
+      w,
+      adminOriginator,
+      {
+        labels: [],
+        includeLabels: true,
+        includeInputs: true,
+        includeInputSourceLockingScripts: true,
+        includeOutputs: true,
+        includeOutputLockingScripts: true
+      },
+      async action => {
+        const labels = new Set(action.labels ?? [])
+        const inputs = action.inputs ?? []
+        const r1cInputs = inputs.filter(input => isR1CSourceScript(input.sourceLockingScript))
+        const claimsSpend = actionClaimsVaultSpend(action)
+        // A posted transaction (BROADCAST_ACTION_STATUSES) reserves nothing this
+        // check cannot already see: it has a txid and its outputs are ordinary
+        // unconfirmed UTXOs, which is why reconcileHeldVaultDeposits skips the
+        // same statuses. Only a signed-but-unposted action can hold a Vault
+        // source back invisibly, and `unproven` can stand for hours — or never
+        // resolve locally — so treating it as live refuses a drained Vault its
+        // disablement for as long as the merkle proof is missing.
+        const reserving = PENDING_ACTION_STATUSES.has(action.status) && !BROADCAST_ACTION_STATUSES.has(action.status)
+        // Only a live action can still be holding a Vault source back, and its
+        // source scripts are evidence for that decision only while it is live.
+        // Settled history cannot satisfy this rule and must not be asked to:
+        // storage RESTORES the sources of a terminally failed action and clears
+        // their `spentBy`, which is exactly what empties `inputs` here, and
+        // completed pre-release spends predate this template (see
+        // inspectHiddenVaultReservations). Demanding exact R1C sources from
+        // either shape reads an ordinary drained history as malformed and
+        // refuses to disable an empty Vault for good.
+        if (reserving && claimsSpend && (inputs.length === 0 || r1cInputs.length !== inputs.length)) {
+          throw new VaultError('template-invalid', 'Vault action history has missing or malformed R1C source scripts')
         }
-        if (ci.chain !== scopeToken.chain) {
-          throw new VaultError('template-invalid', 'Vault action history output belongs to a different network')
+        const vaultOutputs = (action.outputs ?? []).filter(output => output.basket === VAULT_BASKET)
+        for (const output of vaultOutputs) {
+          const ci = decodeVaultInstructions(output.customInstructions)
+          if (!ci || !output.lockingScript) {
+            throw new VaultError('template-invalid', 'Vault action history has unreadable output metadata or script')
+          }
+          if (ci.chain !== scopeToken.chain) {
+            throw new VaultError('template-invalid', 'Vault action history output belongs to a different network')
+          }
+          let lock: LockingScript
+          try {
+            lock = LockingScript.fromHex(output.lockingScript)
+          } catch {
+            throw new VaultError('template-invalid', 'Vault action history has a malformed output script')
+          }
+          const salt = await resolveVaultSalt(w, adminOriginator, ci)
+          verifyInstructionsAgainstLock(ci, lock, 'Vault action history output', salt)
         }
-        let lock: LockingScript
-        try {
-          lock = LockingScript.fromHex(output.lockingScript)
-        } catch {
-          throw new VaultError('template-invalid', 'Vault action history has a malformed output script')
+        const touchesVault =
+          r1cInputs.length > 0 ||
+          vaultOutputs.length > 0 ||
+          labels.has('vault-withdraw') ||
+          labels.has('vault-relock') ||
+          labels.has('vault-deposit')
+        if (reserving && touchesVault) blocked = true
+        if (action.status === 'failed') {
+          // A failed deposit has no Vault source to hide. A failed spend still
+          // listing inputs has NOT been unwound — storage drops `spentBy` in the
+          // same write that makes the source spendable again — so it may still
+          // be hiding a Vault output from listOutputs, and labels/scripts that
+          // cannot classify it fail closed the same way. A failed spend listing
+          // no inputs at all is holding nothing back, and the authoritative
+          // empty check is then the only word that counts.
+          if (r1cInputs.length > 0 || (claimsSpend && inputs.length > 0)) {
+            blocked = true
+          }
         }
-        const salt = await resolveVaultSalt(w, adminOriginator, ci)
-        verifyInstructionsAgainstLock(ci, lock, 'Vault action history output', salt)
-      }
-      const touchesVault =
-        r1cInputs.length > 0 ||
-        vaultOutputs.length > 0 ||
-        labels.has('vault-withdraw') ||
-        labels.has('vault-relock') ||
-        labels.has('vault-deposit')
-      if (reserving && touchesVault) blocked = true
-      if (action.status === 'failed') {
-        // A failed deposit has no Vault source to hide. A failed spend still
-        // listing inputs has NOT been unwound — storage drops `spentBy` in the
-        // same write that makes the source spendable again — so it may still
-        // be hiding a Vault output from listOutputs, and labels/scripts that
-        // cannot classify it fail closed the same way. A failed spend listing
-        // no inputs at all is holding nothing back, and the authoritative
-        // empty check is then the only word that counts.
-        if (r1cInputs.length > 0 || (claimsSpend && inputs.length > 0)) {
-          blocked = true
-        }
-      }
-    }, scopeToken, true)
+      },
+      scopeToken,
+      true
+    )
     if (blocked) return false
     // A completed output can be absent from listOutputs but still be the only
     // durable recovery record for this enrollment. Authenticate every history
     // HMAC before allowing its local descriptor to be cleared.
-    await addHistoricalVaultSaltInventory(
-      w,
-      adminOriginator,
-      emptyVaultSaltInventory(),
-      meta,
-      scopeToken
-    )
+    await addHistoricalVaultSaltInventory(w, adminOriginator, emptyVaultSaltInventory(), meta, scopeToken)
     // The monitor is outside the JS mutex. Re-read immediately before the
     // destructive metadata clear so an output that became visible during the
     // action scan blocks the operation.
@@ -2024,7 +2106,12 @@ async function newVaultOutput(
     throw new VaultError('template-invalid', 'Vault salt key index is exhausted')
   }
   const saltKeyId = String(keyIndex)
-  const salt = await deriveVaultSalt(w, adminOriginator, saltKeyId, meta.keys.map(key => key.serial))
+  const salt = await deriveVaultSalt(
+    w,
+    adminOriginator,
+    saltKeyId,
+    meta.keys.map(key => key.serial)
+  )
   const lockingScript = buildLock({ commitments: pubkeys.map(pk => commitment(pk, salt)), saltHex64: salt })
   const v7: VaultInstructionsV7 = {
     v: 7,
@@ -2053,7 +2140,13 @@ async function newVaultOutput(
     outputDescription: 'Vault marker'
   }
 
-  const descriptorCiphertext = await encryptVaultDescriptorPlaintext(w, adminOriginator, chain, saltKeyId, customInstructions)
+  const descriptorCiphertext = await encryptVaultDescriptorPlaintext(
+    w,
+    adminOriginator,
+    chain,
+    saltKeyId,
+    customInstructions
+  )
   const descriptorOutput: VaultOutputSpec = {
     satoshis: 0,
     lockingScript: buildVaultDescriptorScript(descriptorCiphertext).toHex(),
@@ -2100,7 +2193,7 @@ function requireReleased(opts: VaultTransferOptions | undefined, scopeToken: Vau
  * evidence that any backup service exists. */
 async function defaultPrivateBackupEnabled(): Promise<boolean> {
   try {
-    return getBackupUrl() !== '' && await isBackupPushEnabled()
+    return getBackupUrl() !== '' && (await isBackupPushEnabled())
   } catch {
     return false
   }
@@ -2120,7 +2213,10 @@ async function requireMeta(scopeToken?: VaultScopeToken): Promise<VaultMeta> {
   const meta = await vaultStore.getMeta(scopeToken)
   if (!meta) throw new VaultError('not-enrolled', 'Vault is not set up')
   if (meta.keys.length < VAULT_MIN_KEYS) {
-    throw new VaultError('not-enough-keys', `A vault needs at least ${VAULT_MIN_KEYS} keys; ${meta.keys.length} enrolled`)
+    throw new VaultError(
+      'not-enough-keys',
+      `A vault needs at least ${VAULT_MIN_KEYS} keys; ${meta.keys.length} enrolled`
+    )
   }
   return meta
 }
@@ -2131,11 +2227,7 @@ async function requireMeta(scopeToken?: VaultScopeToken): Promise<VaultMeta> {
  * accepted or queued for retry. Missing, duplicate, unrelated, failed, and
  * future/unknown statuses are all ambiguous and therefore remain held.
  */
-function requireReleasedHeldTransaction(
-  released: CreateActionResult,
-  txid: string,
-  description: string
-): void {
+function requireReleasedHeldTransaction(released: CreateActionResult, txid: string, description: string): void {
   const results = released.sendWithResults
   if (
     !Array.isArray(results) ||
@@ -2181,7 +2273,8 @@ function validateDepositPlan(tx: Transaction, expected: VaultOutputPlan): void {
       throw new VaultError('no-transaction', 'Vault deposit has an invalid wallet funding outpoint')
     }
     const outpoint = `${txid}.${vout}`
-    if (seenInputs.has(outpoint)) throw new VaultError('no-transaction', `Vault deposit repeats funding input ${outpoint}`)
+    if (seenInputs.has(outpoint))
+      throw new VaultError('no-transaction', `Vault deposit repeats funding input ${outpoint}`)
     seenInputs.add(outpoint)
     const source = input.sourceTransaction?.outputs[vout]
     const sourceSatoshis = source?.satoshis
@@ -2221,7 +2314,8 @@ function validateDepositPlan(tx: Transaction, expected: VaultOutputPlan): void {
       throw new VaultError('no-transaction', 'Vault deposit has invalid implicit wallet change')
     }
     outputValue += changeSatoshis
-    if (!Number.isSafeInteger(outputValue)) throw new VaultError('no-transaction', 'Vault deposit output value overflow')
+    if (!Number.isSafeInteger(outputValue))
+      throw new VaultError('no-transaction', 'Vault deposit output value overflow')
   }
   const fee = inputValue - outputValue
   // Add a conservative P2PKH witness allowance when checking the unsigned
@@ -2260,110 +2354,107 @@ export async function depositToVault(
 ): Promise<{ txid: string }> {
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
-  assertVaultScope(scopeToken)
-  requireReleased(opts, scopeToken, 'Vault deposit')
-  if (!Number.isSafeInteger(satoshis) || satoshis < VAULT_DEPOSIT_MIN) {
-    throw new VaultError('below-dust', `Vault deposits must be at least ${VAULT_DEPOSIT_MIN} satoshis`)
-  }
-  await requireOnline(opts)
-  assertVaultScope(scopeToken)
-  await requirePrivateBackup(opts, 'Vault deposit')
-  assertVaultScope(scopeToken)
-  // XR-002: authenticate meta BEFORE it is used to build a new output.
-  const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
-  if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal before depositing')
-  if (meta.recovery?.required) {
-    const adopted = new Set(meta.recovery.adoptedSerials)
-    if (meta.keys.filter(key => adopted.has(key.serial)).length < VAULT_MIN_KEYS) {
-      throw new VaultError('key-not-adopted', 'Verify at least two recovered YubiKeys before depositing new funds')
+    assertVaultScope(scopeToken)
+    requireReleased(opts, scopeToken, 'Vault deposit')
+    if (!Number.isSafeInteger(satoshis) || satoshis < VAULT_DEPOSIT_MIN) {
+      throw new VaultError('below-dust', `Vault deposits must be at least ${VAULT_DEPOSIT_MIN} satoshis`)
     }
-  }
-  await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
-  const existing = await reduceVerifiedVaultOutputs(
-    w,
-    adminOriginator,
-    () => undefined,
-    (_state, output) => requireOutputMetaConsistency([output], meta),
-    scopeToken,
-    'repair-unsigned'
-  )
-  const saltInventory = existing.inventory
-  await addHistoricalVaultSaltInventory(w, adminOriginator, saltInventory, meta, scopeToken)
-
-  const output = await newVaultOutput(
-    w,
-    adminOriginator,
-    meta,
-    satoshis,
-    'Vault deposit',
-    saltInventory,
-    scopeToken.chain
-  )
-  let reference: string | undefined
-  let heldTxid: string | undefined
-  let broadcastAttempted = false
-  try {
-    // Build and sign into `noSend` first. This gives this module a real
-    // transaction to inspect before any deposit can leave the device.
+    await requireOnline(opts)
     assertVaultScope(scopeToken)
-    const created = await w.createAction(
-      {
-        description: 'Vault deposit',
-        version: 1,
-        outputs: [...output],
-        labels: ['vault', 'vault-deposit'],
-        options: { randomizeOutputs: false, noSend: true, signAndProcess: false }
-      },
-      adminOriginator
+    await requirePrivateBackup(opts, 'Vault deposit')
+    assertVaultScope(scopeToken)
+    // XR-002: authenticate meta BEFORE it is used to build a new output.
+    const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
+    if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal before depositing')
+    if (meta.recovery?.required) {
+      const adopted = new Set(meta.recovery.adoptedSerials)
+      if (meta.keys.filter(key => adopted.has(key.serial)).length < VAULT_MIN_KEYS) {
+        throw new VaultError('key-not-adopted', 'Verify at least two recovered YubiKeys before depositing new funds')
+      }
+    }
+    await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
+    const existing = await reduceVerifiedVaultOutputs(
+      w,
+      adminOriginator,
+      () => undefined,
+      (_state, output) => requireOutputMetaConsistency([output], meta),
+      scopeToken,
+      'repair-unsigned'
     )
-    assertVaultScope(scopeToken)
+    const saltInventory = existing.inventory
+    await addHistoricalVaultSaltInventory(w, adminOriginator, saltInventory, meta, scopeToken)
 
-    let signedBytes: number[] | undefined
-    let reportedTxid = created.txid
-    if (created.signableTransaction) {
-      reference = created.signableTransaction.reference
-      const unsigned = Transaction.fromAtomicBEEF(created.signableTransaction.tx)
-      validateDepositPlan(unsigned, output)
+    const output = await newVaultOutput(
+      w,
+      adminOriginator,
+      meta,
+      satoshis,
+      'Vault deposit',
+      saltInventory,
+      scopeToken.chain
+    )
+    let reference: string | undefined
+    let heldTxid: string | undefined
+    let broadcastAttempted = false
+    try {
+      // Build and sign into `noSend` first. This gives this module a real
+      // transaction to inspect before any deposit can leave the device.
       assertVaultScope(scopeToken)
-      const signed = await w.signAction(
-        { reference, spends: {}, options: { noSend: true } },
+      const created = await w.createAction(
+        {
+          description: 'Vault deposit',
+          version: 1,
+          outputs: [...output],
+          labels: ['vault', 'vault-deposit'],
+          options: { randomizeOutputs: false, noSend: true, signAndProcess: false }
+        },
         adminOriginator
       )
       assertVaultScope(scopeToken)
-      signedBytes = signed.tx
-      reportedTxid = signed.txid ?? reportedTxid
-    } else {
-      signedBytes = created.tx
-    }
-    if (!signedBytes) throw new VaultError('no-transaction', 'Vault deposit produced no inspectable transaction')
 
-    const signedTx = Transaction.fromAtomicBEEF(signedBytes)
-    validateDepositPlan(signedTx, output)
-    heldTxid = signedTx.id('hex')
-    if (reportedTxid && reportedTxid.toLowerCase() !== heldTxid) {
-      throw new VaultError('no-transaction', 'Vault deposit transaction ID disagrees with its signed transaction')
+      let signedBytes: number[] | undefined
+      let reportedTxid = created.txid
+      if (created.signableTransaction) {
+        reference = created.signableTransaction.reference
+        const unsigned = Transaction.fromAtomicBEEF(created.signableTransaction.tx)
+        validateDepositPlan(unsigned, output)
+        assertVaultScope(scopeToken)
+        const signed = await w.signAction({ reference, spends: {}, options: { noSend: true } }, adminOriginator)
+        assertVaultScope(scopeToken)
+        signedBytes = signed.tx
+        reportedTxid = signed.txid ?? reportedTxid
+      } else {
+        signedBytes = created.tx
+      }
+      if (!signedBytes) throw new VaultError('no-transaction', 'Vault deposit produced no inspectable transaction')
+
+      const signedTx = Transaction.fromAtomicBEEF(signedBytes)
+      validateDepositPlan(signedTx, output)
+      heldTxid = signedTx.id('hex')
+      if (reportedTxid && reportedTxid.toLowerCase() !== heldTxid) {
+        throw new VaultError('no-transaction', 'Vault deposit transaction ID disagrees with its signed transaction')
+      }
+      // `sendWith` releases this already-inspected noSend action. Once the call
+      // begins its broadcast outcome can be ambiguous, so cleanup below must no
+      // longer free its inputs.
+      assertVaultScope(scopeToken)
+      broadcastAttempted = true
+      const released = await w.createAction(
+        { description: 'Broadcast Vault deposit', options: { sendWith: [heldTxid] } },
+        adminOriginator
+      )
+      assertVaultScope(scopeToken)
+      requireReleasedHeldTransaction(released, heldTxid, 'Vault deposit')
+      return { txid: heldTxid }
+    } catch (e) {
+      // noSend guarantees the transaction cannot leave before sendWith. A
+      // locally detected plan/signing failure before that call may therefore
+      // release its reservation, even if signAction already produced bytes.
+      if (!broadcastAttempted && reference) {
+        await w.abortAction({ reference }, adminOriginator).catch(() => {})
+      }
+      throw e
     }
-    // `sendWith` releases this already-inspected noSend action. Once the call
-    // begins its broadcast outcome can be ambiguous, so cleanup below must no
-    // longer free its inputs.
-    assertVaultScope(scopeToken)
-    broadcastAttempted = true
-    const released = await w.createAction(
-      { description: 'Broadcast Vault deposit', options: { sendWith: [heldTxid] } },
-      adminOriginator
-    )
-    assertVaultScope(scopeToken)
-    requireReleasedHeldTransaction(released, heldTxid, 'Vault deposit')
-    return { txid: heldTxid }
-  } catch (e) {
-    // noSend guarantees the transaction cannot leave before sendWith. A
-    // locally detected plan/signing failure before that call may therefore
-    // release its reservation, even if signAction already produced bytes.
-    if (!broadcastAttempted && reference) {
-      await w.abortAction({ reference }, adminOriginator).catch(() => {})
-    }
-    throw e
-  }
   })
 }
 
@@ -2474,7 +2565,8 @@ async function selectVaultInputs(
   }
   const add = (current: number, value: number, where: string): number => {
     const next = current + value
-    if (!Number.isSafeInteger(next)) throw new VaultError('no-transaction', `${where} value exceeds the safe integer range`)
+    if (!Number.isSafeInteger(next))
+      throw new VaultError('no-transaction', `${where} value exceeds the safe integer range`)
     return next
   }
   const verified = await reduceVerifiedVaultOutputs(
@@ -2665,7 +2757,10 @@ function validateSignableVaultPlan(tx: Transaction, sel: VaultSelection, plan: V
     const outpoint = `${txid}.${vout}`
     const selected = selectedByOutpoint.get(outpoint)
     if (!selected || seen.has(outpoint)) {
-      throw new VaultError('no-transaction', `Signable transaction contains an unapproved or duplicate input ${outpoint}`)
+      throw new VaultError(
+        'no-transaction',
+        `Signable transaction contains an unapproved or duplicate input ${outpoint}`
+      )
     }
     const source = input.sourceTransaction?.outputs[vout]
     if (
@@ -2856,7 +2951,7 @@ async function createSignableVaultTx(
         )
       }
       const bad = sel.selected[badAt]
-      const current = sequences.get(bad.outpoint) ?? (tx.inputs[prepared[badAt].inputIndex].sequence ?? 0xffffffff)
+      const current = sequences.get(bad.outpoint) ?? tx.inputs[prepared[badAt].inputIndex].sequence ?? 0xffffffff
       sequences.set(bad.outpoint, current - 1)
     } catch (e) {
       await w.abortAction({ reference }, adminOriginator).catch(() => {})
@@ -2896,8 +2991,20 @@ async function spendVaultOutputs(
   opts?: VaultTransferOptions,
   scopeToken?: VaultScopeToken
 ): Promise<VaultSpendResult> {
-  const { tx, reference, prepared } = await createSignableVaultTx(w, adminOriginator, sel, reason, plan, opts, scopeToken)
-  const result = (txid: string): VaultSpendResult => ({ txid, cappedInputs: sel.cappedInputs, unreachable: sel.unreachable })
+  const { tx, reference, prepared } = await createSignableVaultTx(
+    w,
+    adminOriginator,
+    sel,
+    reason,
+    plan,
+    opts,
+    scopeToken
+  )
+  const result = (txid: string): VaultSpendResult => ({
+    txid,
+    cappedInputs: sel.cappedInputs,
+    unreachable: sel.unreachable
+  })
   const { chosen, selected } = sel
   const total = selected.length
 
@@ -2913,12 +3020,10 @@ async function spendVaultOutputs(
     // finally has not been entered yet.
     if (signer.pubkey !== chosen.pubkey) {
       signer.release()
-      throw new VaultError(
-        'serial-mismatch',
-        'Signer public key does not match the chosen key',
-        undefined,
-        { tapped: signer.serial, chosen: chosen.serial }
-      )
+      throw new VaultError('serial-mismatch', 'Signer public key does not match the chosen key', undefined, {
+        tapped: signer.serial,
+        chosen: chosen.serial
+      })
     }
     try {
       for (let i = 0; i < total; i++) {
@@ -2994,7 +3099,8 @@ async function spendVaultOutputs(
   txid = txid.toLowerCase()
 
   if (createsVaultOutput) {
-    if (!signed.tx) throw new VaultError('no-transaction', 'Held Vault spend returned no inspectable signed transaction')
+    if (!signed.tx)
+      throw new VaultError('no-transaction', 'Held Vault spend returned no inspectable signed transaction')
     const signedTx = Transaction.fromAtomicBEEF(signed.tx)
     if (signedTx.id('hex') !== txid) {
       throw new VaultError('no-transaction', 'Held Vault spend transaction ID disagrees with its signed transaction')
@@ -3094,56 +3200,63 @@ export async function withdrawFromVault(
 ): Promise<VaultSpendResult> {
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
-  assertVaultScope(scopeToken)
-  // Cheapest refusal first, as in depositToVault — see requireWithdrawalAmount.
-  requireWithdrawalAmount(amount)
-  // An offline user is never asked to present a key for a transfer that
-  // cannot proceed.
-  await requireOnline(opts)
-  assertVaultScope(scopeToken)
-  const meta = await requireMeta(scopeToken)
-  const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, amount, undefined, scopeToken)
-  const want = amount === 'all' ? sel.acc : amount
-  const remainder = sel.acc - want
-  const outputs: VaultSpendPlan['outputs'] = []
-  if (remainder >= VAULT_DEPOSIT_MIN) {
-    // P2-774: reconcileHeldVaultDeposits' gate exists only to protect
-    // salt-index-allocation integrity for a call that is about to allocate a
-    // NEW one (spec's high-water-mark check) — a full-balance withdrawal
-    // (no remainder here) creates no vault output and does not need it, so
-    // only THIS branch, which re-vaults the remainder, still requires it.
-    await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
-    // Re-vaulting CREATES a vault output, which the release flag gates (spec
-    // §5.5). Withdrawing pre-existing outputs — 'all' — never is.
-    requireReleased(opts, scopeToken, 'Re-vaulting a remainder')
-    await requirePrivateBackup(opts, 'Re-vaulting a remainder')
     assertVaultScope(scopeToken)
-    // XR-002: authenticate meta BEFORE it is used to build the re-vaulted
-    // remainder's new output. Scoped to exactly this branch — the only one
-    // that creates an output — so an otherwise-unauthenticated meta never
-    // blocks a plain 'all' withdrawal, whose authority is its spent outputs'
-    // own real locks, never local meta (see requireAuthenticatedMeta).
-    const authenticatedMeta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, sel.meta)
-    await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, authenticatedMeta, scopeToken)
-    outputs.push(...await newVaultOutput(
+    // Cheapest refusal first, as in depositToVault — see requireWithdrawalAmount.
+    requireWithdrawalAmount(amount)
+    // An offline user is never asked to present a key for a transfer that
+    // cannot proceed.
+    await requireOnline(opts)
+    assertVaultScope(scopeToken)
+    const meta = await requireMeta(scopeToken)
+    const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, amount, undefined, scopeToken)
+    const want = amount === 'all' ? sel.acc : amount
+    const remainder = sel.acc - want
+    const outputs: VaultSpendPlan['outputs'] = []
+    if (remainder >= VAULT_DEPOSIT_MIN) {
+      // P2-774: reconcileHeldVaultDeposits' gate exists only to protect
+      // salt-index-allocation integrity for a call that is about to allocate a
+      // NEW one (spec's high-water-mark check) — a full-balance withdrawal
+      // (no remainder here) creates no vault output and does not need it, so
+      // only THIS branch, which re-vaults the remainder, still requires it.
+      await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
+      // Re-vaulting CREATES a vault output, which the release flag gates (spec
+      // §5.5). Withdrawing pre-existing outputs — 'all' — never is.
+      requireReleased(opts, scopeToken, 'Re-vaulting a remainder')
+      await requirePrivateBackup(opts, 'Re-vaulting a remainder')
+      assertVaultScope(scopeToken)
+      // XR-002: authenticate meta BEFORE it is used to build the re-vaulted
+      // remainder's new output. Scoped to exactly this branch — the only one
+      // that creates an output — so an otherwise-unauthenticated meta never
+      // blocks a plain 'all' withdrawal, whose authority is its spent outputs'
+      // own real locks, never local meta (see requireAuthenticatedMeta).
+      const authenticatedMeta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, sel.meta)
+      await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, authenticatedMeta, scopeToken)
+      outputs.push(
+        ...(await newVaultOutput(
+          w,
+          adminOriginator,
+          authenticatedMeta,
+          remainder,
+          'Vault change',
+          sel.saltInventory,
+          scopeToken.chain
+        ))
+      )
+    }
+    return await spendVaultOutputs(
       w,
       adminOriginator,
-      authenticatedMeta,
-      remainder,
-      'Vault change',
-      sel.saltInventory,
-      scopeToken.chain
-    ))
-  }
-  return await spendVaultOutputs(
-    w,
-    adminOriginator,
-    sel,
-    reason,
-    { outputs, labels: ['vault', 'vault-withdraw'], inputDescription: 'Vault withdrawal', description: 'Vault withdrawal' },
-    opts,
-    scopeToken
-  )
+      sel,
+      reason,
+      {
+        outputs,
+        labels: ['vault', 'vault-withdraw'],
+        inputDescription: 'Vault withdrawal',
+        description: 'Vault withdrawal'
+      },
+      opts,
+      scopeToken
+    )
   })
 }
 
@@ -3183,8 +3296,12 @@ const VAULT_MAX_DESCRIPTOR_OUTPUT_BYTES =
  * when below dust).
  */
 export function estimateRelockFee(inputCount: number, lockLen: number, satPerKb = 100): number {
-  const size = 10 + inputCount * (41 + 3 + R1C_UNLOCK_LEN) + (3 + lockLen + 8) +
-    VAULT_MARKER_OUTPUT_BYTES + VAULT_MAX_DESCRIPTOR_OUTPUT_BYTES
+  const size =
+    10 +
+    inputCount * (41 + 3 + R1C_UNLOCK_LEN) +
+    (3 + lockLen + 8) +
+    VAULT_MARKER_OUTPUT_BYTES +
+    VAULT_MAX_DESCRIPTOR_OUTPUT_BYTES
   const kb = Math.ceil(size / 1000)
   return Math.ceil((kb * satPerKb * 11) / 10)
 }
@@ -3211,78 +3328,78 @@ export async function relockVault(
 ): Promise<VaultSpendResult> {
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
-  assertVaultScope(scopeToken)
-  requireReleased(opts, scopeToken, 'Re-locking the vault')
-  await requireOnline(opts)
-  assertVaultScope(scopeToken)
-  await requirePrivateBackup(opts, 'Re-locking the vault')
-  assertVaultScope(scopeToken)
-  // XR-002: authenticate meta BEFORE anything below uses it — relockVault
-  // always builds a new output, so unlike withdrawFromVault this runs
-  // unconditionally, and early enough that a reconciled/retagged meta is
-  // what selectVaultInputs (re-reading vaultStore.getMeta itself) and the
-  // fee estimate below both see.
-  const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
-  await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
-  const revokePubkey = opts?.revokePubkey
-  const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, 'all', revokePubkey, scopeToken)
-  if (sel.meta.pendingRemoval && !revokePubkey) {
-    throw new VaultError('relock-required', 'Finish the pending key removal before another re-lock')
-  }
-  if (revokePubkey && sel.chosen.pubkey === revokePubkey) {
-    throw new VaultError('wrong-key', 'The key being revoked cannot authorize its own replacement')
-  }
-  if (revokePubkey && sel.meta.pendingRemoval?.key.pubkey !== revokePubkey) {
-    throw new VaultError('not-enrolled', 'The key being revoked does not match the pending removal')
-  }
-  // Before the fee estimate below, which cannot size a lock outside 2..5.
-  requireLockableKeyCount(sel.keys.length)
-  await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, sel.meta, scopeToken)
-  const fee = estimateRelockFee(sel.selected.length, R1C_LOCK_LEN(sel.keys.length))
-  const relocked = sel.acc - fee
-  if (relocked < VAULT_DEPOSIT_MIN) {
-    throw new VaultError(
-      'too-small-to-relock',
-      `Re-locking ${sel.acc} satoshis would leave ${relocked} after fees, below the ${VAULT_DEPOSIT_MIN} floor`
-    )
-  }
-  const result = await spendVaultOutputs(
-    w,
-    adminOriginator,
-    sel,
-    reason,
-    {
-      outputs: await newVaultOutput(
-        w,
-        adminOriginator,
-        sel.meta,
-        relocked,
-        'Vault re-lock',
-        sel.saltInventory,
-        scopeToken.chain
-      ),
-      labels: ['vault', 'vault-relock'],
-      inputDescription: 'Vault re-lock',
-      // Fixed, like the deposit and withdrawal descriptions (see
-      // VaultSpendPlan): the caller's `reason` is NFC-prompt copy that names
-      // the keys to tap, which read as nonsense in the activity list.
-      description: 'Vault relock'
-    },
-    opts,
-    scopeToken
-  )
-  if (revokePubkey) {
-    // The tag covers pendingRemoval.state, so the 'broadcast' write must be
-    // re-tagged like every other meta write, or the stored meta stops
-    // verifying and every later check falls back to a chain re-scan.
     assertVaultScope(scopeToken)
-    const scope = vaultStore.getScope()
-    if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
-    await vaultStore.markKeyRemovalBroadcast(scopeToken, next =>
-      computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+    requireReleased(opts, scopeToken, 'Re-locking the vault')
+    await requireOnline(opts)
+    assertVaultScope(scopeToken)
+    await requirePrivateBackup(opts, 'Re-locking the vault')
+    assertVaultScope(scopeToken)
+    // XR-002: authenticate meta BEFORE anything below uses it — relockVault
+    // always builds a new output, so unlike withdrawFromVault this runs
+    // unconditionally, and early enough that a reconciled/retagged meta is
+    // what selectVaultInputs (re-reading vaultStore.getMeta itself) and the
+    // fee estimate below both see.
+    const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
+    await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
+    const revokePubkey = opts?.revokePubkey
+    const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, 'all', revokePubkey, scopeToken)
+    if (sel.meta.pendingRemoval && !revokePubkey) {
+      throw new VaultError('relock-required', 'Finish the pending key removal before another re-lock')
+    }
+    if (revokePubkey && sel.chosen.pubkey === revokePubkey) {
+      throw new VaultError('wrong-key', 'The key being revoked cannot authorize its own replacement')
+    }
+    if (revokePubkey && sel.meta.pendingRemoval?.key.pubkey !== revokePubkey) {
+      throw new VaultError('not-enrolled', 'The key being revoked does not match the pending removal')
+    }
+    // Before the fee estimate below, which cannot size a lock outside 2..5.
+    requireLockableKeyCount(sel.keys.length)
+    await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, sel.meta, scopeToken)
+    const fee = estimateRelockFee(sel.selected.length, R1C_LOCK_LEN(sel.keys.length))
+    const relocked = sel.acc - fee
+    if (relocked < VAULT_DEPOSIT_MIN) {
+      throw new VaultError(
+        'too-small-to-relock',
+        `Re-locking ${sel.acc} satoshis would leave ${relocked} after fees, below the ${VAULT_DEPOSIT_MIN} floor`
+      )
+    }
+    const result = await spendVaultOutputs(
+      w,
+      adminOriginator,
+      sel,
+      reason,
+      {
+        outputs: await newVaultOutput(
+          w,
+          adminOriginator,
+          sel.meta,
+          relocked,
+          'Vault re-lock',
+          sel.saltInventory,
+          scopeToken.chain
+        ),
+        labels: ['vault', 'vault-relock'],
+        inputDescription: 'Vault re-lock',
+        // Fixed, like the deposit and withdrawal descriptions (see
+        // VaultSpendPlan): the caller's `reason` is NFC-prompt copy that names
+        // the keys to tap, which read as nonsense in the activity list.
+        description: 'Vault relock'
+      },
+      opts,
+      scopeToken
     )
-  }
-  return result
+    if (revokePubkey) {
+      // The tag covers pendingRemoval.state, so the 'broadcast' write must be
+      // re-tagged like every other meta write, or the stored meta stops
+      // verifying and every later check falls back to a chain re-scan.
+      assertVaultScope(scopeToken)
+      const scope = vaultStore.getScope()
+      if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+      await vaultStore.markKeyRemovalBroadcast(scopeToken, next =>
+        computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+      )
+    }
+    return result
   })
 }
 
@@ -3553,21 +3670,13 @@ async function actionCarriesCurrentRelock(
   }
   const salt = await resolveVaultSalt(w, adminOriginator, ci)
   verifyInstructionsAgainstLock(ci, lock, `Vault re-lock ${action.txid ?? action.reference ?? ''}`, salt)
-  const carriesCurrentRelock = (
+  const carriesCurrentRelock =
     ci.vaultId === meta.vaultId &&
     ci.createdAt === meta.createdAt &&
     ci.revision === meta.revision &&
     sameInstructionKeys(meta.keys, ci.keys)
-  )
   if (carriesCurrentRelock && saltInventory) {
-    rememberVaultSalt(
-      saltInventory,
-      ci,
-      lock,
-      vaultActionOutputId(action, output.outputIndex),
-      expectedChain,
-      salt
-    )
+    rememberVaultSalt(saltInventory, ci, lock, vaultActionOutputId(action, output.outputIndex), expectedChain, salt)
   }
   return carriesCurrentRelock
 }
@@ -3589,9 +3698,7 @@ function actionSpendsPendingRemovalKey(
       const lock = LockingScript.fromHex(input.sourceLockingScript)
       bakedCommitments(lock)
       const record = inventory.outputRecords.get(input.sourceOutpoint.toLowerCase())
-      return record !== undefined &&
-        record.lockingScript === lock.toHex() &&
-        record.pubkeys.has(pending.key.pubkey)
+      return record !== undefined && record.lockingScript === lock.toHex() && record.pubkeys.has(pending.key.pubkey)
     } catch {
       return false
     }
@@ -3622,10 +3729,7 @@ async function isUnbroadcastPendingRemovalRelock(
  * tombstone is cleared only when every Vault action is accepted by the network
  * (ACCEPTED_ACTION_STATUSES) or is a failed deposit, a matching re-lock is
  * accepted, and two authenticated scans find no lock authorizing the key. */
-export async function finalizeVaultKeyRemoval(
-  w: VaultWallet,
-  adminOriginator: string
-): Promise<boolean> {
+export async function finalizeVaultKeyRemoval(w: VaultWallet, adminOriginator: string): Promise<boolean> {
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
     assertVaultScope(scopeToken)
@@ -3660,36 +3764,55 @@ export async function finalizeVaultKeyRemoval(
     let actionStateBlocks = false
     const actionSaltInventory = emptyVaultSaltInventory()
     await addHistoricalVaultSaltInventory(w, adminOriginator, actionSaltInventory, meta, scopeToken)
-    await scanVaultActions(w, adminOriginator, {
-      labels: [],
-      includeLabels: true,
-      includeInputs: true,
-      includeInputSourceLockingScripts: true,
-      includeOutputs: true,
-      includeOutputLockingScripts: true
-    }, async action => {
-      if (await isUnbroadcastPendingRemovalRelock(w, adminOriginator, action, meta, scopeToken.chain, actionSaltInventory)) {
-        unsignedRelockReferences.push(action.reference!)
-      }
-      if (action.txid && await actionCarriesCurrentRelock(w, adminOriginator, action, meta, scopeToken.chain, actionSaltInventory)) {
-        if (!actionSpendsPendingRemovalKey(action, meta, actionSaltInventory)) invalidCurrentRelock = true
-        else {
-          matchingRelock = true
-          if (ACCEPTED_ACTION_STATUSES.has(action.status)) acceptedMatchingRelock = true
+    await scanVaultActions(
+      w,
+      adminOriginator,
+      {
+        labels: [],
+        includeLabels: true,
+        includeInputs: true,
+        includeInputSourceLockingScripts: true,
+        includeOutputs: true,
+        includeOutputLockingScripts: true
+      },
+      async action => {
+        if (
+          await isUnbroadcastPendingRemovalRelock(
+            w,
+            adminOriginator,
+            action,
+            meta,
+            scopeToken.chain,
+            actionSaltInventory
+          )
+        ) {
+          unsignedRelockReferences.push(action.reference!)
         }
-      }
-      if (!actionTouchesVault(action)) return
-      if (ACCEPTED_ACTION_STATUSES.has(action.status)) return
-      if (action.status === 'failed') {
-        const labels = new Set(action.labels ?? [])
-        if (!(labels.has('vault-deposit') && !labels.has('vault-withdraw') && !labels.has('vault-relock'))) {
+        if (
+          action.txid &&
+          (await actionCarriesCurrentRelock(w, adminOriginator, action, meta, scopeToken.chain, actionSaltInventory))
+        ) {
+          if (!actionSpendsPendingRemovalKey(action, meta, actionSaltInventory)) invalidCurrentRelock = true
+          else {
+            matchingRelock = true
+            if (ACCEPTED_ACTION_STATUSES.has(action.status)) acceptedMatchingRelock = true
+          }
+        }
+        if (!actionTouchesVault(action)) return
+        if (ACCEPTED_ACTION_STATUSES.has(action.status)) return
+        if (action.status === 'failed') {
+          const labels = new Set(action.labels ?? [])
+          if (!(labels.has('vault-deposit') && !labels.has('vault-withdraw') && !labels.has('vault-relock'))) {
+            actionStateBlocks = true
+          }
+        } else {
+          // Not yet accepted ('sending' included) or an unknown status.
           actionStateBlocks = true
         }
-      } else {
-        // Not yet accepted ('sending' included) or an unknown status.
-        actionStateBlocks = true
-      }
-    }, scopeToken, true)
+      },
+      scopeToken,
+      true
+    )
 
     assertVaultScope(scopeToken)
     await verifyVaultSaltDerivations(w, adminOriginator, actionSaltInventory)

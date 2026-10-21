@@ -257,17 +257,17 @@ const tokenSample = (): PaymentFrame => ({
     certificates: [new Uint8Array([9, 9, 9]), new Uint8Array([])],
     linkage: [
       { txid: 'cd'.repeat(32), payload: new Uint8Array([1, 2, 3]) },
-      { txid: 'ef'.repeat(32), payload: new Uint8Array([4]) },
+      { txid: 'ef'.repeat(32), payload: new Uint8Array([4]) }
     ],
     admissions: [
       {
         txid: '11'.repeat(32),
         outputsToAdmit: [0, 3, 260],
         signature: new Uint8Array([0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02]),
-        signerKey: '03'.padEnd(66, 'b'),
-      },
-    ],
-  } satisfies TokenPayment,
+        signerKey: '03'.padEnd(66, 'b')
+      }
+    ]
+  } satisfies TokenPayment
 })
 
 describe('frame v4 kinds', () => {
@@ -335,11 +335,11 @@ describe('frame v4 kinds', () => {
       txid: n.toString(16).padStart(2, '0').repeat(32),
       outputsToAdmit: [n, n + 1],
       signature: new Uint8Array([0x30, n, n]),
-      signerKey: '02'.padEnd(66, 'c'),
+      signerKey: '02'.padEnd(66, 'c')
     })
     const f = {
       ...tokenSample(),
-      token: { ...tokenSample().token!, admissions: [entry(1), entry(2), entry(3)] },
+      token: { ...tokenSample().token!, admissions: [entry(1), entry(2), entry(3)] }
     }
     expect(decodeFrame(encodeFrame(f))).toEqual(f)
   })
@@ -374,7 +374,10 @@ describe('frame v4 kinds', () => {
     const sigLen = f.token!.admissions[0].signature.length
     let at = -1
     for (let i = 0; i < bytes.length - sigLen; i++) {
-      if (bytes[i] === sigLen && bytes[i + 1] === 0x30 && bytes[i + 2] === 0x06) { at = i; break }
+      if (bytes[i] === sigLen && bytes[i + 1] === 0x30 && bytes[i + 2] === 0x06) {
+        at = i
+        break
+      }
     }
     expect(at).toBeGreaterThan(-1)
     const tampered = new Uint8Array(bytes)

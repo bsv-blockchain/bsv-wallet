@@ -35,11 +35,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -49,9 +57,15 @@ jest.mock('expo-secure-store', () => ({
     return {
       WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wutdo',
       getItemAsync: jest.fn(async (k: string) => store[k] ?? null),
-      setItemAsync: jest.fn(async (k: string, v: string) => { store[k] = v }),
-      deleteItemAsync: jest.fn(async (k: string) => { delete store[k] }),
-      __clear: () => { for (const k of Object.keys(store)) delete store[k] }
+      setItemAsync: jest.fn(async (k: string, v: string) => {
+        store[k] = v
+      }),
+      deleteItemAsync: jest.fn(async (k: string) => {
+        delete store[k]
+      }),
+      __clear: () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   })()
 }))
@@ -174,7 +188,10 @@ function independentlyVerifySpend(chain: FakeChain, txid: string, signerPubkeyHe
     const digest = signerDigest(preimage)
     const compact = new p256.Signature(r, s).toBytes('compact')
     expect(
-      p256.verify(compact, digestBytes(digest), p256.Point.fromHex(signerPubkeyHex).toBytes(true), { prehash: false, lowS: true })
+      p256.verify(compact, digestBytes(digest), p256.Point.fromHex(signerPubkeyHex).toBytes(true), {
+        prehash: false,
+        lowS: true
+      })
     ).toBe(true)
   }
 }
@@ -221,7 +238,11 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
         vaultStore.clearScope()
         vaultStore.configureScope({ identityKey, chain: 'test' })
         await seedOwnMeta(deviceA, {
-          v: 6, vaultId: hex(p256.utils.randomSecretKey()), revision: 1, createdAt: Date.now(), keys
+          v: 6,
+          vaultId: hex(p256.utils.randomSecretKey()),
+          revision: 1,
+          createdAt: Date.now(),
+          keys
         })
         armSigner(mock, keys[0].serial)
         await depositToVault(deviceA, ADMIN, 500_000)
@@ -271,7 +292,13 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
           // the withdraw-remainder path is proven again on the recovered
           // device, and there is still something left for the re-lock check
           // below.
-          const spend = await withdrawFromVault(deviceB, ADMIN, 200_000, `Recovered withdrawal (key ${pos + 1})`, keys[pos].serial)
+          const spend = await withdrawFromVault(
+            deviceB,
+            ADMIN,
+            200_000,
+            `Recovered withdrawal (key ${pos + 1})`,
+            keys[pos].serial
+          )
           independentlyVerifySpend(chain, spend.txid, keys[pos].pubkey)
 
           // Recovered meta carries the full key list, so revocation
@@ -399,7 +426,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
   // verifyInstructionsAgainstLock throw restoreSalt.test.ts's primitive-level
   // test predicts, never by silently reading zero or refusing for some other
   // (weaker) reason.
-  it('a wallet holding the owner\'s local DB rows, a committed key and its correct PIN, but a DIFFERENT root, cannot read or spend the vault (I2, end-to-end)', async () => {
+  it("a wallet holding the owner's local DB rows, a committed key and its correct PIN, but a DIFFERENT root, cannot read or spend the vault (I2, end-to-end)", async () => {
     const identityKey = `02${'e7'.repeat(32)}`
     const chain = new FakeChain()
     const owner = generateMnemonicWallet()
@@ -423,10 +450,12 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
     // bytes — into a wallet instance built from a DIFFERENT root.
     const attackerWallet = new FakeVaultWallet(attacker.primaryKey, chain)
     type WalletInternals = { basket: Map<string, unknown>; sourceTxByTxid: Map<string, unknown> }
-    ;(attackerWallet as unknown as WalletInternals).basket =
-      new Map((owningWallet as unknown as WalletInternals).basket)
-    ;(attackerWallet as unknown as WalletInternals).sourceTxByTxid =
-      new Map((owningWallet as unknown as WalletInternals).sourceTxByTxid)
+    ;(attackerWallet as unknown as WalletInternals).basket = new Map(
+      (owningWallet as unknown as WalletInternals).basket
+    )
+    ;(attackerWallet as unknown as WalletInternals).sourceTxByTxid = new Map(
+      (owningWallet as unknown as WalletInternals).sourceTxByTxid
+    )
 
     await expect(getVaultBalance(attackerWallet, ADMIN)).rejects.toMatchObject({ code: 'template-invalid' })
     await expect(

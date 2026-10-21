@@ -20,6 +20,7 @@
 ## Tasks
 
 ### A. Per-profile backup preference (spec §1)
+
 - Files: `core/backup/preference.ts`, `push.ts`, `erase.ts`, `status.ts` (optional explicit index); `core/context/WalletContext.tsx` (pass `profileIndex` to `pushOnce`; logout removes the bare key); `ui/screens/WalletConfigScreen.tsx` (effect deps, erase index).
 - Tests:
   - `__tests__/backup/preference.test.ts`: per-profile cases with `__resetProfilesForTests`.
@@ -30,6 +31,7 @@
   - Keep the vault mocked-module tests green, so `transfers.ts` gets no new imports from `preference.ts`.
 
 ### B. Profile store: name + tombstone (spec §2, §3 store semantics)
+
 - `core/profiles/profileStore.ts`:
   - `name` (trim, 24 chars, drop empty) and `deleted?: true` in the type, parse whitelist and `updateProfile` equality.
   - `active` clamps to a live profile.
@@ -40,6 +42,7 @@
 - Tests: `profileStore.test.ts` additions and a `profileLabel` test.
 
 ### C. Rename UI (spec §2)
+
 - `ui/screens/ProfileScreen.tsx`: a "Profile name" PencilEditField section that writes `updateProfile(active, {name})`, with a private-on-device hint.
 - Switch label call sites to `profileLabel`:
   - `ProfileSwitcherPopover.tsx` (rows, a11y, cover);
@@ -50,6 +53,7 @@
 - Tests: popover label with name, tombstone hidden; ProfileScreen rename if the existing harness allows.
 
 ### D. Removal core (spec §3)
+
 - `assertProfileEmpty(storage, userId, deps)` in `core/profiles/assertProfileEmpty.ts`.
   - Raw SQL on `storage.sqliteDb` plus the KV and mandala checks.
   - Returns `{ ok: true } | { ok: false, reasons: RemovalBlocker[] }`.
@@ -61,6 +65,7 @@
 - Tests: one test per blocker and fail-closed; the `releaseHandle` journal and replay.
 
 ### E. Removal flow + UI (spec §3 steps, startup purge retry)
+
 - WalletContext `removeProfile(): Promise<RemoveProfileResult>`, exposed on the context, with the ordered steps.
   - Abort paths leave the store untouched.
   - Runs under `runProfileTransition`, so the cover shows.
@@ -74,6 +79,7 @@
 - Tests: the removal flow (ordering, abort when not empty, abort when release fails, switch failure leaves no tombstone, purge after success, never profile 0); startup retry.
 
 ### F. Push: app side (spec §4 App)
+
 - `core/push/registration.ts`:
   - `syncPushRegistrations({ adapter, targets: [{ identityKey, host, makeClient }], ... })`, ordering the active profile last;
   - per-identity marker map;
@@ -89,6 +95,7 @@
 - Tests: ordering, markers, ProtoWallet identity equals the profile identity, routing, unregister tolerance.
 
 ### G. Push: server side (spec §4 Server)
+
 - In the server worktree:
   - SQL schema migration for sqlite and postgres, safe on existing rows;
   - Mongo backfill and index;
@@ -103,6 +110,7 @@
 Ordering: G runs in parallel with A–F. A, B, C, D, E and F run in sequence, because they share WalletContext, translations and profileStore.
 
 ## Verification
+
 - Full wallet jest and tsc; Go tests.
 - Whole-branch adversarial review of both repos.
 - Simulator: rename; remove a zero-balance profile; blocked removal with funds.

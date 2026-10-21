@@ -15,7 +15,7 @@ A person who wants to pay someone, or get paid, must never end up stuck with no 
 - Headless iOS/Android background fetch (`BGAppRefreshTask`). Proof collection while the app is closed is latency, not a dead end; it recovers on next open. Defer.
 - Raising `MAX_RECOVERY_DAYS` to 365 in the day-to-day receive UI. The Check Wallet flow scans the existing 30-day window, then offers a further lookback as an explicit extra step.
 - Deleting `LogsScreen`. It remains the `__DEV__`/Advanced raw terminal. Users get Check Wallet instead.
-- Auto-spending new UTXOs to “resend” a payment whose original transaction is dead. A resend of a live txid rebuilds the *token* (same tx, fresh AtomicBEEF). A double-spent/cancelled payment is a new pay, initiated by the sender after a NACK, not minted silently.
+- Auto-spending new UTXOs to “resend” a payment whose original transaction is dead. A resend of a live txid rebuilds the _token_ (same tx, fresh AtomicBEEF). A double-spent/cancelled payment is a new pay, initiated by the sender after a NACK, not minted silently.
 
 ## Product requirements this change satisfies
 
@@ -30,7 +30,7 @@ A person who wants to pay someone, or get paid, must never end up stuck with no 
 
 ### 1.1 Payments have no return channel
 
-When credit fails, every path terminates on the receiver’s phone. Discard acknowledges the message and destroys the only copy of the BRC-29 derivation data the receiver will ever see. The sender’s outbox entry is pruned the moment `HandleSend` next loads (`status === 'sent'`). Sending again mints a *new* payment. The original satoshis stay locked at a key neither party can derive.
+When credit fails, every path terminates on the receiver’s phone. Discard acknowledges the message and destroys the only copy of the BRC-29 derivation data the receiver will ever see. The sender’s outbox entry is pruned the moment `HandleSend` next loads (`status === 'sent'`). Sending again mints a _new_ payment. The original satoshis stay locked at a key neither party can derive.
 
 Corrupt / undecryptable inbox bodies never appear at all (`listIncomingPayments` safeParse-filters them). The sender sees success; the receiver sees an empty screen.
 
@@ -38,19 +38,19 @@ Everything needed for a resend already exists: the message-box rail is bidirecti
 
 ### 1.2 Recovery machinery is disconnected or stubbed
 
-| Break | File | Effect |
-|---|---|---|
-| `reviewStatus` returns `{ log: '' }` | `StorageExpoSQLite.ts:1645` | Invalid reqs never fail their txs; phantom balance; `specOpInvalidChange`’s restore half is a no-op |
-| `sqlUpdate` drops `undefined` | `StorageExpoSQLite.ts:513` | `spentBy: undefined` never becomes SQL NULL; released inputs still look double-spent |
-| Monitor created with 3 args; `monitor.ready` never awaited; `TaskReviewProvenTxs` spliced out | `WalletContext.tsx:1153, 1275` | `TaskReorg` never receives events; stale proofs live forever |
-| Header window is append-only | `headerStore.ts:154–196` | One orphaned tip wedges header sync |
-| Inbox / outbox / offline banners are screen-local | `HandleReceive`, `HandleSend`, `PayScreen` | Close the screen and the wallet goes inert |
+| Break                                                                                         | File                                       | Effect                                                                                              |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `reviewStatus` returns `{ log: '' }`                                                          | `StorageExpoSQLite.ts:1645`                | Invalid reqs never fail their txs; phantom balance; `specOpInvalidChange`’s restore half is a no-op |
+| `sqlUpdate` drops `undefined`                                                                 | `StorageExpoSQLite.ts:513`                 | `spentBy: undefined` never becomes SQL NULL; released inputs still look double-spent                |
+| Monitor created with 3 args; `monitor.ready` never awaited; `TaskReviewProvenTxs` spliced out | `WalletContext.tsx:1153, 1275`             | `TaskReorg` never receives events; stale proofs live forever                                        |
+| Header window is append-only                                                                  | `headerStore.ts:154–196`                   | One orphaned tip wedges header sync                                                                 |
+| Inbox / outbox / offline banners are screen-local                                             | `HandleReceive`, `HandleSend`, `PayScreen` | Close the screen and the wallet goes inert                                                          |
 
 ---
 
 ## 2. Architecture — four workstreams, four shippable phases
 
-Workstreams A–D are the *design*. Phases P0–P3 are the *ship order*. P0 is the money-loss stop. Later phases make recovery automatic and visible.
+Workstreams A–D are the _design_. Phases P0–P3 are the _ship order_. P0 is the money-loss stop. Later phases make recovery automatic and visible.
 
 ```
 P0  Stop losing money     (A-lite + B-lite + nearby orphans)
@@ -74,10 +74,10 @@ A dedicated MessageBox name, not `payment_inbox` and not the unused `payment_req
 export const PAYMENT_CONTROL_BOX = 'payment_control'
 
 export type ResendReason =
-  | 'corrupt'           // body would not parse / decrypt / shape-check
-  | 'uncreditible'      // internalize exhausted, not environmental
-  | 'double_spent'      // payment tx is failed / doubleSpend
-  | 'bounced_offline'   // nearby/offline row rejected by the network
+  | 'corrupt' // body would not parse / decrypt / shape-check
+  | 'uncreditible' // internalize exhausted, not environmental
+  | 'double_spent' // payment tx is failed / doubleSpend
+  | 'bounced_offline' // nearby/offline row rejected by the network
 
 export type PaymentControlMessage =
   | {
@@ -96,13 +96,13 @@ Unknown `type` values are ignored (forward-compatible). A message that is not JS
 
 ### 3.2 Receiver behaviour
 
-| Event | Action |
-|---|---|
-| Token fails shape/parse/decrypt | Attention row “This payment arrived damaged”. Auto-send `resend_request` with `reason: 'corrupt'`. Ack the damaged inbox message **only after** the NACK is delivered. |
-| Auto-credit exhausts on a *structural* error | Auto-send `resend_request` with `reason: 'uncreditible'`. Keep the inbox message until the user discards *or* a rebuilt token arrives. |
-| Internalize reports double-spend / `invalid status failed` | Map copy to “This payment was cancelled or double-spent — it is safe to dismiss”. Auto-send `resend_request` with `reason: 'double_spent'`. Discard confirm copy is status-aware (does **not** say “abandoning money”). |
-| User taps Discard | Send `resend_request` (if not already sent) **then** ack. If the NACK fails, Discard fails and the row stays. |
-| Nearby/offline received row → `rejected` with `senderIdentityKey` | Auto-send `resend_request` with `reason: 'bounced_offline'` when online. Banner gets Request again / Copy details / Dismiss. |
+| Event                                                             | Action                                                                                                                                                                                                                  |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Token fails shape/parse/decrypt                                   | Attention row “This payment arrived damaged”. Auto-send `resend_request` with `reason: 'corrupt'`. Ack the damaged inbox message **only after** the NACK is delivered.                                                  |
+| Auto-credit exhausts on a _structural_ error                      | Auto-send `resend_request` with `reason: 'uncreditible'`. Keep the inbox message until the user discards _or_ a rebuilt token arrives.                                                                                  |
+| Internalize reports double-spend / `invalid status failed`        | Map copy to “This payment was cancelled or double-spent — it is safe to dismiss”. Auto-send `resend_request` with `reason: 'double_spent'`. Discard confirm copy is status-aware (does **not** say “abandoning money”). |
+| User taps Discard                                                 | Send `resend_request` (if not already sent) **then** ack. If the NACK fails, Discard fails and the row stays.                                                                                                           |
+| Nearby/offline received row → `rejected` with `senderIdentityKey` | Auto-send `resend_request` with `reason: 'bounced_offline'` when online. Banner gets Request again / Copy details / Dismiss.                                                                                            |
 
 Environmental failures (chaintracks down/behind, NetInfo false-offline, `lastMissHeight` set) do **not** NACK and do **not** count toward `MAX_AUTO_ATTEMPTS`.
 
@@ -116,7 +116,7 @@ On receiving `resend_request` for a txid this wallet created:
 4. `sendMessage` the rebuilt token to `payment_inbox` of the original recipient (deterministic HMAC message id makes this idempotent).
 5. Surface on the home screen: “N asked you to resend a payment” with a **Resend** button. One tap. Do not silently re-spend new UTXOs.
 
-On receiving `payment_cancelled` for a txid the wallet has internalized but not seen confirm: drop the token (do not credit if still in inbox; if already internalized, leave the chain as source of truth — a cancel after broadcast cannot un-mine). The notice exists so a recipient holding an *unbroadcast* nosend token stops waiting.
+On receiving `payment_cancelled` for a txid the wallet has internalized but not seen confirm: drop the token (do not credit if still in inbox; if already internalized, leave the chain as source of truth — a cancel after broadcast cannot un-mine). The notice exists so a recipient holding an _unbroadcast_ nosend token stops waiting.
 
 A delivered-or-uncertain outbox Cancel sends `payment_cancelled` before removing the entry.
 
@@ -145,7 +145,7 @@ export async function rebuildPeerPayToken(args: {
 } | undefined>
 ```
 
-Returns undefined when the action, output 0 instructions, or fresh BEEF cannot be found. The UI then says the original payment cannot be re-delivered and offers **Send again** (a *new* `sendViaHandle` / `sendToAddress` with the same recipient and amount) instead.
+Returns undefined when the action, output 0 instructions, or fresh BEEF cannot be found. The UI then says the original payment cannot be re-delivered and offers **Send again** (a _new_ `sendViaHandle` / `sendToAddress` with the same recipient and amount) instead.
 
 ---
 
@@ -171,11 +171,11 @@ Treat `failed` as thrown so the entry stays `unsent` with `lastError` and Retry/
 
 ### 4.2 Crash windows on send
 
-| Gap | Fix |
-|---|---|
-| `createAction({ noSend: true })` succeeds, `saveOutboxEntry` throws | `abortAction` the fresh txid in a `finally`/`catch` before rethrowing |
-| `sendMessage` succeeds, `delivered: true` write is lost | Persist `delivering: true` *before* `sendMessage`. Uncertain state: Retry is the default (idempotent). Cancel sends `payment_cancelled` and does not abort until the box confirms the message is gone *or* the user confirms abandon |
-| Orphaned `peerpay`-labeled nosend with no outbox row at startup | Reconcile: auto-abort (never delivered) |
+| Gap                                                                 | Fix                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `createAction({ noSend: true })` succeeds, `saveOutboxEntry` throws | `abortAction` the fresh txid in a `finally`/`catch` before rethrowing                                                                                                                                                                |
+| `sendMessage` succeeds, `delivered: true` write is lost             | Persist `delivering: true` _before_ `sendMessage`. Uncertain state: Retry is the default (idempotent). Cancel sends `payment_cancelled` and does not abort until the box confirms the message is gone _or_ the user confirms abandon |
+| Orphaned `peerpay`-labeled nosend with no outbox row at startup     | Reconcile: auto-abort (never delivered)                                                                                                                                                                                              |
 
 `sendViaHandle` records `lastAttemptAt` / `lastError` on the first failure, not only inside `retryDelivery`.
 
@@ -214,7 +214,9 @@ export function satoshisFromToken(token: {
 
 ```ts
 export async function listDamagedInboxMessages(args: {
-  client: { listMessages(args: { messageBox: string }): Promise<{ messageId: string; sender: string; body: unknown }[]> }
+  client: {
+    listMessages(args: { messageBox: string }): Promise<{ messageId: string; sender: string; body: unknown }[]>
+  }
   parsed: { messageId: string }[]
 }): Promise<{ messageId: string; sender: string; reason: 'unparseable' | 'bad_shape' }[]>
 ```
@@ -256,14 +258,14 @@ Do not use `listenForLivePayments` in this change (nice-to-have; the poll is suf
 
 ### 4.8 Nearby / offline orphans (P0 because they burn funds)
 
-| Gap | Fix |
-|---|---|
-| Online QR **Done** broadcasts with no durable `framePayload` | Persist the sealed frame on **every** Done (insert `offline_actions` first; drain broadcasts). “Show code” remains available after an online send. Gate Done copy: only tap once the other phone shows Received |
-| Exit `send_qr` without Done | Ask “Did the other person scan your code?” No → `abortAction`. Yes / Not sure → same hold path as Done |
-| Unseal failure on QR mints a new session | Treat like session mismatch: keep `hostedSession`, return to `receive_wait`, re-arm scanner |
-| `localpay_pending` parse failure returns `[]` then the next write destroys the blob | Quarantine the raw value under `localpay_pending_corrupt_<ts>` **before** any `writeAll`. Surface “we found damaged payment data”. Do not treat parse failure as empty |
-| `tryProcess` gated on `getOnline()` | Remove the gate; `internalizeAction` decides. Surface KV pending in `OfflineNotice` |
-| Failed `abortAction` after a decline | Durable `pending_aborts` KV list, retried on wallet build / foreground |
+| Gap                                                                                 | Fix                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Online QR **Done** broadcasts with no durable `framePayload`                        | Persist the sealed frame on **every** Done (insert `offline_actions` first; drain broadcasts). “Show code” remains available after an online send. Gate Done copy: only tap once the other phone shows Received |
+| Exit `send_qr` without Done                                                         | Ask “Did the other person scan your code?” No → `abortAction`. Yes / Not sure → same hold path as Done                                                                                                          |
+| Unseal failure on QR mints a new session                                            | Treat like session mismatch: keep `hostedSession`, return to `receive_wait`, re-arm scanner                                                                                                                     |
+| `localpay_pending` parse failure returns `[]` then the next write destroys the blob | Quarantine the raw value under `localpay_pending_corrupt_<ts>` **before** any `writeAll`. Surface “we found damaged payment data”. Do not treat parse failure as empty                                          |
+| `tryProcess` gated on `getOnline()`                                                 | Remove the gate; `internalizeAction` decides. Surface KV pending in `OfflineNotice`                                                                                                                             |
+| Failed `abortAction` after a decline                                                | Durable `pending_aborts` KV list, retried on wallet build / foreground                                                                                                                                          |
 
 ---
 
@@ -278,7 +280,7 @@ Scope the translation to `outputs.spentBy` (and any other column whose documente
 **`reviewStatus`.** Implement by mirroring `reviewStatusIdb.js`:
 
 1. Fail transactions whose `proven_tx_reqs.status = 'invalid'` via `updateTransactionStatus('failed', id)` so release/mark hooks run.
-2. Restore outputs whose `spentBy` is a *terminal-failed* tx (`req` is `invalid` or `doubleSpend`) to `spendable = 1`, `spentBy = NULL`.
+2. Restore outputs whose `spentBy` is a _terminal-failed_ tx (`req` is `invalid` or `doubleSpend`) to `spendable = 1`, `spentBy = NULL`.
 3. Mark outputs generated by terminal-failed txs `spendable = 0`, `spentBy = NULL`.
 
 Skip txids that have a live `offline_actions` row in `queued`/`posting` (queue-safe). Extract SQL into `core/storage/methods/reviewStatusSql.ts` and unit-test against `node:sqlite` the way `releaseStranded.test.ts` does.
@@ -305,7 +307,7 @@ Offer Check Wallet contextually when a send fails with `WERR_REVIEW_ACTIONS` / r
 ### 5.4 Address rail
 
 - Per-UTXO isolation in `sweepAddress`: `resp.ok` + hex-shape before merge; one bad tx must not skip the address’s whole pass. Fall back to `refetchAtomicBeef` on repeated beef failure.
-- `touchWatched` when a sweep *attempt* found on-chain UTXOs even if import failed, so known-funded addresses never TTL out.
+- `touchWatched` when a sweep _attempt_ found on-chain UTXOs even if import failed, so known-funded addresses never TTL out.
 - Watchlist TTL: keep never-swept addresses for `MAX_WATCH_DAYS` (7), not 24 h.
 - Persistent `failureCount > 0` is a notice with “try again now”.
 
@@ -363,11 +365,11 @@ Receipt `broadcast` flag is derived from the req status after internalize (`alre
 
 Every confirmed or partially-confirmed finding from the audit maps to a phase. The one **refuted** finding (proof-provider outage driving mined txs to failed) is out of scope.
 
-| Phase | Finding titles (abbrev.) |
-|---|---|
-| **P0** | Prune sent outbox; `broadcastNoSend` discards `sendWithResults`; Discard strands funds; unparseable inbox dropped; token.amount fraud; Refresh vs offline queue; online QR Done without frame; `localpay_pending` parse-as-empty; first-failure `lastError`; mint-without-outbox abort; delivering checkpoint |
-| **P1** | No resend-request message; no NACK on inbound failure; double-spent wedged row; Request again on rejected nearby; rebuild-from-customInstructions; activity “Send the payment details again”; cancel delivered entry |
-| **P2** | `reviewStatus` stub; `sqlUpdate` NULL; Check Wallet; restore-from-backup UTXO check; address sweep isolation / TTL / 30-day lookback in repair; `specOpInvalidChange` unwired; completed-tx-vanishes existence check |
+| Phase  | Finding titles (abbrev.)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **P0** | Prune sent outbox; `broadcastNoSend` discards `sendWithResults`; Discard strands funds; unparseable inbox dropped; token.amount fraud; Refresh vs offline queue; online QR Done without frame; `localpay_pending` parse-as-empty; first-failure `lastError`; mint-without-outbox abort; delivering checkpoint                                                                                                                                                                                                                             |
+| **P1** | No resend-request message; no NACK on inbound failure; double-spent wedged row; Request again on rejected nearby; rebuild-from-customInstructions; activity “Send the payment details again”; cancel delivered entry                                                                                                                                                                                                                                                                                                                      |
+| **P2** | `reviewStatus` stub; `sqlUpdate` NULL; Check Wallet; restore-from-backup UTXO check; address sweep isolation / TTL / 30-day lookback in repair; `specOpInvalidChange` unwired; completed-tx-vanishes existence check                                                                                                                                                                                                                                                                                                                      |
 | **P3** | Inbox only while HandleReceive focused; outbox retry only by hand; environmental attempts; home badges; OfflineNotice only on `/pay`; TaskReorg starved; header rewind; crash-mid-append; `refreshProof` `blockHash ''`; `lastMissHeight` unread; `TaskSendWaiting` vs queue; persist attempts; credit mutex; host mismatch / `anointHost`; stalled-queue repair; pending `tryProcess` online gate; error translation; abort `{aborted:false}`; identity search outage; receive spinner; activity fetch spinner; `canSend` silent disable |
 
 Partially confirmed items are in scope with the verifier’s correction applied (e.g. Cancel chip is labelled Cancel; stall text is recomputed after restart; `/settings` is an orphaned route).
@@ -396,14 +398,14 @@ None that block implementation. Defaults above are the decisions.
 
 ## PR Plan
 
-| PR | Title | Depends on | Contents |
-|---|---|---|---|
-| 1 | fix(pay): stop losing PeerPay and nearby funds | — | P0 |
-| 2 | feat(pay): payment_control resend loop | PR 1 | P1 |
-| 3 | feat(wallet): Check Wallet + storage repair | — (sqlUpdate/reviewStatus can land in parallel with PR 1) | P2 |
-| 4 | feat(wallet): background credit/drain + reorg heal | PR 1–3 | P3 |
+| PR  | Title                                              | Depends on                                                | Contents |
+| --- | -------------------------------------------------- | --------------------------------------------------------- | -------- |
+| 1   | fix(pay): stop losing PeerPay and nearby funds     | —                                                         | P0       |
+| 2   | feat(pay): payment_control resend loop             | PR 1                                                      | P1       |
+| 3   | feat(wallet): Check Wallet + storage repair        | — (sqlUpdate/reviewStatus can land in parallel with PR 1) | P2       |
+| 4   | feat(wallet): background credit/drain + reorg heal | PR 1–3                                                    | P3       |
 
-P2’s storage-layer tasks have no UI dependency on P1 and may merge first if that is faster; the Check Wallet *screen* should wait until `reviewStatus` and the NULL fix exist.
+P2’s storage-layer tasks have no UI dependency on P1 and may merge first if that is faster; the Check Wallet _screen_ should wait until `reviewStatus` and the NULL fix exist.
 
 ---
 
@@ -413,13 +415,13 @@ Authority: [Apple HIG](https://developer.apple.com/design/human-interface-guidel
 
 ### 11.1 Which surface
 
-| Situation | HIG component | App primitive |
-|---|---|---|
-| Irreversible uncommon action the person might have hit by accident (Discard a live payment; Abandon after confirm) | [Alert](https://developer.apple.com/design/human-interface-guidelines/alerts) | `showAlert` (`AlertCard`) — max 2 buttons side-by-side |
-| Several choices tied to an action they just took (leave send QR; Finish vs Abandon a delivered payment) | [Action sheet](https://developer.apple.com/design/human-interface-guidelines/action-sheets) | `showChoiceSheet` — iOS `ActionSheetIOS`; Android stacked `showAlert` |
-| Transient FYI (copied, retry failed, host unreachable) | not an alert | `showToast` |
-| Persistent stuck work while the app is open | [in-context, not an interruption](https://developer.apple.com/design/human-interface-guidelines/alerts) (“Avoid using an alert merely to provide information”) | Inline home/pay rows. Not a launch alert. Not a fake app-icon badge. |
-| Multi-step repair | [Sheet](https://developer.apple.com/design/human-interface-guidelines/sheets): prolonged flows are **not** sheets | Pushed `WalletCheckScreen` |
+| Situation                                                                                                          | HIG component                                                                                                                                                  | App primitive                                                         |
+| ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Irreversible uncommon action the person might have hit by accident (Discard a live payment; Abandon after confirm) | [Alert](https://developer.apple.com/design/human-interface-guidelines/alerts)                                                                                  | `showAlert` (`AlertCard`) — max 2 buttons side-by-side                |
+| Several choices tied to an action they just took (leave send QR; Finish vs Abandon a delivered payment)            | [Action sheet](https://developer.apple.com/design/human-interface-guidelines/action-sheets)                                                                    | `showChoiceSheet` — iOS `ActionSheetIOS`; Android stacked `showAlert` |
+| Transient FYI (copied, retry failed, host unreachable)                                                             | not an alert                                                                                                                                                   | `showToast`                                                           |
+| Persistent stuck work while the app is open                                                                        | [in-context, not an interruption](https://developer.apple.com/design/human-interface-guidelines/alerts) (“Avoid using an alert merely to provide information”) | Inline home/pay rows. Not a launch alert. Not a fake app-icon badge.  |
+| Multi-step repair                                                                                                  | [Sheet](https://developer.apple.com/design/human-interface-guidelines/sheets): prolonged flows are **not** sheets                                              | Pushed `WalletCheckScreen`                                            |
 
 Never `Alert.alert`. Never a custom modal that looks like navigation. Never a toast for a problem that is still true after the toast expires.
 
@@ -447,32 +449,32 @@ Never `Alert.alert`. Never a custom modal that looks like navigation. Never a to
 
 ### 11.5 Copy for new UX (English)
 
-| Key | English |
-|---|---|
-| `check_wallet` | Check Wallet |
-| `check_wallet_subtitle` | Run this if something doesn't look right |
-| `wallet_check_ok` | Everything looks good |
-| `wallet_check_summary` | Freed {{freed}} stuck coins · Recovered {{recovered}} payments |
-| `discard_payment_title` | Discard this payment? |
-| `discard_payment_body` | The sender will be asked to send the details again. The money stays on the chain until they do. |
-| `discard_void_title` | This payment didn't go through |
-| `discard_void_body` | It was cancelled or spent elsewhere. It's safe to dismiss. |
-| `did_they_scan_title` | Did they scan your code? |
-| `did_they_scan_no` | No, cancel payment |
-| `did_they_scan_yes` | Yes, keep it queued |
-| `did_they_scan_unsure` | Not sure, keep it queued |
-| `abandon_payment` | Abandon payment |
-| `finish_payment` | Finish payment |
-| `resend` | Resend |
-| `resending` | Resending… |
-| `request_again` | Request again |
-| `send_again` | Send again |
-| `send_payment_details_again` | Send details again |
-| `finish_or_cancel_outgoing` | Finish or cancel the payment below before sending a new one |
-| `identity_search_unavailable` | Search is unavailable right now. Try again in a moment. |
-| `payment_arrived_damaged` | This payment arrived damaged |
-| `waiting_network_confirm` | Waiting for the network to confirm this payment |
-| `recipient_message_box_unknown` | Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed. |
-| `activity_load_failed` | Couldn't load activity |
-| `activity_load_retry` | Tap to retry |
-| `resend_requested` | They asked you to resend a payment |
+| Key                             | English                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `check_wallet`                  | Check Wallet                                                                                    |
+| `check_wallet_subtitle`         | Run this if something doesn't look right                                                        |
+| `wallet_check_ok`               | Everything looks good                                                                           |
+| `wallet_check_summary`          | Freed {{freed}} stuck coins · Recovered {{recovered}} payments                                  |
+| `discard_payment_title`         | Discard this payment?                                                                           |
+| `discard_payment_body`          | The sender will be asked to send the details again. The money stays on the chain until they do. |
+| `discard_void_title`            | This payment didn't go through                                                                  |
+| `discard_void_body`             | It was cancelled or spent elsewhere. It's safe to dismiss.                                      |
+| `did_they_scan_title`           | Did they scan your code?                                                                        |
+| `did_they_scan_no`              | No, cancel payment                                                                              |
+| `did_they_scan_yes`             | Yes, keep it queued                                                                             |
+| `did_they_scan_unsure`          | Not sure, keep it queued                                                                        |
+| `abandon_payment`               | Abandon payment                                                                                 |
+| `finish_payment`                | Finish payment                                                                                  |
+| `resend`                        | Resend                                                                                          |
+| `resending`                     | Resending…                                                                                      |
+| `request_again`                 | Request again                                                                                   |
+| `send_again`                    | Send again                                                                                      |
+| `send_payment_details_again`    | Send details again                                                                              |
+| `finish_or_cancel_outgoing`     | Finish or cancel the payment below before sending a new one                                     |
+| `identity_search_unavailable`   | Search is unavailable right now. Try again in a moment.                                         |
+| `payment_arrived_damaged`       | This payment arrived damaged                                                                    |
+| `waiting_network_confirm`       | Waiting for the network to confirm this payment                                                 |
+| `recipient_message_box_unknown` | Can't find where to deliver this. Ask them to open BSV Wallet once so their inbox is listed.    |
+| `activity_load_failed`          | Couldn't load activity                                                                          |
+| `activity_load_retry`           | Tap to retry                                                                                    |
+| `resend_requested`              | They asked you to resend a payment                                                              |

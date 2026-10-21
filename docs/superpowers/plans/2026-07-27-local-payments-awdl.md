@@ -30,10 +30,12 @@
 Pure TypeScript, no native, no React. The binary wire format for both transports.
 
 **Files:**
+
 - Create: `utils/localpay/codec.ts`
 - Test: `__tests__/localpayCodec.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing
 - Produces:
   - `encodeFrame(f: PaymentFrame): Uint8Array`
@@ -55,7 +57,7 @@ const sample = (): PaymentFrame => ({
   outputIndex: 0,
   derivationPrefix: 'cHJlZml4',
   derivationSuffix: 'c3VmZml4',
-  transaction: new Uint8Array([1, 2, 3, 4, 5]),
+  transaction: new Uint8Array([1, 2, 3, 4, 5])
 })
 
 describe('localpay codec', () => {
@@ -241,10 +243,12 @@ git commit -m "feat(localpay): binary payment frame codec"
 ### Task 2: Session mint and QR bootstrap
 
 **Files:**
+
 - Create: `utils/localpay/session.ts`
 - Test: `__tests__/localpaySession.test.ts`
 
 **Interfaces:**
+
 - Consumes: `CodecError` from `utils/localpay/codec.ts`
 - Produces:
   - `interface Session { version: number; caps: number; sessionId: Uint8Array; psk: Uint8Array; identityKey: string; amount: number; derivationPrefix: string; derivationSuffix: string }`
@@ -260,7 +264,12 @@ git commit -m "feat(localpay): binary payment frame codec"
 ```ts
 // __tests__/localpaySession.test.ts
 import {
-  mintSession, encodeSession, decodeSession, instanceName, CAP_AWDL, SESSION_VERSION,
+  mintSession,
+  encodeSession,
+  decodeSession,
+  instanceName,
+  CAP_AWDL,
+  SESSION_VERSION
 } from '@/utils/localpay/session'
 import { CodecError } from '@/utils/localpay/codec'
 
@@ -269,7 +278,7 @@ const args = {
   amount: 5000,
   derivationPrefix: 'cHJlZml4',
   derivationSuffix: 'c3VmZml4',
-  supportsAwdl: true,
+  supportsAwdl: true
 }
 
 describe('localpay session', () => {
@@ -362,7 +371,7 @@ export function mintSession(args: {
     identityKey: args.identityKey,
     amount: args.amount,
     derivationPrefix: args.derivationPrefix,
-    derivationSuffix: args.derivationSuffix,
+    derivationSuffix: args.derivationSuffix
   }
 }
 
@@ -388,7 +397,7 @@ export function encodeSession(s: Session): string {
     i: s.identityKey,
     a: s.amount,
     p: s.derivationPrefix,
-    x: s.derivationSuffix,
+    x: s.derivationSuffix
   })
   return 'bsvpay1:' + toB64url(new TextEncoder().encode(body))
 }
@@ -417,7 +426,7 @@ export function decodeSession(text: string): Session {
     identityKey: i as string,
     amount: a as number,
     derivationPrefix: p as string,
-    derivationSuffix: x as string,
+    derivationSuffix: x as string
   }
 }
 
@@ -462,10 +471,12 @@ Port of `utils/ble/pendingPayments.ts` from `5fc72a7` — transport-agnostic, du
 Changes from the original: storage key `ble_pending_payments` → `localpay_pending`; `BLEPaymentPayload` → `PaymentFrame`; constants inlined rather than imported from the deleted `utils/ble/constants.ts`.
 
 **Files:**
+
 - Create: `utils/localpay/pending.ts`
 - Test: `__tests__/localpayPending.test.ts`
 
 **Interfaces:**
+
 - Consumes: `PaymentFrame` from `utils/localpay/codec.ts`
 - Produces:
   - `type PendingStatus = 'pending' | 'processing' | 'completed' | 'failed'`
@@ -486,7 +497,12 @@ Changes from the original: storage key `ble_pending_payments` → `localpay_pend
 ```ts
 // __tests__/localpayPending.test.ts
 import {
-  savePending, getPending, getUnprocessed, updateStatus, processPending, PENDING_KEY,
+  savePending,
+  getPending,
+  getUnprocessed,
+  updateStatus,
+  processPending,
+  PENDING_KEY
 } from '@/utils/localpay/pending'
 import { FRAME_VERSION, type PaymentFrame } from '@/utils/localpay/codec'
 
@@ -495,7 +511,7 @@ function fakeStorage() {
   return {
     map,
     getKeyValue: async (k: string) => map.get(k),
-    setKeyValue: async (k: string, v: string) => void map.set(k, v),
+    setKeyValue: async (k: string, v: string) => void map.set(k, v)
   }
 }
 
@@ -506,7 +522,7 @@ const frame = (): PaymentFrame => ({
   outputIndex: 0,
   derivationPrefix: 'cHJlZml4',
   derivationSuffix: 'c3VmZml4',
-  transaction: new Uint8Array([9, 9, 9]),
+  transaction: new Uint8Array([9, 9, 9])
 })
 
 describe('localpay pending queue', () => {
@@ -612,8 +628,15 @@ Import line for the test file becomes:
 
 ```ts
 import {
-  savePending, getPending, getUnprocessed, updateStatus, processPending,
-  markSessionSpent, isSessionSpent, PENDING_KEY, SPENT_KEY,
+  savePending,
+  getPending,
+  getUnprocessed,
+  updateStatus,
+  processPending,
+  markSessionSpent,
+  isSessionSpent,
+  PENDING_KEY,
+  SPENT_KEY
 } from '@/utils/localpay/pending'
 ```
 
@@ -680,7 +703,7 @@ export async function savePending(storage: KVStorage, frame: PaymentFrame): Prom
     id: `${Date.now()}_${frame.senderIdentityKey.slice(0, 8)}`,
     receivedAt: new Date().toISOString(),
     frame,
-    status: 'pending',
+    status: 'pending'
   }
   await writeAll(storage, [...(await readAll(storage)), entry])
   return entry
@@ -731,12 +754,12 @@ export async function processPending(
               paymentRemittance: {
                 derivationPrefix: p.frame.derivationPrefix,
                 derivationSuffix: p.frame.derivationSuffix,
-                senderIdentityKey: p.frame.senderIdentityKey,
-              },
-            },
+                senderIdentityKey: p.frame.senderIdentityKey
+              }
+            }
           ],
           description: PEERPAY_DESCRIPTION,
-          labels: [PEERPAY_LABEL],
+          labels: [PEERPAY_LABEL]
         },
         originator
       )
@@ -807,6 +830,7 @@ Creates the package and proves it builds and autolinks. No networking behaviour 
 Mirror `packages/react-native-secp-native` throughout. Read it first.
 
 **Files:**
+
 - Create: `packages/react-native-localpay-transport/package.json`
 - Create: `packages/react-native-localpay-transport/nitro.json`
 - Create: `packages/react-native-localpay-transport/LocalPayTransport.podspec`
@@ -816,6 +840,7 @@ Mirror `packages/react-native-secp-native` throughout. Read it first.
 - Modify: `package.json` — add `"react-native-localpay-transport": "file:./packages/react-native-localpay-transport"`
 
 **Interfaces:**
+
 - Consumes: nothing
 - Produces: `getLocalPayTransport(): LocalPayTransport | null` from `react-native-localpay-transport`, and the Nitro spec type `LocalPayTransport` with `isSupported(): boolean` (extended in Task 5)
 
@@ -984,11 +1009,13 @@ git commit -m "feat(localpay): scaffold LocalPayTransport nitro module"
 ### Task 5: AWDL transport in Swift
 
 **Files:**
+
 - Modify: `packages/react-native-localpay-transport/src/specs/LocalPayTransport.nitro.ts`
 - Modify: `packages/react-native-localpay-transport/ios/HybridLocalPayTransport.swift`
 - Create: `packages/react-native-localpay-transport/ios/AwdlSession.swift`
 
 **Interfaces:**
+
 - Consumes: `getLocalPayTransport()` from Task 4
 - Produces, on the `LocalPayTransport` hybrid object:
   - `isSupported(): boolean`
@@ -1013,12 +1040,7 @@ export interface LocalPayTransport extends HybridObject<{ ios: 'swift' }> {
     onError: (message: string) => void
   ): Promise<void>
   stopListening(): Promise<void>
-  sendFrame(
-    instanceName: string,
-    pskBase64: string,
-    frameBase64: string,
-    timeoutMs: number
-  ): Promise<string>
+  sendFrame(instanceName: string, pskBase64: string, frameBase64: string, timeoutMs: number): Promise<string>
 }
 ```
 
@@ -1256,6 +1278,7 @@ git commit -m "feat(localpay): AWDL listener and sender with TLS-PSK"
 ### Task 6: Transport interface and adapters
 
 **Files:**
+
 - Create: `utils/localpay/transport/types.ts`
 - Create: `utils/localpay/transport/awdl.ts`
 - Create: `utils/localpay/transport/qr.ts`
@@ -1263,6 +1286,7 @@ git commit -m "feat(localpay): AWDL listener and sender with TLS-PSK"
 - Test: `__tests__/localpayTransportSelect.test.ts`
 
 **Interfaces:**
+
 - Consumes: `Session`, `CAP_AWDL`, `instanceName` (Task 2); `PaymentFrame`, `encodeFrame`, `decodeFrame` (Task 1); `getLocalPayTransport` (Task 4)
 - Produces:
   - `interface LocalPaymentTransport { kind: 'awdl' | 'qr'; receive(session, signal): Promise<PaymentFrame>; send(session, frame, signal): Promise<Ack> }`
@@ -1283,18 +1307,20 @@ import { selectTransport } from '@/utils/localpay/transport/select'
 import { mintSession, CAP_AWDL } from '@/utils/localpay/session'
 
 jest.mock('react-native-localpay-transport', () => ({
-  getLocalPayTransport: () => ({ isSupported: () => true }),
+  getLocalPayTransport: () => ({ isSupported: () => true })
 }))
 
 const base = {
   identityKey: '02'.padEnd(66, 'd'),
   amount: 1,
   derivationPrefix: 'cA',
-  derivationSuffix: 'cw',
+  derivationSuffix: 'cw'
 }
 
 describe('transport selection', () => {
-  afterEach(() => { Platform.OS = 'ios' })
+  afterEach(() => {
+    Platform.OS = 'ios'
+  })
 
   it('uses AWDL when both sides support it', () => {
     Platform.OS = 'ios'
@@ -1440,7 +1466,7 @@ export const awdlTransport: LocalPaymentTransport = {
     } catch {
       return { ok: false, error: 'malformed ack' }
     }
-  },
+  }
 }
 ```
 
@@ -1462,7 +1488,7 @@ export const qrTransport: LocalPaymentTransport = {
   },
   send() {
     return Promise.reject(new QrHandoffRequired())
-  },
+  }
 }
 ```
 
@@ -1485,10 +1511,12 @@ git commit -m "feat(localpay): transport interface, AWDL adapter and selection"
 Builds the `PaymentFrame` a payer sends, from a scanned `Session`.
 
 **Files:**
+
 - Create: `utils/localpay/build.ts`
 - Test: `__tests__/localpayBuild.test.ts`
 
 **Interfaces:**
+
 - Consumes: `PaymentFrame` (Task 1), `Session` (Task 2), `PEERPAY_PROTOCOL_ID` (Task 3)
 - Produces: `buildPaymentFrame(wallet, session, transportKind, originator): Promise<PaymentFrame>`
 
@@ -1499,18 +1527,19 @@ Builds the `PaymentFrame` a payer sends, from a scanned `Session`.
 import { buildPaymentFrame } from '@/utils/localpay/build'
 import { mintSession } from '@/utils/localpay/session'
 
-const session = () => mintSession({
-  identityKey: '02'.padEnd(66, 'e'),
-  amount: 777,
-  derivationPrefix: 'cHJlZml4',
-  derivationSuffix: 'c3VmZml4',
-  supportsAwdl: true,
-})
+const session = () =>
+  mintSession({
+    identityKey: '02'.padEnd(66, 'e'),
+    amount: 777,
+    derivationPrefix: 'cHJlZml4',
+    derivationSuffix: 'c3VmZml4',
+    supportsAwdl: true
+  })
 
 function walletStub() {
   return {
     getPublicKey: jest.fn().mockResolvedValue({ publicKey: '03'.padEnd(66, 'f') }),
-    createAction: jest.fn().mockResolvedValue({ tx: [1, 2, 3], txid: 'deadbeef' }),
+    createAction: jest.fn().mockResolvedValue({ tx: [1, 2, 3], txid: 'deadbeef' })
   }
 }
 
@@ -1536,8 +1565,7 @@ describe('buildPaymentFrame', () => {
   it('propagates a createAction failure', async () => {
     const w = walletStub()
     w.createAction.mockRejectedValue(new Error('insufficient funds'))
-    await expect(buildPaymentFrame(w as never, session(), 'awdl', 'admin.com'))
-      .rejects.toThrow('insufficient funds')
+    await expect(buildPaymentFrame(w as never, session(), 'awdl', 'admin.com')).rejects.toThrow('insufficient funds')
   })
 })
 ```
@@ -1578,14 +1606,12 @@ export async function buildPaymentFrame(
       protocolID: PEERPAY_PROTOCOL_ID,
       keyID: `${session.derivationPrefix} ${session.derivationSuffix}`,
       counterparty: session.identityKey,
-      forSelf: false,
+      forSelf: false
     },
     originator
   )
 
-  const lockingScript = new P2PKH()
-    .lock(PublicKey.fromString(derived).toAddress())
-    .toHex()
+  const lockingScript = new P2PKH().lock(PublicKey.fromString(derived).toAddress()).toHex()
 
   const result = await wallet.createAction(
     {
@@ -1595,10 +1621,10 @@ export async function buildPaymentFrame(
         {
           lockingScript,
           satoshis: session.amount,
-          outputDescription: 'Nearby payment',
-        },
+          outputDescription: 'Nearby payment'
+        }
       ],
-      options: { randomizeOutputs: false, noSend: true },
+      options: { randomizeOutputs: false, noSend: true }
     },
     originator
   )
@@ -1612,7 +1638,7 @@ export async function buildPaymentFrame(
     outputIndex: 0,
     derivationPrefix: session.derivationPrefix,
     derivationSuffix: session.derivationSuffix,
-    transaction: new Uint8Array(result.tx),
+    transaction: new Uint8Array(result.tx)
   }
 }
 ```
@@ -1636,10 +1662,12 @@ git commit -m "feat(localpay): build BRC-29 payment frame from a scanned session
 ### Task 8: Configuration and permissions
 
 **Files:**
+
 - Modify: `app.json` — `ios.infoPlist`
 - Modify: `utils/permissionsManager.ts`
 
 **Interfaces:**
+
 - Consumes: nothing
 - Produces: `_bsvpay._tcp` declared in `NSBonjourServices`; a real `NSLocalNetworkUsageDescription`
 
@@ -1653,6 +1681,7 @@ In `app.json`, inside `expo.ios.infoPlist`, add:
 ```
 
 Two cautions:
+
 - The generated `ios/BSVBrowser/Info.plist` currently carries `NSBonjourServices = ["_expo._tcp"]` and Expo Dev Launcher's dev-server purpose string, both injected by the dev-client plugin at prebuild. Setting these in `app.json` provides the shipping values; after prebuild, verify both `_expo._tcp` and `_bsvpay._tcp` are present in dev-client builds and that the purpose string is **ours**, not Expo's.
 - Do **not** add any key from the Global Constraints prohibited list.
 
@@ -1684,12 +1713,14 @@ git commit -m "feat(localpay): declare _bsvpay._tcp and a real local-network pur
 ### Task 9: Local payments screen
 
 **Files:**
+
 - Create: `app/local-payments.tsx`
 - Modify: `context/i18n/translations.tsx`
 
 Read the removed screen for UI structure and copy before writing: `git show 5fc72a7:app/local-payments.tsx`. Reuse its layout and phase machine; replace every BLE mention with the transports here. Reuse `components/QRScanner.tsx` (props: `onScan`, `onClose`, `hintText`, `multiScan`, `renderBottom`) and `react-native-qrcode-svg` for rendering.
 
 **Interfaces:**
+
 - Consumes: everything from Tasks 1–7
 - Produces: route `/local-payments`
 
@@ -1759,11 +1790,13 @@ git commit -m "feat(localpay): local payments screen with AWDL and QR paths"
 Restores the background retry loop `ed454e9` removed. Read the original: `git show ed454e9 -- context/WalletContext.tsx`.
 
 **Files:**
+
 - Modify: `context/WalletContext.tsx`
 - Modify: `app/_layout.tsx`
 - Modify: `app/settings.tsx`
 
 **Interfaces:**
+
 - Consumes: `processPending` (Task 3), route `/local-payments` (Task 9)
 - Produces: `localPayNotification` and `clearLocalPayNotification` on the wallet context
 
@@ -1794,7 +1827,7 @@ useEffect(() => {
             successes.length === 1
               ? 'A local payment was added to your wallet'
               : `${successes.length} local payments were added to your wallet`,
-          type: 'success',
+          type: 'success'
         })
       }
     } catch {
@@ -1865,6 +1898,7 @@ Expected: both take the QR path automatically, with no AWDL attempt and no error
 - [ ] **Step 5: Failure paths**
 
 Each must produce a clear message and leave no stuck state:
+
 - Local Network permission denied on the payer
 - Payer walks out of range mid-transfer
 - Payee backgrounds the app mid-transfer

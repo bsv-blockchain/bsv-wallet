@@ -34,11 +34,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -48,9 +56,15 @@ jest.mock('expo-secure-store', () => ({
     return {
       WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wutdo',
       getItemAsync: jest.fn(async (k: string) => store[k] ?? null),
-      setItemAsync: jest.fn(async (k: string, v: string) => { store[k] = v }),
-      deleteItemAsync: jest.fn(async (k: string) => { delete store[k] }),
-      __clear: () => { for (const k of Object.keys(store)) delete store[k] }
+      setItemAsync: jest.fn(async (k: string, v: string) => {
+        store[k] = v
+      }),
+      deleteItemAsync: jest.fn(async (k: string) => {
+        delete store[k]
+      }),
+      __clear: () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   })()
 }))
@@ -82,7 +96,10 @@ describe('wocChainLookup.transactionsForLockingScript', () => {
   })
 
   it('returns the deduplicated tx_hash list for a genuine 2xx history', async () => {
-    mockFetchOnce(() => ({ ok: true, json: [{ tx_hash: 'aa'.repeat(32) }, { tx_hash: 'bb'.repeat(32) }, { tx_hash: 'aa'.repeat(32) }] }))
+    mockFetchOnce(() => ({
+      ok: true,
+      json: [{ tx_hash: 'aa'.repeat(32) }, { tx_hash: 'bb'.repeat(32) }, { tx_hash: 'aa'.repeat(32) }]
+    }))
     const result = await wocChainLookup('test').transactionsForLockingScript(MARKER_SCRIPT_HEX)
     expect(result.sort()).toEqual(['aa'.repeat(32), 'bb'.repeat(32)].sort())
   })
@@ -103,7 +120,9 @@ describe('wocChainLookup.transactionsForLockingScript', () => {
   })
 
   it('THROWS — never silently returns [] — when fetch itself rejects (DNS/timeout/offline)', async () => {
-    global.fetch = jest.fn(async () => { throw new Error('simulated network failure') }) as unknown as typeof fetch
+    global.fetch = jest.fn(async () => {
+      throw new Error('simulated network failure')
+    }) as unknown as typeof fetch
     await expect(wocChainLookup('test').transactionsForLockingScript(MARKER_SCRIPT_HEX)).rejects.toThrow()
   })
 
@@ -119,7 +138,9 @@ describe('wocChainLookup.transactionsForLockingScript', () => {
 // and spentIn.status "Unknown UTXO" for an output that does not exist.
 describe('wocChainLookup.outputStatus — "unknown" is never trusted as unspent', () => {
   const OUTPOINT = { txid: 'a'.repeat(64), vout: 0 }
-  const row = (extra: Record<string, unknown>) => [{ utxo: { txid: OUTPOINT.txid, vout: OUTPOINT.vout }, error: '', ...extra }]
+  const row = (extra: Record<string, unknown>) => [
+    { utxo: { txid: OUTPOINT.txid, vout: OUTPOINT.vout }, error: '', ...extra }
+  ]
 
   it('asks the bulk spent-status endpoint for exactly this outpoint', async () => {
     let seen: { url: string; init?: RequestInit } | undefined
@@ -172,7 +193,9 @@ describe('wocChainLookup.outputStatus — "unknown" is never trusted as unspent'
   })
 
   it("'unknown' when fetch itself rejects", async () => {
-    global.fetch = jest.fn(async () => { throw new Error('simulated network failure') }) as unknown as typeof fetch
+    global.fetch = jest.fn(async () => {
+      throw new Error('simulated network failure')
+    }) as unknown as typeof fetch
     expect(await wocChainLookup('test').outputStatus(OUTPOINT)).toBe('unknown')
   })
 })
@@ -183,12 +206,18 @@ describe('wocChainLookup address derivation (exclusion-crypto review: no hand-ro
     const script = new P2PKH().lock(hash160).toHex()
 
     let mainUrl = ''
-    mockFetchOnce(url => { mainUrl = url; return { ok: true, json: [] } })
+    mockFetchOnce(url => {
+      mainUrl = url
+      return { ok: true, json: [] }
+    })
     await wocChainLookup('main').transactionsForLockingScript(script)
     expect(mainUrl).toContain(`/address/${Utils.toBase58Check(hash160, [0x00])}/history`)
 
     let testUrl = ''
-    mockFetchOnce(url => { testUrl = url; return { ok: true, json: [] } })
+    mockFetchOnce(url => {
+      testUrl = url
+      return { ok: true, json: [] }
+    })
     await wocChainLookup('test').transactionsForLockingScript(script)
     expect(testUrl).toContain(`/address/${Utils.toBase58Check(hash160, [0x6f])}/history`)
 

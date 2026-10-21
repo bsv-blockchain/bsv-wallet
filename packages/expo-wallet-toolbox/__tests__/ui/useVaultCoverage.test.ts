@@ -97,7 +97,11 @@ describe('useVaultCoverage', () => {
 
   test('ignores a read that resolves after unmount', async () => {
     let resolve!: (c: typeof COVERAGE) => void
-    fetchCoverage.mockReturnValueOnce(new Promise(r => { resolve = r }))
+    fetchCoverage.mockReturnValueOnce(
+      new Promise(r => {
+        resolve = r
+      })
+    )
     const { result, unmount } = renderHook(() => useVaultCoverage())
     unmount()
     await act(async () => resolve(COVERAGE))

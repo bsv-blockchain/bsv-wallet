@@ -8,7 +8,7 @@ export interface Connection {
   relay: string
   backendIdentityKey: string
   mobileIdentityKey: string
-  protocolID: string  // JSON-stringified WalletProtocol
+  protocolID: string // JSON-stringified WalletProtocol
   connectedAt: number
   status: 'active' | 'disconnected'
   /** XR-027: HMAC over (origin, sessionId, protocolID, backendIdentityKey),

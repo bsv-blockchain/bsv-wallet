@@ -64,9 +64,7 @@ describe('reviewStatusOnDb', () => {
     const d = seeded()
     seedInvalidUnproven(d)
     d.prepare('INSERT INTO offline_actions (txid, status) VALUES (?, ?)').run(TX1, status)
-    const skipTxids = new Set(
-      (d.prepare(LIVE_OFFLINE_SKIP_TXIDS_SQL).all() as { txid: string }[]).map(row => row.txid)
-    )
+    const skipTxids = new Set((d.prepare(LIVE_OFFLINE_SKIP_TXIDS_SQL).all() as { txid: string }[]).map(row => row.txid))
 
     const r = reviewStatusOnDb(d, { skipTxids })
 
@@ -116,7 +114,10 @@ describe('failInvalidReqTxs', () => {
   it('continues after fail() throws on one row', async () => {
     const seen: number[] = []
     const r = await failInvalidReqTxs({
-      rows: [{ transactionId: 1, txid: 'aa' }, { transactionId: 2, txid: 'bb' }],
+      rows: [
+        { transactionId: 1, txid: 'aa' },
+        { transactionId: 2, txid: 'bb' }
+      ],
       skipTxids: new Set(),
       fail: async id => {
         seen.push(id)

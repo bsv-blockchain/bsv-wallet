@@ -54,7 +54,16 @@ jest.mock('expo-sqlite', () => {
 })
 jest.mock('../../core/diskSpace', () => ({ diskPressure: () => 'ok' }))
 
-import { Beef, KeyDeriver, MerklePath, P2PKH, PrivateKey, Transaction, UnlockingScript, type ChainTracker } from '@bsv/sdk'
+import {
+  Beef,
+  KeyDeriver,
+  MerklePath,
+  P2PKH,
+  PrivateKey,
+  Transaction,
+  UnlockingScript,
+  type ChainTracker
+} from '@bsv/sdk'
 import { Wallet, WalletSigner, WalletStorageManager } from '@bsv/wallet-toolbox-mobile'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { buildPaymentFrame } from '../../core/localpay/build'
@@ -104,7 +113,11 @@ async function payFromOneCoin(fundingSatoshis: number, dbName: string) {
     fundingSender.toPublicKey().toString()
   )
   fundingTx = new Transaction()
-  fundingTx.addInput({ sourceTXID: '11'.repeat(32), sourceOutputIndex: 0, unlockingScript: UnlockingScript.fromHex('') })
+  fundingTx.addInput({
+    sourceTXID: '11'.repeat(32),
+    sourceOutputIndex: 0,
+    unlockingScript: UnlockingScript.fromHex('')
+  })
   fundingTx.addOutput({ satoshis: fundingSatoshis, lockingScript: new P2PKH().lock(fundingPrivKey.toAddress()) })
   fundingTx.merklePath = MerklePath.fromCoinbaseTxidAndHeight(fundingTx.id('hex'), FUNDING_HEIGHT)
   const fundingBeef = new Beef()
@@ -145,15 +158,19 @@ async function payFromOneCoin(fundingSatoshis: number, dbName: string) {
 }
 
 describe('Nearby payment funded from one coin with a small surplus', () => {
-  it.each([100_165, 100_180, 100_195, 100_260])('builds when the only coin holds %i sats', async funding => {
-    const built = await payFromOneCoin(funding, `nearby-fee-${funding}`)
-    expect(built.frame.kind).toBe('bsv')
-    const tx = Transaction.fromAtomicBEEF(Array.from(built.frame.transaction))
-    const paid = tx.outputs.reduce((sum, o) => sum + (o.satoshis ?? 0), 0)
-    const fee = funding - paid
-    // The fee is exactly what the size requires at 100 sat/kB: nothing lost to
-    // stripped dust outputs, and every change output clears the dust floor.
-    expect(fee).toBe(Math.ceil((tx.toBinary().length / 1000) * 100))
-    for (const o of tx.outputs.filter(o => o.satoshis !== PAY_AMOUNT)) expect(o.satoshis).toBeGreaterThanOrEqual(40)
-  }, 60_000)
+  it.each([100_165, 100_180, 100_195, 100_260])(
+    'builds when the only coin holds %i sats',
+    async funding => {
+      const built = await payFromOneCoin(funding, `nearby-fee-${funding}`)
+      expect(built.frame.kind).toBe('bsv')
+      const tx = Transaction.fromAtomicBEEF(Array.from(built.frame.transaction))
+      const paid = tx.outputs.reduce((sum, o) => sum + (o.satoshis ?? 0), 0)
+      const fee = funding - paid
+      // The fee is exactly what the size requires at 100 sat/kB: nothing lost to
+      // stripped dust outputs, and every change output clears the dust floor.
+      expect(fee).toBe(Math.ceil((tx.toBinary().length / 1000) * 100))
+      for (const o of tx.outputs.filter(o => o.satoshis !== PAY_AMOUNT)) expect(o.satoshis).toBeGreaterThanOrEqual(40)
+    },
+    60_000
+  )
 })

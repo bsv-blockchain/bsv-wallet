@@ -98,7 +98,6 @@ function pushStatus(
   onStepDone?.(id, status)
 }
 
-
 export async function runWalletCheck(
   ports: WalletCheckPorts,
   onStep: (id: WalletCheckStepId) => void,
@@ -161,9 +160,7 @@ export async function runWalletCheck(
   )
 
   onStep('proofs')
-  const proofs = await guard(skips, 'proofs', { repaired: 0 }, () =>
-    settle(() => ports.checkProofs(), { repaired: 0 })
-  )
+  const proofs = await guard(skips, 'proofs', { repaired: 0 }, () => settle(() => ports.checkProofs(), { repaired: 0 }))
   record('proofs', proofs, () => ((proofs as { ok?: boolean }).ok === true ? 'ok' : 'error'))
 
   onStep('backup')

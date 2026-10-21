@@ -849,7 +849,12 @@ function signableSpend(): { tx: number[]; sighash: number[] } {
   const source = new Transaction()
   source.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex(mandalaScriptHex(1000)) })
   const spend = new Transaction()
-  spend.addInput({ sourceTransaction: source, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript() })
+  spend.addInput({
+    sourceTransaction: source,
+    sourceOutputIndex: 0,
+    sequence: 0xffffffff,
+    unlockingScript: new UnlockingScript()
+  })
   spend.addOutput({
     satoshis: 1,
     lockingScript: new P2PKH().lock(new PrivateKey(5).toPublicKey().toAddress())
@@ -907,7 +912,10 @@ describe('MandalaTokenModule token-protocol key methods', () => {
   it('matches the digest the Mandala lib itself signs when spending a token input', async () => {
     const { mod, requestTokenAccess } = makeModule()
     const { tx } = signableSpend()
-    await mod.onResponse({ signableTransaction: { tx, reference: 'ref' } }, { method: 'createAction', originator: FOREIGN_ORIGINATOR })
+    await mod.onResponse(
+      { signableTransaction: { tx, reference: 'ref' } },
+      { method: 'createAction', originator: FOREIGN_ORIGINATOR }
+    )
     // A wallet that sends every createSignature through the module, as the
     // permissions manager does for a connected app.
     const key = new PrivateKey(7)
@@ -927,7 +935,10 @@ describe('MandalaTokenModule token-protocol key methods', () => {
   it('accepts the same sighash given as data (SHA-256 of the single-hashed preimage)', async () => {
     const { mod, requestTokenAccess } = makeModule()
     const { tx } = signableSpend()
-    await mod.onResponse({ signableTransaction: { tx, reference: 'ref' } }, { method: 'createAction', originator: FOREIGN_ORIGINATOR })
+    await mod.onResponse(
+      { signableTransaction: { tx, reference: 'ref' } },
+      { method: 'createAction', originator: FOREIGN_ORIGINATOR }
+    )
     const spend = Transaction.fromAtomicBEEF(tx)
     await mod.onRequest({
       method: 'createSignature',
@@ -941,7 +952,10 @@ describe('MandalaTokenModule token-protocol key methods', () => {
     const requestTokenAccess = jest.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
     const { mod } = makeModule({ requestTokenAccess })
     const { tx } = signableSpend()
-    await mod.onResponse({ signableTransaction: { tx, reference: 'ref' } }, { method: 'createAction', originator: FOREIGN_ORIGINATOR })
+    await mod.onResponse(
+      { signableTransaction: { tx, reference: 'ref' } },
+      { method: 'createAction', originator: FOREIGN_ORIGINATOR }
+    )
     const args = { protocolID, keyID: 'k', counterparty: 'self', hashToDirectlySign: new Array(32).fill(9) }
     await mod.onRequest({ method: 'createSignature', args, originator: FOREIGN_ORIGINATOR })
     await expect(mod.onRequest({ method: 'createSignature', args, originator: FOREIGN_ORIGINATOR })).rejects.toThrow(
@@ -954,7 +968,10 @@ describe('MandalaTokenModule token-protocol key methods', () => {
   it("does not let one app sign another app's approved transaction", async () => {
     const { mod, requestTokenAccess } = makeModule()
     const { tx, sighash } = signableSpend()
-    await mod.onResponse({ signableTransaction: { tx, reference: 'ref' } }, { method: 'createAction', originator: FOREIGN_ORIGINATOR })
+    await mod.onResponse(
+      { signableTransaction: { tx, reference: 'ref' } },
+      { method: 'createAction', originator: FOREIGN_ORIGINATOR }
+    )
     await mod.onRequest({
       method: 'createSignature',
       args: { protocolID, keyID: 'k', counterparty: 'self', hashToDirectlySign: sighash },
@@ -968,7 +985,10 @@ describe('MandalaTokenModule token-protocol key methods', () => {
     try {
       const { mod, requestTokenAccess } = makeModule()
       const { tx, sighash } = signableSpend()
-      await mod.onResponse({ signableTransaction: { tx, reference: 'ref' } }, { method: 'createAction', originator: FOREIGN_ORIGINATOR })
+      await mod.onResponse(
+        { signableTransaction: { tx, reference: 'ref' } },
+        { method: 'createAction', originator: FOREIGN_ORIGINATOR }
+      )
       jest.advanceTimersByTime(61_000)
       await mod.onRequest({
         method: 'createSignature',
@@ -1006,11 +1026,19 @@ describe('MandalaTokenModule token-protocol key methods', () => {
       permissionModules: { mandala: mod }
     } as never)
     await expect(
-      manager.getPublicKey({ protocolID: [2, 'p mandala token'], keyID: 'k', counterparty: 'self' } as never, FOREIGN_ORIGINATOR)
+      manager.getPublicKey(
+        { protocolID: [2, 'p mandala token'], keyID: 'k', counterparty: 'self' } as never,
+        FOREIGN_ORIGINATOR
+      )
     ).resolves.toEqual({ publicKey: 'pk' })
     await expect(
       manager.createSignature(
-        { protocolID: [2, 'p mandala token'], keyID: 'k', counterparty: 'self', hashToDirectlySign: new Array(32).fill(3) } as never,
+        {
+          protocolID: [2, 'p mandala token'],
+          keyID: 'k',
+          counterparty: 'self',
+          hashToDirectlySign: new Array(32).fill(3)
+        } as never,
         FOREIGN_ORIGINATOR
       )
     ).rejects.toThrow('User denied permission to sign with a Mandala token key')

@@ -51,13 +51,17 @@ import {
 const [, , mode, chainArg, wif, arcUrl, arcApiKey] = process.argv
 if (mode !== '--local' && mode !== '--live') {
   console.error('usage: npx tsx scripts/r1c-spend-proof.ts --local')
-  console.error('   or: FUNDING_UTXO=<txid>:<vout>:<satoshis> npx tsx scripts/r1c-spend-proof.ts --live <main|test|teratest> <fundingWIF> <arcUrl> [arcApiKey]')
+  console.error(
+    '   or: FUNDING_UTXO=<txid>:<vout>:<satoshis> npx tsx scripts/r1c-spend-proof.ts --live <main|test|teratest> <fundingWIF> <arcUrl> [arcApiKey]'
+  )
   process.exit(1)
 }
 const liveChain: VaultSaltChain | undefined =
   chainArg === 'main' || chainArg === 'test' || chainArg === 'teratest' ? chainArg : undefined
 if (mode === '--live' && (!liveChain || !wif || !arcUrl)) {
-  console.error('usage: FUNDING_UTXO=<txid>:<vout>:<satoshis> npx tsx scripts/r1c-spend-proof.ts --live <main|test|teratest> <fundingWIF> <arcUrl> [arcApiKey]')
+  console.error(
+    'usage: FUNDING_UTXO=<txid>:<vout>:<satoshis> npx tsx scripts/r1c-spend-proof.ts --live <main|test|teratest> <fundingWIF> <arcUrl> [arcApiKey]'
+  )
   process.exit(1)
 }
 const proofChain: VaultSaltChain = mode === '--live' ? liveChain! : 'test'
@@ -103,14 +107,18 @@ interface AllocatedLock {
 
 const funding = mode === '--live' ? PrivateKey.fromWif(wif!) : PrivateKey.fromRandom()
 const fundingLock = new P2PKH().lock(funding.toAddress())
-const broadcaster = mode === '--live'
-  ? (arcApiKey ? new ARC(arcUrl!, { apiKey: arcApiKey }) : new ARC(arcUrl!))
-  : undefined
+const broadcaster =
+  mode === '--live' ? (arcApiKey ? new ARC(arcUrl!, { apiKey: arcApiKey }) : new ARC(arcUrl!)) : undefined
 
 function softKey(name: string): SoftKey {
   const priv = p256.utils.randomSecretKey()
   // 65-byte SEC1 in → compressed out: the same path the card's public key takes in the app
-  return { name, serial: `SOFTWARE-PROOF-${name}`, priv, pub: compressPubkey(Utils.toHex(Array.from(p256.getPublicKey(priv, false)))) }
+  return {
+    name,
+    serial: `SOFTWARE-PROOF-${name}`,
+    priv,
+    pub: compressPubkey(Utils.toHex(Array.from(p256.getPublicKey(priv, false))))
+  }
 }
 const keyA = softKey('A')
 const keyB = softKey('B')
@@ -150,7 +158,8 @@ async function allocateLock(context: SaltContext, keys: SoftKey[]): Promise<Allo
     seekPermission: false
   })
   if (
-    !Array.isArray(hmac) || hmac.length !== 32 ||
+    !Array.isArray(hmac) ||
+    hmac.length !== 32 ||
     hmac.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 0xff)
   ) {
     throw new Error('wallet returned a non-canonical Vault salt HMAC')
@@ -218,7 +227,10 @@ async function deposit(label: string): Promise<VaultCoin> {
   const { salt, lock, customInstructions } = await allocateLock(liveSaltContext, [keyA, keyB])
   const commitments = [keyA, keyB].map(k => commitment(k.pub, salt))
   const lockLen = lock.toBinary().length
-  if (lockLen !== R1C_LOCK_LEN(2)) throw new Error(`template drift: lock is ${lockLen} B, expected ${R1C_LOCK_LEN(2)} — aborting before any funds move`)
+  if (lockLen !== R1C_LOCK_LEN(2))
+    throw new Error(
+      `template drift: lock is ${lockLen} B, expected ${R1C_LOCK_LEN(2)} — aborting before any funds move`
+    )
   const baked = bakedCommitments(lock)
   if (baked.join(',') !== commitments.join(',')) throw new Error('bakedCommitments does not round-trip the commitments')
   console.log(`\n${label}: lock ${lockLen} B; customInstructions ${customInstructions}`)
@@ -255,10 +267,15 @@ async function spend(label: string, vaults: VaultCoin[], o: SpendOptions): Promi
     p2pkhSats = c.satoshis
   }
   const vaultTotal = vaults.reduce((s, v) => s + v.satoshis, 0)
-  const size = 10 + vaults.length * (41 + 3 + R1C_UNLOCK_LEN) + (o.extraP2PKH === true ? 41 + 1 + P2PKH_UNLOCK_LEN : 0) + (8 + 1 + 25)
+  const size =
+    10 +
+    vaults.length * (41 + 3 + R1C_UNLOCK_LEN) +
+    (o.extraP2PKH === true ? 41 + 1 + P2PKH_UNLOCK_LEN : 0) +
+    (8 + 1 + 25)
   const fee = Math.ceil((size * FEE_SAT_PER_KB) / 1000)
   const outSats = vaultTotal + p2pkhSats - fee
-  if (o.extraP2PKH === true && outSats <= vaultTotal) throw new Error(`${label}: mixed spend must withdraw more than the vault inputs cover`)
+  if (o.extraP2PKH === true && outSats <= vaultTotal)
+    throw new Error(`${label}: mixed spend must withdraw more than the vault inputs cover`)
   tx.addOutput({ satoshis: outSats, lockingScript: fundingLock })
 
   // Every vault preimage must pass pushTxDerCheck before requesting a signature.
@@ -277,7 +294,10 @@ async function spend(label: string, vaults: VaultCoin[], o: SpendOptions): Promi
   // Sign each vault input with the software key — the card would receive exactly signerDigest(preimage).
   for (const i of vaultIdx) {
     const digest = signerDigest(preimages[i])
-    const compact = p256.sign(Uint8Array.from(Utils.toArray(digest, 'hex') as number[]), o.signer.priv, { prehash: false, lowS: false })
+    const compact = p256.sign(Uint8Array.from(Utils.toArray(digest, 'hex') as number[]), o.signer.priv, {
+      prehash: false,
+      lowS: false
+    })
     const der = Array.from(p256.Signature.fromBytes(compact).toBytes('der'))
     const unlock = buildUnlock({
       preimage: preimages[i],
@@ -297,7 +317,13 @@ async function spend(label: string, vaults: VaultCoin[], o: SpendOptions): Promi
     let ok = false
     let err = ''
     try {
-      ok = verifyVaultInput({ tx, inputIndex: i, sourceSatoshis: vaults[i].satoshis, lockingScript: vaults[i].lock, unlockingScript: tx.inputs[i].unlockingScript! })
+      ok = verifyVaultInput({
+        tx,
+        inputIndex: i,
+        sourceSatoshis: vaults[i].satoshis,
+        lockingScript: vaults[i].lock,
+        unlockingScript: tx.inputs[i].unlockingScript!
+      })
     } catch (e) {
       err = (e as Error).message.split('\n')[0]
     }
@@ -305,7 +331,9 @@ async function spend(label: string, vaults: VaultCoin[], o: SpendOptions): Promi
       throw new Error(`${label}: input ${i} failed local strict verification: ${err}`)
     }
   }
-  console.log(`${label}: tx ${tx.toBinary().length} B, ${tx.inputs.length} inputs, output ${outSats} sat${o.extraP2PKH === true ? ` (> ${vaultTotal} vault sat)` : ''}`)
+  console.log(
+    `${label}: tx ${tx.toBinary().length} B, ${tx.inputs.length} inputs, output ${outSats} sat${o.extraP2PKH === true ? ` (> ${vaultTotal} vault sat)` : ''}`
+  )
   await broadcast(label, tx)
   wallet.push({ tx, vout: 0, satoshis: outSats })
 }
@@ -316,20 +344,23 @@ function localVaultCoin(allocated: AllocatedLock, satoshis = VAULT_SATS): VaultC
   return { tx, vout: 0, satoshis, lock: allocated.lock, salt: allocated.salt }
 }
 
-function localSpendTransaction(coin: VaultCoin, outputs?: { satoshis: number; lockingScript: LockingScript }[]): Transaction {
+function localSpendTransaction(
+  coin: VaultCoin,
+  outputs?: { satoshis: number; lockingScript: LockingScript }[]
+): Transaction {
   const tx = new Transaction(1, [], [], 0)
   tx.addInput({ sourceTransaction: coin.tx, sourceOutputIndex: coin.vout, sequence: 0xffffffff })
-  for (const output of outputs ?? [{ satoshis: coin.satoshis - 1_000, lockingScript: fundingLock }]) tx.addOutput(output)
+  for (const output of outputs ?? [{ satoshis: coin.satoshis - 1_000, lockingScript: fundingLock }])
+    tx.addOutput(output)
   return tx
 }
 
 function signatureFor(preimage: number[], key: SoftKey): number[] {
   const digest = signerDigest(preimage)
-  const compact = p256.sign(
-    Uint8Array.from(Utils.toArray(digest, 'hex') as number[]),
-    key.priv,
-    { prehash: false, lowS: false }
-  )
+  const compact = p256.sign(Uint8Array.from(Utils.toArray(digest, 'hex') as number[]), key.priv, {
+    prehash: false,
+    lowS: false
+  })
   return Array.from(p256.Signature.fromBytes(compact).toBytes('der'))
 }
 
@@ -440,7 +471,13 @@ async function runLocalProof(): Promise<void> {
   requireLocalRejection('post-sign output mutation', () => verifyLocal(remainderTx, source))
   remainderTx.outputs[0].satoshis = originalValue
   verifyLocal(remainderTx, source)
-  const remainderCoin: VaultCoin = { tx: remainderTx, vout: 1, satoshis: 100_000, lock: remainder.lock, salt: remainder.salt }
+  const remainderCoin: VaultCoin = {
+    tx: remainderTx,
+    vout: 1,
+    satoshis: 100_000,
+    lock: remainder.lock,
+    salt: remainder.salt
+  }
   const spendRemainder = localSpendTransaction(remainderCoin)
   unlockWith(spendRemainder, remainderCoin, keys[0])
   verifyLocal(spendRemainder, remainderCoin)
@@ -456,9 +493,8 @@ async function runLocalProof(): Promise<void> {
   const forcedDigest = bigEndian32(SECP_N - (1n << 248n))
   const mutableHash = Hash as unknown as { hash256: (message: number[] | Uint8Array) => number[] }
   try {
-    mutableHash.hash256 = message => sameBytes(message, fallbackPreimage)
-      ? [...forcedDigest]
-      : originalHash256(Array.from(message))
+    mutableHash.hash256 = message =>
+      sameBytes(message, fallbackPreimage) ? [...forcedDigest] : originalHash256(Array.from(message))
     if (pushTxSignatureS(fallbackPreimage) !== 1n) throw new Error('OP_PUSH_TX fallback branch did not select s=1')
     unlockWith(fallbackTx, fallbackCoin, keys[0])
     verifyLocal(fallbackTx, fallbackCoin)
@@ -467,14 +503,18 @@ async function runLocalProof(): Promise<void> {
     mutableHash.hash256 = originalHash256
   }
 
-  console.log(`local matrix PASS: ${accepted} authorized spends accepted; ${rejected} outsider/tamper spends rejected; N=2..5, relock, remainder and OP_PUSH_TX fallback covered`)
+  console.log(
+    `local matrix PASS: ${accepted} authorized spends accepted; ${rejected} outsider/tamper spends rejected; N=2..5, relock, remainder and OP_PUSH_TX fallback covered`
+  )
 }
 
 async function runLiveProof(): Promise<void> {
   console.log('funding address:', funding.toAddress())
   const FUNDING_UTXO = process.env.FUNDING_UTXO
   if (!FUNDING_UTXO) {
-    console.error('\nFund the address above (>= 400,000 sat), then set FUNDING_UTXO=<txid>:<vout>:<satoshis> and re-run.')
+    console.error(
+      '\nFund the address above (>= 400,000 sat), then set FUNDING_UTXO=<txid>:<vout>:<satoshis> and re-run.'
+    )
     process.exit(1)
   }
   const [fTxid, fVout, fSats] = FUNDING_UTXO.split(':')

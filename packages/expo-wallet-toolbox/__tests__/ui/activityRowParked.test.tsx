@@ -138,8 +138,17 @@ it('uses the supplied currency without subscribing the row to wallet updates', (
   const noop = () => {}
   const row = action()
   const draw = (currency: string) => (
-    <ActivityRow action={row} currency={currency} rowKey="k" expanded={false} busy={false}
-      onToggle={noop} onExplorer={noop} onRefreshTx={noop} onAbort={noop} />
+    <ActivityRow
+      action={row}
+      currency={currency}
+      rowKey="k"
+      expanded={false}
+      busy={false}
+      onToggle={noop}
+      onExplorer={noop}
+      onRefreshTx={noop}
+      onAbort={noop}
+    />
   )
   jest.mocked(useWallet).mockClear()
   jest.mocked(formatAmountParts).mockClear()
@@ -159,8 +168,18 @@ it('updates busy text and action callbacks even when the transaction is unchange
   const firstExplorer = jest.fn()
   const nextExplorer = jest.fn()
   const draw = (busy: boolean, busyLabel: string, onExplorer = firstExplorer) => (
-    <ActivityRow action={row} currency="BSV" rowKey="k" expanded busy={busy} busyLabel={busyLabel}
-      onToggle={noop} onExplorer={onExplorer} onRefreshTx={noop} onAbort={noop} />
+    <ActivityRow
+      action={row}
+      currency="BSV"
+      rowKey="k"
+      expanded
+      busy={busy}
+      busyLabel={busyLabel}
+      onToggle={noop}
+      onExplorer={onExplorer}
+      onRefreshTx={noop}
+      onAbort={noop}
+    />
   )
   const screen = render(draw(true, 'Sending'))
   screen.rerender(draw(true, 'Waiting for acknowledgement'))

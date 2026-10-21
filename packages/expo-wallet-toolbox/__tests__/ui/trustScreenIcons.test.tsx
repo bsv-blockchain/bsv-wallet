@@ -109,8 +109,7 @@ function findAll(node: Tree, type: string, out: Node[] = []): Node[] {
   return out
 }
 
-const iconUris = (tree: Tree): string[] =>
-  findAll(tree, 'ExpoImage').map(n => (n.props.source as { uri: string }).uri)
+const iconUris = (tree: Tree): string[] => findAll(tree, 'ExpoImage').map(n => (n.props.source as { uri: string }).uri)
 
 describe('Trust Network certifier icons', () => {
   it('draws the icon for a default-shaped certifier that stores it as iconUrl', () => {
@@ -155,9 +154,9 @@ describe('Trust Network certifier icons', () => {
     // square where the letter used to be.
     const r = render(<TrustScreen />)
     expect(r.queryByText('W')).toBeNull()
-    const image = r.UNSAFE_root
-      .findAllByType('ExpoImage' as never)
-      .find((i: { props: Record<string, unknown> }) => (i.props.source as { uri: string }).uri === DEFAULT_SHAPED.iconUrl)
+    const image = r.UNSAFE_root.findAllByType('ExpoImage' as never).find(
+      (i: { props: Record<string, unknown> }) => (i.props.source as { uri: string }).uri === DEFAULT_SHAPED.iconUrl
+    )
     expect(image).toBeDefined()
     fireEvent(image!, 'error', { error: 'Unable to decode image' })
     expect(r.getByText('W')).toBeTruthy()

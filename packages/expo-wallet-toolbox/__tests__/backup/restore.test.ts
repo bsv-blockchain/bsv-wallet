@@ -11,11 +11,15 @@ const DEVICE = 'd'.repeat(32)
 const SETTINGS = { storageIdentityKey: 'local-storage-key' } as any
 
 const args = {
-  identityKey: 'ik', fromStorageIdentityKey: 'a', toStorageIdentityKey: 'b',
-  maxRoughSize: 0, maxItems: 0, offsets: []
+  identityKey: 'ik',
+  fromStorageIdentityKey: 'a',
+  toStorageIdentityKey: 'b',
+  maxRoughSize: 0,
+  maxItems: 0,
+  offsets: []
 } as any
 
-function chunkWithTx (txid: string): SyncChunk {
+function chunkWithTx(txid: string): SyncChunk {
   const c = emptyChunk('a', 'b', 'user') as unknown as Record<string, unknown[]>
   c.provenTxs = [{ provenTxId: 1, txid, rawTx: [1, 2, 3] }]
   return c as unknown as SyncChunk
@@ -23,19 +27,21 @@ function chunkWithTx (txid: string): SyncChunk {
 
 /** Same digest RemoteSyncReader now checks a downloaded blob against — kept alongside the
  * fixtures below so every fake index entry's sha256/size genuinely describes its blob. */
-function sha256Hex (bytes: Uint8Array | number[]): string {
+function sha256Hex(bytes: Uint8Array | number[]): string {
   return Utils.toHex(Hash.sha256(bytes as number[]))
 }
 
 /** A client backed by an in-memory log, standing in for the server. */
-function fakeClient (blobs: number[][], entries?: LogEntry[]): any {
-  const index: LogEntry[] = entries ?? blobs.map((b, i) => ({
-    seq: i + 1,
-    sha256: sha256Hex(b),
-    prevSha256: i === 0 ? undefined : sha256Hex(blobs[i - 1]),
-    size: b.length,
-    createdAt: '2026-08-15T00:00:00Z'
-  }))
+function fakeClient(blobs: number[][], entries?: LogEntry[]): any {
+  const index: LogEntry[] =
+    entries ??
+    blobs.map((b, i) => ({
+      seq: i + 1,
+      sha256: sha256Hex(b),
+      prevSha256: i === 0 ? undefined : sha256Hex(blobs[i - 1]),
+      size: b.length,
+      createdAt: '2026-08-15T00:00:00Z'
+    }))
   return {
     index: jest.fn().mockResolvedValue(index),
     blob: jest.fn(async (_d: string, _g: number, seq: number) => blobs[seq - 1]),
@@ -48,10 +54,7 @@ function fakeClient (blobs: number[][], entries?: LogEntry[]): any {
 describe('RemoteSyncReader', () => {
   it('returns chunks in sequence order', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const blobs = [
-      await encodeChunk(w, chunkWithTx('aaa'), 'main'),
-      await encodeChunk(w, chunkWithTx('bbb'), 'main')
-    ]
+    const blobs = [await encodeChunk(w, chunkWithTx('aaa'), 'main'), await encodeChunk(w, chunkWithTx('bbb'), 'main')]
     const reader = new RemoteSyncReader(fakeClient(blobs), w, 'main', DEVICE, 1, SETTINGS)
 
     expect((await reader.getSyncChunk(args)).provenTxs?.[0].txid).toBe('aaa')
@@ -62,7 +65,14 @@ describe('RemoteSyncReader', () => {
     // The toolbox treats an empty chunk as the completion sentinel, and needs every one of
     // the twelve arrays present rather than undefined.
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const reader = new RemoteSyncReader(fakeClient([await encodeChunk(w, chunkWithTx('aaa'), 'main')]), w, 'main', DEVICE, 1, SETTINGS)
+    const reader = new RemoteSyncReader(
+      fakeClient([await encodeChunk(w, chunkWithTx('aaa'), 'main')]),
+      w,
+      'main',
+      DEVICE,
+      1,
+      SETTINGS
+    )
 
     await reader.getSyncChunk(args)
     const done = await reader.getSyncChunk(args)
@@ -77,9 +87,7 @@ describe('RemoteSyncReader', () => {
     // while missing outputs it needs to spend. Failing loudly is the safer outcome.
     const w = deriveBackupWallet(PRIMARY, 'main')
     const blobs = [await encodeChunk(w, chunkWithTx('aaa'), 'main')]
-    const broken: LogEntry[] = [
-      { seq: 2, sha256: 'sha2', prevSha256: 'sha1', size: 1, createdAt: 'z' }
-    ]
+    const broken: LogEntry[] = [{ seq: 2, sha256: 'sha2', prevSha256: 'sha1', size: 1, createdAt: 'z' }]
 
     const reader = new RemoteSyncReader(fakeClient(blobs, broken), w, 'main', DEVICE, 1, SETTINGS)
     await expect(reader.getSyncChunk(args)).rejects.toBeInstanceOf(BackupChainError)
@@ -87,10 +95,7 @@ describe('RemoteSyncReader', () => {
 
   it('rejects a forked chain', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const blobs = [
-      await encodeChunk(w, chunkWithTx('aaa'), 'main'),
-      await encodeChunk(w, chunkWithTx('bbb'), 'main')
-    ]
+    const blobs = [await encodeChunk(w, chunkWithTx('aaa'), 'main'), await encodeChunk(w, chunkWithTx('bbb'), 'main')]
     const forked: LogEntry[] = [
       { seq: 1, sha256: 'sha1', prevSha256: undefined, size: 1, createdAt: 'z' },
       { seq: 2, sha256: 'sha2', prevSha256: 'NOT-sha1', size: 1, createdAt: 'z' }
@@ -122,10 +127,7 @@ describe('RemoteSyncReader', () => {
 
   it('reads the index once, not per chunk', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const blobs = [
-      await encodeChunk(w, chunkWithTx('aaa'), 'main'),
-      await encodeChunk(w, chunkWithTx('bbb'), 'main')
-    ]
+    const blobs = [await encodeChunk(w, chunkWithTx('aaa'), 'main'), await encodeChunk(w, chunkWithTx('bbb'), 'main')]
     const client = fakeClient(blobs)
     const reader = new RemoteSyncReader(client, w, 'main', DEVICE, 1, SETTINGS)
 
@@ -141,17 +143,19 @@ describe('RemoteSyncReader', () => {
     // the push captured, including the binary fields that make outputs spendable.
     const w = deriveBackupWallet(PRIMARY, 'main')
     const original = emptyChunk('a', 'b', 'user') as unknown as Record<string, unknown[]>
-    original.outputs = [{
-      outputId: 1,
-      senderIdentityKey: '02' + 'cd'.repeat(32),
-      derivationPrefix: 'cHJlZml4',
-      derivationSuffix: 'c3VmZml4',
-      lockingScript: Array.from({ length: 64 }, (_, i) => i)
-    }]
+    original.outputs = [
+      {
+        outputId: 1,
+        senderIdentityKey: '02' + 'cd'.repeat(32),
+        derivationPrefix: 'cHJlZml4',
+        derivationSuffix: 'c3VmZml4',
+        lockingScript: Array.from({ length: 64 }, (_, i) => i)
+      }
+    ]
 
     const blobs = [await encodeChunk(w, original as unknown as SyncChunk, 'main')]
     const reader = new RemoteSyncReader(fakeClient(blobs), w, 'main', DEVICE, 1, SETTINGS)
-    const restored = await reader.getSyncChunk(args) as any
+    const restored = (await reader.getSyncChunk(args)) as any
 
     // This metadata exists only in the database and is exactly why the seed alone cannot
     // recover a wallet.
@@ -174,7 +178,8 @@ describe('RemoteSyncReader', () => {
     const client = fakeClient([seq1, seq2])
     const realBlob = client.blob
     client.blob = jest.fn(async (d: string, g: number, seq: number) =>
-      seq === 2 ? await realBlob(d, g, 1) : await realBlob(d, g, seq))
+      seq === 2 ? await realBlob(d, g, 1) : await realBlob(d, g, seq)
+    )
 
     const reader = new RemoteSyncReader(client, w, 'main', DEVICE, 1, SETTINGS)
     // Sequence 1 is served honestly, so replay reaches the tampered sequence 2 before failing.
@@ -183,18 +188,24 @@ describe('RemoteSyncReader', () => {
   })
 })
 
-
 describe('RemoteSyncReader reliability and scheduling', () => {
-  const wallet = () => ({ decrypt: jest.fn(async () => ({
-    plaintext: Utils.toArray(JSON.stringify({ chain: 'main', chunk: chunkWithTx('restored') }), 'utf8')
-  })) }) as any
+  const wallet = () =>
+    ({
+      decrypt: jest.fn(async () => ({
+        plaintext: Utils.toArray(JSON.stringify({ chain: 'main', chunk: chunkWithTx('restored') }), 'utf8')
+      }))
+    }) as any
   // Every seq below is served the same one-byte blob (see `blob` mocks in this describe
   // block), so every entry can legitimately share that blob's own digest/size.
   const ONE_BYTE_SHA = sha256Hex([1])
-  const entries = (n: number): LogEntry[] => Array.from({ length: n }, (_, i) => ({
-    seq: i + 1, sha256: ONE_BYTE_SHA, prevSha256: i ? ONE_BYTE_SHA : undefined,
-    size: 1, createdAt: '2026-09-05T00:00:00Z'
-  }))
+  const entries = (n: number): LogEntry[] =>
+    Array.from({ length: n }, (_, i) => ({
+      seq: i + 1,
+      sha256: ONE_BYTE_SHA,
+      prevSha256: i ? ONE_BYTE_SHA : undefined,
+      size: 1,
+      createdAt: '2026-09-05T00:00:00Z'
+    }))
 
   it('XR-013: throws once the index grows past the entry ceiling, rather than accumulating without bound', async () => {
     // No expectedHeadSeq and always a full page: nothing but the ceiling itself can ever
@@ -222,7 +233,10 @@ describe('RemoteSyncReader reliability and scheduling', () => {
     for (let i = 0; i < 501; i++) expect(isEmptyChunk(await reader.getSyncChunk(args))).toBe(false)
     expect(isEmptyChunk(await reader.getSyncChunk(args))).toBe(true)
     expect(reader.length).toBe(501)
-    expect(client.index.mock.calls).toEqual([[DEVICE, 1], [DEVICE, 1, 501]])
+    expect(client.index.mock.calls).toEqual([
+      [DEVICE, 1],
+      [DEVICE, 1, 501]
+    ])
     expect(client.blob.mock.calls.map((call: any) => call[2])).toEqual(all.map(e => e.seq))
   })
 
@@ -249,7 +263,10 @@ describe('RemoteSyncReader reliability and scheduling', () => {
     w.decrypt.mockRejectedValueOnce(new Error('decode failed'))
     const client = {
       index: jest.fn().mockResolvedValue(entries(1)),
-      blob: jest.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(new Uint8Array([1]))
+      blob: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockResolvedValue(new Uint8Array([1]))
     }
     const reader = new RemoteSyncReader(client as any, w, 'main', DEVICE, 1, SETTINGS)
     await expect(reader.getSyncChunk(args)).rejects.toThrow('offline')
@@ -259,7 +276,10 @@ describe('RemoteSyncReader reliability and scheduling', () => {
   })
 
   it('downloads only one small chunk ahead while the caller replays, without reordering', async () => {
-    const client = { index: jest.fn().mockResolvedValue(entries(3)), blob: jest.fn().mockResolvedValue(new Uint8Array([1])) }
+    const client = {
+      index: jest.fn().mockResolvedValue(entries(3)),
+      blob: jest.fn().mockResolvedValue(new Uint8Array([1]))
+    }
     const reader = new RemoteSyncReader(client as any, wallet(), 'main', DEVICE, 1, SETTINGS)
     await reader.getSyncChunk(args)
     expect(client.blob.mock.calls.map(call => call[2])).toEqual([1, 2])
@@ -286,7 +306,10 @@ describe('RemoteSyncReader reliability and scheduling', () => {
   it('surfaces a failed prefetch when consumed and retries that sequence', async () => {
     const client = {
       index: jest.fn().mockResolvedValue(entries(2)),
-      blob: jest.fn().mockResolvedValueOnce(new Uint8Array([1])).mockRejectedValueOnce(new Error('offline'))
+      blob: jest
+        .fn()
+        .mockResolvedValueOnce(new Uint8Array([1]))
+        .mockRejectedValueOnce(new Error('offline'))
         .mockResolvedValue(new Uint8Array([1]))
     }
     const reader = new RemoteSyncReader(client as any, wallet(), 'main', DEVICE, 1, SETTINGS)
@@ -301,11 +324,11 @@ describe('RemoteSyncReader reliability and scheduling', () => {
 // ── seals — P1-backup-incomplete-generation ─────────────────────────────────
 describe('RemoteSyncReader seals', () => {
   /** Chunks encrypted for real via the same wallet, the last one optionally sealed. */
-  async function logWith (
+  async function logWith(
     w: ReturnType<typeof deriveBackupWallet>,
     chunkTxids: string[],
-    seal: { generation: number, initialChunkCount: number } | null
-  ): Promise<{ blobs: number[][], entries: LogEntry[] }> {
+    seal: { generation: number; initialChunkCount: number } | null
+  ): Promise<{ blobs: number[][]; entries: LogEntry[] }> {
     const blobs: number[][] = []
     for (let i = 0; i < chunkTxids.length; i++) {
       const sealThis = seal != null && i === chunkTxids.length - 1 ? seal : undefined
@@ -423,7 +446,14 @@ describe('RemoteSyncReader seals', () => {
 describe('RemoteSyncReader appData', () => {
   it('is undefined before anything has been replayed, and for a log with no appData at all', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const reader = new RemoteSyncReader(fakeClient([await encodeChunk(w, chunkWithTx('aaa'), 'main')]), w, 'main', DEVICE, 1, SETTINGS)
+    const reader = new RemoteSyncReader(
+      fakeClient([await encodeChunk(w, chunkWithTx('aaa'), 'main')]),
+      w,
+      'main',
+      DEVICE,
+      1,
+      SETTINGS
+    )
 
     expect(reader.appData).toBeUndefined()
     await reader.getSyncChunk(args)
@@ -433,7 +463,9 @@ describe('RemoteSyncReader appData', () => {
   it('reflects the newest entry replayed so far, updating as replay proceeds', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
     const first = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, { localpayPending: '[{"id":"p1"}]' })
-    const second = await encodeChunk(w, chunkWithTx('bbb'), 'main', undefined, { localpayPending: '[{"id":"p1"},{"id":"p2"}]' })
+    const second = await encodeChunk(w, chunkWithTx('bbb'), 'main', undefined, {
+      localpayPending: '[{"id":"p1"},{"id":"p2"}]'
+    })
     const reader = new RemoteSyncReader(fakeClient([first, second]), w, 'main', DEVICE, 1, SETTINGS)
 
     await reader.getSyncChunk(args)

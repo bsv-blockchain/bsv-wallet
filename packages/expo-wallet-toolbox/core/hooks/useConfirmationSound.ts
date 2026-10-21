@@ -43,7 +43,7 @@ const TONES = {
   paymentReceive: require('../../assets/sounds/payment-receive.wav'),
   paymentSend: require('../../assets/sounds/payment-send.wav'),
   vaultDeposit: require('../../assets/sounds/vault-deposit.wav'),
-  vaultWithdraw: require('../../assets/sounds/vault-withdraw.wav'),
+  vaultWithdraw: require('../../assets/sounds/vault-withdraw.wav')
 } as const
 
 type ToneName = keyof typeof TONES
@@ -97,7 +97,7 @@ function playTone(name: ToneName): void {
           playsInSilentMode: false,
           interruptionMode: 'mixWithOthers',
           shouldPlayInBackground: false,
-          allowsRecording: false,
+          allowsRecording: false
         })
         modeSet = true
       }
@@ -142,7 +142,7 @@ export const sounds = {
   /** A host's sounds setting: off silences every tone until it's turned on again. */
   setEnabled: (on: boolean) => {
     enabled = on
-  },
+  }
 } as const
 
 export const useConfirmationSound = () => useMemo(() => sounds, [])

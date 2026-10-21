@@ -17,14 +17,16 @@ import { BigNumber, ECDSA, PrivateKey } from '@bsv/sdk'
 
 const g = globalThis as Record<string, any>
 
-function randMsg (): BigNumber {
+function randMsg(): BigNumber {
   const a: number[] = []
   for (let i = 0; i < 32; i++) a.push(Math.floor(Math.random() * 256))
   return new BigNumber(a)
 }
 
 describe('CR-7 noble backend', () => {
-  afterEach(() => { delete g.__bsvSecpNative })
+  afterEach(() => {
+    delete g.__bsvSecpNative
+  })
 
   it('is active in jest (a noble-routed signature verifies)', () => {
     delete g.__bsvSecpNative
@@ -39,9 +41,9 @@ describe('CR-7 noble backend', () => {
     for (let i = 0; i < N; i++) {
       const k = PrivateKey.fromRandom()
       const m = randMsg()
-      delete g.__bsvSecpNative                 // noble backend
+      delete g.__bsvSecpNative // noble backend
       const dNoble = ECDSA.sign(m, k, true).toDER('hex')
-      g.__bsvSecpNative = {}                    // force SDK pure-JS
+      g.__bsvSecpNative = {} // force SDK pure-JS
       const dPure = ECDSA.sign(m, k, true).toDER('hex')
       delete g.__bsvSecpNative
       expect(dNoble).toBe(dPure)

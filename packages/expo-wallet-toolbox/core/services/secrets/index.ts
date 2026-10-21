@@ -14,24 +14,12 @@
  *
  * peekKek is intentionally not re-exported.
  */
-export type {
-  EnvelopeBlob,
-  KekPolicy,
-  KekSentinel,
-  SecretName,
-  UnavailableReason,
-  UnlockState
-} from './types'
+export type { EnvelopeBlob, KekPolicy, KekSentinel, SecretName, UnavailableReason, UnlockState } from './types'
 export { EnvelopeError, SECRET_NAMES } from './types'
 
 export { openSecret, sealSecret } from './envelope'
 
-export {
-  biometricKind,
-  hasStrongBiometrics,
-  resolveProvisioningPolicy,
-  type ResolvedPolicy
-} from './policy'
+export { biometricKind, hasStrongBiometrics, resolveProvisioningPolicy, type ResolvedPolicy } from './policy'
 
 export {
   autoUnlockKek,
@@ -44,14 +32,7 @@ export {
   unlockKek
 } from './kek'
 
-export {
-  deleteAllSecrets,
-  deleteSecret,
-  getSecret,
-  hasAnySecret,
-  hasSecret,
-  putSecret
-} from './store'
+export { deleteAllSecrets, deleteSecret, getSecret, hasAnySecret, hasSecret, putSecret } from './store'
 
 export {
   hasLegacySecrets,

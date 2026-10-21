@@ -30,12 +30,12 @@ File: `core/services/vault/r1comb.ts`. Imports only `@bsv/sdk` and `@noble/curve
 ```ts
 export const COMB_ROWS = 6
 export const COMB_COLS = 43
-export const TABLE_SIZE = 32                 // entries per base point
-export const COORD_WIDTH = 33                // OP_NUM2BIN width per coordinate
+export const TABLE_SIZE = 32 // entries per base point
+export const COORD_WIDTH = 33 // OP_NUM2BIN width per coordinate
 export const SALT_BYTES = 32
-export const R1C_UNLOCK_LEN = 2560           // declared unlockingScriptLength (hard max is 2,539)
+export const R1C_UNLOCK_LEN = 2560 // declared unlockingScriptLength (hard max is 2,539)
 export const R1C_MAX_KEYS = 5
-export function R1C_LOCK_LEN(n: number): number            // 27855 for n=1; 27831 + 25n for 2<=n<=5; throws otherwise
+export function R1C_LOCK_LEN(n: number): number // 27855 for n=1; 27831 + 25n for 2<=n<=5; throws otherwise
 
 /** 65-byte SEC1 (04‖X‖Y) or 33-byte compressed hex in → 33-byte compressed, lowercase hex out. Throws VaultError('template-invalid') on anything else. */
 export function compressPubkey(sec1Hex: string): string
@@ -60,11 +60,27 @@ export function decodeDerSignature(der: number[]): { r: bigint; s: bigint }
 /** R = u1·G + u2·Q for e = LE(hash256(preimage)); returns the FULL affine x, or null if R is the point at infinity. */
 export function fullR(a: { preimage: number[]; rSig: bigint; s: bigint; pubkeyHex33: string }): bigint | null
 /** The 71-push unlocking script (spec §2.4): r, u2', u1', 64 coords, salt, s, sInv, preimage. Throws VaultError('template-invalid') if fullR is null. */
-export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex33: string; saltHex64: string }): UnlockingScript
+export function buildUnlock(a: {
+  preimage: number[]
+  derSig: number[]
+  pubkeyHex33: string
+  saltHex64: string
+}): UnlockingScript
 /** Run @bsv/sdk Spend with EXPLICIT strict flags (MINIMALDATA on, UTXO_AFTER_CHRONICLE on, SIGHASH_FORKID, STRICTENC) — returns true or throws the interpreter error. */
-export function verifyVaultInput(a: { tx: Transaction; inputIndex: number; sourceSatoshis: number; lockingScript: LockingScript; unlockingScript: UnlockingScript }): true
+export function verifyVaultInput(a: {
+  tx: Transaction
+  inputIndex: number
+  sourceSatoshis: number
+  lockingScript: LockingScript
+  unlockingScript: UnlockingScript
+}): true
 
-export interface VaultInstructionsV4 { v: 4; type: 'R1C'; salt: string /* 64 hex */; keys: string[] /* 33-byte compressed pubkeys, lowercase hex, commitment order */ }
+export interface VaultInstructionsV4 {
+  v: 4
+  type: 'R1C'
+  salt: string /* 64 hex */
+  keys: string[] /* 33-byte compressed pubkeys, lowercase hex, commitment order */
+}
 export type VaultInstructions = VaultInstructionsV4
 export function encodeVaultInstructions(i: VaultInstructionsV4): string
 /** Fails closed: null for anything not exactly v4/R1C with valid salt and 1..5 valid keys. */
@@ -80,89 +96,127 @@ Test file: `__tests__/vault/r1comb.test.ts`. Fixture path for goldens: `docs/exa
 `core/services/vault/types.ts` — `VaultErrorCode` union gains: `'not-released' | 'backup-off' | 'not-enough-keys' | 'key-already-enrolled' | 'too-many-keys' | 'last-keys' | 'relock-required' | 'key-not-committed' | 'key-cannot-cover' | 'too-small-to-relock' | 'bad-version'`; loses `'seal-corrupt' | 'bad-passphrase' | 'bad-mnemonic' | 'bad-derivation-index' | 'backup-required'`. `SealedBlob` removed. Everything else unchanged.
 
 `core/services/vault/vaultStore.ts`
+
 ```ts
-export interface VaultKeyRecord { serial: string; slot: number; pubkey: string /* 33-byte compressed lowercase hex */; nickname: string; enrolledAt: number }
-export interface VaultMetaV5 { v: 5; createdAt: number; lastUsedAt?: number; lastUsedSerial?: string; keys: VaultKeyRecord[] }
+export interface VaultKeyRecord {
+  serial: string
+  slot: number
+  pubkey: string /* 33-byte compressed lowercase hex */
+  nickname: string
+  enrolledAt: number
+}
+export interface VaultMetaV5 {
+  v: 5
+  createdAt: number
+  lastUsedAt?: number
+  lastUsedSerial?: string
+  keys: VaultKeyRecord[]
+}
 export type VaultMeta = VaultMetaV5
 export const vaultStore: {
-  isEnrolled(): Promise<boolean>                       // meta != null (meta-only)
-  getMeta(): Promise<VaultMeta | null>                 // null unless v === 5
+  isEnrolled(): Promise<boolean> // meta != null (meta-only)
+  getMeta(): Promise<VaultMeta | null> // null unless v === 5
   setMeta(m: VaultMeta): Promise<void>
-  addKey(k: VaultKeyRecord): Promise<VaultMeta>        // throws VaultError('too-many-keys') at 5, ('key-already-enrolled') on duplicate serial
-  removeKey(serial: string): Promise<VaultMeta>        // throws VaultError('last-keys') when keys.length <= 2
+  addKey(k: VaultKeyRecord): Promise<VaultMeta> // throws VaultError('too-many-keys') at 5, ('key-already-enrolled') on duplicate serial
+  removeKey(serial: string): Promise<VaultMeta> // throws VaultError('last-keys') when keys.length <= 2
   renameKey(serial: string, nickname: string): Promise<VaultMeta>
   noteLastUsed(serial: string): Promise<void>
-  migrateLegacySeal(): Promise<void>                   // SecureStore.deleteItemAsync('vault_seal_v1'), swallow errors
+  migrateLegacySeal(): Promise<void> // SecureStore.deleteItemAsync('vault_seal_v1'), swallow errors
   clear(): Promise<void>
 }
 ```
 
 `core/services/vault/VaultKeyService.ts`
+
 ```ts
 export const VAULT_SLOT = 0x82
 export const VAULT_MIN_KEYS = 2
 export const VAULT_MAX_KEYS = 5
 export type EnrollPhase = 'connecting' | 'pin-check' | 'generating' | 'done'
 export async function enrollKey(args: {
-  pendingSerials: string[]                             // serials already enrolled OR pending in this wizard run
+  pendingSerials: string[] // serials already enrolled OR pending in this wizard run
   nickname?: string
   onPhase: (p: EnrollPhase) => void
   getPin: () => Promise<string>
   requestPinChange?: (retries: number) => Promise<{ oldPin: string; newPin: string }>
-}): Promise<VaultKeyRecord>                            // one card session; generateVaultKey(0x82) with 'cached'/'once'; compressPubkey on the result; throws 'key-already-enrolled' | 'pin-locked' | 'pin-invalid' | 'no-key' | 'user-cancelled' | 'key-removed-mid-op' | 'driver-unavailable'
-export async function finalizeEnrollment(records: VaultKeyRecord[]): Promise<void>   // throws 'not-enough-keys' (<2) / 'too-many-keys' (>5); writes meta v5
-export async function addVaultKey(record: VaultKeyRecord): Promise<VaultMeta>        // vaultStore.addKey
-export async function disableVault(): Promise<void>                                  // vaultStore.clear()
+}): Promise<VaultKeyRecord> // one card session; generateVaultKey(0x82) with 'cached'/'once'; compressPubkey on the result; throws 'key-already-enrolled' | 'pin-locked' | 'pin-invalid' | 'no-key' | 'user-cancelled' | 'key-removed-mid-op' | 'driver-unavailable'
+export async function finalizeEnrollment(records: VaultKeyRecord[]): Promise<void> // throws 'not-enough-keys' (<2) / 'too-many-keys' (>5); writes meta v5
+export async function addVaultKey(record: VaultKeyRecord): Promise<VaultMeta> // vaultStore.addKey
+export async function disableVault(): Promise<void> // vaultStore.clear()
 ```
 
 `core/services/vault/session.ts` — `withKeySession` now rejects: `session-failed` → `VaultError(code === 'user-cancelled' ? 'user-cancelled' : 'no-key')`; `detached` before `work` resolves → `VaultError('key-removed-mid-op')`; attach timeout (default 65_000 ms, injectable) → `VaultError('no-key')`.
 
 `core/services/vault/driver.ts`
+
 ```ts
 export interface VaultDriver {
   isSupported(): boolean
   sessionBased: boolean
-  start(message?: string): void                        // message = localised NFC alert text (iOS); ignored elsewhere
+  start(message?: string): void // message = localised NFC alert text (iOS); ignored elsewhere
   stop(): void
   onKeyEvent(cb: (e: KeyEvent) => void): () => void
   getKeyInfo(): Promise<{ serial: string; firmwareVersion: string; pinRetries: number }>
   verifyPin(pin: string): Promise<{ ok: boolean; retriesLeft: number }>
   changePin(oldPin: string, newPin: string): Promise<{ ok: boolean; retriesLeft: number }>
-  generateVaultKey(slot: number): Promise<{ publicKey: string }>   // adapter passes 'cached', 'once'
+  generateVaultKey(slot: number): Promise<{ publicKey: string }> // adapter passes 'cached', 'once'
   readVaultPublicKey(slot: number): Promise<{ publicKey: string } | null>
   signEcdsa(slot: number, pin: string, digest: string): Promise<{ signature: string }>
 }
 // ecdh REMOVED from VaultDriver and from NativeYubiKeyPiv usage (native method may remain; unused).
 ```
+
 Native: `packages/react-native-yubikey/src/specs/YubiKeyPiv.nitro.ts` `startDiscovery(message: string): void`; Swift sets `YubiKitExternalLocalization.nfcScanAlertMessage = message` before starting; Kotlin ignores. Regenerate nitrogen output (`npx nitrogen` in the package; commit generated files).
 
 `core/services/vault/mockYubiKey.ts` — `MockYubiKey` keeps a `Map<serial, { priv: Uint8Array | null; pub: string | null; pin: string; pinRetries: number; pinVerified: boolean }>`; `insertKey(serial)` selects/creates a record; `setPin(pin)` applies to the current serial; `signEcdsa` signs with the current serial's key; `ecdh` and the `softwareEcdh` import removed; `start(message?)` accepted. `devMock.ts`: module-held instance; `setMockDriverEnabled(on)`, `setMockPresentKey(serial: 'MOCK-DEV-1' | 'MOCK-DEV-2' | 'MOCK-DEV-3')`, `getMockPresentKey()`.
 
 `core/services/vault/ceremony.ts`
+
 ```ts
 export type VaultProgress = { phase: 'preparing'; signed?: number; total?: number } | { phase: 'broadcasting' }
-export interface CeremonyState { phase: CeremonyPhase; reason?: string; error?: { code: VaultErrorCode; retriesLeft?: number }; armedUntil?: number; progress?: { signed: number; total: number } }
+export interface CeremonyState {
+  phase: CeremonyPhase
+  reason?: string
+  error?: { code: VaultErrorCode; retriesLeft?: number }
+  armedUntil?: number
+  progress?: { signed: number; total: number }
+}
 export interface VaultSigner {
   readonly serial: string
-  readonly pubkey: string                              // 33-byte compressed lowercase hex
+  readonly pubkey: string // 33-byte compressed lowercase hex
   /** Sign one 32-byte digest (64 hex). Retries in place on touch-timeout / nfc-lost / key-removed-mid-op (re-opens the session on session-based transports, re-checks serial + PIN); on session-based transports re-opens a fresh session every VAULT_INPUTS_PER_TAP calls. Throws 'key-removed-mid-op' after release(). */
-  sign(digestHex: string, progress?: { index: number; total: number }): Promise<number[]>   // DER bytes
+  sign(digestHex: string, progress?: { index: number; total: number }): Promise<number[]> // DER bytes
   release(): void
 }
-export interface CeremonyStoreView { getMeta(): Promise<{ keys: { serial: string; slot: number; pubkey: string }[] } | null> }
+export interface CeremonyStoreView {
+  getMeta(): Promise<{ keys: { serial: string; slot: number; pubkey: string }[] } | null>
+}
 export class CeremonyController {
-  constructor(deps: { getDriver: () => VaultDriver | null; store: CeremonyStoreView; retentionMs: number; attachTimeoutMs?: number; inputsPerTap?: number })
-  requestSigner(reason: string, chosenSerial: string): Promise<VaultSigner>  // 'serial-mismatch' if the tapped card is not chosenSerial; 'not-enrolled' if chosenSerial not in meta
+  constructor(deps: {
+    getDriver: () => VaultDriver | null
+    store: CeremonyStoreView
+    retentionMs: number
+    attachTimeoutMs?: number
+    inputsPerTap?: number
+  })
+  requestSigner(reason: string, chosenSerial: string): Promise<VaultSigner> // 'serial-mismatch' if the tapped card is not chosenSerial; 'not-enrolled' if chosenSerial not in meta
   noteProgress(p: VaultProgress): void
-  submitPin(pin: string): void; cancel(): void; retry(): void; notifyKeyDetached(): void; subscribe(cb): () => void
-  onArmed?: (s: VaultSigner) => void; onRelock?: (why: 'timeout' | 'detached' | 'manual') => void
+  submitPin(pin: string): void
+  cancel(): void
+  retry(): void
+  notifyKeyDetached(): void
+  subscribe(cb): () => void
+  onArmed?: (s: VaultSigner) => void
+  onRelock?: (why: 'timeout' | 'detached' | 'manual') => void
 }
 ```
+
 `core/services/vault/ceremonyHost.ts`: `export function requestVaultSigner(reason: string, chosenSerial: string): Promise<VaultSigner>`; `noteVaultProgress(p: VaultProgress)`; `VAULT_RETENTION_MS = 120_000`; `VAULT_INPUTS_PER_TAP = 16`.
 
 `core/toolboxConfig.ts`: `ToolboxConfig.vaultEnabled?: boolean` (default false); `export function isVaultEnabled(): boolean` — returns `current?.vaultEnabled ?? false`, never throws.
 
 `core/services/vault/transfers.ts`
+
 ```ts
 export const VAULT_BASKET = 'admin vault'
 export const VAULT_DEPOSIT_MIN = 100_000
@@ -190,11 +244,13 @@ export function estimateRelockFee(inputCount: number, lockLen: number, satPerKb?
 export interface VaultWallet { createAction(args: unknown, originator: string): Promise<CreateActionResult>; signAction(...); listOutputs(...); abortAction(...); listActions?(...) }
 // Kept as legacy (unchanged API): reclaimStagingOutputs, ReclaimResult, VAULT_STAGING_BASKET. Removed: sweepVaultWithHD, VaultWallet.getPublicKey, VaultWallet.createSignature is kept ONLY because reclaimStagingOutputs uses it.
 ```
+
 Withdraw internals (spec §4.2): listOutputs (limit 1000, entire transactions, includeCustomInstructions) → decode v4 → filter by chosen pubkey → sort desc → cap → per input `commitment(pubkey, salt) ∈ bakedCommitments(lock from BEEF)` else `key-not-committed` → amount checks (`key-cannot-cover`, `too-many-inputs`, `amount-exceeds-balance`) → createAction `{ version: 2, inputs: [{ outpoint, unlockingScriptLength: R1C_UNLOCK_LEN, inputDescription }], outputs (re-vault remainder ≥ VAULT_DEPOSIT_MIN with fresh salt, current keys), inputBEEF, options: { randomizeOutputs: false, acceptDelayedBroadcast: false, trustSelf: 'known' } }` → parse signable tx; assert version 2 (`bad-version` + abortAction) → preimages + `pushTxDerCheck` for each (on failure abortAction and re-create with `sequenceNumber` bumped on that input; max 8 attempts) → `requestVaultSigner(reason, chosenSerial)` → sign sequentially with progress → release → buildUnlock + verifyVaultInput per input → signAction `{ reference, spends, options: { acceptDelayedBroadcast: true } }`. On any failure before signAction: abortAction.
 
 ## Plan 3 — UI (screens, components, i18n, routes, home button)
 
 Consumes everything above. Produces:
+
 - `ui/components/vault/EnrollWizard.tsx`: `export const EnrollWizard: React.FC<{ mode: 'enroll' | 'add-key'; onDone: () => void; onCancel: () => void }>` — steps `intro | key | more | done` (add-key mode: single `key` step then done).
 - `ui/components/vault/KeyChooser.tsx`: `export const KeyChooser: React.FC<{ keys: VaultKeyRecord[]; selected?: string; onSelect: (serial: string) => void }>`.
 - `ui/components/vault/vaultErrorCopy.ts`: `export function vaultErrorCopy(code: VaultErrorCode | undefined, params?: Record<string, unknown>): string` (merges `ERROR_COPY` and `translateVaultError`).
@@ -231,16 +287,16 @@ Binding sequencing across all three plans: **P1 Tasks 1–6 → P2 Tasks 1–11 
 
 ## File Structure
 
-| Action | Path | Responsibility |
-|---|---|---|
-| Create | `packages/expo-wallet-toolbox/core/services/vault/r1comb.ts` | Pure template module: constants, script-number encoders, `asm`, comb tables, commitments, `buildLock`/`bakedCommitments`, preimage/digest/`pushTxDerCheck`/DER, `fullR`/`buildUnlock`/`verifyVaultInput`, v4 codec. |
-| Create | `packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts` | Goldens against the fixture, round trips through `Spend`, negatives, codec fail-closed. Grown task by task. |
-| Create | `scripts/r1c-spend-proof.ts` | §0 spend proof with software P-256 keys through ARC: deposit → per-key spends → 3-input → mixed P2PKH+vault → constructed `pushTxDerCheck`-failing v2 spend. |
-| Modify (Task 7 only) | `packages/expo-wallet-toolbox/core/index.ts:269` | `export * from './services/vault/k1'` → `export * from './services/vault/r1comb'`. |
-| Delete (Task 7 only) | `packages/expo-wallet-toolbox/core/services/vault/k1.ts` | Replaced by `r1comb.ts`. |
-| Delete (Task 7 only) | `packages/expo-wallet-toolbox/__tests__/vault/k1.test.ts` | Tests of the deleted module. |
-| Delete (Task 7 only) | `scripts/k1-spend-proof.ts` | Replaced by `scripts/r1c-spend-proof.ts`. |
-| Read only | `docs/example-txs/51c53430fe63108a2a1ddd231253df069fb424cc6f1bb0ee60b4b07792d3579a_0.hex`, `docs/example-txs/476611a431172df767a73349522536fa78d63a83b560efbb695b853bf60b4b80.hex` | Golden fixtures (testnet lock + its spend). |
+| Action               | Path                                                                                                                                                                               | Responsibility                                                                                                                                                                                                      |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create               | `packages/expo-wallet-toolbox/core/services/vault/r1comb.ts`                                                                                                                       | Pure template module: constants, script-number encoders, `asm`, comb tables, commitments, `buildLock`/`bakedCommitments`, preimage/digest/`pushTxDerCheck`/DER, `fullR`/`buildUnlock`/`verifyVaultInput`, v4 codec. |
+| Create               | `packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts`                                                                                                                      | Goldens against the fixture, round trips through `Spend`, negatives, codec fail-closed. Grown task by task.                                                                                                         |
+| Create               | `scripts/r1c-spend-proof.ts`                                                                                                                                                       | §0 spend proof with software P-256 keys through ARC: deposit → per-key spends → 3-input → mixed P2PKH+vault → constructed `pushTxDerCheck`-failing v2 spend.                                                        |
+| Modify (Task 7 only) | `packages/expo-wallet-toolbox/core/index.ts:269`                                                                                                                                   | `export * from './services/vault/k1'` → `export * from './services/vault/r1comb'`.                                                                                                                                  |
+| Delete (Task 7 only) | `packages/expo-wallet-toolbox/core/services/vault/k1.ts`                                                                                                                           | Replaced by `r1comb.ts`.                                                                                                                                                                                            |
+| Delete (Task 7 only) | `packages/expo-wallet-toolbox/__tests__/vault/k1.test.ts`                                                                                                                          | Tests of the deleted module.                                                                                                                                                                                        |
+| Delete (Task 7 only) | `scripts/k1-spend-proof.ts`                                                                                                                                                        | Replaced by `scripts/r1c-spend-proof.ts`.                                                                                                                                                                           |
+| Read only            | `docs/example-txs/51c53430fe63108a2a1ddd231253df069fb424cc6f1bb0ee60b4b07792d3579a_0.hex`, `docs/example-txs/476611a431172df767a73349522536fa78d63a83b560efbb695b853bf60b4b80.hex` | Golden fixtures (testnet lock + its spend).                                                                                                                                                                         |
 
 Additive exports beyond the contract (allowed as "private helpers", exported so the tests can pin them): `P256_P`, `P256_N`, `SECP_N`, `SECP_GX`, `RECODE_CONST`, `R1C_PREIMAGE_LEN`, `R1C_SIGHASH`, `R1C_VERIFY_FLAGS`, `pushData`, `scriptNum`, `encNum`, `asm`, `combTableScalar`, `gTable`, `le33`, `recode`, `shiftFor`, `sharedSuffix`, `pushTxSignatureS`, `peelLoopNonMinimalAt`. Nothing in the contract is renamed or re-typed.
 
@@ -249,10 +305,12 @@ Additive exports beyond the contract (allowed as "private helpers", exported so 
 ### Task 1: Scaffold `r1comb.ts` — constants, script-number encoders, `asm`
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/core/services/vault/r1comb.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts`
 
 **Interfaces:**
+
 - Consumes: `VaultError` from `core/services/vault/types.ts` (`constructor(code: VaultErrorCode, message?: string, retriesLeft?: number)`, `code: 'template-invalid'`); `OP`, `Utils` from `@bsv/sdk`; `p256` from `@noble/curves/nist.js`.
 - Produces: `COMB_ROWS`, `COMB_COLS`, `TABLE_SIZE`, `COORD_WIDTH`, `SALT_BYTES`, `R1C_UNLOCK_LEN`, `R1C_MAX_KEYS`, `R1C_LOCK_LEN(n: number): number`, `R1C_PREIMAGE_LEN`, `R1C_SIGHASH`, `P256_P: bigint`, `P256_N: bigint`, `SECP_N: bigint`, `SECP_GX: bigint`, `RECODE_CONST: bigint`, `pushData(data: number[]): number[]`, `scriptNum(v: bigint): number[]`, `encNum(v: bigint | number): number[]`, `asm(text: string, params?: Record<string, bigint | number | number[]>): number[]`.
 
@@ -273,9 +331,23 @@ import fs from 'fs'
 import path from 'path'
 import { BigNumber, Curve, Utils } from '@bsv/sdk'
 import {
-  COMB_COLS, COMB_ROWS, COORD_WIDTH, SALT_BYTES, TABLE_SIZE, R1C_LOCK_LEN, R1C_MAX_KEYS, R1C_UNLOCK_LEN,
-  P256_N, P256_P, SECP_GX, SECP_N, RECODE_CONST,
-  asm, encNum, pushData, scriptNum
+  COMB_COLS,
+  COMB_ROWS,
+  COORD_WIDTH,
+  SALT_BYTES,
+  TABLE_SIZE,
+  R1C_LOCK_LEN,
+  R1C_MAX_KEYS,
+  R1C_UNLOCK_LEN,
+  P256_N,
+  P256_P,
+  SECP_GX,
+  SECP_N,
+  RECODE_CONST,
+  asm,
+  encNum,
+  pushData,
+  scriptNum
 } from '../../core/services/vault/r1comb'
 import { VaultError } from '../../core/services/vault/types'
 
@@ -283,10 +355,16 @@ jest.setTimeout(180_000)
 
 const REPO = path.resolve(__dirname, '../../../../')
 export const FIXTURE_LOCK_HEX = fs
-  .readFileSync(path.join(REPO, 'docs/example-txs/51c53430fe63108a2a1ddd231253df069fb424cc6f1bb0ee60b4b07792d3579a_0.hex'), 'utf8')
+  .readFileSync(
+    path.join(REPO, 'docs/example-txs/51c53430fe63108a2a1ddd231253df069fb424cc6f1bb0ee60b4b07792d3579a_0.hex'),
+    'utf8'
+  )
   .trim()
 export const FIXTURE_TX_HEX = fs
-  .readFileSync(path.join(REPO, 'docs/example-txs/476611a431172df767a73349522536fa78d63a83b560efbb695b853bf60b4b80.hex'), 'utf8')
+  .readFileSync(
+    path.join(REPO, 'docs/example-txs/476611a431172df767a73349522536fa78d63a83b560efbb695b853bf60b4b80.hex'),
+    'utf8'
+  )
   .trim()
 
 const hex = (a: number[]): string => Utils.toHex(a)
@@ -311,7 +389,11 @@ describe('r1comb constants', () => {
     expect(R1C_LOCK_LEN(5)).toBe(27956)
     for (const bad of [0, 6, -1, 1.5, NaN]) {
       expect(() => R1C_LOCK_LEN(bad)).toThrow(VaultError)
-      try { R1C_LOCK_LEN(bad) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
+      try {
+        R1C_LOCK_LEN(bad)
+      } catch (e) {
+        expect((e as VaultError).code).toBe('template-invalid')
+      }
     }
   })
 
@@ -344,8 +426,16 @@ describe('script-number encoding', () => {
     [1n << 247n, '00'.repeat(30) + '8000', '20' + '00'.repeat(30) + '8000'],
     [(1n << 255n) - 1n, 'ff'.repeat(31) + '7f', '20' + 'ff'.repeat(31) + '7f'],
     [1n << 255n, '00'.repeat(31) + '8000', '21' + '00'.repeat(31) + '8000'],
-    [P256_N, '512563fcc2cab9f3849e17a7adfae6bcffffffffffffffff00000000ffffffff00', '21512563fcc2cab9f3849e17a7adfae6bcffffffffffffffff00000000ffffffff00'],
-    [P256_P, 'ffffffffffffffffffffffff00000000000000000000000001000000ffffffff00', '21ffffffffffffffffffffffff00000000000000000000000001000000ffffffff00'],
+    [
+      P256_N,
+      '512563fcc2cab9f3849e17a7adfae6bcffffffffffffffff00000000ffffffff00',
+      '21512563fcc2cab9f3849e17a7adfae6bcffffffffffffffff00000000ffffffff00'
+    ],
+    [
+      P256_P,
+      'ffffffffffffffffffffffff00000000000000000000000001000000ffffffff00',
+      '21ffffffffffffffffffffffff00000000000000000000000001000000ffffffff00'
+    ],
     [RECODE_CONST, 'ff'.repeat(32) + '03', '21' + 'ff'.repeat(32) + '03']
   ]
 
@@ -385,7 +475,9 @@ describe('asm mini-assembler', () => {
 
   it('encodes numeric tokens and bigint / number / byte-array params', () => {
     expect(hex(asm('0 1 16 17 -1 257'))).toBe('005160011' + '14f020101')
-    expect(hex(asm('{N} OP_TOALTSTACK', { N: P256_N }))).toBe('21512563fcc2cab9f3849e17a7adfae6bcffffffffffffffff00000000ffffffff006b')
+    expect(hex(asm('{N} OP_TOALTSTACK', { N: P256_N }))).toBe(
+      '21512563fcc2cab9f3849e17a7adfae6bcffffffffffffffff00000000ffffffff006b'
+    )
     expect(hex(asm('{D} OP_PICK', { D: 70 }))).toBe('014679')
     expect(hex(asm('{S} OP_CAT', { S: [0x41] }))).toBe('01417e')
   })
@@ -402,6 +494,7 @@ describe('asm mini-assembler', () => {
 ```bash
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts
 ```
+
 Expected: `Cannot find module '../../core/services/vault/r1comb' from '__tests__/vault/r1comb.test.ts'`.
 
 - [ ] **Step 1.3: Create `r1comb.ts` with constants, encoders and `asm`**
@@ -495,7 +588,14 @@ export function pushData(data: number[]): number[] {
   if (d.length <= 75) return [d.length, ...d]
   if (d.length <= 0xff) return [OP.OP_PUSHDATA1, d.length, ...d]
   if (d.length <= 0xffff) return [OP.OP_PUSHDATA2, d.length & 0xff, d.length >>> 8, ...d]
-  return [OP.OP_PUSHDATA4, d.length & 0xff, (d.length >>> 8) & 0xff, (d.length >>> 16) & 0xff, (d.length >>> 24) & 0xff, ...d]
+  return [
+    OP.OP_PUSHDATA4,
+    d.length & 0xff,
+    (d.length >>> 8) & 0xff,
+    (d.length >>> 16) & 0xff,
+    (d.length >>> 24) & 0xff,
+    ...d
+  ]
 }
 
 /** Minimal script-number encoding (sign-magnitude little-endian) == BigNumber.toSm('little'). */
@@ -569,11 +669,13 @@ export function asm(text: string, params: Record<string, AsmParam> = {}): number
 ```bash
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts
 ```
+
 Expected: `Tests: 30 passed` (3 constants + 20 vectors + 2 encoding + 4 asm ... all green, 0 failed). Then typecheck:
 
 ```bash
 cd /Users/personal/git/bsv-wallet && npx tsc --noEmit -p packages/expo-wallet-toolbox/tsconfig.json
 ```
+
 Expected: no output (exit 0).
 
 - [ ] **Step 1.5: Commit**
@@ -592,10 +694,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 2: Comb tables, `compressPubkey`, `canonicalTableBytes`, `commitment`
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/services/vault/r1comb.ts` (append after `asm`; extend the `@bsv/sdk` import to `import { Hash, OP, Utils } from '@bsv/sdk'`)
 - Test: `packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts` (append)
 
 **Interfaces:**
+
 - Consumes: `p256.Point.fromHex(hex)`, `.assertValidity()`, `.toHex(true)`, `.multiply(k)`, `.toAffine()`, `p256.Point.BASE`; `Hash.hash160(number[]): number[]`.
 - Produces: `compressPubkey(sec1Hex: string): string`; `combTableScalar(j: number): bigint`; `gTable(): { x: bigint; y: bigint }[]`; `combTable(pubkeyHex33: string): { x: bigint; y: bigint }[]`; `le33(v: bigint): number[]`; `canonicalTableBytes(pubkeyHex33: string): number[]`; `commitment(pubkeyHex33: string, saltHex64: string): string`.
 
@@ -619,11 +723,20 @@ describe('compressPubkey', () => {
   })
 
   it.each([
-    '', 'zz', '02' + 'ff'.repeat(32) /* x >= p */, '05' + '00'.repeat(32), '04' + '00'.repeat(64) /* off curve */,
-    FIXTURE_Q.slice(0, 64), FIXTURE_Q + '00'
+    '',
+    'zz',
+    '02' + 'ff'.repeat(32) /* x >= p */,
+    '05' + '00'.repeat(32),
+    '04' + '00'.repeat(64) /* off curve */,
+    FIXTURE_Q.slice(0, 64),
+    FIXTURE_Q + '00'
   ])('throws template-invalid on %s', bad => {
     expect(() => compressPubkey(bad)).toThrow(VaultError)
-    try { compressPubkey(bad) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
+    try {
+      compressPubkey(bad)
+    } catch (e) {
+      expect((e as VaultError).code).toBe('template-invalid')
+    }
   })
 })
 
@@ -697,6 +810,7 @@ describe('canonical table bytes and commitment', () => {
   })
 })
 ```
+
 Also add `Hash` to the SDK import: `import { BigNumber, Curve, Hash, LockingScript, Utils } from '@bsv/sdk'`.
 
 - [ ] **Step 2.2: Run — expect failures on the new exports**
@@ -704,6 +818,7 @@ Also add `Hash` to the SDK import: `import { BigNumber, Curve, Hash, LockingScri
 ```bash
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts
 ```
+
 Expected: the new suites fail with `TypeError: (0 , _r1comb.compressPubkey) is not a function` (and similar for `combTable` etc.).
 
 - [ ] **Step 2.3: Implement in `r1comb.ts`**
@@ -734,7 +849,10 @@ export function compressPubkey(sec1Hex: string): string {
 }
 
 // ───────────────────────── comb tables (spec §2.1) ─────────────────────────
-export interface AffinePoint { x: bigint; y: bigint }
+export interface AffinePoint {
+  x: bigint
+  y: bigint
+}
 type P256Point = ReturnType<typeof p256.Point.fromHex>
 
 /**
@@ -815,6 +933,7 @@ export function commitment(pubkeyHex33: string, saltHex64: string): string {
 ```bash
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts && npx tsc --noEmit -p packages/expo-wallet-toolbox/tsconfig.json
 ```
+
 Expected: all tests pass (the fixture-table comparisons are the proof that `combTable`, `scriptNum` and the T_j definition agree with the mined script); tsc silent.
 
 - [ ] **Step 2.5: Commit**
@@ -829,13 +948,16 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
+
 ### Task 3: `buildLock`, the DOUBLE/MADD/comb-loop/tail emitters, `sharedSuffix`, `bakedCommitments`, `recode`
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/services/vault/r1comb.ts` (append after `commitment`; extend the SDK import to `import { Hash, LockingScript, OP, PrivateKey, Script, Utils } from '@bsv/sdk'`)
 - Test: `packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts` (append)
 
 **Interfaces:**
+
 - Consumes: `asm`, `encNum`, `pushData`, `gTable`, `bytesOf`, `mod`, `modinv`, `invalid`, `R1C_LOCK_LEN`, `P256_N`, `P256_P`, `SECP_N`, `SECP_GX`, `RECODE_CONST`, `COORD_WIDTH`, `TABLE_SIZE`, `COMB_ROWS`, `COMB_COLS`, `R1C_SIGHASH`, `R1C_MAX_KEYS`; `new LockingScript(chunks)`, `Script.fromBinary(bytes).chunks` (`LockingScript` does not override the static, which is typed `Script`); `new PrivateKey(hex, 16).toPublicKey().encode(true)`.
 - Produces: `recode(u: bigint): bigint`; `shiftFor(c: number, k: number): number`; `sharedSuffix(): number[]` (27,160 B, cached); `buildLock(a: { commitments: string[] }): LockingScript`; `bakedCommitments(lock: Script): string[]`.
 
@@ -862,7 +984,7 @@ const GOLDEN_SHA256_N1 = '680a378d65640bea8b31e70b884809a9b6aaf6cbcf011fdefa7202
 const PUSH_TX_PUBKEY = '02b405d7f0322a89d0f9f3a98e6f938fdc1c969a8d1382a2bf66a71ae74a1e83b0'
 
 describe('recode and shiftFor', () => {
-  it("recode(u) = ((u odd ? u : u + n) + 2^258 − 1) / 2 and inverts to u mod n", () => {
+  it('recode(u) = ((u odd ? u : u + n) + 2^258 − 1) / 2 and inverts to u mod n', () => {
     expect(recode(1n)).toBe(1n << 257n)
     expect(recode(P256_N - 1n)).toBe(P256_N + (1n << 257n) - 1n)
     // fixture u1 (ANALYSIS.md §2, even → +n branch)
@@ -871,7 +993,7 @@ describe('recode and shiftFor', () => {
     for (let i = 0; i < 50; i++) {
       const u = BigInt('0x' + Utils.toHex(Array.from(p256.utils.randomSecretKey()))) % P256_N
       const up = recode(u)
-      expect(up < (1n << 258n)).toBe(true)
+      expect(up < 1n << 258n).toBe(true)
       expect((up >> 257n) & 1n).toBe(1n)
       expect((((2n * up - RECODE_CONST) % P256_N) + P256_N) % P256_N).toBe(u)
     }
@@ -911,7 +1033,9 @@ describe('buildLock goldens', () => {
     expect(hex(Hash.sha256(buildLock({ commitments: [GOLDEN_C2[0]] }).toBinary()))).toBe(GOLDEN_SHA256_N1)
     expect(hex(Hash.sha256(buildLock({ commitments: GOLDEN_C2 }).toBinary()))).toBe(GOLDEN_SHA256_N2)
     // uppercase commitments produce the same bytes
-    expect(hex(buildLock({ commitments: GOLDEN_C2.map(c => c.toUpperCase()) }).toBinary())).toBe(hex(buildLock({ commitments: GOLDEN_C2 }).toBinary()))
+    expect(hex(buildLock({ commitments: GOLDEN_C2.map(c => c.toUpperCase()) }).toBinary())).toBe(
+      hex(buildLock({ commitments: GOLDEN_C2 }).toBinary())
+    )
   })
 
   it('tail ends with <dummy pubkey> OP_CODESEPARATOR OP_CHECKSIG', () => {
@@ -930,10 +1054,19 @@ describe('buildLock goldens', () => {
     const three = buildLock({ commitments: [0, 1, 2].map(fakeCommitment) }).chunks
     expect(three[391].op).toBe(0xa9)
     expect(three.slice(392, 392 + 4 * 2 + 2 + 2 + 1).map(k => (k.data !== undefined ? hex(k.data) : k.op))).toEqual([
-      0x76, fakeCommitment(0), 0x87, 0x7c,
-      0x76, fakeCommitment(1), 0x87, 0x7c,
-      fakeCommitment(2), 0x87,
-      0x9b, 0x9b, 0x69
+      0x76,
+      fakeCommitment(0),
+      0x87,
+      0x7c,
+      0x76,
+      fakeCommitment(1),
+      0x87,
+      0x7c,
+      fakeCommitment(2),
+      0x87,
+      0x9b,
+      0x9b,
+      0x69
     ])
   })
 
@@ -947,7 +1080,11 @@ describe('buildLock goldens', () => {
     [[fakeCommitment(0), fakeCommitment(0).toUpperCase()]]
   ])('buildLock rejects %j with template-invalid', bad => {
     expect(() => buildLock({ commitments: bad })).toThrow(VaultError)
-    try { buildLock({ commitments: bad }) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
+    try {
+      buildLock({ commitments: bad })
+    } catch (e) {
+      expect((e as VaultError).code).toBe('template-invalid')
+    }
   })
 })
 
@@ -968,13 +1105,46 @@ describe('bakedCommitments', () => {
     ['empty script', () => Script.fromHex('')],
     ['P2PKH', () => Script.fromASM('OP_DUP OP_HASH160 ' + 'ab'.repeat(20) + ' OP_EQUALVERIFY OP_CHECKSIG')],
     ['the original fixture lock (Q table baked, no H5)', () => LockingScript.fromHex(FIXTURE_LOCK_HEX)],
-    ['R1C lock with its last byte dropped', () => { const b = buildLock({ commitments: GOLDEN_C2 }).toBinary(); return Script.fromBinary(b.slice(0, -1)) }],
-    ['R1C lock with one suffix byte flipped', () => { const b = buildLock({ commitments: GOLDEN_C2 }).toBinary(); b[10_000] ^= 0x01; return Script.fromBinary(b) }],
-    ['R1C lock with one header byte flipped', () => { const b = buildLock({ commitments: GOLDEN_C2 }).toBinary(); b[3] ^= 0x01; return Script.fromBinary(b) }],
-    ['R1C lock whose H5 BOOLOR was replaced by OP_BOOLAND', () => { const b = buildLock({ commitments: GOLDEN_C2 }).toBinary(); const i = b.length - 27160 - 2; expect(b[i]).toBe(0x9b); b[i] = 0x9a; return Script.fromBinary(b) }]
+    [
+      'R1C lock with its last byte dropped',
+      () => {
+        const b = buildLock({ commitments: GOLDEN_C2 }).toBinary()
+        return Script.fromBinary(b.slice(0, -1))
+      }
+    ],
+    [
+      'R1C lock with one suffix byte flipped',
+      () => {
+        const b = buildLock({ commitments: GOLDEN_C2 }).toBinary()
+        b[10_000] ^= 0x01
+        return Script.fromBinary(b)
+      }
+    ],
+    [
+      'R1C lock with one header byte flipped',
+      () => {
+        const b = buildLock({ commitments: GOLDEN_C2 }).toBinary()
+        b[3] ^= 0x01
+        return Script.fromBinary(b)
+      }
+    ],
+    [
+      'R1C lock whose H5 BOOLOR was replaced by OP_BOOLAND',
+      () => {
+        const b = buildLock({ commitments: GOLDEN_C2 }).toBinary()
+        const i = b.length - 27160 - 2
+        expect(b[i]).toBe(0x9b)
+        b[i] = 0x9a
+        return Script.fromBinary(b)
+      }
+    ]
   ])('throws template-invalid on %s', (_name, mk) => {
     expect(() => bakedCommitments(mk())).toThrow(VaultError)
-    try { bakedCommitments(mk()) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
+    try {
+      bakedCommitments(mk())
+    } catch (e) {
+      expect((e as VaultError).code).toBe('template-invalid')
+    }
   })
 })
 ```
@@ -984,6 +1154,7 @@ describe('bakedCommitments', () => {
 ```bash
 npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts
 ```
+
 Expected: the four new suites fail with `TypeError: (0 , _r1comb.buildLock) is not a function` (and `recode`, `shiftFor`, `sharedSuffix`, `bakedCommitments`); Tasks 1–2 suites still pass.
 
 - [ ] **Step 3.3: Implement in `r1comb.ts`**
@@ -1015,13 +1186,18 @@ function emitHeaderPrefix(): number[] {
   out.push(...asm('OP_DUP OP_HASH256 <00> OP_CAT OP_BIN2NUM OP_SWAP OP_TOALTSTACK'))
   // H1: n -> alt; s*sInv == 1; u1 = e*sInv; u2 = r*sInv (r sits under salt + 64 coords + u1' + u2'); drop s, sInv
   //     [.. salt s sInv u1]: u1(0) sInv(1) s(2) salt(3) Q63(4) .. Q0(3+K) u1'(4+K) u2'(5+K) r(6+K)
-  out.push(...asm(`
+  out.push(
+    ...asm(
+      `
     {N} OP_TOALTSTACK
     2 OP_PICK 2 OP_PICK OP_MUL MODP 1 OP_NUMEQUALVERIFY
     OP_OVER OP_MUL MODP
     {RDEPTH} OP_PICK 2 OP_PICK OP_MUL MODP
     2 OP_ROLL OP_DROP 2 OP_ROLL OP_DROP
-  `, { N: P256_N, RDEPTH: K_Q + 6 }))
+  `,
+      { N: P256_N, RDEPTH: K_Q + 6 }
+    )
+  )
   // H2: recode u2 then u1 -> [.. salt u1' u2']
   const one = 'OP_DUP 2 OP_MOD OP_NOTIF {N} OP_ADD OP_ENDIF {C} OP_ADD 2 OP_DIV OP_SWAP'
   out.push(...asm(`${one} ${one}`, { N: P256_N, C: RECODE_CONST }))
@@ -1041,7 +1217,8 @@ function emitH5(commitments: number[][]): number[] {
     out.push(...asm('{C} OP_EQUALVERIFY', { C: commitments[0] }))
     return out
   }
-  for (let i = 0; i < commitments.length - 1; i++) out.push(...asm('OP_DUP {C} OP_EQUAL OP_SWAP', { C: commitments[i] }))
+  for (let i = 0; i < commitments.length - 1; i++)
+    out.push(...asm('OP_DUP {C} OP_EQUAL OP_SWAP', { C: commitments[i] }))
   out.push(...asm('{C} OP_EQUAL', { C: commitments[commitments.length - 1] }))
   for (let i = 0; i < commitments.length - 1; i++) out.push(OP.OP_BOOLOR)
   out.push(OP.OP_VERIFY)
@@ -1099,7 +1276,8 @@ const DIGITS_AND_LOOKUP = `
 `
 
 // Identity guard (column 0, first add only): if Z == 0 replace the accumulator by (x, y, 1).
-const GUARD_PREFIX = '2 OP_PICK 0 OP_NUMEQUAL OP_IF OP_TOALTSTACK OP_TOALTSTACK OP_DROP OP_DROP OP_DROP OP_FROMALTSTACK OP_FROMALTSTACK 1 OP_ELSE'
+const GUARD_PREFIX =
+  '2 OP_PICK 0 OP_NUMEQUAL OP_IF OP_TOALTSTACK OP_TOALTSTACK OP_DROP OP_DROP OP_DROP OP_FROMALTSTACK OP_FROMALTSTACK 1 OP_ELSE'
 const GUARD_SUFFIX = 'OP_ENDIF'
 
 // Mixed Jacobian + affine addition: U2 = xZ^2, S2 = yZ^3, H = U2 - X, R = S2 - Y,
@@ -1127,8 +1305,8 @@ const MADD = `
 `
 
 /** Stack layout beneath the accumulator: [r u2' u1' C[0..K-1]] with K = 128 table coordinates (Q[0..63] then G[0..63]). */
-const K_CONSTS = 2 * 2 * TABLE_SIZE            // 128
-const BELOW = 3 + K_CONSTS                     // 131 items under the accumulator (X Y Z)
+const K_CONSTS = 2 * 2 * TABLE_SIZE // 128
+const BELOW = 3 + K_CONSTS // 131 items under the accumulator (X Y Z)
 // With [.. X Y Z] on top (BELOW + 3 items): stack index 1 (= u2') is at depth 132, index 2 (= u1') at 131.
 const scalarDepth = (half: 0 | 1): number => BELOW + 1 - half
 // C[m] sits at depth 132 − m once [.. X Y Z sign j] is on top; half 0 -> C[0..63] (= Q), half 1 -> C[64..127] (= G).
@@ -1138,7 +1316,10 @@ export const shiftFor = (c: number, k: number): number => COMB_COLS * (COMB_ROWS
 
 function emitAdd(half: 0 | 1, c: number, guarded: boolean): number[] {
   const params: Record<string, AsmParam> = {
-    DEPTH0: scalarDepth(half), DEPTH1: scalarDepth(half) + 1, DEPTH2: scalarDepth(half) + 2, BASE: tableBase(half)
+    DEPTH0: scalarDepth(half),
+    DEPTH1: scalarDepth(half) + 1,
+    DEPTH2: scalarDepth(half) + 2,
+    BASE: tableBase(half)
   }
   for (let k = 0; k < COMB_ROWS; k++) params[`SHIFT${k}`] = shiftFor(c, k)
   return asm(`${DIGITS_AND_LOOKUP} ${guarded ? GUARD_PREFIX : ''} ${MADD} ${guarded ? GUARD_SUFFIX : ''}`, params)
@@ -1149,8 +1330,8 @@ function emitCombLoop(): number[] {
   const out: number[] = []
   for (let c = 0; c < COMB_COLS; c++) {
     out.push(...asm(DOUBLE))
-    out.push(...emitAdd(0, c, c === 0))     // index-1 scalar (u2') with C[0..63] (Q)
-    out.push(...emitAdd(1, c, false))       // index-2 scalar (u1') with C[64..127] (G)
+    out.push(...emitAdd(0, c, c === 0)) // index-1 scalar (u2') with C[0..63] (Q)
+    out.push(...emitAdd(1, c, false)) // index-2 scalar (u1') with C[64..127] (G)
   }
   return out
 }
@@ -1177,14 +1358,17 @@ function pushTxPubKey(): number[] {
 /** Tail: Z != 0 and X == r·Z² (mod p); clear the stack; OP_PUSH_TX with k = 1 on secp256k1 (ANALYSIS.md §6). */
 function emitTail(): number[] {
   // r (item index 0) with [.. X Y Z Z^2] on top (BELOW + 4 items) is at depth BELOW + 3 = 134
-  const rCheck = asm(`
+  const rCheck = asm(
+    `
     OP_DUP 0 OP_NUMEQUAL OP_NOTIF
       OP_DUP OP_DUP OP_MUL MODP
       {RDEPTH} OP_PICK OP_OVER OP_MUL MODP
       4 OP_PICK OP_NUMEQUAL
     OP_ELSE 0 OP_ENDIF OP_VERIFY
     OP_FROMALTSTACK OP_DROP
-  `, { RDEPTH: BELOW + 3 })
+  `,
+    { RDEPTH: BELOW + 3 }
+  )
   // stack now holds BELOW + 4 items (r u2' u1' C[] X Y Z Z^2): drop them all
   const leftover = BELOW + 4
   const clear: number[] = [
@@ -1193,7 +1377,8 @@ function emitTail(): number[] {
   ]
   // e_k1 = BE(hash256(preimage)); s = lowS((e_k1 + 2^248) mod n_k1); r = Gx (k = 1)
   const rev31 = new Array<string>(31).fill('OP_SWAP OP_CAT').join(' ')
-  const pushTx = asm(`
+  const pushTx = asm(
+    `
     OP_FROMALTSTACK {SIGHASH} OP_TOALTSTACK OP_HASH256
     ${new Array<string>(31).fill('1 OP_SPLIT').join(' ')}
     ${rev31}
@@ -1210,18 +1395,22 @@ function emitTail(): number[] {
     <30> OP_SWAP OP_CAT
     OP_FROMALTSTACK OP_CAT
     {PUBKEY} OP_CODESEPARATOR OP_CHECKSIG
-  `, {
-    SIGHASH: [R1C_SIGHASH], NK: SECP_N,
-    DERPREFIX: [...derIntBytes(SECP_GX), 0x02],   // 02 20 <Gx> 02  (s INTEGER tag appended)
-    PUBKEY: pushTxPubKey()
-  })
+  `,
+    {
+      SIGHASH: [R1C_SIGHASH],
+      NK: SECP_N,
+      DERPREFIX: [...derIntBytes(SECP_GX), 0x02], // 02 20 <Gx> 02  (s INTEGER tag appended)
+      PUBKEY: pushTxPubKey()
+    }
+  )
   return [...rCheck, ...clear, ...pushTx]
 }
 
 let sharedSuffixCache: number[] | null = null
 /** G table + pre-loop + comb loop + tail: 27,160 B, byte-identical to fixture chunks [87..150] ++ [215..end]. Computed once. */
 export function sharedSuffix(): number[] {
-  if (sharedSuffixCache === null) sharedSuffixCache = [...emitGTable(), ...emitPreloop(), ...emitCombLoop(), ...emitTail()]
+  if (sharedSuffixCache === null)
+    sharedSuffixCache = [...emitGTable(), ...emitPreloop(), ...emitCombLoop(), ...emitTail()]
   return sharedSuffixCache.slice()
 }
 
@@ -1231,7 +1420,8 @@ function parseCommitments(commitments: unknown): number[][] {
     throw invalid(`buildLock: commitments must be 1..${R1C_MAX_KEYS} hash160 hex strings`)
   }
   const lower: string[] = commitments.map(c => {
-    if (typeof c !== 'string' || !/^[0-9a-fA-F]{40}$/.test(c)) throw invalid('buildLock: commitment must be 40 hex chars')
+    if (typeof c !== 'string' || !/^[0-9a-fA-F]{40}$/.test(c))
+      throw invalid('buildLock: commitment must be 40 hex chars')
     return c.toLowerCase()
   })
   if (new Set(lower).size !== lower.length) throw invalid('buildLock: duplicate commitment')
@@ -1280,6 +1470,7 @@ export function bakedCommitments(lock: Script): string[] {
 ```bash
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts && npx tsc --noEmit -p packages/expo-wallet-toolbox/tsconfig.json
 ```
+
 Expected: all suites green. The two decisive assertions are `sharedSuffix()` == fixture chunks `[87..150] ++ [215..end]` (the mined script is the oracle for every emitter) and the two pinned sha256s (the gen2 reference is the oracle for the header). If the suffix test fails, diff the first differing byte against `docs/example-txs/spike/gen2.mjs emitSharedSuffix()` — the templates above must be character-identical to it. tsc silent.
 
 - [ ] **Step 3.5: Commit**
@@ -1299,10 +1490,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 4: `sighashPreimage`, `signerDigest`, `pushTxSignatureS`, `peelLoopNonMinimalAt`, `pushTxDerCheck`, `decodeDerSignature`
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/services/vault/r1comb.ts` (append after `bakedCommitments`; extend the SDK import to `import { Hash, LockingScript, OP, PrivateKey, Script, Transaction, TransactionSignature, Utils } from '@bsv/sdk'`)
 - Test: `packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts` (append)
 
 **Interfaces:**
+
 - Consumes: `TransactionSignature.format({ sourceTXID, sourceOutputIndex, sourceSatoshis, transactionVersion, otherInputs, outputs, inputIndex, subscript, inputSequence, lockTime, scope }): number[]` (param names from `node_modules/@bsv/sdk/dist/types/src/primitives/TransactionSignature.d.ts`); `Transaction.inputs[i].sourceTXID / sourceTransaction / sourceOutputIndex / sequence`; `Hash.hash256`; `scriptNum`, `beToBig`, `mod`, `SECP_N`, `P256_N`, `R1C_PREIMAGE_LEN`, `R1C_SIGHASH`, `invalid`.
 - Produces: `sighashPreimage(tx: Transaction, inputIndex: number, sourceSatoshis: number): number[]`; `signerDigest(preimage: number[]): string`; `pushTxSignatureS(preimage: number[]): bigint`; `peelLoopNonMinimalAt(sLE: number[]): number`; `pushTxDerCheck(preimage: number[]): { ok: boolean; s: bigint }`; `decodeDerSignature(der: number[]): { r: bigint; s: bigint }`.
 
@@ -1330,28 +1523,29 @@ export const FIXTURE_HASH256 = '0bd94d7d0883ed0e47d4bbc903845542857cb072a85b45c7
 export const FIXTURE_DIGEST = '0e6232f57f4f48a6c7455ba872b07c8542558403c9bbd4470eed83087d4dd90b'
 export const FIXTURE_R = 0xe3c4329684a494d2db1c99234f136d9b941c4274f40befe976b546c130f9f7c7n
 export const FIXTURE_S = 0x401a6223caf9c7b57188e354044d52687ed2c69f975bc4c075369d44199d67e9n
-export const FIXTURE_DER = '3045022100e3c4329684a494d2db1c99234f136d9b941c4274f40befe976b546c130f9f7c70220401a6223caf9c7b57188e354044d52687ed2c69f975bc4c075369d44199d67e9'
+export const FIXTURE_DER =
+  '3045022100e3c4329684a494d2db1c99234f136d9b941c4274f40befe976b546c130f9f7c70220401a6223caf9c7b57188e354044d52687ed2c69f975bc4c075369d44199d67e9'
 
 describe('sighashPreimage and signerDigest (fixture spend)', () => {
   const tx = Transaction.fromHex(FIXTURE_TX_HEX)
   const unlock = tx.inputs[0].unlockingScript!
-  const hashOutputs = unlock.chunks[3].data!   // push #3
-  const outpoint = unlock.chunks[4].data!      // push #4
+  const hashOutputs = unlock.chunks[3].data! // push #3
+  const outpoint = unlock.chunks[4].data! // push #4
 
   it('reconstructs the 158-byte preimage field by field', () => {
     expect(hashOutputs).toHaveLength(32)
     expect(outpoint).toHaveLength(36)
     const expected = [
-      ...(Utils.toArray('01000000', 'hex') as number[]),           // version 1
-      ...Hash.hash256(outpoint),                                    // hashPrevouts (single input)
-      ...Hash.hash256(Utils.toArray('ffffffff', 'hex') as number[]),// hashSequence
+      ...(Utils.toArray('01000000', 'hex') as number[]), // version 1
+      ...Hash.hash256(outpoint), // hashPrevouts (single input)
+      ...Hash.hash256(Utils.toArray('ffffffff', 'hex') as number[]), // hashSequence
       ...outpoint,
-      ...(Utils.toArray('01ac', 'hex') as number[]),               // scriptCode = OP_CHECKSIG
-      ...(Utils.toArray('f811000000000000', 'hex') as number[]),   // 4600 sat LE64
-      ...(Utils.toArray('ffffffff', 'hex') as number[]),           // sequence
+      ...(Utils.toArray('01ac', 'hex') as number[]), // scriptCode = OP_CHECKSIG
+      ...(Utils.toArray('f811000000000000', 'hex') as number[]), // 4600 sat LE64
+      ...(Utils.toArray('ffffffff', 'hex') as number[]), // sequence
       ...hashOutputs,
-      ...(Utils.toArray('00000000', 'hex') as number[]),           // lockTime
-      ...(Utils.toArray('41000000', 'hex') as number[])            // sighash ALL|FORKID
+      ...(Utils.toArray('00000000', 'hex') as number[]), // lockTime
+      ...(Utils.toArray('41000000', 'hex') as number[]) // sighash ALL|FORKID
     ]
     expect(expected).toHaveLength(R1C_PREIMAGE_LEN)
     const preimage = sighashPreimage(tx, 0, FIXTURE_SATS)
@@ -1407,7 +1601,7 @@ describe('OP_PUSH_TX model: pushTxSignatureS / peelLoopNonMinimalAt / pushTxDerC
     for (let i = 0; i < 200; i++) {
       const p = Array.from(p256.utils.randomSecretKey())
       const e = beBig(Hash.hash256(p))
-      const t = ((e + (1n << 248n)) % SECP_N + SECP_N) % SECP_N
+      const t = (((e + (1n << 248n)) % SECP_N) + SECP_N) % SECP_N
       const expected = t > (SECP_N - 1n) / 2n ? SECP_N - t : t
       expect(pushTxSignatureS(p)).toBe(expected)
       expect(pushTxSignatureS(p) <= (SECP_N - 1n) / 2n).toBe(true)
@@ -1417,17 +1611,17 @@ describe('OP_PUSH_TX model: pushTxSignatureS / peelLoopNonMinimalAt / pushTxDerC
   // ANALYSIS.md §6.2 boundary table of the peel loop (k = index of the first non-minimal remainder, −1 = ok)
   it.each<[string, bigint, number, number]>([
     ['2^248 − 1', (1n << 248n) - 1n, 32, -1],
-    ['2^247',     1n << 247n,        32, -1],
+    ['2^247', 1n << 247n, 32, -1],
     ['2^247 − 1', (1n << 247n) - 1n, 31, -1],
-    ['2^240',     1n << 240n,        31, -1],
+    ['2^240', 1n << 240n, 31, -1],
     ['2^240 − 1', (1n << 240n) - 1n, 31, 30],
-    ['2^239',     1n << 239n,        31, 30],
+    ['2^239', 1n << 239n, 31, 30],
     ['2^239 − 1', (1n << 239n) - 1n, 30, -1],
-    ['2^231',     1n << 231n,        30, 29],
-    ['255',       255n,               2,  1],
-    ['128',       128n,               2,  1],
-    ['127',       127n,               1, -1],
-    ['1',         1n,                 1, -1]
+    ['2^231', 1n << 231n, 30, 29],
+    ['255', 255n, 2, 1],
+    ['128', 128n, 2, 1],
+    ['127', 127n, 1, -1],
+    ['1', 1n, 1, -1]
   ])('peelLoopNonMinimalAt(scriptNum(%s)) — %i-byte scriptnum → %i', (_n, s, len, k) => {
     const b = scriptNum(s)
     expect(b).toHaveLength(len)
@@ -1438,10 +1632,10 @@ describe('OP_PUSH_TX model: pushTxSignatureS / peelLoopNonMinimalAt / pushTxDerC
     expect(peelLoopNonMinimalAt([])).toBe(-1)
     expect(peelLoopNonMinimalAt([0x00])).toBe(0)
     expect(peelLoopNonMinimalAt([0x80])).toBe(0)
-    expect(peelLoopNonMinimalAt([0x01, 0x00])).toBe(0)   // 1 with a redundant 00: non-minimal as a whole (k = 0)
-    expect(peelLoopNonMinimalAt([0xff, 0x00])).toBe(1)   // 255: minimal as a whole; the lone 00 left after one peel is not
-    expect(peelLoopNonMinimalAt([0x00, 0x80])).toBe(0)   // −0 with a padded magnitude: non-minimal at k = 0
-    expect(peelLoopNonMinimalAt([0x80, 0x00])).toBe(1)   // 128: minimal as a whole; lone 00 at k = 1 (the 2^(8m−1) class)
+    expect(peelLoopNonMinimalAt([0x01, 0x00])).toBe(0) // 1 with a redundant 00: non-minimal as a whole (k = 0)
+    expect(peelLoopNonMinimalAt([0xff, 0x00])).toBe(1) // 255: minimal as a whole; the lone 00 left after one peel is not
+    expect(peelLoopNonMinimalAt([0x00, 0x80])).toBe(0) // −0 with a padded magnitude: non-minimal at k = 0
+    expect(peelLoopNonMinimalAt([0x80, 0x00])).toBe(1) // 128: minimal as a whole; lone 00 at k = 1 (the 2^(8m−1) class)
   })
 
   it('pushTxDerCheck agrees with the predicate on the boundary classes (ok ⇔ s ≠ 0 ∧ peel = −1)', () => {
@@ -1477,15 +1671,58 @@ describe('decodeDerSignature', () => {
     ['just a SEQUENCE tag', [0x30]],
     ['compact r‖s', Array.from(new p256.Signature(FIXTURE_R, FIXTURE_S).toBytes('compact'))],
     ['trailing byte', [...(Utils.toArray(FIXTURE_DER, 'hex') as number[]), 0x00]],
-    ['SEQUENCE length off by one', (() => { const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]; d[1] -= 1; return d })()],
-    ['negative r (missing 00 pad)', (() => { const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]; d.splice(4, 1); d[1] -= 1; d[3] -= 1; return d })()],
-    ['non-minimal s (extra 00 pad)', (() => { const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]; d.splice(d.length - 32, 0, 0x00); d[1] += 1; d[d.length - 34] += 1; return d })()],
+    [
+      'SEQUENCE length off by one',
+      (() => {
+        const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]
+        d[1] -= 1
+        return d
+      })()
+    ],
+    [
+      'negative r (missing 00 pad)',
+      (() => {
+        const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]
+        d.splice(4, 1)
+        d[1] -= 1
+        d[3] -= 1
+        return d
+      })()
+    ],
+    [
+      'non-minimal s (extra 00 pad)',
+      (() => {
+        const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]
+        d.splice(d.length - 32, 0, 0x00)
+        d[1] += 1
+        d[d.length - 34] += 1
+        return d
+      })()
+    ],
     ['r = 0', Array.from(new p256.Signature(0n, FIXTURE_S).toBytes('der'))],
-    ['s = n', (() => { const rInt = Array.from(new p256.Signature(FIXTURE_R, 1n).toBytes('der')).slice(2, 2 + 35); const nBytes = Utils.toArray(P256_N.toString(16), 'hex') as number[]; return [0x30, 70, ...rInt, 0x02, 33, 0x00, ...nBytes] })()],
-    ['INTEGER tag replaced', (() => { const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]; d[2] = 0x04; return d })()]
+    [
+      's = n',
+      (() => {
+        const rInt = Array.from(new p256.Signature(FIXTURE_R, 1n).toBytes('der')).slice(2, 2 + 35)
+        const nBytes = Utils.toArray(P256_N.toString(16), 'hex') as number[]
+        return [0x30, 70, ...rInt, 0x02, 33, 0x00, ...nBytes]
+      })()
+    ],
+    [
+      'INTEGER tag replaced',
+      (() => {
+        const d = Utils.toArray(FIXTURE_DER, 'hex') as number[]
+        d[2] = 0x04
+        return d
+      })()
+    ]
   ])('rejects %s with template-invalid', (_name, der) => {
     expect(() => decodeDerSignature(der)).toThrow(VaultError)
-    try { decodeDerSignature(der) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
+    try {
+      decodeDerSignature(der)
+    } catch (e) {
+      expect((e as VaultError).code).toBe('template-invalid')
+    }
   })
 })
 ```
@@ -1495,6 +1732,7 @@ describe('decodeDerSignature', () => {
 ```bash
 npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts
 ```
+
 Expected: `TypeError: (0 , _r1comb.sighashPreimage) is not a function` (and the other five); earlier suites pass.
 
 - [ ] **Step 4.3: Implement in `r1comb.ts`**
@@ -1518,7 +1756,8 @@ export function sighashPreimage(tx: Transaction, inputIndex: number, sourceSatos
   if (input === undefined) throw invalid(`sighashPreimage: input ${inputIndex} does not exist`)
   const sourceTXID = input.sourceTXID ?? input.sourceTransaction?.id('hex')
   if (sourceTXID === undefined) throw invalid('sighashPreimage: input needs sourceTXID or sourceTransaction')
-  if (!Number.isSafeInteger(sourceSatoshis) || sourceSatoshis < 0) throw invalid('sighashPreimage: sourceSatoshis must be a non-negative integer')
+  if (!Number.isSafeInteger(sourceSatoshis) || sourceSatoshis < 0)
+    throw invalid('sighashPreimage: sourceSatoshis must be a non-negative integer')
   const preimage = TransactionSignature.format({
     sourceTXID,
     sourceOutputIndex: input.sourceOutputIndex,
@@ -1532,7 +1771,8 @@ export function sighashPreimage(tx: Transaction, inputIndex: number, sourceSatos
     lockTime: tx.lockTime,
     scope: R1C_SIGHASH
   })
-  if (preimage.length !== R1C_PREIMAGE_LEN) throw invalid(`sighashPreimage: expected ${R1C_PREIMAGE_LEN} bytes, got ${preimage.length}`)
+  if (preimage.length !== R1C_PREIMAGE_LEN)
+    throw invalid(`sighashPreimage: expected ${R1C_PREIMAGE_LEN} bytes, got ${preimage.length}`)
   return preimage
 }
 
@@ -1581,7 +1821,9 @@ export function pushTxDerCheck(preimage: number[]): { ok: boolean; s: bigint } {
 // ───────────────────────── DER ─────────────────────────
 /** Strict DER `SEQUENCE { INTEGER r, INTEGER s }` → (r, s), both in [1, n−1]. Short-form lengths only (max 72 B). */
 export function decodeDerSignature(der: number[]): { r: bigint; s: bigint } {
-  const fail = (why: string): never => { throw invalid(`decodeDerSignature: ${why}`) }
+  const fail = (why: string): never => {
+    throw invalid(`decodeDerSignature: ${why}`)
+  }
   if (!Array.isArray(der) || der.length < 8 || der.length > 72) fail('length')
   if (der[0] !== 0x30) fail('not a SEQUENCE')
   if (der[1] !== der.length - 2) fail('bad SEQUENCE length')
@@ -1609,6 +1851,7 @@ export function decodeDerSignature(der: number[]): { r: bigint; s: bigint } {
 ```bash
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts && npx tsc --noEmit -p packages/expo-wallet-toolbox/tsconfig.json
 ```
+
 Expected: all green; the fixture preimage reconstruction, `FIXTURE_HASH256`, `FIXTURE_DIGEST` and the boundary table are the anchors. tsc silent (if tsc reports `'leToBig' is declared but its value is never read`, it is not an error under this tsconfig — `noUnusedLocals` is off — but Task 5 uses it anyway).
 
 - [ ] **Step 4.5: Commit**
@@ -1628,10 +1871,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 5: `fullR`, `buildUnlock`, `verifyVaultInput`, `R1C_VERIFY_FLAGS`
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/services/vault/r1comb.ts` (append after `decodeDerSignature`; extend the SDK import to `import { Hash, LockingScript, OP, PrivateKey, Script, Spend, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'`)
 - Test: `packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts` (append)
 
 **Interfaces:**
+
 - Consumes: `new Spend({ sourceTXID, sourceOutputIndex, sourceSatoshis, lockingScript, transactionVersion, otherInputs, outputs, inputIndex, unlockingScript, inputSequence, lockTime, verifyFlags })` and `spend.validate(): boolean` (throws `Error('Script evaluation error: …')` on any failure, including a false top-of-stack — `requireTruthyTopStack`); `p256.Point.fromHex / .BASE / .ZERO / .multiply / .add / .is0 / .toAffine`; `decodeDerSignature`, `compressPubkey`, `combTable`, `recode`, `saltBytes`, `encNum`, `pushData`, `leToBig`, `modinv`, `mod`, `Utils.Reader`.
 - Produces: `R1C_VERIFY_FLAGS: readonly string[]`; `fullR(a: { preimage: number[]; rSig: bigint; s: bigint; pubkeyHex33: string }): bigint | null`; `buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex33: string; saltHex64: string }): UnlockingScript`; `verifyVaultInput(a: { tx: Transaction; inputIndex: number; sourceSatoshis: number; lockingScript: LockingScript; unlockingScript: UnlockingScript }): true`.
 
@@ -1644,7 +1889,10 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 Add to the r1comb import list: `fullR, buildUnlock, verifyVaultInput, R1C_VERIFY_FLAGS` and extend the SDK import to `import { BigNumber, Curve, Hash, LockingScript, P2PKH, PrivateKey, Script, Spend, Transaction, UnlockingScript, Utils } from '@bsv/sdk'`. Append:
 
 ```ts
-interface Member { priv: Uint8Array; pub: string }
+interface Member {
+  priv: Uint8Array
+  pub: string
+}
 const newMember = (): Member => {
   const priv = p256.utils.randomSecretKey()
   return { priv, pub: Utils.toHex(Array.from(p256.getPublicKey(priv, true))) }
@@ -1653,7 +1901,9 @@ const randSalt = (): string => Utils.toHex(Array.from(p256.utils.randomSecretKey
 const digestBytes = (digestHex: string): Uint8Array => Uint8Array.from(Utils.toArray(digestHex, 'hex') as number[])
 /** DER signature over a 64-hex digest, RFC6979, lowS NOT enforced (the card does not normalise either). */
 const signDer = (priv: Uint8Array, digestHex: string): number[] =>
-  Array.from(p256.Signature.fromBytes(p256.sign(digestBytes(digestHex), priv, { prehash: false, lowS: false })).toBytes('der'))
+  Array.from(
+    p256.Signature.fromBytes(p256.sign(digestBytes(digestHex), priv, { prehash: false, lowS: false })).toBytes('der')
+  )
 const p2pkhOut = (): LockingScript => new P2PKH().lock(PrivateKey.fromRandom().toAddress())
 const NONCE_OUT = (): LockingScript => new LockingScript(Script.fromASM('OP_RETURN 6e6f6e6365').chunks)
 
@@ -1692,7 +1942,11 @@ const modpowT = (base: bigint, exp: bigint, m: bigint): bigint => {
   let r = 1n
   let b = ((base % m) + m) % m
   let e = exp
-  while (e > 0n) { if ((e & 1n) === 1n) r = (r * b) % m; b = (b * b) % m; e >>= 1n }
+  while (e > 0n) {
+    if ((e & 1n) === 1n) r = (r * b) % m
+    b = (b * b) % m
+    e >>= 1n
+  }
   return r
 }
 const modinvT = (a: bigint, m: bigint): bigint => modpowT(a, m - 2n, m)
@@ -1706,8 +1960,24 @@ describe('verifyVaultInput flags and the fixture spend', () => {
     const tx = Transaction.fromHex(FIXTURE_TX_HEX)
     const lock = LockingScript.fromHex(FIXTURE_LOCK_HEX)
     const unlock = tx.inputs[0].unlockingScript!
-    expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: FIXTURE_SATS, lockingScript: lock, unlockingScript: unlock })).toBe(true)
-    expect(() => verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: FIXTURE_SATS + 1, lockingScript: lock, unlockingScript: unlock })).toThrow(/Script evaluation error/)
+    expect(
+      verifyVaultInput({
+        tx,
+        inputIndex: 0,
+        sourceSatoshis: FIXTURE_SATS,
+        lockingScript: lock,
+        unlockingScript: unlock
+      })
+    ).toBe(true)
+    expect(() =>
+      verifyVaultInput({
+        tx,
+        inputIndex: 0,
+        sourceSatoshis: FIXTURE_SATS + 1,
+        lockingScript: lock,
+        unlockingScript: unlock
+      })
+    ).toThrow(/Script evaluation error/)
   })
 
   it('fullR reproduces the fixture r (r < n) and differs for a foreign Q', () => {
@@ -1731,14 +2001,14 @@ describe('round trips through Spend (version 2, strict flags)', () => {
     for (let round = 0; round < 25; round++) {
       const N = 1 + Math.floor(Math.random() * 5)
       const members = [...Array(N)].map(newMember)
-      const salt = randSalt()                                    // one salt per output (spec §2.7)
+      const salt = randSalt() // one salt per output (spec §2.7)
       const lock = buildLock({ commitments: members.map(m => commitment(m.pub, salt)) })
       const signer = members[Math.floor(Math.random() * N)]
       const sats = Number(1n + (BigInt('0x' + randSalt()) & ((1n << 40n) - 1n)))
       const vout = Math.floor(Math.random() * 3)
       const src = fundingStub(lock, sats, vout)
       const final = Math.random() < 0.5
-      const sequence = final ? 0xffffffff : (Math.random() < 0.5 ? 0xfffffffe : Math.floor(Math.random() * 0xfffffffe))
+      const sequence = final ? 0xffffffff : Math.random() < 0.5 ? 0xfffffffe : Math.floor(Math.random() * 0xfffffffe)
       const lockTime = final ? 0 : Math.floor(Math.random() * 800_000)
       const nOut = 1 + Math.floor(Math.random() * 3)
       const tx = new Transaction(2, [], [], lockTime)
@@ -1748,7 +2018,12 @@ describe('round trips through Spend (version 2, strict flags)', () => {
       if (nOut >= 3) tx.addOutput({ satoshis: 200, lockingScript: p2pkhOut() })
       const [preimage] = screenedPreimages(tx, [{ index: 0, sats }])
       expect(hex(preimage.slice(0, 4))).toBe('02000000')
-      const unlock = buildUnlock({ preimage, derSig: signDer(signer.priv, signerDigest(preimage)), pubkeyHex33: signer.pub, saltHex64: salt })
+      const unlock = buildUnlock({
+        preimage,
+        derSig: signDer(signer.priv, signerDigest(preimage)),
+        pubkeyHex33: signer.pub,
+        saltHex64: salt
+      })
       expect(unlock.chunks).toHaveLength(71)
       expect(unlock.toBinary().length).toBeLessThanOrEqual(2539)
       expect(unlock.toBinary().length).toBeLessThanOrEqual(R1C_UNLOCK_LEN)
@@ -1763,16 +2038,23 @@ describe('round trips through Spend (version 2, strict flags)', () => {
       expect(fromScriptNum(unlock.chunks[1].data!)).toBe(recode((r * sInv) % P256_N))
       expect(fromScriptNum(unlock.chunks[2].data!)).toBe(recode((e * sInv) % P256_N))
       tx.inputs[0].unlockingScript = unlock
-      expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })).toBe(true)
+      expect(
+        verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })
+      ).toBe(true)
     }
   })
 
   it('2 vault inputs (different keys, salts, locks) + 1 P2PKH input signed by tx.sign()', async () => {
-    const a = newMember(), b = newMember(), c = newMember()
-    const saltA = randSalt(), saltB = randSalt()
-    const lockA = buildLock({ commitments: [commitment(a.pub, saltA), commitment(b.pub, saltA)] })   // N = 2, signer b
-    const lockB = buildLock({ commitments: [commitment(c.pub, saltB)] })                             // N = 1, signer c
-    const satsA = 40_000, satsB = 25_000, satsP = 7_000
+    const a = newMember(),
+      b = newMember(),
+      c = newMember()
+    const saltA = randSalt(),
+      saltB = randSalt()
+    const lockA = buildLock({ commitments: [commitment(a.pub, saltA), commitment(b.pub, saltA)] }) // N = 2, signer b
+    const lockB = buildLock({ commitments: [commitment(c.pub, saltB)] }) // N = 1, signer c
+    const satsA = 40_000,
+      satsB = 25_000,
+      satsP = 7_000
     const srcA = fundingStub(lockA, satsA, 0)
     const srcB = fundingStub(lockB, satsB, 2)
     const p2pkhPriv = PrivateKey.fromRandom()
@@ -1780,21 +2062,64 @@ describe('round trips through Spend (version 2, strict flags)', () => {
     const srcP = fundingStub(p2pkhLock, satsP, 1)
     const tx = new Transaction(2, [], [], 0)
     tx.addInput({ sourceTransaction: srcA, sourceOutputIndex: 0, sequence: 0xffffffff })
-    tx.addInput({ sourceTransaction: srcP, sourceOutputIndex: 1, sequence: 0xffffffff, unlockingScriptTemplate: new P2PKH().unlock(p2pkhPriv, 'all', false, satsP, p2pkhLock) })
+    tx.addInput({
+      sourceTransaction: srcP,
+      sourceOutputIndex: 1,
+      sequence: 0xffffffff,
+      unlockingScriptTemplate: new P2PKH().unlock(p2pkhPriv, 'all', false, satsP, p2pkhLock)
+    })
     tx.addInput({ sourceTransaction: srcB, sourceOutputIndex: 2, sequence: 0xffffffff })
     tx.addOutput({ satoshis: satsA + satsB + satsP - 1000, lockingScript: p2pkhOut() })
     tx.addOutput({ satoshis: 100, lockingScript: NONCE_OUT() })
-    const [preA, preB] = screenedPreimages(tx, [{ index: 0, sats: satsA }, { index: 2, sats: satsB }])
-    tx.inputs[0].unlockingScript = buildUnlock({ preimage: preA, derSig: signDer(b.priv, signerDigest(preA)), pubkeyHex33: b.pub, saltHex64: saltA })
-    tx.inputs[2].unlockingScript = buildUnlock({ preimage: preB, derSig: signDer(c.priv, signerDigest(preB)), pubkeyHex33: c.pub, saltHex64: saltB })
-    await tx.sign()   // signs only the templated input; inputs without a template are left as set
-    expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: satsA, lockingScript: lockA, unlockingScript: tx.inputs[0].unlockingScript! })).toBe(true)
-    expect(verifyVaultInput({ tx, inputIndex: 2, sourceSatoshis: satsB, lockingScript: lockB, unlockingScript: tx.inputs[2].unlockingScript! })).toBe(true)
+    const [preA, preB] = screenedPreimages(tx, [
+      { index: 0, sats: satsA },
+      { index: 2, sats: satsB }
+    ])
+    tx.inputs[0].unlockingScript = buildUnlock({
+      preimage: preA,
+      derSig: signDer(b.priv, signerDigest(preA)),
+      pubkeyHex33: b.pub,
+      saltHex64: saltA
+    })
+    tx.inputs[2].unlockingScript = buildUnlock({
+      preimage: preB,
+      derSig: signDer(c.priv, signerDigest(preB)),
+      pubkeyHex33: c.pub,
+      saltHex64: saltB
+    })
+    await tx.sign() // signs only the templated input; inputs without a template are left as set
+    expect(
+      verifyVaultInput({
+        tx,
+        inputIndex: 0,
+        sourceSatoshis: satsA,
+        lockingScript: lockA,
+        unlockingScript: tx.inputs[0].unlockingScript!
+      })
+    ).toBe(true)
+    expect(
+      verifyVaultInput({
+        tx,
+        inputIndex: 2,
+        sourceSatoshis: satsB,
+        lockingScript: lockB,
+        unlockingScript: tx.inputs[2].unlockingScript!
+      })
+    ).toBe(true)
     // the P2PKH input validates under the same strict flags
     const p2pkhSpend = new Spend({
-      sourceTXID: srcP.id('hex'), sourceOutputIndex: 1, sourceSatoshis: satsP, lockingScript: p2pkhLock,
-      transactionVersion: 2, otherInputs: [tx.inputs[0], tx.inputs[2]], outputs: tx.outputs, inputIndex: 1,
-      unlockingScript: tx.inputs[1].unlockingScript!, inputSequence: 0xffffffff, lockTime: 0, verifyFlags: [...R1C_VERIFY_FLAGS]
+      sourceTXID: srcP.id('hex'),
+      sourceOutputIndex: 1,
+      sourceSatoshis: satsP,
+      lockingScript: p2pkhLock,
+      transactionVersion: 2,
+      otherInputs: [tx.inputs[0], tx.inputs[2]],
+      outputs: tx.outputs,
+      inputIndex: 1,
+      unlockingScript: tx.inputs[1].unlockingScript!,
+      inputSequence: 0xffffffff,
+      lockTime: 0,
+      verifyFlags: [...R1C_VERIFY_FLAGS]
     })
     expect(p2pkhSpend.validate()).toBe(true)
     // the two vault preimages share everything but outpoint (68..104) and amount (106..114)
@@ -1818,9 +2143,16 @@ describe('round trips through Spend (version 2, strict flags)', () => {
     const high = P256_N - low
     expect(high > (P256_N - 1n) / 2n).toBe(true)
     for (const sv of [low, high]) {
-      const unlock = buildUnlock({ preimage, derSig: Array.from(new p256.Signature(r, sv).toBytes('der')), pubkeyHex33: m.pub, saltHex64: salt })
+      const unlock = buildUnlock({
+        preimage,
+        derSig: Array.from(new p256.Signature(r, sv).toBytes('der')),
+        pubkeyHex33: m.pub,
+        saltHex64: salt
+      })
       expect(fromScriptNum(unlock.chunks[68].data!)).toBe(sv)
-      expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })).toBe(true)
+      expect(
+        verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })
+      ).toBe(true)
     }
   })
 
@@ -1828,7 +2160,7 @@ describe('round trips through Spend (version 2, strict flags)', () => {
     let found: Member | null = null
     for (let tries = 0; tries < 200 && found === null; tries++) {
       const m = newMember()
-      if (combTable(m.pub).some(pt => pt.x < (1n << 248n) || pt.y < (1n << 248n))) found = m
+      if (combTable(m.pub).some(pt => pt.x < 1n << 248n || pt.y < 1n << 248n)) found = m
     }
     if (found === null) {
       // ≈ 22 % of keys have a short coordinate, so 200 misses has probability ≈ 0.78^200 ≈ 2^-71.
@@ -1843,13 +2175,22 @@ describe('round trips through Spend (version 2, strict flags)', () => {
     tx.addInput({ sourceTransaction: src, sourceOutputIndex: 1, sequence: 0xffffffff })
     tx.addOutput({ satoshis: 22_000, lockingScript: p2pkhOut() })
     const [preimage] = screenedPreimages(tx, [{ index: 0, sats }])
-    const unlock = buildUnlock({ preimage, derSig: signDer(found.priv, signerDigest(preimage)), pubkeyHex33: found.pub, saltHex64: salt })
+    const unlock = buildUnlock({
+      preimage,
+      derSig: signDer(found.priv, signerDigest(preimage)),
+      pubkeyHex33: found.pub,
+      saltHex64: salt
+    })
     expect(unlock.chunks.slice(3, 67).some(ch => ch.data!.length <= 31)).toBe(true)
-    expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })).toBe(true)
+    expect(
+      verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })
+    ).toBe(true)
   })
 
   it('constructed R.x >= n (review4-rgen port): the full x is required and accepted, x mod n is rejected', () => {
-    const p = P256_P, n = P256_N, b = p256.Point.CURVE().b
+    const p = P256_P,
+      n = P256_N,
+      b = p256.Point.CURVE().b
     const sats = 31_337
     const tx = new Transaction(2, [], [], 0)
     tx.addInput({ sourceTXID: randSalt(), sourceOutputIndex: 2, sequence: 0xffffffff })
@@ -1859,7 +2200,8 @@ describe('round trips through Spend (version 2, strict flags)', () => {
     const e = beBig(Utils.toArray(digest, 'hex') as number[])
     for (let round = 0; round < 2; round++) {
       // R with x in [n, n + 2^120) ⊂ [n, p): y = sqrt(x³ − 3x + b) via the p ≡ 3 (mod 4) exponent
-      let x = 0n, y = 0n
+      let x = 0n,
+        y = 0n
       for (;;) {
         x = n + BigInt('0x' + Utils.toHex(Array.from(p256.utils.randomSecretKey()).slice(0, 15)))
         const rhs = (((x * x * x - 3n * x + b) % p) + p) % p
@@ -1874,26 +2216,39 @@ describe('round trips through Spend (version 2, strict flags)', () => {
       const sInv = modinvT(s, n)
       const u1 = (e * sInv) % n
       const u2 = (rSig * sInv) % n
-      const Q = R.subtract(p256.Point.BASE.multiply(u1)).multiply(modinvT(u2, n))   // Q = (R − u1·G)·u2⁻¹
+      const Q = R.subtract(p256.Point.BASE.multiply(u1)).multiply(modinvT(u2, n)) // Q = (R − u1·G)·u2⁻¹
       Q.assertValidity()
       const qHex = Q.toHex(true)
       const sig = new p256.Signature(rSig, s)
-      expect(p256.verify(sig.toBytes('compact'), digestBytes(digest), Q.toBytes(true), { prehash: false, lowS: false })).toBe(true)
+      expect(
+        p256.verify(sig.toBytes('compact'), digestBytes(digest), Q.toBytes(true), { prehash: false, lowS: false })
+      ).toBe(true)
       expect(fullR({ preimage, rSig, s, pubkeyHex33: qHex })).toBe(x)
       const salt = randSalt()
       const lock = buildLock({ commitments: [commitment(qHex, salt)] })
-      const unlock = buildUnlock({ preimage, derSig: Array.from(sig.toBytes('der')), pubkeyHex33: qHex, saltHex64: salt })
+      const unlock = buildUnlock({
+        preimage,
+        derSig: Array.from(sig.toBytes('der')),
+        pubkeyHex33: qHex,
+        saltHex64: salt
+      })
       expect(hex(unlock.chunks[0].data!)).toBe(hex(scriptNum(x)))
       expect(fromScriptNum(unlock.chunks[0].data!) >= n).toBe(true)
-      expect(verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })).toBe(true)
+      expect(
+        verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: unlock })
+      ).toBe(true)
       const modN = withPush(unlock, 0, scriptNum(rSig))
-      expect(() => verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: modN })).toThrow(/Script evaluation error/)
+      expect(() =>
+        verifyVaultInput({ tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: modN })
+      ).toThrow(/Script evaluation error/)
     }
   })
 })
 
 describe('negatives — each must throw from verifyVaultInput (or buildUnlock where stated)', () => {
-  const a = newMember(), b = newMember(), outsider = newMember()
+  const a = newMember(),
+    b = newMember(),
+    outsider = newMember()
   const salt = randSalt()
   const lock = buildLock({ commitments: [commitment(a.pub, salt), commitment(b.pub, salt)] })
   const sats = 50_000
@@ -1910,17 +2265,32 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
     tx.addOutput({ satoshis: 49_000, lockingScript: p2pkhOut() })
     tx.addOutput({ satoshis: 100, lockingScript: NONCE_OUT() })
     ;[preimage] = screenedPreimages(tx, [{ index: 0, sats }])
-    good = buildUnlock({ preimage, derSig: signDer(b.priv, signerDigest(preimage)), pubkeyHex33: b.pub, saltHex64: salt })
-    expect(verify(tx, good)).toBe(true)   // positive control
+    good = buildUnlock({
+      preimage,
+      derSig: signDer(b.priv, signerDigest(preimage)),
+      pubkeyHex33: b.pub,
+      saltHex64: salt
+    })
+    expect(verify(tx, good)).toBe(true) // positive control
   })
 
   it('wrong salt (fails at H5)', () => {
-    const u = buildUnlock({ preimage, derSig: signDer(b.priv, signerDigest(preimage)), pubkeyHex33: b.pub, saltHex64: randSalt() })
+    const u = buildUnlock({
+      preimage,
+      derSig: signDer(b.priv, signerDigest(preimage)),
+      pubkeyHex33: b.pub,
+      saltHex64: randSalt()
+    })
     expect(() => verify(tx, u)).toThrow(/Script evaluation error/)
   })
 
   it('key not committed: outsider signs with its own table and the right salt (H5)', () => {
-    const u = buildUnlock({ preimage, derSig: signDer(outsider.priv, signerDigest(preimage)), pubkeyHex33: outsider.pub, saltHex64: salt })
+    const u = buildUnlock({
+      preimage,
+      derSig: signDer(outsider.priv, signerDigest(preimage)),
+      pubkeyHex33: outsider.pub,
+      saltHex64: salt
+    })
     expect(() => verify(tx, u)).toThrow(/Script evaluation error/)
   })
 
@@ -1930,11 +2300,16 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
   })
 
   it("signature from another key, presented as b's (tail r-check)", () => {
-    const u = buildUnlock({ preimage, derSig: signDer(outsider.priv, signerDigest(preimage)), pubkeyHex33: b.pub, saltHex64: salt })
+    const u = buildUnlock({
+      preimage,
+      derSig: signDer(outsider.priv, signerDigest(preimage)),
+      pubkeyHex33: b.pub,
+      saltHex64: salt
+    })
     expect(() => verify(tx, u)).toThrow(/Script evaluation error/)
   })
 
-  it('r + 1 (H3: pushed u2\' no longer matches)', () => {
+  it("r + 1 (H3: pushed u2' no longer matches)", () => {
     const r = fromScriptNum(good.chunks[0].data!)
     expect(() => verify(tx, withPush(good, 0, scriptNum(r + 1n)))).toThrow(/Script evaluation error/)
   })
@@ -1956,13 +2331,34 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
     tx2.addInput({ sourceTransaction: src, sourceOutputIndex: 1, sequence: 0xffffffff })
     tx2.addInput({ sourceTransaction: src2, sourceOutputIndex: 0, sequence: 0xffffffff })
     tx2.addOutput({ satoshis: 2 * sats - 1000, lockingScript: p2pkhOut() })
-    const [p0, p1] = screenedPreimages(tx2, [{ index: 0, sats }, { index: 1, sats: sats + 7 }])
-    const u0 = buildUnlock({ preimage: p0, derSig: signDer(a.priv, signerDigest(p0)), pubkeyHex33: a.pub, saltHex64: salt })
-    const u1 = buildUnlock({ preimage: p1, derSig: signDer(a.priv, signerDigest(p1)), pubkeyHex33: a.pub, saltHex64: salt })
-    expect(verifyVaultInput({ tx: tx2, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: u0 })).toBe(true)
-    expect(verifyVaultInput({ tx: tx2, inputIndex: 1, sourceSatoshis: sats + 7, lockingScript: lock, unlockingScript: u1 })).toBe(true)
-    expect(() => verifyVaultInput({ tx: tx2, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: u1 })).toThrow(/Script evaluation error/)
-    expect(() => verifyVaultInput({ tx: tx2, inputIndex: 1, sourceSatoshis: sats + 7, lockingScript: lock, unlockingScript: u0 })).toThrow(/Script evaluation error/)
+    const [p0, p1] = screenedPreimages(tx2, [
+      { index: 0, sats },
+      { index: 1, sats: sats + 7 }
+    ])
+    const u0 = buildUnlock({
+      preimage: p0,
+      derSig: signDer(a.priv, signerDigest(p0)),
+      pubkeyHex33: a.pub,
+      saltHex64: salt
+    })
+    const u1 = buildUnlock({
+      preimage: p1,
+      derSig: signDer(a.priv, signerDigest(p1)),
+      pubkeyHex33: a.pub,
+      saltHex64: salt
+    })
+    expect(
+      verifyVaultInput({ tx: tx2, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: u0 })
+    ).toBe(true)
+    expect(
+      verifyVaultInput({ tx: tx2, inputIndex: 1, sourceSatoshis: sats + 7, lockingScript: lock, unlockingScript: u1 })
+    ).toBe(true)
+    expect(() =>
+      verifyVaultInput({ tx: tx2, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: u1 })
+    ).toThrow(/Script evaluation error/)
+    expect(() =>
+      verifyVaultInput({ tx: tx2, inputIndex: 1, sourceSatoshis: sats + 7, lockingScript: lock, unlockingScript: u0 })
+    ).toThrow(/Script evaluation error/)
   })
 
   it('version-1 transaction: buildUnlock refuses with template-invalid and a message naming the version', () => {
@@ -1972,7 +2368,11 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
     const p = sighashPreimage(v1, 0, sats)
     expect(hex(p.slice(0, 4))).toBe('01000000')
     let err: unknown
-    try { buildUnlock({ preimage: p, derSig: signDer(b.priv, signerDigest(p)), pubkeyHex33: b.pub, saltHex64: salt }) } catch (e) { err = e }
+    try {
+      buildUnlock({ preimage: p, derSig: signDer(b.priv, signerDigest(p)), pubkeyHex33: b.pub, saltHex64: salt })
+    } catch (e) {
+      err = e
+    }
     expect(err).toBeInstanceOf(VaultError)
     expect((err as VaultError).code).toBe('template-invalid')
     expect((err as VaultError).message).toMatch(/version/)
@@ -1987,12 +2387,18 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
       () => buildUnlock({ preimage, derSig: der.slice(1), pubkeyHex33: b.pub, saltHex64: salt })
     ]) {
       expect(bad).toThrow(VaultError)
-      try { bad() } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
+      try {
+        bad()
+      } catch (e) {
+        expect((e as VaultError).code).toBe('template-invalid')
+      }
     }
   })
 
   it('verifyVaultInput rejects a missing input with template-invalid', () => {
-    expect(() => verifyVaultInput({ tx, inputIndex: 3, sourceSatoshis: sats, lockingScript: lock, unlockingScript: good })).toThrow(VaultError)
+    expect(() =>
+      verifyVaultInput({ tx, inputIndex: 3, sourceSatoshis: sats, lockingScript: lock, unlockingScript: good })
+    ).toThrow(VaultError)
   })
 })
 ```
@@ -2002,6 +2408,7 @@ describe('negatives — each must throw from verifyVaultInput (or buildUnlock wh
 ```bash
 npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts
 ```
+
 Expected: `TypeError: (0 , _r1comb.verifyVaultInput) is not a function` / `buildUnlock` / `fullR`, and `R1C_VERIFY_FLAGS` undefined; Tasks 1–4 suites pass.
 
 - [ ] **Step 5.3: Implement in `r1comb.ts`**
@@ -2017,7 +2424,12 @@ Change the SDK import to `import { Hash, LockingScript, OP, PrivateKey, Script, 
  * (strict DER, defined hash type, FORKID required). A version-2 vault spend is judged exactly as strictly as
  * the version-1 mined fixture.
  */
-export const R1C_VERIFY_FLAGS: readonly string[] = ['MINIMALDATA', 'UTXO_AFTER_CHRONICLE', 'SIGHASH_FORKID', 'STRICTENC']
+export const R1C_VERIFY_FLAGS: readonly string[] = [
+  'MINIMALDATA',
+  'UTXO_AFTER_CHRONICLE',
+  'SIGHASH_FORKID',
+  'STRICTENC'
+]
 
 // ───────────────────────── fullR / buildUnlock (spec §2.4) ─────────────────────────
 /**
@@ -2033,7 +2445,9 @@ export function fullR(a: { preimage: number[]; rSig: bigint; s: bigint; pubkeyHe
   const sInv = modinv(s, P256_N)
   const u1 = mod(e * sInv, P256_N)
   const u2 = mod(a.rSig * sInv, P256_N)
-  const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(u2 === 0n ? p256.Point.ZERO : Q.multiply(u2))
+  const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(
+    u2 === 0n ? p256.Point.ZERO : Q.multiply(u2)
+  )
   if (R.is0()) return null
   return R.toAffine().x
 }
@@ -2044,11 +2458,17 @@ export function fullR(a: { preimage: number[]; rSig: bigint; s: bigint; pubkeyHe
  * bad salt / key / DER, R = O. It does NOT verify the signature against Q: the interpreter is the arbiter
  * (Plan 2 runs verifyVaultInput on every input before signAction).
  */
-export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex33: string; saltHex64: string }): UnlockingScript {
+export function buildUnlock(a: {
+  preimage: number[]
+  derSig: number[]
+  pubkeyHex33: string
+  saltHex64: string
+}): UnlockingScript {
   const { preimage } = a
   requirePreimage(preimage, 'buildUnlock')
   const version = new Utils.Reader(preimage.slice(0, 4)).readUInt32LE()
-  if (version !== 2) throw invalid(`buildUnlock: withdrawals are version-2 transactions; this preimage carries version ${version}`)
+  if (version !== 2)
+    throw invalid(`buildUnlock: withdrawals are version-2 transactions; this preimage carries version ${version}`)
   const salt = saltBytes(a.saltHex64)
   const key = compressPubkey(a.pubkeyHex33)
   const { r: rSig, s } = decodeDerSignature(a.derSig)
@@ -2057,7 +2477,7 @@ export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex
   const e = leToBig(Hash.hash256(preimage))
   const sInv = modinv(s, P256_N)
   const u1 = mod(e * sInv, P256_N)
-  const u2 = mod(Rx * sInv, P256_N)   // the lock derives u2 from the PUSHED r (≡ rSig mod n), so recode that
+  const u2 = mod(Rx * sInv, P256_N) // the lock derives u2 from the PUSHED r (≡ rSig mod n), so recode that
   const bytes: number[] = [...encNum(Rx), ...encNum(recode(u2)), ...encNum(recode(u1))]
   for (const { x, y } of combTable(key)) bytes.push(...encNum(x), ...encNum(y))
   bytes.push(...pushData(salt), ...encNum(s), ...encNum(sInv), ...pushData(preimage))
@@ -2103,6 +2523,7 @@ export function verifyVaultInput(a: {
 ```bash
 npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts && npx tsc --noEmit -p packages/expo-wallet-toolbox/tsconfig.json
 ```
+
 Expected: all green. Every `verifyVaultInput(...)` positive is a full 23k-step run of the SDK interpreter under strict flags (~40 ms each); the negatives throw `Script evaluation error: …` from inside the interpreter. tsc silent.
 
 - [ ] **Step 5.5: Commit**
@@ -2123,10 +2544,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 6: `VaultInstructionsV4` codec — `encodeVaultInstructions` / `decodeVaultInstructions`
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/services/vault/r1comb.ts` (append after `verifyVaultInput`)
 - Test: `packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts` (append)
 
 **Interfaces:**
+
 - Consumes: `compressPubkey`, `R1C_MAX_KEYS`, `invalid`, `JSON`.
 - Produces: `interface VaultInstructionsV4 { v: 4; type: 'R1C'; salt: string; keys: string[] }`; `type VaultInstructions = VaultInstructionsV4`; `encodeVaultInstructions(i: VaultInstructionsV4): string`; `decodeVaultInstructions(ci?: string): VaultInstructionsV4 | null`.
 
@@ -2163,7 +2586,10 @@ describe('customInstructions v4 codec', () => {
     ['null', 'null'],
     ['a string', JSON.stringify('R1C')],
     ['v3 K1 record', JSON.stringify({ v: 3, type: 'K1', keyID: 'bip32/7' })],
-    ['v2 R1K1 record', JSON.stringify({ v: 2, type: 'R1K1', keyID: 'bip32/7', salt: 'aa', r1PublicKey: 'bb', slot: 130 })],
+    [
+      'v2 R1K1 record',
+      JSON.stringify({ v: 2, type: 'R1K1', keyID: 'bip32/7', salt: 'aa', r1PublicKey: 'bb', slot: 130 })
+    ],
     ['v4 with type K1', JSON.stringify({ v: 4, type: 'K1', salt, keys: [keys5[0]] })],
     ['v 5', JSON.stringify({ v: 5, type: 'R1C', salt, keys: [keys5[0]] })],
     ['v as string', JSON.stringify({ v: '4', type: 'R1C', salt, keys: [keys5[0]] })],
@@ -2176,7 +2602,15 @@ describe('customInstructions v4 codec', () => {
     ['6 keys', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [...keys5, newMember().pub] })],
     ['keys not an array', JSON.stringify({ v: 4, type: 'R1C', salt, keys: keys5[0] })],
     ['key uppercase', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [keys5[0].toUpperCase()] })],
-    ['key uncompressed (65 B)', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [Utils.toHex(Array.from(p256.getPublicKey(p256.utils.randomSecretKey(), false)))] })],
+    [
+      'key uncompressed (65 B)',
+      JSON.stringify({
+        v: 4,
+        type: 'R1C',
+        salt,
+        keys: [Utils.toHex(Array.from(p256.getPublicKey(p256.utils.randomSecretKey(), false)))]
+      })
+    ],
     ['key off-curve', JSON.stringify({ v: 4, type: 'R1C', salt, keys: ['02' + 'ff'.repeat(32)] })],
     ['key wrong prefix', JSON.stringify({ v: 4, type: 'R1C', salt, keys: ['05' + keys5[0].slice(2)] })],
     ['key too short', JSON.stringify({ v: 4, type: 'R1C', salt, keys: [keys5[0].slice(0, 64)] })],
@@ -2197,7 +2631,11 @@ describe('customInstructions v4 codec', () => {
       { v: 4, type: 'R1C', salt, keys: [keys5[0], keys5[0]] }
     ] as VaultInstructionsV4[]) {
       expect(() => encodeVaultInstructions(bad)).toThrow(VaultError)
-      try { encodeVaultInstructions(bad) } catch (e) { expect((e as VaultError).code).toBe('template-invalid') }
+      try {
+        encodeVaultInstructions(bad)
+      } catch (e) {
+        expect((e as VaultError).code).toBe('template-invalid')
+      }
     }
   })
 })
@@ -2208,6 +2646,7 @@ describe('customInstructions v4 codec', () => {
 ```bash
 npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts -t 'customInstructions v4 codec'
 ```
+
 Expected: `TypeError: (0 , _r1comb.encodeVaultInstructions) is not a function` and `decodeVaultInstructions is not a function`.
 
 - [ ] **Step 6.3: Implement in `r1comb.ts`**
@@ -2265,7 +2704,10 @@ export function decodeVaultInstructions(ci?: string): VaultInstructionsV4 | null
 /** Serialise a v4 record. Throws VaultError('template-invalid') rather than write anything decodeVaultInstructions would refuse. */
 export function encodeVaultInstructions(i: VaultInstructionsV4): string {
   const s = JSON.stringify({ v: 4, type: 'R1C', salt: i.salt, keys: i.keys })
-  if (decodeVaultInstructions(s) === null) throw invalid('encodeVaultInstructions: record would not decode (salt/keys must be valid lowercase hex, 1..5 distinct keys)')
+  if (decodeVaultInstructions(s) === null)
+    throw invalid(
+      'encodeVaultInstructions: record would not decode (salt/keys must be valid lowercase hex, 1..5 distinct keys)'
+    )
   return s
 }
 ```
@@ -2275,6 +2717,7 @@ export function encodeVaultInstructions(i: VaultInstructionsV4): string {
 ```bash
 npx jest packages/expo-wallet-toolbox/__tests__/vault/r1comb.test.ts && npx tsc --noEmit -p packages/expo-wallet-toolbox/tsconfig.json
 ```
+
 Expected: all green, tsc silent. (`encodeVaultInstructions`/`decodeVaultInstructions`/`VaultInstructions` are also exported by `k1.ts`; there is no clash yet because `core/index.ts` still re-exports `k1`, not `r1comb` — Task 7 swaps that.)
 
 - [ ] **Step 6.5: Commit**
@@ -2296,11 +2739,13 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **DEPENDENCY — read before starting. Execution order (binding, see the "## Execution order" section above): P1 Tasks 1–6 → P2 Tasks 1–11 → P1 Task 7 (this task) → P2 Task 12 → Plan 3.** Steps 7.1–7.3 (the spend-proof script) depend only on Tasks 1–6 and can run immediately. Steps 7.4–7.7 (the deletions and the `core/index.ts` switch) run **ONLY after ALL of Plan 2's Tasks 1–11 have landed** — not merely the transfers rewrite — because `docs/superpowers/plans/2026-09-09-r1-comb-vault-plan-2-services.md`'s Task 12 runs strictly after this task, never before, and (per its own File Structure and Task 12 preamble) does not touch `k1.ts` or `core/index.ts:269`. Today both files import `./k1` (`K1_UNLOCK_LEN`, `buildVaultLockingScript`, `decodeVaultInstructions`, `encodeVaultInstructions`, `VaultInstructions` at `transfers.ts:50–56`; `transfers.test.ts:19`); deleting `k1.ts` before Plan 2's transfers rewrite (its Tasks 9–11) breaks `tsc` and the transfers tests. Step 7.4 is a hard gate that checks this. Plan 2's File Structure no longer lists `k1.ts`/`k1.test.ts` under "Delete" — this task owns that deletion, and the `core/index.ts` r1comb export switch, exclusively.
 
 **Files:**
+
 - Create: `scripts/r1c-spend-proof.ts`
 - Modify: `packages/expo-wallet-toolbox/core/index.ts` line 269: `export * from './services/vault/k1'` → `export * from './services/vault/r1comb'`
 - Delete: `packages/expo-wallet-toolbox/core/services/vault/k1.ts`, `packages/expo-wallet-toolbox/__tests__/vault/k1.test.ts`, `scripts/k1-spend-proof.ts`
 
 **Interfaces:**
+
 - Consumes (from `r1comb.ts`, by relative path so the script does not depend on the `core/index.ts` switch): `R1C_LOCK_LEN`, `R1C_UNLOCK_LEN`, `buildLock`, `bakedCommitments`, `commitment`, `compressPubkey`, `sighashPreimage`, `signerDigest`, `pushTxDerCheck`, `buildUnlock`, `verifyVaultInput`, `encodeVaultInstructions`. From `@bsv/sdk`: `ARC(url, { apiKey }?)`, `tx.broadcast(arc): Promise<BroadcastResponse | BroadcastFailure>` (`status: 'success' | 'error'`), `SatoshisPerKilobyte`, `P2PKH().lock/unlock`, `PrivateKey.fromWif`, `Transaction`. From `@noble/curves/nist.js`: `p256`.
 - Produces: the CLI. Usage `FUNDING_UTXO=<txid>:<vout>:<satoshis> npx tsx scripts/r1c-spend-proof.ts <fundingWIF> <arcUrl> [arcApiKey]`. `tsx` is not a devDependency of this repo (`package.json` has no `tsx`; the existing `pdf` script also relies on `npx tsx`) — `npx` fetches it.
 
@@ -2358,7 +2803,9 @@ import {
 
 const [, , wif, arcUrl, arcApiKey] = process.argv
 if (!wif || !arcUrl) {
-  console.error('usage: FUNDING_UTXO=<txid>:<vout>:<satoshis> npx tsx scripts/r1c-spend-proof.ts <fundingWIF> <arcUrl> [arcApiKey]')
+  console.error(
+    'usage: FUNDING_UTXO=<txid>:<vout>:<satoshis> npx tsx scripts/r1c-spend-proof.ts <fundingWIF> <arcUrl> [arcApiKey]'
+  )
   process.exit(1)
 }
 
@@ -2433,10 +2880,15 @@ async function deposit(label: string): Promise<VaultCoin> {
   const commitments = [keyA, keyB].map(k => commitment(k.pub, salt))
   const lock = buildLock({ commitments })
   const lockLen = lock.toBinary().length
-  if (lockLen !== R1C_LOCK_LEN(2)) throw new Error(`template drift: lock is ${lockLen} B, expected ${R1C_LOCK_LEN(2)} — aborting before any funds move`)
+  if (lockLen !== R1C_LOCK_LEN(2))
+    throw new Error(
+      `template drift: lock is ${lockLen} B, expected ${R1C_LOCK_LEN(2)} — aborting before any funds move`
+    )
   const baked = bakedCommitments(lock)
   if (baked.join(',') !== commitments.join(',')) throw new Error('bakedCommitments does not round-trip the commitments')
-  console.log(`\n${label}: lock ${lockLen} B; customInstructions ${encodeVaultInstructions({ v: 4, type: 'R1C', salt, keys: [keyA.pub, keyB.pub] })}`)
+  console.log(
+    `\n${label}: lock ${lockLen} B; customInstructions ${encodeVaultInstructions({ v: 4, type: 'R1C', salt, keys: [keyA.pub, keyB.pub] })}`
+  )
 
   const coins = wallet.splice(0)
   if (coins.length === 0) throw new Error(`${label}: no wallet coins to fund the deposit`)
@@ -2473,10 +2925,15 @@ async function spend(label: string, vaults: VaultCoin[], o: SpendOptions): Promi
     p2pkhSats = c.satoshis
   }
   const vaultTotal = vaults.reduce((s, v) => s + v.satoshis, 0)
-  const size = 10 + vaults.length * (41 + 3 + R1C_UNLOCK_LEN) + (o.extraP2PKH === true ? 41 + 1 + P2PKH_UNLOCK_LEN : 0) + (8 + 1 + 25)
+  const size =
+    10 +
+    vaults.length * (41 + 3 + R1C_UNLOCK_LEN) +
+    (o.extraP2PKH === true ? 41 + 1 + P2PKH_UNLOCK_LEN : 0) +
+    (8 + 1 + 25)
   const fee = Math.ceil((size * FEE_SAT_PER_KB) / 1000)
   const outSats = vaultTotal + p2pkhSats - fee
-  if (o.extraP2PKH === true && outSats <= vaultTotal) throw new Error(`${label}: mixed spend must withdraw more than the vault inputs cover`)
+  if (o.extraP2PKH === true && outSats <= vaultTotal)
+    throw new Error(`${label}: mixed spend must withdraw more than the vault inputs cover`)
   tx.addOutput({ satoshis: outSats, lockingScript: fundingLock })
 
   // D4b screen (spec §4.2): every vault preimage must pass pushTxDerCheck — bump the failing input's sequence
@@ -2492,7 +2949,9 @@ async function spend(label: string, vaults: VaultCoin[], o: SpendOptions): Promi
       if (!chk.ok) {
         preimages = [p]
         found = true
-        console.log(`${label}: sequence 0x${(tx.inputs[0].sequence ?? 0).toString(16)} makes the OP_PUSH_TX s peel-nonminimal after ${k + 1} tries (s = 0x${chk.s.toString(16)})`)
+        console.log(
+          `${label}: sequence 0x${(tx.inputs[0].sequence ?? 0).toString(16)} makes the OP_PUSH_TX s peel-nonminimal after ${k + 1} tries (s = 0x${chk.s.toString(16)})`
+        )
         break
       }
     }
@@ -2511,9 +2970,17 @@ async function spend(label: string, vaults: VaultCoin[], o: SpendOptions): Promi
   // Sign each vault input with the software key — the card would receive exactly signerDigest(preimage).
   for (const i of vaultIdx) {
     const digest = signerDigest(preimages[i])
-    const compact = p256.sign(Uint8Array.from(Utils.toArray(digest, 'hex') as number[]), o.signer.priv, { prehash: false, lowS: false })
+    const compact = p256.sign(Uint8Array.from(Utils.toArray(digest, 'hex') as number[]), o.signer.priv, {
+      prehash: false,
+      lowS: false
+    })
     const der = Array.from(p256.Signature.fromBytes(compact).toBytes('der'))
-    const unlock = buildUnlock({ preimage: preimages[i], derSig: der, pubkeyHex33: o.signer.pub, saltHex64: vaults[i].salt })
+    const unlock = buildUnlock({
+      preimage: preimages[i],
+      derSig: der,
+      pubkeyHex33: o.signer.pub,
+      saltHex64: vaults[i].salt
+    })
     const len = unlock.toBinary().length
     if (len > R1C_UNLOCK_LEN) throw new Error(`${label}: unlock is ${len} B > R1C_UNLOCK_LEN`)
     tx.inputs[i].unlockingScript = unlock
@@ -2526,18 +2993,29 @@ async function spend(label: string, vaults: VaultCoin[], o: SpendOptions): Promi
     let ok = false
     let err = ''
     try {
-      ok = verifyVaultInput({ tx, inputIndex: i, sourceSatoshis: vaults[i].satoshis, lockingScript: vaults[i].lock, unlockingScript: tx.inputs[i].unlockingScript! })
+      ok = verifyVaultInput({
+        tx,
+        inputIndex: i,
+        sourceSatoshis: vaults[i].satoshis,
+        lockingScript: vaults[i].lock,
+        unlockingScript: tx.inputs[i].unlockingScript!
+      })
     } catch (e) {
       err = (e as Error).message.split('\n')[0]
     }
     if (o.grindPeelFail === true) {
-      if (ok) throw new Error(`${label}: expected the strict interpreter to REJECT the constructed spend; it passed — nothing was proven`)
+      if (ok)
+        throw new Error(
+          `${label}: expected the strict interpreter to REJECT the constructed spend; it passed — nothing was proven`
+        )
       console.log(`${label}: strict local Spend rejects as designed: ${err}`)
     } else if (!ok) {
       throw new Error(`${label}: input ${i} failed local strict verification: ${err}`)
     }
   }
-  console.log(`${label}: tx ${tx.toBinary().length} B, ${tx.inputs.length} inputs, output ${outSats} sat${o.extraP2PKH === true ? ` (> ${vaultTotal} vault sat)` : ''}`)
+  console.log(
+    `${label}: tx ${tx.toBinary().length} B, ${tx.inputs.length} inputs, output ${outSats} sat${o.extraP2PKH === true ? ` (> ${vaultTotal} vault sat)` : ''}`
+  )
   await broadcast(label, tx)
   wallet.push({ tx, vout: 0, satoshis: outSats })
 }
@@ -2546,7 +3024,9 @@ async function main(): Promise<void> {
   console.log('funding address:', funding.toAddress())
   const FUNDING_UTXO = process.env.FUNDING_UTXO
   if (!FUNDING_UTXO) {
-    console.error('\nFund the address above (>= 400,000 sat), then set FUNDING_UTXO=<txid>:<vout>:<satoshis> and re-run.')
+    console.error(
+      '\nFund the address above (>= 400,000 sat), then set FUNDING_UTXO=<txid>:<vout>:<satoshis> and re-run.'
+    )
     process.exit(1)
   }
   const [fTxid, fVout, fSats] = FUNDING_UTXO.split(':')
@@ -2594,11 +3074,13 @@ main().catch(e => {
 ```bash
 cd /Users/personal/git/bsv-wallet && npx tsc --noEmit --strict --skipLibCheck --target es2022 --module preserve --moduleResolution bundler --types node scripts/r1c-spend-proof.ts
 ```
+
 Expected: no output (exit 0). (Equivalent, slower: `npx tsc --noEmit -p tsconfig.json 2>&1 | grep 'scripts/r1c-spend-proof'` → empty; the root tsconfig includes `scripts/**`.) Then:
 
 ```bash
 cd /Users/personal/git/bsv-wallet && npx tsx scripts/r1c-spend-proof.ts; echo "exit $?"
 ```
+
 Expected: the usage line on stderr and `exit 1` (no network, no funds touched). Running it for real is the spec §0 gate, done by the operator on testnet then mainnet; the txids go into the spec changelog.
 
 - [ ] **Step 7.3: Commit the script**
@@ -2619,11 +3101,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```bash
 cd /Users/personal/git/bsv-wallet && grep -rn "from './k1'\|from \"./k1\"\|vault/k1'" packages/expo-wallet-toolbox/core packages/expo-wallet-toolbox/ui packages/expo-wallet-toolbox/__tests__ scripts app
 ```
+
 Expected EXACTLY (line numbers may drift):
+
 ```
 packages/expo-wallet-toolbox/core/index.ts:269:export * from './services/vault/k1'
 packages/expo-wallet-toolbox/__tests__/vault/k1.test.ts:5:} from '../../core/services/vault/k1'
 ```
+
 If `core/services/vault/transfers.ts` or `__tests__/vault/transfers.test.ts` appear: **STOP here** — Plan 2's Tasks 1–11 have not all landed yet (per the Execution order, this task never runs until they have); leave Steps 7.5–7.7 unchecked and finish the plan at Step 7.3.
 
 - [ ] **Step 7.5: Delete the K1 module, its test and its spend proof**
@@ -2639,10 +3124,13 @@ In `packages/expo-wallet-toolbox/core/index.ts` replace the single line
 ```ts
 export * from './services/vault/k1'
 ```
+
 with
+
 ```ts
 export * from './services/vault/r1comb'
 ```
+
 (Per the Execution order, Plan 2's Task 12 always runs AFTER this task, so it never races this switch.) The re-exported names now include `encodeVaultInstructions`, `decodeVaultInstructions`, `VaultInstructions` from `r1comb` — the same names `k1` exported, with the v4 types — plus every other `r1comb` export; no other module in `core/index.ts` exports those names (`grep -n "VaultInstructions" packages/expo-wallet-toolbox/core/index.ts` shows only the one `export *`).
 
 - [ ] **Step 7.7: Prove nothing else references K1, then run the gates**
@@ -2650,11 +3138,13 @@ export * from './services/vault/r1comb'
 ```bash
 cd /Users/personal/git/bsv-wallet && grep -rn "vault/k1\|from './k1'\|K1_LOCK_LEN\|K1_UNLOCK_LEN\|buildVaultLockingScript\|k1-spend-proof" packages/expo-wallet-toolbox/core packages/expo-wallet-toolbox/ui packages/expo-wallet-toolbox/__tests__ scripts app; echo "grep exit $?"
 ```
+
 Expected: no matching lines, `grep exit 1`.
 
 ```bash
 cd /Users/personal/git/bsv-wallet && npx tsc --noEmit -p packages/expo-wallet-toolbox/tsconfig.json && npx jest packages/expo-wallet-toolbox/__tests__/vault
 ```
+
 Expected: tsc silent (this is the compile-time proof that no remaining `core/` or `ui/` file imports `k1`); every test under `__tests__/vault` green (including Plan 2's rewritten `transfers.test.ts`).
 
 ```bash
@@ -2673,25 +3163,26 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Spec coverage.**
 
-| Spec item | Where in this plan |
-|---|---|
-| §2.1 comb table `T_j`, 32 affine points, minimal scriptnum coordinates, G table constant, Q table memoised, never persisted | Task 2 (`combTableScalar`, `gTable`, `combTable` + 8-entry cache; asserted against fixture chunks 87–214) |
-| §2.2 `le33`, `canonical(table)` 2,112 B, `commitment = hash160(salt ‖ canonical)`, 32-byte salt enforced by the app | Task 2 (`le33`, `canonicalTableBytes`, `commitment`, `saltBytes`; pinned sha256/commitments) |
-| §2.3 lock layout H0–H5, G table, pre-loop, byte-identical comb loop, tail; sizes 27,855 / 27,831 + 25N; `R1C_LOCK_LEN` exact; `bakedCommitments` | Task 1 (`R1C_LOCK_LEN`), Task 3 (`emitHeaderPrefix`, `emitH5`, `sharedSuffix` == fixture `[87..150] ++ [215..end]`, lengths and chunk counts N = 1..5, pinned sha256 for N = 1, 2, dummy-pubkey chunk, `bakedCommitments` round trip + fail-closed) |
-| §2.4 71-push unlock (r = full x, u2', u1', 64 coords, salt, s, s⁻¹, preimage), `recode`, `R1C_UNLOCK_LEN = 2560`, hard max 2,539 | Task 3 (`recode`), Task 5 (`buildUnlock`; 71 chunks, ≤ 2,539 B, pushes #1/#2 checked against `recode`, `R.x ≥ n` constructed case pushes the full x) |
-| §2.5 preimage = `TransactionSignature.format(subscript 'ac', scope 0x41)`, signer digest = `reverse(hash256)`, DER in, s⁻¹ = s^(n−2), high-S accepted | Task 4 (`sighashPreimage` reconstructed field by field on the fixture, `signerDigest`, `decodeDerSignature`), Task 5 (`fullR`, `buildUnlock`, high-S/low-S round trip) |
-| §2.6 version-2 withdrawals; `buildUnlock` refuses version ≠ 2; sighash 0x41 only; any sequence/lockTime/index/count | Task 5 (version-1 → `template-invalid` with "version" in the message; 25 random rounds vary sequence/lockTime/vout/outputs; 3-input mixed test) |
-| §2.7 customInstructions v4, fail closed, v3 rejected, ≤ 4096 chars | Task 6 |
-| §4.2 step "pushTxDerCheck for each; bump `sequenceNumber` on failure" (the pure predicate) | Task 4 (`pushTxSignatureS`, `peelLoopNonMinimalAt` on the §6.2 boundary table, `pushTxDerCheck`), Task 5/7 (`screenedPreimages` / the screen loop in the CLI) |
-| §4.2 step "buildUnlock + verifyVaultInput per input" with strict flags | Task 5 (`R1C_VERIFY_FLAGS`, `verifyVaultInput`; fixture validates under the set; interpreter-verified 2026-09-10 that a peel-nonminimal v2 preimage is rejected under the set and accepted relaxed) |
-| §7 Golden: lengths, pinned sha256s, shared suffix, `bakedCommitments` round trip | Task 3 |
+| Spec item                                                                                                                                                                                                                                                                      | Where in this plan                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §2.1 comb table `T_j`, 32 affine points, minimal scriptnum coordinates, G table constant, Q table memoised, never persisted                                                                                                                                                    | Task 2 (`combTableScalar`, `gTable`, `combTable` + 8-entry cache; asserted against fixture chunks 87–214)                                                                                                                                             |
+| §2.2 `le33`, `canonical(table)` 2,112 B, `commitment = hash160(salt ‖ canonical)`, 32-byte salt enforced by the app                                                                                                                                                            | Task 2 (`le33`, `canonicalTableBytes`, `commitment`, `saltBytes`; pinned sha256/commitments)                                                                                                                                                          |
+| §2.3 lock layout H0–H5, G table, pre-loop, byte-identical comb loop, tail; sizes 27,855 / 27,831 + 25N; `R1C_LOCK_LEN` exact; `bakedCommitments`                                                                                                                               | Task 1 (`R1C_LOCK_LEN`), Task 3 (`emitHeaderPrefix`, `emitH5`, `sharedSuffix` == fixture `[87..150] ++ [215..end]`, lengths and chunk counts N = 1..5, pinned sha256 for N = 1, 2, dummy-pubkey chunk, `bakedCommitments` round trip + fail-closed)   |
+| §2.4 71-push unlock (r = full x, u2', u1', 64 coords, salt, s, s⁻¹, preimage), `recode`, `R1C_UNLOCK_LEN = 2560`, hard max 2,539                                                                                                                                               | Task 3 (`recode`), Task 5 (`buildUnlock`; 71 chunks, ≤ 2,539 B, pushes #1/#2 checked against `recode`, `R.x ≥ n` constructed case pushes the full x)                                                                                                  |
+| §2.5 preimage = `TransactionSignature.format(subscript 'ac', scope 0x41)`, signer digest = `reverse(hash256)`, DER in, s⁻¹ = s^(n−2), high-S accepted                                                                                                                          | Task 4 (`sighashPreimage` reconstructed field by field on the fixture, `signerDigest`, `decodeDerSignature`), Task 5 (`fullR`, `buildUnlock`, high-S/low-S round trip)                                                                                |
+| §2.6 version-2 withdrawals; `buildUnlock` refuses version ≠ 2; sighash 0x41 only; any sequence/lockTime/index/count                                                                                                                                                            | Task 5 (version-1 → `template-invalid` with "version" in the message; 25 random rounds vary sequence/lockTime/vout/outputs; 3-input mixed test)                                                                                                       |
+| §2.7 customInstructions v4, fail closed, v3 rejected, ≤ 4096 chars                                                                                                                                                                                                             | Task 6                                                                                                                                                                                                                                                |
+| §4.2 step "pushTxDerCheck for each; bump `sequenceNumber` on failure" (the pure predicate)                                                                                                                                                                                     | Task 4 (`pushTxSignatureS`, `peelLoopNonMinimalAt` on the §6.2 boundary table, `pushTxDerCheck`), Task 5/7 (`screenedPreimages` / the screen loop in the CLI)                                                                                         |
+| §4.2 step "buildUnlock + verifyVaultInput per input" with strict flags                                                                                                                                                                                                         | Task 5 (`R1C_VERIFY_FLAGS`, `verifyVaultInput`; fixture validates under the set; interpreter-verified 2026-09-10 that a peel-nonminimal v2 preimage is rejected under the set and accepted relaxed)                                                   |
+| §7 Golden: lengths, pinned sha256s, shared suffix, `bakedCommitments` round trip                                                                                                                                                                                               | Task 3                                                                                                                                                                                                                                                |
 | §7 Round trip: random keys, N = 1..5, each member can spend (random signer index), 1–3 vault inputs mixed with P2PKH, version 2, random sequence/lockTime/amounts, high-S and low-S, constructed `x ≥ n`, 31-byte coordinates, `pushTxDerCheck` agreement with the interpreter | Task 5 (all but "agreement on constructed failing preimages under v1 strict flags" — covered as the v2-under-explicit-flags rejection, which is the case the app actually hits; the peel model itself is unit-tested on the boundary table in Task 4) |
-| §7 Negative: uncommitted key, wrong salt, tampered table, foreign signature, cross-input preimage, v1 refused by `buildUnlock`, v3 customInstructions rejected | Task 5 negatives (+ r + 1, s + 1, flipped preimage, sourceSatoshis + 1), Task 6 |
-| §7 Codec fail-closed | Task 6 |
-| §0 step 1 software-key spend proof: N = 2, one spend per key, 3-input, mixed vault + P2PKH (output > vault), all version 2, one constructed peel-nonminimal v2 spend, every txid printed | Task 7 Steps 7.1–7.3 |
-| §5.3 deletions owned by Plan 1: `k1.ts`, `k1.test.ts`, `k1-spend-proof.ts`, `core/index.ts:269` | Task 7 Steps 7.4–7.7 (gated on ALL of Plan 2's Tasks 1–11 landing; runs before Plan 2's Task 12 — see Execution order) |
+| §7 Negative: uncommitted key, wrong salt, tampered table, foreign signature, cross-input preimage, v1 refused by `buildUnlock`, v3 customInstructions rejected                                                                                                                 | Task 5 negatives (+ r + 1, s + 1, flipped preimage, sourceSatoshis + 1), Task 6                                                                                                                                                                       |
+| §7 Codec fail-closed                                                                                                                                                                                                                                                           | Task 6                                                                                                                                                                                                                                                |
+| §0 step 1 software-key spend proof: N = 2, one spend per key, 3-input, mixed vault + P2PKH (output > vault), all version 2, one constructed peel-nonminimal v2 spend, every txid printed                                                                                       | Task 7 Steps 7.1–7.3                                                                                                                                                                                                                                  |
+| §5.3 deletions owned by Plan 1: `k1.ts`, `k1.test.ts`, `k1-spend-proof.ts`, `core/index.ts:269`                                                                                                                                                                                | Task 7 Steps 7.4–7.7 (gated on ALL of Plan 2's Tasks 1–11 landing; runs before Plan 2's Task 12 — see Execution order)                                                                                                                                |
 
 **Deliberately left to Plan 2 / Plan 3 (not gaps).**
+
 - `'bad-version'` error code and the `abortAction` + re-create loop around `pushTxDerCheck`: Plan 2 (`types.ts`, `transfers.ts`). Plan 1 surfaces version ≠ 2 as `'template-invalid'` from `buildUnlock` (Global Constraints).
 - Integration with `createAction`/`signAction`, BEEF parsing, `bakedCommitments`-vs-`commitment` check before signing, ceremony, store: Plan 2.
 - Any UI, i18n, routes, `vaultEnabled` gate: Plan 3 / Plan 2.
@@ -2699,6 +3190,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Real-node confirmation of the version-2 MINIMALDATA relaxation: only the network run of Task 7's script can give it; the SDK interpreter is the sole local oracle (ANALYSIS.md §11.1).
 
 **Cross-plan overlaps to be aware of.**
+
 - Resolved: the Execution order section fixes a single global sequence (P1 Tasks 1–6 → P2 Tasks 1–11 → P1 Task 7 → P2 Task 12 → Plan 3), so there is no longer a race for the `k1` deletion or the `core/index.ts` switch. Plan 2's File Structure no longer lists `k1.ts`/`k1.test.ts` as deletions or the `core/index.ts` `r1comb` export under its Task 12 — Task 7 owns both exclusively, always running first.
 - Task 7's script reads `FUNDING_UTXO` from the environment (the convention of the deleted `r1k1-spend-proof.ts`, and the only practical way to hand it a UTXO), while the Global Constraints say the script "takes everything from argv". The `process.env` ban is scoped to `packages/expo-wallet-toolbox`; the script lives at the repo root. Flagged, not resolved.
 

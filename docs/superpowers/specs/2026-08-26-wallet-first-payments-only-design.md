@@ -21,18 +21,18 @@ BSV wallet, fully renamed from "BSV Browser" to "BSV Wallet".
 
 Delete outright:
 
-| Group | Files |
-|---|---|
-| Browser screen | `app/index.tsx` (1788 lines: WebView hosts, warm pool, tab UI, message routing) |
-| Browser components | `components/browser/*` — all 17 files (AddressBar, AddressBarRow, BookmarkList, BookmarkTabs, BrowserPage, FindInPageBar, GlassPill, HistoryList, HistoryPopover, LoadProgressBar, MenuPopover, PermissionModal, SheetRouter, SuggestionsDropdown, Tabs, TabsOverview) |
-| WebView substrate | `utils/webview/*` — all 12 files (bsvPaymentHandler, cwiProvider, documentStartScript, downloadHandler, errorPages, injectedPolyfills, mediaSourcePolyfill, messageRouter, messageSizeCeiling, walletByteJson, walletOrigin, walletResponseScript) |
-| Stores | `stores/TabStore.tsx`, `stores/BookmarkStore.tsx`, `stores/uiStore.ts` |
-| Hooks | `hooks/useHistory.ts`, `hooks/useWebAppManifest.ts`, `hooks/useAddressBarAnimation.ts`, `hooks/usePermissions.ts` |
-| Utils | `utils/permissionsManager.ts` (web-page device permissions — distinct from the BRC-100 WalletPermissionsManager), `utils/permissionScript.ts`, `utils/thumbnailService.ts`, `utils/externalUrlRouter.ts`, and dead files `utils/getApps.ts`, `utils/fetchAndCacheAppData.ts`, `utils/parseAppManifest.ts` |
-| Context / onboarding | `context/BrowserModeContext.tsx`, `components/onboarding/DefaultBrowserPrompt.tsx`, `components/onboarding/Web3BenefitsModal.tsx`, `components/onboarding/Web3BenefitsModalHandler.tsx` |
-| Types | `shared/types/browser.ts` |
-| Native plugin | `plugins/withWebBrowserEntitlement.js` plus its wiring in `app.json` and the `EXPO_NO_WEB_BROWSER_ENTITLEMENT` gate in `eas.json` |
-| Tests | `__tests__/documentStartScript.test.ts`, `iframeWalletRoundTrip.test.ts`, `injectedPolyfills.test.ts`, `messageSizeCeiling.test.ts`, `walletByteJson.test.ts`, `walletOrigin.test.ts`, `walletResponseScript.test.ts`, `webAppManifest.test.ts`, `externalUrlRouter.test.ts`, `manual/manifestProbe.test.ts` |
+| Group                | Files                                                                                                                                                                                                                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Browser screen       | `app/index.tsx` (1788 lines: WebView hosts, warm pool, tab UI, message routing)                                                                                                                                                                                                                              |
+| Browser components   | `components/browser/*` — all 17 files (AddressBar, AddressBarRow, BookmarkList, BookmarkTabs, BrowserPage, FindInPageBar, GlassPill, HistoryList, HistoryPopover, LoadProgressBar, MenuPopover, PermissionModal, SheetRouter, SuggestionsDropdown, Tabs, TabsOverview)                                       |
+| WebView substrate    | `utils/webview/*` — all 12 files (bsvPaymentHandler, cwiProvider, documentStartScript, downloadHandler, errorPages, injectedPolyfills, mediaSourcePolyfill, messageRouter, messageSizeCeiling, walletByteJson, walletOrigin, walletResponseScript)                                                           |
+| Stores               | `stores/TabStore.tsx`, `stores/BookmarkStore.tsx`, `stores/uiStore.ts`                                                                                                                                                                                                                                       |
+| Hooks                | `hooks/useHistory.ts`, `hooks/useWebAppManifest.ts`, `hooks/useAddressBarAnimation.ts`, `hooks/usePermissions.ts`                                                                                                                                                                                            |
+| Utils                | `utils/permissionsManager.ts` (web-page device permissions — distinct from the BRC-100 WalletPermissionsManager), `utils/permissionScript.ts`, `utils/thumbnailService.ts`, `utils/externalUrlRouter.ts`, and dead files `utils/getApps.ts`, `utils/fetchAndCacheAppData.ts`, `utils/parseAppManifest.ts`    |
+| Context / onboarding | `context/BrowserModeContext.tsx`, `components/onboarding/DefaultBrowserPrompt.tsx`, `components/onboarding/Web3BenefitsModal.tsx`, `components/onboarding/Web3BenefitsModalHandler.tsx`                                                                                                                      |
+| Types                | `shared/types/browser.ts`                                                                                                                                                                                                                                                                                    |
+| Native plugin        | `plugins/withWebBrowserEntitlement.js` plus its wiring in `app.json` and the `EXPO_NO_WEB_BROWSER_ENTITLEMENT` gate in `eas.json`                                                                                                                                                                            |
+| Tests                | `__tests__/documentStartScript.test.ts`, `iframeWalletRoundTrip.test.ts`, `injectedPolyfills.test.ts`, `messageSizeCeiling.test.ts`, `walletByteJson.test.ts`, `walletOrigin.test.ts`, `walletResponseScript.test.ts`, `webAppManifest.test.ts`, `externalUrlRouter.test.ts`, `manual/manifestProbe.test.ts` |
 
 Explicitly KEEP (shared, name-collision hazards):
 
@@ -73,14 +73,14 @@ Explicitly KEEP (shared, name-collision hazards):
 
 New identity:
 
-| Field | Old | New |
-|---|---|---|
-| Display name | BSV Browser | BSV Wallet |
-| Slug | bsv-browser | bsv-wallet |
-| Scheme | bsv-browser:// | bsv-wallet:// |
-| iOS bundle id | org.bsvassociation.browser | org.bsvassociation.wallet |
+| Field           | Old                        | New                       |
+| --------------- | -------------------------- | ------------------------- |
+| Display name    | BSV Browser                | BSV Wallet                |
+| Slug            | bsv-browser                | bsv-wallet                |
+| Scheme          | bsv-browser://             | bsv-wallet://             |
+| iOS bundle id   | org.bsvassociation.browser | org.bsvassociation.wallet |
 | Android package | org.bsvassociation.browser | org.bsvassociation.wallet |
-| iOS project dir | ios/BSVBrowser | ios/BSVWallet |
+| iOS project dir | ios/BSVBrowser             | ios/BSVWallet             |
 
 - `app.json`: name, slug, scheme, ids; DELETE Android http/https
   VIEW/BROWSABLE intentFilters (keep `peerpay` filter); DELETE iOS

@@ -16,7 +16,17 @@
  * Lock length by N and witness depth are asserted so the closure report can
  * quote them from a test rather than from prose.
  */
-import { Hash, LockingScript, P2PKH, PrivateKey, Script, Transaction, TransactionSignature, UnlockingScript, Utils } from '@bsv/sdk'
+import {
+  Hash,
+  LockingScript,
+  P2PKH,
+  PrivateKey,
+  Script,
+  Transaction,
+  TransactionSignature,
+  UnlockingScript,
+  Utils
+} from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
 import { secp256k1 } from '@noble/curves/secp256k1.js'
 import { sha256 } from '@noble/hashes/sha2.js'
@@ -73,14 +83,19 @@ const fromScriptNum = (b: number[]): bigint => {
 }
 const digestBytes = (digestHex: string): Uint8Array => Uint8Array.from(Utils.toArray(digestHex, 'hex') as number[])
 
-interface Member { priv: Uint8Array; pub: string }
+interface Member {
+  priv: Uint8Array
+  pub: string
+}
 const newMember = (): Member => {
   const priv = p256.utils.randomSecretKey()
   return { priv, pub: hex(p256.getPublicKey(priv, true)) }
 }
 const randSalt = (): string => hex(p256.utils.randomSecretKey())
 const signDer = (priv: Uint8Array, digestHex: string): number[] =>
-  Array.from(p256.Signature.fromBytes(p256.sign(digestBytes(digestHex), priv, { prehash: false, lowS: false })).toBytes('der'))
+  Array.from(
+    p256.Signature.fromBytes(p256.sign(digestBytes(digestHex), priv, { prehash: false, lowS: false })).toBytes('der')
+  )
 const p2pkhOut = (): LockingScript => new P2PKH().lock(PrivateKey.fromRandom().toAddress())
 
 function fundingStub(lock: LockingScript, sats: number): Transaction {
@@ -121,10 +136,24 @@ function rawPreimage(tx: Transaction, src: Transaction, sats: number): number[] 
 }
 
 /** The witness layout, assembled without buildUnlock's guards so a test can place any values. */
-function rawWitness(a: { r: bigint; u2: bigint; u1: bigint; pub: string; s: bigint; sInv: bigint; preimage: number[]; salt: string }): UnlockingScript {
+function rawWitness(a: {
+  r: bigint
+  u2: bigint
+  u1: bigint
+  pub: string
+  s: bigint
+  sInv: bigint
+  preimage: number[]
+  salt: string
+}): UnlockingScript {
   const bytes = [...encNum(a.r), ...encNum(recode(a.u2)), ...encNum(recode(a.u1))]
   for (const point of combTable(a.pub)) bytes.push(...encNum(point.x), ...encNum(point.y))
-  bytes.push(...encNum(a.s), ...encNum(a.sInv), ...pushData(a.preimage), ...pushData(Utils.toArray(a.salt, 'hex') as number[]))
+  bytes.push(
+    ...encNum(a.s),
+    ...encNum(a.sInv),
+    ...pushData(a.preimage),
+    ...pushData(Utils.toArray(a.salt, 'hex') as number[])
+  )
   return new UnlockingScript(Script.fromBinary(bytes).chunks)
 }
 
@@ -135,7 +164,10 @@ function independentCommitment(pub: string, salt: string): string {
   const le33 = (v: bigint): number[] => {
     const out = new Array(33).fill(0)
     let x = v
-    for (let i = 0; i < 33; i++) { out[i] = Number(x & 0xffn); x >>= 8n }
+    for (let i = 0; i < 33; i++) {
+      out[i] = Number(x & 0xffn)
+      x >>= 8n
+    }
     return out
   }
   for (let j = 0; j < 32; j++) {
@@ -204,7 +236,12 @@ describe('proof bar §4.1: exact-lock acceptance matrix, N = 1..5', () => {
           expect(s >= 1n && s <= P256_LOW_S_MAX).toBe(true)
           expect(mod(s * sInv, P256_N)).toBe(1n)
           const compact = new p256.Signature(mod(r, P256_N), s).toBytes('compact')
-          expect(p256.verify(compact, digestBytes(digest), p256.Point.fromHex(signer.pub).toBytes(true), { prehash: false, lowS: true })).toBe(true)
+          expect(
+            p256.verify(compact, digestBytes(digest), p256.Point.fromHex(signer.pub).toBytes(true), {
+              prehash: false,
+              lowS: true
+            })
+          ).toBe(true)
           expect(hex(unlock.chunks[70].data!)).toBe(salt)
           expect(independentCommitment(signer.pub, hex(unlock.chunks[70].data!))).toBe(bakedCommitments(lock)[pos])
           tx.inputs[0].unlockingScript = unlock
@@ -220,9 +257,13 @@ describe('proof bar §4.1: exact-lock acceptance matrix, N = 1..5', () => {
         const sInv = modinv(s, P256_N)
         const e = mod(beBig([...Hash.hash256(preimage)].reverse()), P256_N)
         const u1 = mod(e * sInv, P256_N)
-        const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(p256.Point.fromHex(signer.pub).multiply(mod(d.r * sInv, P256_N)))
+        const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(
+          p256.Point.fromHex(signer.pub).multiply(mod(d.r * sInv, P256_N))
+        )
         const rx = R.toAffine().x
-        expect(verify(tx, rawWitness({ r: rx, u2: mod(rx * sInv, P256_N), u1, pub: signer.pub, s, sInv, preimage, salt }))).toBe(true)
+        expect(
+          verify(tx, rawWitness({ r: rx, u2: mod(rx * sInv, P256_N), u1, pub: signer.pub, s, sInv, preimage, salt }))
+        ).toBe(true)
       })
 
       it('rejects an outsider key signing with its own table and the right salt', () => {
@@ -232,20 +273,33 @@ describe('proof bar §4.1: exact-lock acceptance matrix, N = 1..5', () => {
         const der = signDer(outsider.priv, digest)
         // The signature is genuinely valid for the outsider — only the commitment check can refuse it.
         const d = decodeDerSignature(der)
-        expect(p256.verify(new p256.Signature(d.r, d.s).toBytes('compact'), digestBytes(digest), p256.Point.fromHex(outsider.pub).toBytes(true), { prehash: false, lowS: false })).toBe(true)
-        expectRejected(() => verify(tx, buildUnlock({ preimage, derSig: der, pubkeyHex33: outsider.pub, saltHex64: salt })))
+        expect(
+          p256.verify(
+            new p256.Signature(d.r, d.s).toBytes('compact'),
+            digestBytes(digest),
+            p256.Point.fromHex(outsider.pub).toBytes(true),
+            { prehash: false, lowS: false }
+          )
+        ).toBe(true)
+        expectRejected(() =>
+          verify(tx, buildUnlock({ preimage, derSig: der, pubkeyHex33: outsider.pub, saltHex64: salt }))
+        )
       })
 
       it('rejects a wrong salt with a real committed signature', () => {
         const { tx, preimage } = spendTx(src, sats)
         const der = signDer(members[n - 1].priv, signerDigest(preimage))
-        expectRejected(() => verify(tx, buildUnlock({ preimage, derSig: der, pubkeyHex33: members[n - 1].pub, saltHex64: randSalt() })))
+        expectRejected(() =>
+          verify(tx, buildUnlock({ preimage, derSig: der, pubkeyHex33: members[n - 1].pub, saltHex64: randSalt() }))
+        )
       })
 
       it('rejects the signature-free CRT forgery (one r carrying independent residues mod n and mod p)', () => {
         const target = members[0]
         const { tx, preimage } = spendTx(src, sats)
-        const s = 1n, sInv = 1n, t = 1n
+        const s = 1n,
+          sInv = 1n,
+          t = 1n
         const e = mod(beBig([...Hash.hash256(preimage)].reverse()), P256_N)
         const Q = p256.Point.fromHex(target.pub)
         const x = p256.Point.BASE.multiply(e).add(Q.multiply(t)).toAffine().x
@@ -267,17 +321,35 @@ describe('proof bar §4.1: exact-lock acceptance matrix, N = 1..5', () => {
         const highS = P256_N - lowS
         expect(highS > P256_LOW_S_MAX).toBe(true)
         // The high-S form is a valid ECDSA signature too.
-        expect(p256.verify(new p256.Signature(d.r, highS).toBytes('compact'), digestBytes(digest), p256.Point.fromHex(signer.pub).toBytes(true), { prehash: false, lowS: false })).toBe(true)
+        expect(
+          p256.verify(
+            new p256.Signature(d.r, highS).toBytes('compact'),
+            digestBytes(digest),
+            p256.Point.fromHex(signer.pub).toBytes(true),
+            { prehash: false, lowS: false }
+          )
+        ).toBe(true)
         const sInv = modinv(highS, P256_N)
         const e = mod(beBig([...Hash.hash256(preimage)].reverse()), P256_N)
         const u1 = mod(e * sInv, P256_N)
-        const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(p256.Point.fromHex(signer.pub).multiply(mod(d.r * sInv, P256_N)))
+        const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(
+          p256.Point.fromHex(signer.pub).multiply(mod(d.r * sInv, P256_N))
+        )
         const rFull = R.toAffine().x
-        const witness = rawWitness({ r: rFull, u2: mod(rFull * sInv, P256_N), u1, pub: signer.pub, s: highS, sInv, preimage, salt })
+        const witness = rawWitness({
+          r: rFull,
+          u2: mod(rFull * sInv, P256_N),
+          u1,
+          pub: signer.pub,
+          s: highS,
+          sInv,
+          preimage,
+          salt
+        })
         expectRejected(() => verify(tx, witness))
       })
 
-      it('rejects a committed signature over a different preimage, and a pushed preimage that is not the spend\'s', () => {
+      it("rejects a committed signature over a different preimage, and a pushed preimage that is not the spend's", () => {
         const signer = members[n - 1]
         const { tx, preimage } = spendTx(src, sats)
         const other = spendTx(src, sats)
@@ -288,12 +360,29 @@ describe('proof bar §4.1: exact-lock acceptance matrix, N = 1..5', () => {
         const sInv = modinv(s, P256_N)
         const e = mod(beBig([...Hash.hash256(preimage)].reverse()), P256_N)
         const u1 = mod(e * sInv, P256_N)
-        const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(p256.Point.fromHex(signer.pub).multiply(mod(d.r * sInv, P256_N)))
+        const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(
+          p256.Point.fromHex(signer.pub).multiply(mod(d.r * sInv, P256_N))
+        )
         const rx = R.toAffine().x
-        expectRejected(() => verify(tx, rawWitness({ r: rx, u2: mod(rx * sInv, P256_N), u1, pub: signer.pub, s, sInv, preimage, salt })))
+        expectRejected(() =>
+          verify(tx, rawWitness({ r: rx, u2: mod(rx * sInv, P256_N), u1, pub: signer.pub, s, sInv, preimage, salt }))
+        )
         // A fully consistent witness for the OTHER transaction's preimage: only OP_PUSH_TX can refuse it.
-        const otherWitness = buildUnlock({ preimage: other.preimage, derSig: signDer(signer.priv, signerDigest(other.preimage)), pubkeyHex33: signer.pub, saltHex64: salt })
-        expect(verifyVaultInput({ tx: other.tx, inputIndex: 0, sourceSatoshis: sats, lockingScript: lock, unlockingScript: otherWitness })).toBe(true)
+        const otherWitness = buildUnlock({
+          preimage: other.preimage,
+          derSig: signDer(signer.priv, signerDigest(other.preimage)),
+          pubkeyHex33: signer.pub,
+          saltHex64: salt
+        })
+        expect(
+          verifyVaultInput({
+            tx: other.tx,
+            inputIndex: 0,
+            sourceSatoshis: sats,
+            lockingScript: lock,
+            unlockingScript: otherWitness
+          })
+        ).toBe(true)
         expectRejected(() => verify(tx, otherWitness))
       })
 
@@ -307,7 +396,9 @@ describe('proof bar §4.1: exact-lock acceptance matrix, N = 1..5', () => {
         const sInv = modinv(s, P256_N)
         const e = mod(beBig([...Hash.hash256(preimage)].reverse()), P256_N)
         const u1 = mod(e * sInv, P256_N)
-        const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(p256.Point.fromHex(signer.pub).multiply(mod(d.r * sInv, P256_N)))
+        const R = (u1 === 0n ? p256.Point.ZERO : p256.Point.BASE.multiply(u1)).add(
+          p256.Point.fromHex(signer.pub).multiply(mod(d.r * sInv, P256_N))
+        )
         const rx = R.toAffine().x
         const witness = rawWitness({ r: rx, u2: mod(rx * sInv, P256_N), u1, pub: signer.pub, s, sInv, preimage, salt })
         expectRejected(() => verify(tx, witness))
@@ -318,7 +409,11 @@ describe('proof bar §4.1: exact-lock acceptance matrix, N = 1..5', () => {
         // d1 = C1 · Gx^-1 mod n_k1 with C1 = 2^248: the covenant's public dummy scalar.
         const d1 = mod((1n << 248n) * modinv(SECP_GX, SECP_N), SECP_N)
         const e = Uint8Array.from(Hash.hash256(preimage))
-        const k1 = secp256k1.sign(e, Uint8Array.from(Utils.toArray(d1.toString(16).padStart(64, '0'), 'hex') as number[]), { prehash: false })
+        const k1 = secp256k1.sign(
+          e,
+          Uint8Array.from(Utils.toArray(d1.toString(16).padStart(64, '0'), 'hex') as number[]),
+          { prehash: false }
+        )
         const k1sig = secp256k1.Signature.fromBytes(k1)
         // Place the covenant signature where the P-256 r and s go, with an arbitrary committed table.
         const witness = rawWitness({

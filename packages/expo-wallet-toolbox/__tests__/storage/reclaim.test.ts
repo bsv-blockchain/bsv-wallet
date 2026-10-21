@@ -45,9 +45,7 @@ const candidates = (d: DatabaseSync) =>
   d.prepare(RECLAIM_CANDIDATES_SQL).all(TIP, CUTOFF) as { txid: string; bytes: number }[]
 
 const survivors = (d: DatabaseSync) =>
-  (d.prepare('SELECT txid FROM transactions WHERE inputBEEF IS NOT NULL').all() as { txid: string }[]).map(
-    r => r.txid
-  )
+  (d.prepare('SELECT txid FROM transactions WHERE inputBEEF IS NOT NULL').all() as { txid: string }[]).map(r => r.txid)
 
 describe('reclaim predicate', () => {
   it('admits a settled, deeply-proven transaction', () => {

@@ -21,7 +21,11 @@ it('formats amount, currency and exchange-rate changes in one commit each', () =
     <WalletContext.Provider value={{ settings: { currency } } as any}>
       <ExchangeRateContext.Provider value={{ satoshisPerUSD, usdToFiat: { EUR: 0.9 } }}>
         <Profiler id="amount" onRender={onRender}>
-          <Text testID="amount"><AmountDisplay abbreviate showPlus>{amount}</AmountDisplay></Text>
+          <Text testID="amount">
+            <AmountDisplay abbreviate showPlus>
+              {amount}
+            </AmountDisplay>
+          </Text>
         </Profiler>
       </ExchangeRateContext.Provider>
     </WalletContext.Provider>
@@ -45,10 +49,22 @@ it('formats amount, currency and exchange-rate changes in one commit each', () =
 })
 
 it('keeps the placeholder for invalid amounts and respects formatting options', () => {
-  const screen = render(<Text><AmountDisplay>{1.5}</AmountDisplay></Text>)
+  const screen = render(
+    <Text>
+      <AmountDisplay>{1.5}</AmountDisplay>
+    </Text>
+  )
   expect(screen.getByText('...')).toBeTruthy()
-  screen.rerender(<Text><AmountDisplay>{100_000_000}</AmountDisplay></Text>)
+  screen.rerender(
+    <Text>
+      <AmountDisplay>{100_000_000}</AmountDisplay>
+    </Text>
+  )
   expect(screen.getByText(formatAmount(100_000_000, 'BSV', 5_000_000))).toBeTruthy()
-  screen.rerender(<Text><AmountDisplay abbreviate>{100_000_000}</AmountDisplay></Text>)
+  screen.rerender(
+    <Text>
+      <AmountDisplay abbreviate>{100_000_000}</AmountDisplay>
+    </Text>
+  )
   expect(screen.getByText(formatAmount(100_000_000, 'BSV', 5_000_000, { abbreviate: true }))).toBeTruthy()
 })

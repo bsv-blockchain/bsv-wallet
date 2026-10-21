@@ -29,14 +29,14 @@ import type { WithSpringConfig } from 'react-native-reanimated'
  */
 export const easings = {
   /** cubic-bezier(0.23, 1, 0.32, 1) — a long, soft deceleration. */
-  out: Easing.bezier(0.23, 1, 0.32, 1),
+  out: Easing.bezier(0.23, 1, 0.32, 1)
 } as const
 
 export const springs = {
   /** Buttons, small elements, alert cards. Custom-tuned — NOT Reanimated's built-in presets. */
   snappy: { mass: 1, stiffness: 380, damping: 36 } satisfies WithSpringConfig,
   /** Larger surfaces: sheets, popovers, dropdowns. */
-  settle: { mass: 1, stiffness: 280, damping: 32 } satisfies WithSpringConfig,
+  settle: { mass: 1, stiffness: 280, damping: 32 } satisfies WithSpringConfig
 } as const
 
 /** All values in milliseconds. */
@@ -46,5 +46,5 @@ export const durations = {
   /** Small movements, toasts. */
   quick: 250,
   /** Largest allowed — full-surface transitions. */
-  moderate: 350,
+  moderate: 350
 } as const

@@ -7,12 +7,14 @@ Repo: `/Users/personal/git/go/go-message-box-server`, branch `main`, HEAD `4179c
 One FCM token maps to exactly one identity at a time. Registering a token for identity B overwrites the owner on the existing row. Identity A silently stops receiving pushes for that token. B's registration returns success and nothing tells A.
 
 I also replayed the exact upsert SQL against an in-memory sqlite 3.54 (scratchpad only, no repo files touched):
+
 - After registering token T for A and then for B, the table still has 1 row, owned by B.
 - The `listDevices` query (the one the push path uses, with `active = TRUE`) returns nothing for A and `1|B|T` for B.
 
 ## 1. Data model and register handler
 
 **SQL backends (sqlite and postgres)**
+
 - The token column is unique in both: `fcm_token TEXT NOT NULL UNIQUE` at `pkg/storage/sqlstore/sqlstore.go:201` (sqlite) and `:276` (postgres).
 - The only other indexes are non-unique: `idx_device_registrations_identity (identity_key)` at `sqlstore.go:151` and `(identity_key, active)` at `:152`.
 - There is no `(identity_key, fcm_token)` key and no unique constraint on `device_id`.
@@ -20,6 +22,7 @@ I also replayed the exact upsert SQL against an in-memory sqlite 3.54 (scratchpa
 - That `DO UPDATE` overwrites `identity_key` and has no `WHERE` clause guarding the previous owner, so the token moves to the new identity and is reactivated.
 
 **Mongo backend**
+
 - The token is the document `_id` (`pkg/storage/mongostore/mongostore.go:421`).
 - `RegisterDevice` runs `FindOneAndUpdate` filtered on `_id: d.FCMToken` (`:459-476`). It does `$set identityKey` plus deviceId, platform, active, updatedAt and lastUsed, and `$setOnInsert` only for createdAt and registrationId.
 - The only secondary index is non-unique `{identityKey, updatedAt, active}` (`:98`).
@@ -27,18 +30,22 @@ I also replayed the exact upsert SQL against an in-memory sqlite 3.54 (scratchpa
 - I could not confirm which backend production runs. It does not matter, because both reassign.
 
 **Interface contract**
+
 - `pkg/storage/storage.go:106-109` states "RegisterDevice upserts on d.FCMToken, reactivating the device".
 
 **Handler** (`pkg/handlers/devices.go:34-70`)
+
 - The only validation is a non-empty `fcmToken` (`:41-44`) and an optional platform in {ios, android, web} (`:46-50`).
 - It builds `NewDevice{IdentityKey, FCMToken, DeviceID, Platform}` (`:52-57`) and calls `Store.RegisterDevice` (`:58`).
 - It never checks whether the token already belongs to another identity, never refuses, and never reports the takeover.
 
 **Maintainers know this behaviour**
+
 - `pkg/storage/mongostore/injection_test.go:184-185` says a structural token match "would land on the real device and hand it to another identity". That test guards against operator-injection payloads matching structurally, so a literal match reassigning ownership is the intended design.
 - I found no conformance test that pins cross-identity re-registration either way. In `pkg/storage/storagetest/storagetest.go:1006-1008`, alice and bob always use distinct tokens. The behaviour follows from the SQL and Mongo code above.
 
 **PR #22 (`fix/register-device-id`, merge `4179cd4`; feature commit `cd6c0a1`, test commit `b6a4621`)**
+
 - It changed only the return value: `RegisterDevice` now returns an int64 registration id (`storage.go:106-110`; `queries.go:416-430` uses `RETURNING id`; Mongo adds a `registrationId` set only on insert, `mongostore.go:432, 473`).
 - `/registerDevice` now returns that id as `deviceId`, and `/devices` returns it as `id`.
 - The id is stable per token, so if B takes A's token, B receives the same id A had.
@@ -48,23 +55,26 @@ I also replayed the exact upsert SQL against an in-memory sqlite 3.54 (scratchpa
 ## 2. FCM delivery path
 
 **Trigger**
+
 - Only `pkg/handlers/send_message.go:281-292` calls `SendFCMNotification` (no other caller found by grep).
 - After `InsertMessage` succeeds for each recipient, if `pushTitle(boxType)` is true it starts a detached goroutine calling `firebase.SendFCMNotification(writeCtx, s.Store, recipient, FCMPayload{Title, MessageID})`.
 
 **Which boxes push** (`pkg/handlers/policy.go:34-43`)
 
-| Box | Title |
-|---|---|
-| `notifications` | "New Message" |
+| Box                                 | Title              |
+| ----------------------------------- | ------------------ |
+| `notifications`                     | "New Message"      |
 | `payment_inbox`, `mandala-payments` | "Payment received" |
-| anything else | no push |
+| anything else                       | no push            |
 
 **Token selection**
+
 - `ListActiveDevices(ctx, recipient)` (`internal/firebase/send_fmc_notification.go:49-50`) selects by recipient identity: `WHERE identity_key = ? AND active = TRUE` (`queries.go:435-438`), or the Mongo equivalent filter (`mongostore.go:500-504`).
 - It then sends one FCM message per active row (`send_fmc_notification.go:66-71`), so all active tokens for the recipient get a push.
 - A token owned by another identity is invisible to this lookup, which is why a taken-over token stops receiving the loser's pushes.
 
 **Exact payload** (`send_fmc_notification.go:118-156`)
+
 - Notification title is the box title above. Body is the constant `"Open the app to view it."` (`:118`).
 - Android: `Priority "high"` and `Data {messageId, originator}` (`:128-134`).
 - iOS: `apns-push-type: alert`, `apns-priority: 10`, `MutableContent: true`, an alert with the same title and body, and custom data `{messageId, originator}` (`:136-153`).
@@ -98,10 +108,12 @@ I also replayed the exact upsert SQL against an in-memory sqlite 3.54 (scratchpa
 These are conclusions about changes, not existing code.
 
 **Server side**
+
 - Replace `UNIQUE(fcm_token)` with `UNIQUE(identity_key, fcm_token)` and key the upsert on that pair in both SQL and Mongo. Mongo's `_id` is currently the token alone.
 - Add the recipient identity key (and ideally the messageBox) to the FCM data payload (`buildMessage`) so the app can route a push to the right profile.
 
 **Client side, with no server change**
+
 - Keep the single-slot registration and re-register on every profile switch. That takes the token back for the active profile, but pushes then reach only the active profile.
 - Registering all profiles in a loop would leave only the last one registered.
 - Also, an app that only builds the active profile's wallet cannot open a session as the other profiles to register them.

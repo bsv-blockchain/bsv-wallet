@@ -53,7 +53,7 @@ describe('XQ-013: vendored expo-secure-store Android delete path does not rotate
     expect(body).not.toMatch(/keyStore\.deleteEntry/)
   })
 
-  it('removeKeyFromKeystore (the one call that DOES rotate the key) is reachable only from setItemImpl\'s invalidated-key retry, not from a plain delete', () => {
+  it("removeKeyFromKeystore (the one call that DOES rotate the key) is reachable only from setItemImpl's invalidated-key retry, not from a plain delete", () => {
     const source = readModuleSource()
     const setItemBody = extractFunctionBody(source, 'private suspend fun setItemImpl(')
 

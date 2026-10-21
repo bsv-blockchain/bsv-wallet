@@ -8,12 +8,12 @@ Measured on iPhone 17 Pro simulator, iOS 26.4, Expo development client, Hermes,
 using the native build installed by the user. Metro runs on localhost:8081.
 These are development/simulator timings, not release-build or physical-device claims.
 
-| Workload | Before native routing | After native routing |
-| --- | ---: | ---: |
-| SDK decrypt, identical synthetic 1 KiB payload | 39.78 ms | 3.71 ms |
-| SDK decrypt, identical synthetic 16 KiB payload | 551.03 ms | 10.81 ms |
-| SDK decrypt, identical synthetic 128 KiB payload | 4,333.53 ms | 36.48 ms |
-| Demo mnemonic PBKDF2 + BIP32 derivation | 1,385 ms | 5 ms |
+| Workload                                                          |                              Before native routing |                                                                           After native routing |
+| ----------------------------------------------------------------- | -------------------------------------------------: | ---------------------------------------------------------------------------------------------: |
+| SDK decrypt, identical synthetic 1 KiB payload                    |                                           39.78 ms |                                                                                        3.71 ms |
+| SDK decrypt, identical synthetic 16 KiB payload                   |                                          551.03 ms |                                                                                       10.81 ms |
+| SDK decrypt, identical synthetic 128 KiB payload                  |                                        4,333.53 ms |                                                                                       36.48 ms |
+| Demo mnemonic PBKDF2 + BIP32 derivation                           |                                           1,385 ms |                                                                                           5 ms |
 | Original 12-chunk backup replay (timing scopes differ; see below) | 19.58 s summed reader/apply time (one initial run) | 2.33 / 2.37 / 2.75 s elapsed replay time (three isolated runs, including proof reconciliation) |
 
 Cipher plaintext parity passed for every measured synthetic payload. The original

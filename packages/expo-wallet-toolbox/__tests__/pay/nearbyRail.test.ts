@@ -16,7 +16,12 @@ import * as build from '../../core/localpay/build'
 import * as types from '../../core/localpay/types'
 import { awdlTransport } from '../../core/localpay/transport/awdl'
 import { bleTransport } from '../../core/localpay/transport/ble'
-import { describeFloor, localSupportsAwdl, localSupportsBle, selectTransport } from '../../core/localpay/transport/select'
+import {
+  describeFloor,
+  localSupportsAwdl,
+  localSupportsBle,
+  selectTransport
+} from '../../core/localpay/transport/select'
 import { requestBlePermissions } from '../../core/localpay/blePermissions'
 import { capsFromProbe, prepareBle, probeDeviceCaps, readBluetoothState } from '../../core/localpay/deviceCaps'
 import { raceReceivers } from '../../core/localpay/transport/race'

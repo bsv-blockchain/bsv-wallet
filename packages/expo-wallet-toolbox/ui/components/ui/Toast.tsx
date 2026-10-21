@@ -16,7 +16,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  useReducedMotion,
+  useReducedMotion
 } from 'react-native-reanimated'
 import { useTheme, spacing, radii, typography, springs, durations, haptics } from '@bsv/expo-wallet-toolbox'
 
@@ -38,7 +38,11 @@ function loadIonicons(): IoniconsComponent {
 }
 
 export type ToastType = 'info' | 'success' | 'error'
-interface ToastData { id: number; message: string; type: ToastType }
+interface ToastData {
+  id: number
+  message: string
+  type: ToastType
+}
 
 const TOAST_MS = 2000
 
@@ -49,7 +53,10 @@ export function showToast(message: string, opts?: { type?: ToastType }) {
   const type = opts?.type ?? 'info'
   if (type === 'success') haptics.success()
   if (type === 'error') haptics.error()
-  if (!push) { console.warn('[Toast] ToastHost not mounted:', message); return }
+  if (!push) {
+    console.warn('[Toast] ToastHost not mounted:', message)
+    return
+  }
   push(message, type)
 }
 
@@ -68,32 +75,32 @@ export function ToastHost() {
       progress.value = 0
       setToast({ id: nextId++, message, type })
     }
-    return () => { push = null }
+    return () => {
+      push = null
+    }
   }, [])
 
   useEffect(() => {
     if (!toast) return
     progress.value = 0
-    progress.value = reducedMotion
-      ? withTiming(1, { duration: durations.instant })
-      : withSpring(1, springs.snappy)
+    progress.value = reducedMotion ? withTiming(1, { duration: durations.instant }) : withSpring(1, springs.snappy)
     hideTimer.current = setTimeout(() => {
       progress.value = withTiming(0, { duration: durations.quick })
       hideTimer.current = setTimeout(() => setToast(null), durations.quick)
     }, TOAST_MS)
-    return () => { if (hideTimer.current) clearTimeout(hideTimer.current) }
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current)
+    }
   }, [toast, progress, reducedMotion])
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ translateY: -12 * (1 - progress.value) }],
+    transform: [{ translateY: -12 * (1 - progress.value) }]
   }))
 
   if (!toast) return null
 
-  const icon = toast.type === 'success' ? 'checkmark-circle'
-    : toast.type === 'error' ? 'alert-circle'
-    : null
+  const icon = toast.type === 'success' ? 'checkmark-circle' : toast.type === 'error' ? 'alert-circle' : null
   const iconColor = toast.type === 'success' ? colors.success : colors.error
 
   return (
@@ -103,7 +110,7 @@ export function ToastHost() {
         style={[
           styles.capsule,
           { backgroundColor: colors.sheetBackground, borderColor: colors.separator },
-          animatedStyle,
+          animatedStyle
         ]}
       >
         {icon && <Ionicons name={icon} size={18} color={iconColor} style={styles.icon} />}
@@ -121,7 +128,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    zIndex: 10000,
+    zIndex: 10000
   },
   capsule: {
     flexDirection: 'row',
@@ -135,8 +142,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    elevation: 6
   },
   icon: { marginRight: spacing.sm },
-  text: { ...typography.subhead, flexShrink: 1 },
+  text: { ...typography.subhead, flexShrink: 1 }
 })

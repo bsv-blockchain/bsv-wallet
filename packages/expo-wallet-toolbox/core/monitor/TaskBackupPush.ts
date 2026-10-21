@@ -56,7 +56,7 @@ export class TaskBackupPush extends WalletMonitorTask {
    * backup log (XR-105; same pattern as TaskDrainOutbox.running). */
   static running = false
 
-  static noteConnectivity (online: boolean): void {
+  static noteConnectivity(online: boolean): void {
     TaskBackupPush.onlineNow = online
     if (online) {
       TaskBackupPush.checkNow = true
@@ -66,32 +66,29 @@ export class TaskBackupPush extends WalletMonitorTask {
   }
 
   /** New wallet activity. Cheap to over-call: one idle pass clears the flag. */
-  static noteChanged (): void {
+  static noteChanged(): void {
     TaskBackupPush.hasChanges = true
   }
 
   /** User asked for an immediate backup. */
-  static requestNow (): void {
+  static requestNow(): void {
     TaskBackupPush.checkNow = true
     TaskBackupPush.backoffMs = TaskBackupPush.BASE_BACKOFF_MS
     TaskBackupPush.nextDueAt = 0
   }
 
-  static noteRan (at: number): void {
+  static noteRan(at: number): void {
     TaskBackupPush.nextDueAt = at + MIN_PUSH_INTERVAL_MS
     TaskBackupPush.lastRunAt = at
   }
 
-  static noteFailure (at: number): void {
+  static noteFailure(at: number): void {
     TaskBackupPush.nextDueAt = at + TaskBackupPush.backoffMs
-    TaskBackupPush.backoffMs = Math.min(
-      TaskBackupPush.backoffMs * 2,
-      TaskBackupPush.MAX_BACKOFF_MS
-    )
+    TaskBackupPush.backoffMs = Math.min(TaskBackupPush.backoffMs * 2, TaskBackupPush.MAX_BACKOFF_MS)
   }
 
   /** Test seam; also used when the user signs out. */
-  static reset (): void {
+  static reset(): void {
     TaskBackupPush.onlineNow = false
     TaskBackupPush.hasChanges = false
     TaskBackupPush.checkNow = false
@@ -103,14 +100,14 @@ export class TaskBackupPush extends WalletMonitorTask {
     TaskBackupPush.running = false
   }
 
-  constructor (
+  constructor(
     monitor: Monitor,
     private readonly push: () => Promise<PushResult>
   ) {
     super(monitor, TaskBackupPush.taskName)
   }
 
-  trigger (nowMsecsSinceEpoch: number): { run: boolean } {
+  trigger(nowMsecsSinceEpoch: number): { run: boolean } {
     if (!TaskBackupPush.onlineNow) return { run: false }
     if (TaskBackupPush.checkNow) return { run: true }
     if (TaskBackupPush.hasChanges) {
@@ -120,7 +117,7 @@ export class TaskBackupPush extends WalletMonitorTask {
     return { run: nowMsecsSinceEpoch >= TaskBackupPush.lastRunAt + TaskBackupPush.IDLE_RECHECK_MS }
   }
 
-  async runTask (): Promise<string> {
+  async runTask(): Promise<string> {
     // A watchdog restart can spawn a new generation's runOnce() while an old
     // generation's own runOnce() is still executing (it is not cancelled,
     // only stopped from looping again). Without this guard both could

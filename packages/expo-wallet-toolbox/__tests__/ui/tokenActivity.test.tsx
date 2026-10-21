@@ -24,8 +24,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }))
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, unknown>) =>
-      values ? `${key}:${Object.values(values).join('|')}` : key,
+    t: (key: string, values?: Record<string, unknown>) => (values ? `${key}:${Object.values(values).join('|')}` : key),
     i18n: { language: 'en' }
   }),
   initReactI18next: { type: '3rdParty', init: () => {} }
@@ -117,7 +116,7 @@ describe('ActivityRow with a token', () => {
       />
     )
 
-  it('replaces the lib\'s developer description and never prints the BSV movement', () => {
+  it("replaces the lib's developer description and never prints the BSV movement", () => {
     const s = drawRow({
       title: 'token_row_sent:USDX',
       amount: { value: '−25.00', unit: 'USDX' },
@@ -205,8 +204,7 @@ describe('the withdrawal alert', () => {
       alerts.push(o)
       return 'ok'
     }) as never)
-    const t = ((k: string, v?: Record<string, unknown>) =>
-      v ? `${k}:${Object.values(v).join('|')}` : k) as never
+    const t = ((k: string, v?: Record<string, unknown>) => (v ? `${k}:${Object.values(v).join('|')}` : k)) as never
     await announceEviction(t, { txid: 'r1', ticker: 'USDX', issuer: 'Acme Bank', baseUnits: 4000, decimals: 2 })
     expect(alerts[0]).toEqual({
       title: 'token_evicted_title:USDX',
@@ -253,9 +251,9 @@ describe('PaymentSuccessOverlay in token mode', () => {
 
 describe('homeBadges', () => {
   it('surfaces token payments that have been waiting too long', () => {
-    expect(
-      homeBadges({ attention: 0, unsent: 0, offlineQueued: 0, offlineRejected: 0, tokenAttention: 2 })
-    ).toEqual([{ kind: 'token_attention', count: 2 }])
+    expect(homeBadges({ attention: 0, unsent: 0, offlineQueued: 0, offlineRejected: 0, tokenAttention: 2 })).toEqual([
+      { kind: 'token_attention', count: 2 }
+    ])
   })
 
   it('is unchanged for a wallet with no token work', () => {

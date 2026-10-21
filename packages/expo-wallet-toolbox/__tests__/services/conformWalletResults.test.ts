@@ -59,7 +59,9 @@ describe('conformWalletResults', () => {
       noSendChange: [`${unsigned.id('hex')}.1`],
       signableTransaction: { reference: 'cmVm', tx: unsigned.toAtomicBEEF() }
     }
-    const manager = conformWalletResults(ADMIN, { createAction: async (_args: unknown, _originator?: string) => created })
+    const manager = conformWalletResults(ADMIN, {
+      createAction: async (_args: unknown, _originator?: string) => created
+    })
     expect(await manager.createAction({} as any, 'app.example')).toEqual(created)
   })
 
@@ -67,7 +69,9 @@ describe('conformWalletResults', () => {
     '%s returns the requested page and keeps the full total',
     async method => {
       const all = [1, 2, 3, 4].map(certificate)
-      const manager = conformWalletResults(ADMIN, { [method]: async () => ({ totalCertificates: 4, certificates: all }) })
+      const manager = conformWalletResults(ADMIN, {
+        [method]: async () => ({ totalCertificates: 4, certificates: all })
+      })
       const args =
         method === 'discoverByAttributes'
           ? { attributes: { userName: 'deggen' }, limit: 2, offset: 1 }
@@ -83,7 +87,10 @@ describe('conformWalletResults', () => {
   test('applies the BRC-100 default limit of 10 when none is given', async () => {
     const all = Array.from({ length: 12 }, (_, i) => certificate(i + 1))
     const manager = conformWalletResults(ADMIN, {
-      discoverByAttributes: async (_args: unknown, _originator?: string) => ({ totalCertificates: 12, certificates: all })
+      discoverByAttributes: async (_args: unknown, _originator?: string) => ({
+        totalCertificates: 12,
+        certificates: all
+      })
     })
     const result = await manager.discoverByAttributes({ attributes: { userName: 'deggen' } } as any, 'app.example')
     expect(result.certificates).toHaveLength(10)
@@ -119,7 +126,10 @@ describe('conformWalletResults', () => {
     const { signed } = signedAndUnsigned()
     const abortAction = jest.fn(async (_args: { reference: string }, _originator?: string) => ({ aborted: true }))
     const manager = conformWalletResults(ADMIN, {
-      createAction: async (_args: unknown, _originator?: string) => ({ txid: signed.id('hex'), tx: signed.toAtomicBEEF() }),
+      createAction: async (_args: unknown, _originator?: string) => ({
+        txid: signed.id('hex'),
+        tx: signed.toAtomicBEEF()
+      }),
       abortAction
     })
     const { txid } = await manager.createAction({ options: { noSend: true } } as any, 'app.example')
@@ -137,7 +147,10 @@ describe('conformWalletResults', () => {
     const { signed } = signedAndUnsigned()
     const abortAction = jest.fn(async (_args: { reference: string }, _originator?: string) => ({ aborted: false }))
     const manager = conformWalletResults(ADMIN, {
-      createAction: async (_args: unknown, _originator?: string) => ({ txid: signed.id('hex'), tx: signed.toAtomicBEEF() }),
+      createAction: async (_args: unknown, _originator?: string) => ({
+        txid: signed.id('hex'),
+        tx: signed.toAtomicBEEF()
+      }),
       abortAction
     })
     const { txid } = await manager.createAction({} as any, 'app.example')

@@ -67,11 +67,7 @@ export default function IconPickerSheet({ visible, onClose }: { visible: boolean
           <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }]} onPress={onClose} />
         </Animated.View>
         <Animated.View
-          style={[
-            styles.sheet,
-            { backgroundColor: colors.sheetBackground, maxHeight: height * 0.75 },
-            sheetStyle
-          ]}
+          style={[styles.sheet, { backgroundColor: colors.sheetBackground, maxHeight: height * 0.75 }, sheetStyle]}
         >
           <View style={[styles.grabber, { backgroundColor: colors.separator }]} />
           <Text style={[styles.title, { color: colors.textPrimary }]}>

@@ -116,7 +116,7 @@ export function makeBleTransport(
             toBase64(session.psk),
             toBase64(sealFrame(frame, session.psk)),
             SEND_TIMEOUT_MS,
-            connectTimeoutMs,
+            connectTimeoutMs
           ] as const
         } catch (e) {
           settled = true
@@ -146,7 +146,7 @@ export function makeBleTransport(
           }
         )
       })
-    },
+    }
   }
 }
 

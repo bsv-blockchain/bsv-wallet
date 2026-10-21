@@ -47,68 +47,68 @@ Expo SDK line.
 
 ### React / Expo core (required)
 
-| Package | Version |
-| --- | --- |
-| `react` | 19.2.0 |
-| `react-native` | 0.83.6 |
-| `expo-router` | ~55.0.16 |
+| Package        | Version  |
+| -------------- | -------- |
+| `react`        | 19.2.0   |
+| `react-native` | 0.83.6   |
+| `expo-router`  | ~55.0.16 |
 
 ### BSV SDK & protocol libraries (required)
 
-| Package | Version |
-| --- | --- |
-| `@bsv/sdk` | ^2.4.1 |
-| `@bsv/wallet-toolbox-mobile` | ^2.4.3 |
-| `@bsv/btms-permission-module` | ^1.1.0 |
-| `@bsv/air-gap` | ^0.1.1 |
-| `@bsv/backup-cache-client` | ^0.1.0 |
-| `@bsv/message-box-client` | ^2.2.1 |
-| `@bsv/templates` | ^1.10.0 |
-| `@noble/curves` | ^2.3.0 |
-| `qrcode` | ^1.5.4 |
+| Package                       | Version |
+| ----------------------------- | ------- |
+| `@bsv/sdk`                    | ^2.4.1  |
+| `@bsv/wallet-toolbox-mobile`  | ^2.4.3  |
+| `@bsv/btms-permission-module` | ^1.1.0  |
+| `@bsv/air-gap`                | ^0.1.1  |
+| `@bsv/backup-cache-client`    | ^0.1.0  |
+| `@bsv/message-box-client`     | ^2.2.1  |
+| `@bsv/templates`              | ^1.10.0 |
+| `@noble/curves`               | ^2.3.0  |
+| `qrcode`                      | ^1.5.4  |
 
 ### Expo native modules (required — each needs its own autolinking/config)
 
-| Package | Version |
-| --- | --- |
-| `expo-sqlite` | ~55.0.16 |
-| `expo-secure-store` | ~55.0.14 |
-| `expo-camera` | ~55.0.19 |
-| `expo-audio` | ~55.0.16 |
-| `expo-clipboard` | ~55.0.13 |
-| `expo-crypto` | ~55.0.15 |
-| `expo-device` | ~55.0.17 |
-| `expo-document-picker` | ~55.0.13 |
-| `expo-file-system` | ~55.0.20 |
-| `expo-haptics` | ~55.0.14 |
+| Package                     | Version  |
+| --------------------------- | -------- |
+| `expo-sqlite`               | ~55.0.16 |
+| `expo-secure-store`         | ~55.0.14 |
+| `expo-camera`               | ~55.0.19 |
+| `expo-audio`                | ~55.0.16 |
+| `expo-clipboard`            | ~55.0.13 |
+| `expo-crypto`               | ~55.0.15 |
+| `expo-device`               | ~55.0.17 |
+| `expo-document-picker`      | ~55.0.13 |
+| `expo-file-system`          | ~55.0.20 |
+| `expo-haptics`              | ~55.0.14 |
 | `expo-local-authentication` | ~55.0.14 |
-| `expo-localization` | ~55.0.15 |
-| `expo-print` | ~55.0.15 |
-| `expo-sharing` | ~55.0.19 |
-| `expo-status-bar` | ~55.0.6 |
-| `expo-blur` | ~55.0.14 |
-| `@expo/vector-icons` | ^15.0.3 |
+| `expo-localization`         | ~55.0.15 |
+| `expo-print`                | ~55.0.15 |
+| `expo-sharing`              | ~55.0.19 |
+| `expo-status-bar`           | ~55.0.6  |
+| `expo-blur`                 | ~55.0.14 |
+| `@expo/vector-icons`        | ^15.0.3  |
 
 ### React Native native modules (required)
 
-| Package | Version |
-| --- | --- |
-| `@react-native-async-storage/async-storage` | 2.2.0 |
-| `@react-native-clipboard/clipboard` | ^1.16.2 |
-| `@react-native-community/netinfo` | 11.5.2 |
-| `react-native-gesture-handler` | ~2.30.0 |
-| `react-native-localize` | ^3.4.1 |
-| `react-native-qrcode-svg` | ^6.3.15 |
-| `react-native-reanimated` | 4.2.1 |
-| `react-native-safe-area-context` | ~5.6.0 |
-| `react-native-svg` | 15.15.3 |
-| `react-native-sse` | ^1.2.1 |
+| Package                                     | Version |
+| ------------------------------------------- | ------- |
+| `@react-native-async-storage/async-storage` | 2.2.0   |
+| `@react-native-clipboard/clipboard`         | ^1.16.2 |
+| `@react-native-community/netinfo`           | 11.5.2  |
+| `react-native-gesture-handler`              | ~2.30.0 |
+| `react-native-localize`                     | ^3.4.1  |
+| `react-native-qrcode-svg`                   | ^6.3.15 |
+| `react-native-reanimated`                   | 4.2.1   |
+| `react-native-safe-area-context`            | ~5.6.0  |
+| `react-native-svg`                          | 15.15.3 |
+| `react-native-sse`                          | ^1.2.1  |
 
 ### Pure JS rendering (required)
 
-| Package | Version |
-| --- | --- |
-| `@urbit/sigil-js` | ^2.2.0 |
+| Package           | Version |
+| ----------------- | ------- |
+| `@urbit/sigil-js` | ^2.2.0  |
 
 Draws the counterparty avatar on activity rows. This package imports only
 its `./core` entry: the package root pulls in a DOM renderer that touches
@@ -126,22 +126,22 @@ the fix is a `resolveRequest` that maps `@urbit/sigil-js/core` to
 
 ### State & i18n (required)
 
-| Package | Version |
-| --- | --- |
-| `mobx` | ^6.13.7 |
-| `mobx-react-lite` | ^4.1.0 |
-| `i18next` | ^25.2.1 |
-| `react-i18next` | ^15.5.3 |
-| `date-fns` | ^4.1.0 |
+| Package           | Version |
+| ----------------- | ------- |
+| `mobx`            | ^6.13.7 |
+| `mobx-react-lite` | ^4.1.0  |
+| `i18next`         | ^25.2.1 |
+| `react-i18next`   | ^15.5.3 |
+| `date-fns`        | ^4.1.0  |
 
 ### Nitro native modules — this repo's own packages (required)
 
-| Package | Notes |
-| --- | --- |
-| `react-native-nitro-modules` | ^0.35.2. Nitro codegen runtime the three below build on. |
+| Package                                | Notes                                                                                                                     |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `react-native-nitro-modules`           | ^0.35.2. Nitro codegen runtime the three below build on.                                                                  |
 | `@bsv/react-native-localpay-transport` | Local WiFi/Bluetooth/BLE P2P payment transport. Published independently — see `packages/react-native-localpay-transport`. |
-| `react-native-engine-native` | Native wallet-toolbox engine bindings. |
-| `react-native-secp-native` | Native secp256k1 signing. |
+| `react-native-engine-native`           | Native wallet-toolbox engine bindings.                                                                                    |
+| `react-native-secp-native`             | Native secp256k1 signing.                                                                                                 |
 
 `react-native-engine-native` and `react-native-secp-native` ship as sibling
 `packages/` in this repo and are not yet published to npm independently —
@@ -151,8 +151,8 @@ dependencies.
 
 ### Optional
 
-| Package | Notes |
-| --- | --- |
+| Package                | Notes                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
 | `react-native-yubikey` | Vault/hardware-key support. Absence is detected at runtime and vault features degrade gracefully. |
 
 ## Configuration
@@ -302,18 +302,18 @@ this is the pattern `bsv-wallet`'s own route files use:
 export { WalletHomeScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 ```
 
-| Screen | Source route in this repo |
-| --- | --- |
-| `WalletHomeScreen` | `app/index.tsx` |
-| `PayScreen` | `app/pay.tsx` |
-| `SettingsScreen` | `app/settings.tsx` |
-| `WalletConfigScreen` | `app/wallet-config.tsx` |
-| `VaultScreen` | `app/vault.tsx` |
-| `VaultTransferScreen` | `app/vault-transfer.tsx` |
-| `ConnectionsScreen` | `app/connections.tsx` |
-| `PairScreen` | `app/pair.tsx` |
-| `TrustScreen` | `app/trust.tsx` |
-| `LogsScreen` | `app/logs.tsx` |
+| Screen                | Source route in this repo |
+| --------------------- | ------------------------- |
+| `WalletHomeScreen`    | `app/index.tsx`           |
+| `PayScreen`           | `app/pay.tsx`             |
+| `SettingsScreen`      | `app/settings.tsx`        |
+| `WalletConfigScreen`  | `app/wallet-config.tsx`   |
+| `VaultScreen`         | `app/vault.tsx`           |
+| `VaultTransferScreen` | `app/vault-transfer.tsx`  |
+| `ConnectionsScreen`   | `app/connections.tsx`     |
+| `PairScreen`          | `app/pair.tsx`            |
+| `TrustScreen`         | `app/trust.tsx`           |
+| `LogsScreen`          | `app/logs.tsx`            |
 
 > **Note:** `ConnectionsScreen` accepts pairing codes using `bsv-wallet://`
 > or `bsv-browser://`. OS-level links also require native scheme registration
@@ -382,8 +382,8 @@ wraps `@expo/config-plugins`' `withEntitlementsPlist`:
 ```js
 const { withEntitlementsPlist } = require('@expo/config-plugins')
 
-module.exports = (config) =>
-  withEntitlementsPlist(config, (mod) => {
+module.exports = config =>
+  withEntitlementsPlist(config, mod => {
     mod.modResults['com.apple.developer.nfc.readersession.formats'] = ['TAG']
     return mod
   })
@@ -540,7 +540,7 @@ are required — both hard-won during this package's extraction:
    before writing a single test that touches wallet behavior:
    `core/backup/client.ts` statically imports it, and it's re-exported
    through the core barrel (`core/index.ts`), so any test that imports
-   *anything* from `@bsv/expo-wallet-toolbox` pulls it in. The package
+   _anything_ from `@bsv/expo-wallet-toolbox` pulls it in. The package
    is `"type": "module"` (ESM-only, no CJS `require` export condition),
    which Jest's default CJS-based resolver can't load — hence the
    explicit redirect straight to its `dist/index.js` build. This bites
@@ -646,7 +646,7 @@ package imports itself by name, relying on the workspace's self-referencing
 `node_modules` directory-walk resolution — the installed copy sits inside a
 consumer's `node_modules` and is found there like any other dependency, not
 through Node's dedicated package-self-reference feature). That feature only
-kicks in when an `exports` map is present *and* includes a `"."` entry — adding an
+kicks in when an `exports` map is present _and_ includes a `"."` entry — adding an
 `exports` map without one would silently break every one of those ~50
 imports at publish time, and adding one with only `"."` (no `"./ui"` entry)
 would break every consumer's `/ui` subpath import instead.

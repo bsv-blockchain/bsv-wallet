@@ -80,7 +80,13 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     isBackupPushEnabled: async () => true,
     isVaultEnabled: () => true,
     isVaultAvailable: (chain: string) => chain === 'main',
-    useVault: () => ({ state: { phase: 'idle' }, submitPin: jest.fn(), cancel: jest.fn(), retry: jest.fn(), hasVaultMeta: false }),
+    useVault: () => ({
+      state: { phase: 'idle' },
+      submitPin: jest.fn(),
+      cancel: jest.fn(),
+      retry: jest.fn(),
+      hasVaultMeta: false
+    }),
     setMockDriverEnabled: jest.requireActual('../../core/services/vault/devMock').setMockDriverEnabled,
     setMockPresentKey: jest.requireActual('../../core/services/vault/devMock').setMockPresentKey,
     getMockPresentKey: jest.requireActual('../../core/services/vault/devMock').getMockPresentKey,
@@ -116,8 +122,15 @@ jest.mock('../../ui/hooks/useOnline', () => ({ useOnline: () => false }))
 jest.mock('../../ui/hooks/useOfflineNoticeActions', () => ({ useOfflineNoticeActions: () => ({}) }))
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: jest.fn() }))
 jest.mock('../../ui/exportTransactions', () => ({ exportTransactionsAsCsv: jest.fn() }))
-jest.mock('../../ui/components/ui/ScreenGradient', () => ({ __esModule: true, default: ({ children }: any) => children }))
-jest.mock('../../ui/components/ui/ScrollFade', () => ({ __esModule: true, default: () => null, sampleScreenGradient: () => '#000000' }))
+jest.mock('../../ui/components/ui/ScreenGradient', () => ({
+  __esModule: true,
+  default: ({ children }: any) => children
+}))
+jest.mock('../../ui/components/ui/ScrollFade', () => ({
+  __esModule: true,
+  default: () => null,
+  sampleScreenGradient: () => '#000000'
+}))
 jest.mock('../../ui/components/ui/PressableScale', () => {
   const ReactLocal = require('react')
   const { Pressable } = require('react-native')
@@ -127,7 +140,8 @@ jest.mock('../../ui/components/ui/ListRow', () => {
   const ReactLocal = require('react')
   const { Pressable, Text } = require('react-native')
   return {
-    ListRow: ({ label, onPress }: any) => ReactLocal.createElement(Pressable, { onPress }, ReactLocal.createElement(Text, {}, label))
+    ListRow: ({ label, onPress }: any) =>
+      ReactLocal.createElement(Pressable, { onPress }, ReactLocal.createElement(Text, {}, label))
   }
 })
 jest.mock('../../ui/components/ui/GroupedList', () => ({ GroupedSection: ({ children }: any) => children }))
@@ -182,7 +196,6 @@ describe('PROOF-MOCK layer 1: the __DEV__ runtime gate', () => {
     setMockDriverEnabled(false)
     expect(getVaultDriver()).toBeNull()
   })
-
 })
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -270,10 +283,7 @@ describe('PROOF-MOCK layer 2: source scan — construction and installation are 
       return /from\s+['"].*mockYubiKey['"]/.test(src)
     })
     const relative = importers.map(f => path.relative(PACKAGE_ROOT, f)).sort()
-    expect(relative).toEqual([
-      path.join('core', 'index.ts'),
-      path.join('core', 'services', 'vault', 'devMock.ts')
-    ])
+    expect(relative).toEqual([path.join('core', 'index.ts'), path.join('core', 'services', 'vault', 'devMock.ts')])
     // core/index.ts's import must be a bare re-export (no local binding it
     // could call `new` on) — confirms it cannot itself construct anything.
     const indexSrc = fs.readFileSync(path.join(PACKAGE_ROOT, 'core', 'index.ts'), 'utf8')
@@ -322,7 +332,9 @@ describe('PROOF-MOCK layer 3: eas.json build profiles', () => {
   })
 
   test('no non-development-client profile sets developmentClient even indirectly via "extends" (production-apk extends production)', () => {
-    const productionApk = easJson.build['production-apk'] as { extends?: string; developmentClient?: boolean } | undefined
+    const productionApk = easJson.build['production-apk'] as
+      | { extends?: string; developmentClient?: boolean }
+      | undefined
     if (productionApk?.extends) {
       expect(DEV_CLIENT_PROFILES.has(productionApk.extends)).toBe(false)
     }

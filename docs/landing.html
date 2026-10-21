@@ -262,7 +262,10 @@
         }
       }
     </style>
-    <script>if(localStorage.getItem('bsvb-lang')&&localStorage.getItem('bsvb-lang')!=='en')document.documentElement.classList.add('i18n-loading');</script>
+    <script>
+      if (localStorage.getItem('bsvb-lang') && localStorage.getItem('bsvb-lang') !== 'en')
+        document.documentElement.classList.add('i18n-loading')
+    </script>
   </head>
   <body>
     <!-- Rotating network graph background -->
@@ -504,7 +507,7 @@
         }
       }, 2000)
     </script>
-    <link rel="stylesheet" href="i18n/lang-selector.css">
+    <link rel="stylesheet" href="i18n/lang-selector.css" />
     <script src="i18n/i18n.js"></script>
     <script src="i18n/lang-selector.js"></script>
   </body>

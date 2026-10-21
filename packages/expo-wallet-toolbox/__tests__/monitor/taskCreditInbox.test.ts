@@ -259,11 +259,14 @@ describe('creditInboxOnce', () => {
       throw new Error('credit failed')
     })
     const client = {
-      listIncomingPayments: jest.fn().mockResolvedValue([payment('a')]).mockImplementationOnce(async () => {
-        await gate
-        if (rejectFirst) throw new Error('listing failed')
-        return [payment('a')]
-      }),
+      listIncomingPayments: jest
+        .fn()
+        .mockResolvedValue([payment('a')])
+        .mockImplementationOnce(async () => {
+          await gate
+          if (rejectFirst) throw new Error('listing failed')
+          return [payment('a')]
+        }),
       listMessages: jest.fn().mockResolvedValue([]),
       sendMessage: jest.fn().mockResolvedValue(undefined)
     }

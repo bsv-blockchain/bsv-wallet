@@ -1642,7 +1642,9 @@ function NearbyFlow({
       if (scanLatchRef.current) return
       scanLatchRef.current = true
       if (data.startsWith(POS_PREFIX)) {
-        void decodePaymentRequest(data).then(adoptSession).catch(() => fail('generic', t('invalid_qr_code')))
+        void decodePaymentRequest(data)
+          .then(adoptSession)
+          .catch(() => fail('generic', t('invalid_qr_code')))
         return
       }
       let session: Session
@@ -1852,10 +1854,14 @@ function NearbyFlow({
         } catch (e) {
           console.warn('[localpay] abortAction failed:', messageOf(e))
           if (storage) {
-            await queuePendingAbort(storage, { reference, originator: adminOriginator }, {
-              wallet: wallet as unknown as PendingAbortTagWallet,
-              originator: adminOriginator
-            }).catch(() => undefined)
+            await queuePendingAbort(
+              storage,
+              { reference, originator: adminOriginator },
+              {
+                wallet: wallet as unknown as PendingAbortTagWallet,
+                originator: adminOriginator
+              }
+            ).catch(() => undefined)
           }
         }
       })()
@@ -1976,10 +1982,14 @@ function NearbyFlow({
           // same replay on the next wallet build.
           async reference => {
             if (!storage) return
-            await queuePendingAbort(storage, { reference, originator: adminOriginator }, {
-              wallet: wallet as unknown as PendingAbortTagWallet,
-              originator: adminOriginator
-            })
+            await queuePendingAbort(
+              storage,
+              { reference, originator: adminOriginator },
+              {
+                wallet: wallet as unknown as PendingAbortTagWallet,
+                originator: adminOriginator
+              }
+            )
           }
         )
       } catch (e) {
@@ -2137,10 +2147,14 @@ function NearbyFlow({
         },
         queueFailedAbort: async reference => {
           if (!storage) return
-          await queuePendingAbort(storage, { reference, originator: adminOriginator }, {
-            wallet: wallet as unknown as PendingAbortTagWallet,
-            originator: adminOriginator
-          })
+          await queuePendingAbort(
+            storage,
+            { reference, originator: adminOriginator },
+            {
+              wallet: wallet as unknown as PendingAbortTagWallet,
+              originator: adminOriginator
+            }
+          )
         },
         // P1-3: the payee's decline is unverifiable from here — watch the
         // txid so a later reappearance on chain (the payee's claim was wrong,
@@ -2392,10 +2406,14 @@ function NearbyFlow({
           },
           queueFailedAbort: async reference => {
             if (!storage) return
-            await queuePendingAbort(storage, { reference, originator: adminOriginator }, {
-              wallet: wallet as unknown as PendingAbortTagWallet,
-              originator: adminOriginator
-            })
+            await queuePendingAbort(
+              storage,
+              { reference, originator: adminOriginator },
+              {
+                wallet: wallet as unknown as PendingAbortTagWallet,
+                originator: adminOriginator
+              }
+            )
           }
         }
       )
@@ -2698,35 +2716,35 @@ function NearbyFlow({
   }
 
   const flowBody = (
-      <ScrollView
-        style={{ flex: 1, backgroundColor: colors.background }}
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing.xxxl }]}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* ══ Payer entry ══
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.background }}
+      contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing.xxxl }]}
+      keyboardShouldPersistTaps="handled"
+    >
+      {/* ══ Payer entry ══
             The Pay screen's grid already asked which side of the exchange this
             device is on, so there is no role choice left to make here and only
             one action: raise the camera again. Reached only by dismissing the
             scanner that opens on mount — a payee never sees this view, they go
             straight to naming an amount. */}
-        {phase === 'entry' && initialRole === 'payer' && (
-          <Animated.View entering={settleIn} style={styles.stage}>
-            <View style={[styles.heroCircle, { backgroundColor: colors.fillTertiary }]}>
-              <Ionicons name="qr-code-outline" size={44} color={colors.textSecondary} />
-            </View>
-            <View style={styles.gapLg} />
-            {phaseTitle(t('local_pay_scan_qr'))}
-            {supportText(t('pay_pre_nearby'))}
-            <View style={styles.gapXl} />
-            <PrimaryButton
-              styles={styles}
-              colors={colors}
-              icon="scan-outline"
-              label={t('local_pay_scan_qr')}
-              onPress={() => openScanner('send_scan')}
-            />
+      {phase === 'entry' && initialRole === 'payer' && (
+        <Animated.View entering={settleIn} style={styles.stage}>
+          <View style={[styles.heroCircle, { backgroundColor: colors.fillTertiary }]}>
+            <Ionicons name="qr-code-outline" size={44} color={colors.textSecondary} />
+          </View>
+          <View style={styles.gapLg} />
+          {phaseTitle(t('local_pay_scan_qr'))}
+          {supportText(t('pay_pre_nearby'))}
+          <View style={styles.gapXl} />
+          <PrimaryButton
+            styles={styles}
+            colors={colors}
+            icon="scan-outline"
+            label={t('local_pay_scan_qr')}
+            onPress={() => openScanner('send_scan')}
+          />
 
-            {/* TEMPORARY simulator affordance — __DEV__ only, never ships.
+          {/* TEMPORARY simulator affordance — __DEV__ only, never ships.
                 The simulator has no camera, so the payer flow is unreachable
                 there. This mints an OPEN session (no amount) and feeds it
                 through the real `onSessionScanned`, so decodeSession and every
@@ -2734,207 +2752,207 @@ function NearbyFlow({
                 what you see is the genuine payer UI, not a mock.
                 supportsAwdl is false so selectTransport picks the QR path,
                 which is the one a simulator can actually complete. */}
-            {__DEV__ && (
-              <>
-                <View style={styles.gapMd} />
-                <SecondaryButton
-                  styles={styles}
-                  colors={colors}
-                  icon="construct"
-                  label="DEV: pay an open request"
-                  onPress={() => {
-                    scanLatchRef.current = false
-                    onSessionScanned(
-                      encodeSession(
-                        mintSession({
-                          // secp256k1 generator point: a genuinely valid
-                          // compressed pubkey, so key derivation won't throw.
-                          identityKey: '0279BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798',
-                          derivationPrefix: 'ZGV2LXByZWZpeA==',
-                          derivationSuffix: 'ZGV2LXN1ZmZpeA==',
-                          supportsAwdl: false
-                        })
-                      )
+          {__DEV__ && (
+            <>
+              <View style={styles.gapMd} />
+              <SecondaryButton
+                styles={styles}
+                colors={colors}
+                icon="construct"
+                label="DEV: pay an open request"
+                onPress={() => {
+                  scanLatchRef.current = false
+                  onSessionScanned(
+                    encodeSession(
+                      mintSession({
+                        // secp256k1 generator point: a genuinely valid
+                        // compressed pubkey, so key derivation won't throw.
+                        identityKey: '0279BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798',
+                        derivationPrefix: 'ZGV2LXByZWZpeA==',
+                        derivationSuffix: 'ZGV2LXN1ZmZpeA==',
+                        supportsAwdl: false
+                      })
                     )
-                  }}
-                />
-              </>
-            )}
-          </Animated.View>
-        )}
+                  )
+                }}
+              />
+            </>
+          )}
+        </Animated.View>
+      )}
 
-        {/* ══ Receive: amount ══
+      {/* ══ Receive: amount ══
             Focal: the amount field. Everything else on the view is a label. */}
-        {phase === 'receive_amount' && (
-          <Animated.View entering={settleIn}>
-            {phaseTitle(t('local_pay_request'))}
-            <View style={styles.gapXl} />
+      {phase === 'receive_amount' && (
+        <Animated.View entering={settleIn}>
+          {phaseTitle(t('local_pay_request'))}
+          <View style={styles.gapXl} />
 
-            {/* No max button and no balance line: this asks the PAYER for money,
+          {/* No max button and no balance line: this asks the PAYER for money,
                 so the requester's own balance is meaningless here. Zero or blank
                 is a real choice — payer decides — and the design says so by not
                 gating on it. */}
-            <PayAmountField value={requestAmount} onChangeText={setRequestAmount} showMax={false} showBalance={false} />
-            {/* Never disabled. Leaving the amount at zero is a real choice — it
+          <PayAmountField value={requestAmount} onChangeText={setRequestAmount} showMax={false} showBalance={false} />
+          {/* Never disabled. Leaving the amount at zero is a real choice — it
                 means "payer decides" — so gating Continue on a non-zero amount
                 would make that choice unreachable. startRequest maps 0 to an
                 open session. */}
-            <PrimaryButton
-              styles={styles}
-              colors={colors}
-              label={t('continue_action')}
-              onPress={() => void startRequest(satsFrom(requestAmount) || undefined)}
-            />
-            <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={reset} />
-          </Animated.View>
-        )}
+          <PrimaryButton
+            styles={styles}
+            colors={colors}
+            label={t('continue_action')}
+            onPress={() => void startRequest(satsFrom(requestAmount) || undefined)}
+          />
+          <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={reset} />
+        </Animated.View>
+      )}
 
-        {/* Focal on each of these: the single status line. */}
-        {phase === 'receive_minting' && spinnerBlock(t('local_pay_preparing'))}
-        {phase === 'receive_settling' && spinnerBlock(t('local_pay_saving'))}
-        {phase === 'send_working' && spinnerBlock(t('local_pay_delivering'))}
+      {/* Focal on each of these: the single status line. */}
+      {phase === 'receive_minting' && spinnerBlock(t('local_pay_preparing'))}
+      {phase === 'receive_settling' && spinnerBlock(t('local_pay_saving'))}
+      {phase === 'send_working' && spinnerBlock(t('local_pay_delivering'))}
 
-        {/* ══ Receive: pairing QR (always) + AWDL listener (when supported) ══
+      {/* ══ Receive: pairing QR (always) + AWDL listener (when supported) ══
             Focal: the pairing code. This is the one view whose focal element is
             not the amount, and deliberately: the code is the object being
             physically held up to another person, and shrinking a working
             scanner target to win a typographic argument would be the wrong
             trade. The amount sits above it at title scale, as the code's price. */}
-        {phase === 'receive_wait' && hostedSession && (
-          <Animated.View entering={settleIn} style={styles.stage}>
-            {phaseTitle(t('local_pay_show_qr'))}
-            <Text
-              style={[styles.amountTitle, { color: colors.textSecondary }]}
-              maxFontSizeMultiplier={1.4}
-              numberOfLines={1}
-            >
-              {hostedSession.amount === undefined ? (
-                t('local_pay_any_amount')
-              ) : hostedSession.asset ? (
-                formatTokenAmountWithUnit(hostedSession.amount, {
-                  decimals: hostedSession.asset.decimals ?? 0,
-                  ticker: hostedSession.asset.ticker ?? ''
-                })
-              ) : (
-                <AmountDisplay>{hostedSession.amount}</AmountDisplay>
-              )}
-            </Text>
-            <View style={styles.gapLg} />
-
-            {sessionQr && !sessionQrBroken ? (
-              <View style={[styles.qrCard, { shadowColor: colors.textPrimary }]}>
-                <View style={styles.qrPlate}>
-                  {/* onError is mandatory: without it the encoder rethrows from
-                      render and the app-level ErrorBoundary swallows the app. */}
-                  <QRCode
-                    value={sessionQr}
-                    size={PAYMENT_QR_SIZE}
-                    ecl="M"
-                    color="#000"
-                    backgroundColor="#fff"
-                    onError={onSessionQrError}
-                  />
-                </View>
-              </View>
+      {phase === 'receive_wait' && hostedSession && (
+        <Animated.View entering={settleIn} style={styles.stage}>
+          {phaseTitle(t('local_pay_show_qr'))}
+          <Text
+            style={[styles.amountTitle, { color: colors.textSecondary }]}
+            maxFontSizeMultiplier={1.4}
+            numberOfLines={1}
+          >
+            {hostedSession.amount === undefined ? (
+              t('local_pay_any_amount')
+            ) : hostedSession.asset ? (
+              formatTokenAmountWithUnit(hostedSession.amount, {
+                decimals: hostedSession.asset.decimals ?? 0,
+                ticker: hostedSession.asset.ticker ?? ''
+              })
             ) : (
-              // Error state for this data area. The session cannot be handed
-              // over at all, so the only way forward is a fresh one.
-              <View
-                style={[styles.qrError, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
-                accessibilityRole="alert"
-              >
-                <Ionicons name="alert-circle-outline" size={28} color={colors.error} />
-                <View style={styles.gapSm} />
-                <Text style={[styles.support, { color: colors.textSecondary }]}>{t('local_pay_qr_unavailable')}</Text>
-              </View>
+              <AmountDisplay>{hostedSession.amount}</AmountDisplay>
             )}
+          </Text>
+          <View style={styles.gapLg} />
 
-            <View style={styles.gapLg} />
-            {presenceBlock}
+          {sessionQr && !sessionQrBroken ? (
+            <View style={[styles.qrCard, { shadowColor: colors.textPrimary }]}>
+              <View style={styles.qrPlate}>
+                {/* onError is mandatory: without it the encoder rethrows from
+                      render and the app-level ErrorBoundary swallows the app. */}
+                <QRCode
+                  value={sessionQr}
+                  size={PAYMENT_QR_SIZE}
+                  ecl="M"
+                  color="#000"
+                  backgroundColor="#fff"
+                  onError={onSessionQrError}
+                />
+              </View>
+            </View>
+          ) : (
+            // Error state for this data area. The session cannot be handed
+            // over at all, so the only way forward is a fresh one.
+            <View
+              style={[styles.qrError, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
+              accessibilityRole="alert"
+            >
+              <Ionicons name="alert-circle-outline" size={28} color={colors.error} />
+              <View style={styles.gapSm} />
+              <Text style={[styles.support, { color: colors.textSecondary }]}>{t('local_pay_qr_unavailable')}</Text>
+            </View>
+          )}
 
-            {/* A frame arrived that could not be credited. Advisory, not a
+          <View style={styles.gapLg} />
+          {presenceBlock}
+
+          {/* A frame arrived that could not be credited. Advisory, not a
                 failure: this session was deliberately NOT marked spent, so
                 the pairing QR above is still live for the real payer. `notice`
                 (set only for a token frame that failed COVER) names the
                 ISSUER's records as the reason — a specific true sentence beats
                 the generic "wrong session" one, and must never read as a
                 scanning mistake this device made (ux design §4.3). */}
-            {sessionMismatch && (
-              <>
-                <View style={styles.gapLg} />
-                {notice ? (
-                  noticeBlock(notice)
-                ) : (
-                  <Animated.View
-                    entering={fadeIn}
-                    style={[styles.notice, { backgroundColor: colors.error + '15', borderColor: colors.error + '40' }]}
-                    accessibilityRole="alert"
-                  >
-                    <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
-                    <Text style={[styles.noticeText, { color: colors.error }]}>{t('local_pay_wrong_session')}</Text>
-                  </Animated.View>
-                )}
-              </>
-            )}
-
-            {/* A radio gave up. The request is still live over QR — and over
-                any other radio still listening — so each of these is an
-                advisory, not a failure: the pairing QR above still works. */}
-            {radioFailures.map(([kind, err]) => (
-              <React.Fragment key={kind}>
-                <View style={styles.gapLg} />
+          {sessionMismatch && (
+            <>
+              <View style={styles.gapLg} />
+              {notice ? (
+                noticeBlock(notice)
+              ) : (
                 <Animated.View
                   entering={fadeIn}
-                  style={[styles.notice, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
+                  style={[styles.notice, { backgroundColor: colors.error + '15', borderColor: colors.error + '40' }]}
+                  accessibilityRole="alert"
                 >
-                  <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
-                  <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
-                    {err.networkDenied
-                      ? t('local_pay_network_denied')
-                      : kind === 'ble'
-                        ? t('local_pay_ble_unavailable')
-                        : t('local_pay_nearby_unavailable')}
-                  </Text>
+                  <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
+                  <Text style={[styles.noticeText, { color: colors.error }]}>{t('local_pay_wrong_session')}</Text>
                 </Animated.View>
-              </React.Fragment>
-            ))}
+              )}
+            </>
+          )}
 
-            <View style={styles.gapXl} />
-            {radioFailures.some(([, err]) => err.networkDenied) && (
-              <>
-                <SecondaryButton
-                  styles={styles}
-                  colors={colors}
-                  icon="settings-outline"
-                  label={t('open_settings')}
-                  onPress={() => void Linking.openSettings()}
-                />
-                <View style={styles.gapMd} />
-              </>
-            )}
-            <SecondaryButton
-              styles={styles}
-              colors={colors}
-              icon="scan-outline"
-              label={t('local_pay_scan_payer_qr')}
-              onPress={() => openScanner('receive_scan')}
-            />
-            <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={reset} />
-          </Animated.View>
-        )}
+          {/* A radio gave up. The request is still live over QR — and over
+                any other radio still listening — so each of these is an
+                advisory, not a failure: the pairing QR above still works. */}
+          {radioFailures.map(([kind, err]) => (
+            <React.Fragment key={kind}>
+              <View style={styles.gapLg} />
+              <Animated.View
+                entering={fadeIn}
+                style={[styles.notice, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
+              >
+                <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
+                <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
+                  {err.networkDenied
+                    ? t('local_pay_network_denied')
+                    : kind === 'ble'
+                      ? t('local_pay_ble_unavailable')
+                      : t('local_pay_nearby_unavailable')}
+                </Text>
+              </Animated.View>
+            </React.Fragment>
+          ))}
 
-        {/* ══ Send: confirm ══
+          <View style={styles.gapXl} />
+          {radioFailures.some(([, err]) => err.networkDenied) && (
+            <>
+              <SecondaryButton
+                styles={styles}
+                colors={colors}
+                icon="settings-outline"
+                label={t('open_settings')}
+                onPress={() => void Linking.openSettings()}
+              />
+              <View style={styles.gapMd} />
+            </>
+          )}
+          <SecondaryButton
+            styles={styles}
+            colors={colors}
+            icon="scan-outline"
+            label={t('local_pay_scan_payer_qr')}
+            onPress={() => openScanner('receive_scan')}
+          />
+          <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={reset} />
+        </Animated.View>
+      )}
+
+      {/* ══ Send: confirm ══
             Focal: the amount — the figure being handed over, at display scale
             when the payee fixed it, or the live field when they left it open. */}
-        {phase === 'send_confirm' && scannedSession && (
-          <Animated.View entering={settleIn}>
-            {phaseTitle(scannedSession.amount === undefined ? t('local_pay_choose_amount') : t('local_pay_send'))}
+      {phase === 'send_confirm' && scannedSession && (
+        <Animated.View entering={settleIn}>
+          {phaseTitle(scannedSession.amount === undefined ? t('local_pay_choose_amount') : t('local_pay_send'))}
 
-            {scannedSession.amount === undefined ? (
-              <>
-                {supportText(t('local_pay_enter_amount_send'))}
-                <View style={styles.gapXl} />
-                {/* Token mode on a token session: the field takes and emits base
+          {scannedSession.amount === undefined ? (
+            <>
+              {supportText(t('local_pay_enter_amount_send'))}
+              <View style={styles.gapXl} />
+              {/* Token mode on a token session: the field takes and emits base
                     units of the payee's asset and labels itself with its ticker,
                     Max writes this payer's real holding, and the line under it is
                     that holding — never the BSV spendable figure, which is the
@@ -2942,283 +2960,288 @@ function NearbyFlow({
                     the payer would be typing satoshis against a USDX request,
                     and Max would write the satoshi send-max sentinel straight
                     into a token build. */}
-                <PayAmountField
-                  value={sendAmount}
-                  onChangeText={setSendAmount}
-                  asset={scannedAssetUnits}
-                  maxValue={scannedHolding && !unitsUnknown ? String(scannedHolding.baseUnits) : undefined}
-                  availableText={
-                    scannedHolding && scannedAssetUnits && !unitsUnknown
-                      ? (formatTokenAmount(scannedHolding.baseUnits, scannedAssetUnits.decimals) ?? undefined)
-                      : undefined
-                  }
-                  // No money chrome at all while the unit is unknown: an
-                  // unlabelled balance is exactly the figure principle 4 forbids.
-                  showBalance={!scannedAssetUnits || (scannedHolding != null && !unitsUnknown)}
-                />
-              </>
-            ) : (
-              <>
-                <View style={styles.stageTight}>
-                  {unitsUnknown ? (
-                    // The payee named a figure this device cannot denominate:
-                    // a bare number at a guessed scale is exactly what must not
-                    // be printed (principle 4), so the slot says so instead.
-                    <Animated.View entering={settleIn} style={styles.amountBlock}>
-                      <Text
-                        style={[styles.amountDisplay, { color: colors.textSecondary }]}
-                        maxFontSizeMultiplier={1.3}
-                        numberOfLines={1}
-                        adjustsFontSizeToFit
-                        accessibilityRole="text"
-                      >
-                        {t('token_row_amount_pending')}
-                      </Text>
-                    </Animated.View>
-                  ) : (
-                    amountBlock(scannedSession.amount, undefined, scannedAssetUnits)
-                  )}
-                </View>
-                <View style={styles.gapXl} />
-                {/* The payer's own BSV balance is the fee balance and says
+              <PayAmountField
+                value={sendAmount}
+                onChangeText={setSendAmount}
+                asset={scannedAssetUnits}
+                maxValue={scannedHolding && !unitsUnknown ? String(scannedHolding.baseUnits) : undefined}
+                availableText={
+                  scannedHolding && scannedAssetUnits && !unitsUnknown
+                    ? (formatTokenAmount(scannedHolding.baseUnits, scannedAssetUnits.decimals) ?? undefined)
+                    : undefined
+                }
+                // No money chrome at all while the unit is unknown: an
+                // unlabelled balance is exactly the figure principle 4 forbids.
+                showBalance={!scannedAssetUnits || (scannedHolding != null && !unitsUnknown)}
+              />
+            </>
+          ) : (
+            <>
+              <View style={styles.stageTight}>
+                {unitsUnknown ? (
+                  // The payee named a figure this device cannot denominate:
+                  // a bare number at a guessed scale is exactly what must not
+                  // be printed (principle 4), so the slot says so instead.
+                  <Animated.View entering={settleIn} style={styles.amountBlock}>
+                    <Text
+                      style={[styles.amountDisplay, { color: colors.textSecondary }]}
+                      maxFontSizeMultiplier={1.3}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      accessibilityRole="text"
+                    >
+                      {t('token_row_amount_pending')}
+                    </Text>
+                  </Animated.View>
+                ) : (
+                  amountBlock(scannedSession.amount, undefined, scannedAssetUnits)
+                )}
+              </View>
+              <View style={styles.gapXl} />
+              {/* The payer's own BSV balance is the fee balance and says
                     nothing about what they hold of the asset; on a token
                     request it would be a figure beside an unrelated one. */}
-                {!scannedSession.asset && <AvailableBalance withUnit />}
-              </>
-            )}
+              {!scannedSession.asset && <AvailableBalance withUnit />}
+            </>
+          )}
 
-            <PayField labelKey="note">
-              <TextInput
-                value={note}
-                onChangeText={setNote}
-                placeholder={t('note_placeholder')}
-                placeholderTextColor={colors.textQuaternary}
-                maxLength={280}
-                style={[
-                  styles.noteInput,
-                  {
-                    backgroundColor: colors.backgroundSecondary,
-                    borderColor: colors.separator,
-                    color: colors.textPrimary
-                  }
-                ]}
-              />
-            </PayField>
-
-            <RecipientSummary
-              name={peerName ?? scannedSession.merchantName ?? abbreviateKey(scannedSession.identityKey)}
-              detail={scannedSession.merchantName ? `Merchant · ${abbreviateKey(scannedSession.identityKey)}` : peerName ? abbreviateKey(scannedSession.identityKey) : undefined}
+          <PayField labelKey="note">
+            <TextInput
+              value={note}
+              onChangeText={setNote}
+              placeholder={t('note_placeholder')}
+              placeholderTextColor={colors.textQuaternary}
+              maxLength={280}
+              style={[
+                styles.noteInput,
+                {
+                  backgroundColor: colors.backgroundSecondary,
+                  borderColor: colors.separator,
+                  color: colors.textPrimary
+                }
+              ]}
             />
+          </PayField>
 
-            {!!scannedSession.merchantTip && supportText(t('merchant_tip_breakdown', {
-              defaultValue: '{{subtotal}} sats sale + {{tip}} sats tip',
-              subtotal: scannedSession.merchantSubtotal?.toLocaleString(), tip: scannedSession.merchantTip.toLocaleString()
-            }))}
-            <View style={styles.gapLg} />
-            {presenceBlock}
-            {floorReason !== 'none' && (
-              <>
-                <View style={styles.gapLg} />
-                {supportText(t(FLOOR_KEYS[floorReason]))}
-                {floorReason === 'local_ble_denied' && (
-                  <>
-                    <View style={styles.gapMd} />
-                    <SecondaryButton
-                      styles={styles}
-                      colors={colors}
-                      icon="settings-outline"
-                      label={t('open_settings')}
-                      onPress={() => void Linking.openSettings()}
-                    />
-                  </>
-                )}
-              </>
-            )}
+          <RecipientSummary
+            name={peerName ?? scannedSession.merchantName ?? abbreviateKey(scannedSession.identityKey)}
+            detail={
+              scannedSession.merchantName
+                ? `Merchant · ${abbreviateKey(scannedSession.identityKey)}`
+                : peerName
+                  ? abbreviateKey(scannedSession.identityKey)
+                  : undefined
+            }
+          />
 
-            {overHolding && scannedAssetUnits && !unitsUnknown && (
-              <>
-                <View style={styles.gapLg} />
-                {supportText(t('pay_asset_over_balance', { ticker: scannedAssetUnits.ticker }))}
-              </>
+          {!!scannedSession.merchantTip &&
+            supportText(
+              t('merchant_tip_breakdown', {
+                defaultValue: '{{subtotal}} sats sale + {{tip}} sats tip',
+                subtotal: scannedSession.merchantSubtotal?.toLocaleString(),
+                tip: scannedSession.merchantTip.toLocaleString()
+              })
             )}
-            {unitsUnknown && (
-              <>
-                <View style={styles.gapLg} />
-                {supportText(t('pay_asset_unidentified'))}
-              </>
-            )}
-            <View style={styles.gapXl} />
-            <PrimaryButton
-              styles={styles}
-              colors={colors}
-              icon="arrow-up"
-              label={t('local_pay_send')}
-              disabled={!canSend}
-              onPress={() => void executeSend()}
-            />
-            <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={reset} />
-          </Animated.View>
-        )}
+          <View style={styles.gapLg} />
+          {presenceBlock}
+          {floorReason !== 'none' && (
+            <>
+              <View style={styles.gapLg} />
+              {supportText(t(FLOOR_KEYS[floorReason]))}
+              {floorReason === 'local_ble_denied' && (
+                <>
+                  <View style={styles.gapMd} />
+                  <SecondaryButton
+                    styles={styles}
+                    colors={colors}
+                    icon="settings-outline"
+                    label={t('open_settings')}
+                    onPress={() => void Linking.openSettings()}
+                  />
+                </>
+              )}
+            </>
+          )}
 
-        {/* ══ Send: hand the frame over as a QR ══
+          {overHolding && scannedAssetUnits && !unitsUnknown && (
+            <>
+              <View style={styles.gapLg} />
+              {supportText(t('pay_asset_over_balance', { ticker: scannedAssetUnits.ticker }))}
+            </>
+          )}
+          {unitsUnknown && (
+            <>
+              <View style={styles.gapLg} />
+              {supportText(t('pay_asset_unidentified'))}
+            </>
+          )}
+          <View style={styles.gapXl} />
+          <PrimaryButton
+            styles={styles}
+            colors={colors}
+            icon="arrow-up"
+            label={t('local_pay_send')}
+            disabled={!canSend}
+            onPress={() => void executeSend()}
+          />
+          <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={reset} />
+        </Animated.View>
+      )}
+
+      {/* ══ Send: hand the frame over as a QR ══
             Focal: the payment code. The amount is settled by this point and
             demotes to a caption. */}
-        {phase === 'send_qr' && paymentQr && (
-          <Animated.View entering={settleIn} style={styles.stage}>
-            {phaseTitle(t('local_pay_show_payment_qr'))}
-            <Text
-              style={[styles.amountTitle, { color: colors.textSecondary }]}
-              maxFontSizeMultiplier={1.4}
-              numberOfLines={1}
-            >
-              {scannedAssetUnits ? (
-                formatTokenAmountWithUnit(payAmount, scannedAssetUnits)
-              ) : (
-                <AmountDisplay>{payAmount}</AmountDisplay>
-              )}
-            </Text>
-            {paymentQrBlocks > 1 && (
-              <Text style={[styles.support, { color: colors.textSecondary }]}>{t('local_pay_animated_hint')}</Text>
+      {phase === 'send_qr' && paymentQr && (
+        <Animated.View entering={settleIn} style={styles.stage}>
+          {phaseTitle(t('local_pay_show_payment_qr'))}
+          <Text
+            style={[styles.amountTitle, { color: colors.textSecondary }]}
+            maxFontSizeMultiplier={1.4}
+            numberOfLines={1}
+          >
+            {scannedAssetUnits ? (
+              formatTokenAmountWithUnit(payAmount, scannedAssetUnits)
+            ) : (
+              <AmountDisplay>{payAmount}</AmountDisplay>
             )}
-            <View style={styles.gapLg} />
-            <View style={[styles.qrCard, { shadowColor: colors.textPrimary }]}>
-              <View style={styles.qrPlate}>
-                {/* onError is mandatory: without it an oversize payload rethrows
+          </Text>
+          {paymentQrBlocks > 1 && (
+            <Text style={[styles.support, { color: colors.textSecondary }]}>{t('local_pay_animated_hint')}</Text>
+          )}
+          <View style={styles.gapLg} />
+          <View style={[styles.qrCard, { shadowColor: colors.textPrimary }]}>
+            <View style={styles.qrPlate}>
+              {/* onError is mandatory: without it an oversize payload rethrows
                     from render and the app-level ErrorBoundary swallows the app. */}
-                <PaymentQrDisplay frameQr={paymentQr} size={PAYMENT_QR_SIZE} onError={onPaymentQrError} />
-              </View>
+              <PaymentQrDisplay frameQr={paymentQr} size={PAYMENT_QR_SIZE} onError={onPaymentQrError} />
             </View>
-            <View style={styles.gapLg} />
-            {presenceBlock}
-            {!!notice && (
-              <>
-                <View style={styles.gapLg} />
-                {noticeBlock(notice)}
-              </>
-            )}
-            <View style={styles.gapXl} />
-            {/* Done asserts delivery: persist the frame, then broadcast when
+          </View>
+          <View style={styles.gapLg} />
+          {presenceBlock}
+          {!!notice && (
+            <>
+              <View style={styles.gapLg} />
+              {noticeBlock(notice)}
+            </>
+          )}
+          <View style={styles.gapXl} />
+          {/* Done asserts delivery: persist the frame, then broadcast when
                 online (see completeQrDelivery / finalizeDelivery). Never an
                 abort — the payee may be about to broadcast this frame, and
                 freeing its inputs would let this wallet respend them. */}
-            <PrimaryButton
-              styles={styles}
-              colors={colors}
-              label={t('done')}
-              onPress={() => void completeQrDelivery()}
-            />
-            {/* Not "Cancel": leaving keeps the payment exactly as Done does,
+          <PrimaryButton styles={styles} colors={colors} label={t('done')} onPress={() => void completeQrDelivery()} />
+          {/* Not "Cancel": leaving keeps the payment exactly as Done does,
                 so the old label promised an abort that no longer happens. */}
-            <CancelButton
-              styles={styles}
-              colors={colors}
-              label={t('back')}
-              onPress={() => void handleSendQrExit(false)}
-            />
-          </Animated.View>
-        )}
+          <CancelButton
+            styles={styles}
+            colors={colors}
+            label={t('back')}
+            onPress={() => void handleSendQrExit(false)}
+          />
+        </Animated.View>
+      )}
 
-        {/* ══ Done ══
+      {/* ══ Done ══
             Focal: the amount. The celebration mark is a transient overlay that
             owns attention for ~700ms and then hands it back, so the two never
             compete for the same beat. */}
-        {/* ══ Already paid — a success terminal, not an error ══
+      {/* ══ Already paid — a success terminal, not an error ══
             Focal: the headline. There is no figure to show — this device never
             saw a second payment — so nothing here is at display scale. */}
-        {phase === 'already_paid' && (
-          <Animated.View entering={settleIn} style={styles.stage}>
-            <Ionicons name="checkmark-done-circle-outline" size={56} color={colors.textSecondary} />
-            <View style={styles.gapLg} />
-            {phaseTitle(t('local_pay_already_paid'))}
-            {supportText(t('local_pay_queued'))}
-            <View style={styles.gapXl} />
-            {/* Deliberately no retry: reset() would mint a fresh session and ask
+      {phase === 'already_paid' && (
+        <Animated.View entering={settleIn} style={styles.stage}>
+          <Ionicons name="checkmark-done-circle-outline" size={56} color={colors.textSecondary} />
+          <View style={styles.gapLg} />
+          {phaseTitle(t('local_pay_already_paid'))}
+          {supportText(t('local_pay_queued'))}
+          <View style={styles.gapXl} />
+          {/* Deliberately no retry: reset() would mint a fresh session and ask
                 the payer to pay a second time for money already queued here. */}
-            <PrimaryButton styles={styles} colors={colors} label={t('done')} onPress={goBack} />
-          </Animated.View>
-        )}
+          <PrimaryButton styles={styles} colors={colors} label={t('done')} onPress={goBack} />
+        </Animated.View>
+      )}
 
-        {/* ══ Failed ══
+      {/* ══ Failed ══
             Focal: the reason. The title is generic by design, so the sentence
             under it carries the information and gets the weight. */}
-        {phase === 'failed' && (
-          <Animated.View entering={settleIn} style={styles.stage} accessibilityRole="alert">
-            <View style={[styles.heroCircle, { backgroundColor: colors.error + '15' }]}>
-              <Ionicons name="alert-circle-outline" size={40} color={colors.error} />
-            </View>
-            <View style={styles.gapLg} />
-            {phaseTitle(t('local_pay_failed'))}
-            <Text style={[styles.reason, { color: colors.textPrimary }]} textBreakStrategy="balanced">
-              {failure?.detail}
-            </Text>
-            <View style={styles.gapXl} />
+      {phase === 'failed' && (
+        <Animated.View entering={settleIn} style={styles.stage} accessibilityRole="alert">
+          <View style={[styles.heroCircle, { backgroundColor: colors.error + '15' }]}>
+            <Ionicons name="alert-circle-outline" size={40} color={colors.error} />
+          </View>
+          <View style={styles.gapLg} />
+          {phaseTitle(t('local_pay_failed'))}
+          <Text style={[styles.reason, { color: colors.textPrimary }]} textBreakStrategy="balanced">
+            {failure?.detail}
+          </Text>
+          <View style={styles.gapXl} />
 
-            {/* A frame reached this device but never reached storage. Retry the
+          {/* A frame reached this device but never reached storage. Retry the
                 SAME session — reset() would mint one that can never receive it. */}
-            {unsettled && (
-              <>
-                <PrimaryButton
-                  styles={styles}
-                  colors={colors}
-                  icon="refresh"
-                  label={t('local_pay_retry_save')}
-                  onPress={retrySettle}
-                />
-                <View style={styles.gapMd} />
-              </>
-            )}
+          {unsettled && (
+            <>
+              <PrimaryButton
+                styles={styles}
+                colors={colors}
+                icon="refresh"
+                label={t('local_pay_retry_save')}
+                onPress={retrySettle}
+              />
+              <View style={styles.gapMd} />
+            </>
+          )}
 
-            {failure?.settings && (
-              <>
-                <SecondaryButton
-                  styles={styles}
-                  colors={colors}
-                  icon="settings-outline"
-                  label={t('open_settings')}
-                  onPress={() => void Linking.openSettings()}
-                />
-                <View style={styles.gapMd} />
-              </>
-            )}
+          {failure?.settings && (
+            <>
+              <SecondaryButton
+                styles={styles}
+                colors={colors}
+                icon="settings-outline"
+                label={t('open_settings')}
+                onPress={() => void Linking.openSettings()}
+              />
+              <View style={styles.gapMd} />
+            </>
+          )}
 
-            {failure?.offerWalletCheck && (
-              <>
-                <SecondaryButton
-                  styles={styles}
-                  colors={colors}
-                  label={t('check_wallet')}
-                  onPress={() => router.push('/wallet-check' as never)}
-                />
-                <View style={styles.gapMd} />
-              </>
-            )}
+          {failure?.offerWalletCheck && (
+            <>
+              <SecondaryButton
+                styles={styles}
+                colors={colors}
+                label={t('check_wallet')}
+                onPress={() => router.push('/wallet-check' as never)}
+              />
+              <View style={styles.gapMd} />
+            </>
+          )}
 
-            {paymentQr && (
-              <>
-                <SecondaryButton
-                  styles={styles}
-                  colors={colors}
-                  icon="qr-code-outline"
-                  label={t('local_pay_show_qr_instead')}
-                  onPress={() => {
-                    setFailure(null)
-                    setPhase('send_qr')
-                  }}
-                />
-                <View style={styles.gapMd} />
-              </>
-            )}
+          {paymentQr && (
+            <>
+              <SecondaryButton
+                styles={styles}
+                colors={colors}
+                icon="qr-code-outline"
+                label={t('local_pay_show_qr_instead')}
+                onPress={() => {
+                  setFailure(null)
+                  setPhase('send_qr')
+                }}
+              />
+              <View style={styles.gapMd} />
+            </>
+          )}
 
-            {/* With a frame in hand, reset() means abandoning it — the frame lives
+          {/* With a frame in hand, reset() means abandoning it — the frame lives
                 only in memory — so it is demoted to the secondary action. */}
-            {unsettled ? (
-              <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={reset} />
-            ) : (
-              <PrimaryButton styles={styles} colors={colors} label={t('retry')} onPress={retry} />
-            )}
-          </Animated.View>
-        )}
-      </ScrollView>
+          {unsettled ? (
+            <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={reset} />
+          ) : (
+            <PrimaryButton styles={styles} colors={colors} label={t('retry')} onPress={retry} />
+          )}
+        </Animated.View>
+      )}
+    </ScrollView>
   )
 
   /**
@@ -3259,7 +3282,15 @@ function NearbyFlow({
         </View>
       ) : phase === 'receive_wait' && hostedSession ? (
         <View
-          style={[styles.qrError, { width: embeddedQrSize, height: embeddedQrSize, backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
+          style={[
+            styles.qrError,
+            {
+              width: embeddedQrSize,
+              height: embeddedQrSize,
+              backgroundColor: colors.fillTertiary,
+              borderColor: colors.separator
+            }
+          ]}
           accessibilityRole="alert"
         >
           <Ionicons name="alert-circle-outline" size={28} color={colors.error} />
@@ -3269,7 +3300,10 @@ function NearbyFlow({
       ) : (
         // the code's own footprint, so the host's layout does not jump
         <View
-          style={[styles.embeddedPending, { width: embeddedQrSize + spacing.lg * 2, height: embeddedQrSize + spacing.lg * 2 }]}
+          style={[
+            styles.embeddedPending,
+            { width: embeddedQrSize + spacing.lg * 2, height: embeddedQrSize + spacing.lg * 2 }
+          ]}
           accessibilityRole="progressbar"
           accessibilityLabel={phase === 'receive_settling' ? t('local_pay_saving') : t('local_pay_preparing')}
         >
@@ -3336,7 +3370,9 @@ function NearbyFlow({
             accessibilityLabel={t('local_pay_scan_payer_qr')}
           >
             <Ionicons name="scan-outline" size={16} color={colors.textSecondary} />
-            <Text style={[styles.embeddedScanText, { color: colors.textSecondary }]}>{t('local_pay_scan_payer_qr')}</Text>
+            <Text style={[styles.embeddedScanText, { color: colors.textSecondary }]}>
+              {t('local_pay_scan_payer_qr')}
+            </Text>
           </PressableScale>
         </>
       )}
@@ -3358,68 +3394,100 @@ function NearbyFlow({
     role !== 'payer' || !renderPayer
       ? null
       : phase === 'send_confirm' && scannedSession && renderPayer.confirm
-        ? { node: <Hosted render={renderPayer.confirm} value={{
-            session: scannedSession,
-            fixedAmount: scannedSession.amount,
-            amount: payAmount,
-            setAmount: units => setSendAmount(units !== undefined && units > 0 ? String(Math.round(units)) : ''),
-            asset: scannedAssetUnits,
-            holding: scannedHolding && !unitsUnknown ? scannedHolding.baseUnits : undefined,
-            note,
-            setNote,
-            recipient: payerRecipient,
-            tipText: scannedSession.merchantTip
-              ? t('merchant_tip_breakdown', {
-                  defaultValue: '{{subtotal}} sats sale + {{tip}} sats tip',
-                  subtotal: scannedSession.merchantSubtotal?.toLocaleString(),
-                  tip: scannedSession.merchantTip.toLocaleString()
-                })
-              : undefined,
-            presence,
-            advisories: [
-              ...(floorReason !== 'none' ? [t(FLOOR_KEYS[floorReason])] : []),
-              ...(overHolding && scannedAssetUnits && !unitsUnknown
-                ? [t('pay_asset_over_balance', { ticker: scannedAssetUnits.ticker })]
-                : []),
-              ...(unitsUnknown ? [t('pay_asset_unidentified')] : [])
-            ],
-            openSettings: floorReason === 'local_ble_denied' ? () => void Linking.openSettings() : undefined,
-            canSend,
-            send: () => void executeSend(),
-            cancel: reset
-          }} /> }
+        ? {
+            node: (
+              <Hosted
+                render={renderPayer.confirm}
+                value={{
+                  session: scannedSession,
+                  fixedAmount: scannedSession.amount,
+                  amount: payAmount,
+                  setAmount: units => setSendAmount(units !== undefined && units > 0 ? String(Math.round(units)) : ''),
+                  asset: scannedAssetUnits,
+                  holding: scannedHolding && !unitsUnknown ? scannedHolding.baseUnits : undefined,
+                  note,
+                  setNote,
+                  recipient: payerRecipient,
+                  tipText: scannedSession.merchantTip
+                    ? t('merchant_tip_breakdown', {
+                        defaultValue: '{{subtotal}} sats sale + {{tip}} sats tip',
+                        subtotal: scannedSession.merchantSubtotal?.toLocaleString(),
+                        tip: scannedSession.merchantTip.toLocaleString()
+                      })
+                    : undefined,
+                  presence,
+                  advisories: [
+                    ...(floorReason !== 'none' ? [t(FLOOR_KEYS[floorReason])] : []),
+                    ...(overHolding && scannedAssetUnits && !unitsUnknown
+                      ? [t('pay_asset_over_balance', { ticker: scannedAssetUnits.ticker })]
+                      : []),
+                    ...(unitsUnknown ? [t('pay_asset_unidentified')] : [])
+                  ],
+                  openSettings: floorReason === 'local_ble_denied' ? () => void Linking.openSettings() : undefined,
+                  canSend,
+                  send: () => void executeSend(),
+                  cancel: reset
+                }}
+              />
+            )
+          }
         : phase === 'send_working' && renderPayer.sending
-          ? { node: <Hosted render={renderPayer.sending} value={{ amount: payAmount, asset: scannedAssetUnits, recipient: payerRecipient, presence }} /> }
+          ? {
+              node: (
+                <Hosted
+                  render={renderPayer.sending}
+                  value={{ amount: payAmount, asset: scannedAssetUnits, recipient: payerRecipient, presence }}
+                />
+              )
+            }
           : phase === 'send_qr' && paymentQr && renderPayer.showCode
-            ? { node: <Hosted render={renderPayer.showCode} value={{
-                code: size => <PaymentQrDisplay frameQr={paymentQr} size={size} onError={onPaymentQrError} />,
-                animated: paymentQrBlocks > 1,
-                amount: payAmount,
-                asset: scannedAssetUnits,
-                recipient: payerRecipient,
-                presence,
-                notice: notice ?? undefined,
-                done: () => void completeQrDelivery(),
-                back: () => void handleSendQrExit(false)
-              }} /> }
+            ? {
+                node: (
+                  <Hosted
+                    render={renderPayer.showCode}
+                    value={{
+                      code: size => <PaymentQrDisplay frameQr={paymentQr} size={size} onError={onPaymentQrError} />,
+                      animated: paymentQrBlocks > 1,
+                      amount: payAmount,
+                      asset: scannedAssetUnits,
+                      recipient: payerRecipient,
+                      presence,
+                      notice: notice ?? undefined,
+                      done: () => void completeQrDelivery(),
+                      back: () => void handleSendQrExit(false)
+                    }}
+                  />
+                )
+              }
             : phase === 'done' && renderPayer.done
-              ? { node: <Hosted render={renderPayer.done} value={{
-                  amount: settledAmount,
-                  amountText: settledTokenText ?? undefined,
-                  statusNote: settledStatusNote ?? undefined,
-                  recipientName:
-                    peerName ?? (scannedSession ? abbreviateKey(scannedSession.identityKey) : undefined),
-                  dismiss: () => {
-                    goBack()
-                    router.dismissTo(dismissTo)
-                  }
-                }} /> }
+              ? {
+                  node: (
+                    <Hosted
+                      render={renderPayer.done}
+                      value={{
+                        amount: settledAmount,
+                        amountText: settledTokenText ?? undefined,
+                        statusNote: settledStatusNote ?? undefined,
+                        recipientName:
+                          peerName ?? (scannedSession ? abbreviateKey(scannedSession.identityKey) : undefined),
+                        dismiss: () => {
+                          goBack()
+                          router.dismissTo(dismissTo)
+                        }
+                      }}
+                    />
+                  )
+                }
               : null
 
   return (
     <View
       style={
-        hosted ? styles.container : embedded ? undefined : [styles.container, { backgroundColor: colors.backgroundSecondary }]
+        hosted
+          ? styles.container
+          : embedded
+            ? undefined
+            : [styles.container, { backgroundColor: colors.backgroundSecondary }]
       }
     >
       {hosted ? (

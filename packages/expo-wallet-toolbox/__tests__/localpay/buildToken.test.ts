@@ -12,12 +12,7 @@
  */
 import { Beef, LockingScript, P2PKH, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
 import { MandalaToken } from '../../core/mandala/token'
-import {
-  buildPaymentFrame,
-  finalizeDelivery,
-  selectTokenCoins,
-  type TokenBuildDeps
-} from '../../core/localpay/build'
+import { buildPaymentFrame, finalizeDelivery, selectTokenCoins, type TokenBuildDeps } from '../../core/localpay/build'
 import { FRAME_VERSION, decodeFrame, encodeFrame } from '../../core/localpay/codec'
 import { mintSession, type Session } from '../../core/localpay/session'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET, type BundleStore } from '../../core/mandala/bundle'
@@ -145,7 +140,9 @@ function tokenWallet(coins: Transaction[], signable: { tx: Transaction; beef: nu
     })),
     signAction: jest.fn(async (_args: unknown) => ({ tx: signedBeef(), txid: signable.tx.id('hex') })),
     abortAction: jest.fn(async () => ({ aborted: true })),
-    createSignature: jest.fn(async (_args: unknown) => ({ signature: [0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02] })),
+    createSignature: jest.fn(async (_args: unknown) => ({
+      signature: [0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02]
+    })),
     revealSpecificKeyLinkage: jest.fn(async (_args: unknown) => ({
       encryptedLinkage: [9],
       encryptedLinkageProof: [8],
@@ -205,7 +202,10 @@ describe('buildPaymentFrame: token path', () => {
     const total = coinAmounts.reduce((a, b) => a + b, 0)
     const outputs = [{ script: recipientScript(250) }]
     if (total > 250) outputs.push({ script: new MandalaToken().lock(ASSET, total - 250, PKH).toHex() })
-    const signable = signableFrom(coins.map(tx => ({ tx, vout: 0 })), outputs)
+    const signable = signableFrom(
+      coins.map(tx => ({ tx, vout: 0 })),
+      outputs
+    )
     return { coins, signable, wallet: tokenWallet(coins, signable) }
   }
 
@@ -409,9 +409,9 @@ describe('buildPaymentFrame: token path', () => {
   it('refuses a session asset whose overlay identity key does not match this device’s configured overlay', async () => {
     const { wallet } = setup()
     const mismatched = deps(undefined, { overlayIdentityKey: '03'.padEnd(66, 'c') })
-    await expect(
-      buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, mismatched)
-    ).rejects.toThrow(/overlay/i)
+    await expect(buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, mismatched)).rejects.toThrow(
+      /overlay/i
+    )
     expect(wallet.listOutputs).not.toHaveBeenCalled()
     expect(wallet.createAction).not.toHaveBeenCalled()
     expect(wallet.revealSpecificKeyLinkage).not.toHaveBeenCalled()
@@ -421,9 +421,9 @@ describe('buildPaymentFrame: token path', () => {
   it('refuses a session asset whose overlay URL does not match, even when the identity key does', async () => {
     const { wallet } = setup()
     const mismatched = deps(undefined, { overlayUrl: 'https://attacker.example' })
-    await expect(
-      buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, mismatched)
-    ).rejects.toThrow(/overlay/i)
+    await expect(buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, mismatched)).rejects.toThrow(
+      /overlay/i
+    )
     expect(wallet.revealSpecificKeyLinkage).not.toHaveBeenCalled()
   })
 
@@ -451,19 +451,21 @@ describe('buildPaymentFrame: token path', () => {
 
   it('refuses to build a token payment without the deps that make it one', async () => {
     const { wallet } = setup()
-    await expect(buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250)).rejects.toThrow(
-      /token/i
-    )
+    await expect(buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250)).rejects.toThrow(/token/i)
   })
 
   it('refuses when the basket holds no coin of this asset', async () => {
     const coins = [coinTx([400])]
     const signable = signableFrom([{ tx: coins[0], vout: 0 }], [{ script: recipientScript(250) }])
     const wallet = tokenWallet(coins, signable)
-    wallet.listOutputs = jest.fn(async (_args: unknown) => ({ totalOutputs: 0, outputs: [], BEEF: beefOf([]) })) as never
-    await expect(
-      buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps())
-    ).rejects.toThrow(/insufficient/i)
+    wallet.listOutputs = jest.fn(async (_args: unknown) => ({
+      totalOutputs: 0,
+      outputs: [],
+      BEEF: beefOf([])
+    })) as never
+    await expect(buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps())).rejects.toThrow(
+      /insufficient/i
+    )
   })
 
   it('ignores a basket output of another asset when selecting', async () => {
@@ -474,10 +476,10 @@ describe('buildPaymentFrame: token path', () => {
       lockingScript: new MandalaToken().lock('cd'.repeat(32) + '_0', 9999, PKH)
     })
     const coins = [mine, other]
-    const signable = signableFrom([{ tx: mine, vout: 0 }], [
-      { script: recipientScript(250) },
-      { script: new MandalaToken().lock(ASSET, 150, PKH).toHex() }
-    ])
+    const signable = signableFrom(
+      [{ tx: mine, vout: 0 }],
+      [{ script: recipientScript(250) }, { script: new MandalaToken().lock(ASSET, 150, PKH).toHex() }]
+    )
     const wallet = tokenWallet(coins, signable)
     await buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps())
     const args = wallet.createAction.mock.calls[0][0] as { inputs: { outpoint: string }[] }
@@ -633,13 +635,10 @@ describe('finalizeDelivery: guard #1 — a token payment is never broadcast here
   // guard is about broadcasting, not about unwinding.
   it('still aborts a declined token payment', async () => {
     const w = payerStub()
-    const outcome = await finalizeDelivery(
-      w as never,
-      tokenBuilt,
-      { ok: false, error: 'not_covered' },
-      'admin.com',
-      { online: async () => true, hold: jest.fn(async () => undefined) }
-    )
+    const outcome = await finalizeDelivery(w as never, tokenBuilt, { ok: false, error: 'not_covered' }, 'admin.com', {
+      online: async () => true,
+      hold: jest.fn(async () => undefined)
+    })
     expect(outcome).toEqual({ kind: 'declined', reason: 'not_covered' })
     expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
   })
@@ -671,10 +670,10 @@ describe('finalizeDelivery: guard #1 — a token payment is never broadcast here
 describe('the token frame a real build produces decodes', () => {
   it('round-trips through the v4 codec', async () => {
     const coins = [coinTx([400])]
-    const signable = signableFrom([{ tx: coins[0], vout: 0 }], [
-      { script: recipientScript(250) },
-      { script: new MandalaToken().lock(ASSET, 150, PKH).toHex() }
-    ])
+    const signable = signableFrom(
+      [{ tx: coins[0], vout: 0 }],
+      [{ script: recipientScript(250) }, { script: new MandalaToken().lock(ASSET, 150, PKH).toHex() }]
+    )
     const wallet = tokenWallet(coins, signable)
     const { frame } = await buildPaymentFrame(wallet as never, tokenSession(), 'admin.com', 250, deps())
     expect(decodeFrame(encodeFrame(frame))).toEqual(frame)

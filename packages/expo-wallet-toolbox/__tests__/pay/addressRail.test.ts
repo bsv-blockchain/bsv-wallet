@@ -547,7 +547,13 @@ describe('sendToAddress', () => {
 
   it('pads a short note to the 5-byte minimum a description must have', async () => {
     const wallet = { createAction: jest.fn().mockResolvedValue({}) }
-    await sendToAddress({ wallet: wallet as never, adminOriginator: 'admin.com', address: ADDRESS, satoshis: 1234, note: 'hi' })
+    await sendToAddress({
+      wallet: wallet as never,
+      adminOriginator: 'admin.com',
+      address: ADDRESS,
+      satoshis: 1234,
+      note: 'hi'
+    })
     const [args] = wallet.createAction.mock.calls[0]
     expect(args.description).toBe('hi   ')
   })

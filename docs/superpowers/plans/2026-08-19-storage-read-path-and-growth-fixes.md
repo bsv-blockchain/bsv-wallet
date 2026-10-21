@@ -23,11 +23,13 @@
 ### Task 1: Column projection in `sqlFind`, making `noRawTx`/`noScript` real
 
 **Files:**
+
 - Create: `storage/methods/findSql.ts`
 - Create: `__tests__/storage/findSql.test.ts`
 - Modify: `storage/StorageExpoSQLite.ts` (`sqlFind` :322-355, `findOutputs` :736, `findTransactions` :807, `findProvenTxs` :919, `findProvenTxReqs` :896)
 
 **Interfaces:**
+
 - Produces: `buildFindSql(opts: { table: string; whereSql: string; hasSince: boolean; extraConditions?: string[]; pkCol: string; orderDescending?: boolean; limit?: number; offset?: number; columns?: string[] }): string`
 - Produces: `BLOB_COLUMNS: Record<string, string[]>` mapping table name → blob column names.
 - Produces: `columnsExcluding(table: string, exclude: string[]): string[] | undefined` — `undefined` means "all columns" (`SELECT *`).
@@ -135,10 +137,12 @@ git commit -m "perf(storage): project columns so noRawTx/noScript stop reading b
 ### Task 2: Serve byte-range reads in SQL
 
 **Files:**
+
 - Modify: `storage/StorageExpoSQLite.ts` (`getRawTxOfKnownValidTransaction` :1235-1250)
 - Create: `__tests__/storage/rangeRead.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from Task 1.
 - Produces: no new exports; `getRawTxOfKnownValidTransaction(txid, offset, length, trx)` keeps its signature and `number[] | undefined` return.
 
@@ -154,15 +158,17 @@ import { rangeReadSql } from '@/storage/methods/findSql'
 
 const RAW = Array.from({ length: 300 }, (_, i) => i % 256)
 
-function db (): DatabaseSync {
+function db(): DatabaseSync {
   const d = new DatabaseSync(':memory:')
   d.exec('CREATE TABLE proven_txs (txid TEXT, rawTx BLOB NOT NULL)')
-  d.exec("CREATE TABLE proven_tx_reqs (txid TEXT, status TEXT, rawTx BLOB)")
+  d.exec('CREATE TABLE proven_tx_reqs (txid TEXT, status TEXT, rawTx BLOB)')
   d.prepare('INSERT INTO proven_txs (txid, rawTx) VALUES (?, ?)').run('aa', Buffer.from(RAW))
-  d.prepare('INSERT INTO proven_tx_reqs (txid, status, rawTx) VALUES (?, ?, ?)')
-    .run('bb', 'completed', Buffer.from(RAW))
-  d.prepare('INSERT INTO proven_tx_reqs (txid, status, rawTx) VALUES (?, ?, ?)')
-    .run('cc', 'invalid', Buffer.from(RAW))
+  d.prepare('INSERT INTO proven_tx_reqs (txid, status, rawTx) VALUES (?, ?, ?)').run(
+    'bb',
+    'completed',
+    Buffer.from(RAW)
+  )
+  d.prepare('INSERT INTO proven_tx_reqs (txid, status, rawTx) VALUES (?, ?, ?)').run('cc', 'invalid', Buffer.from(RAW))
   return d
 }
 
@@ -198,7 +204,7 @@ Expected: FAIL — `rangeReadSql` is not exported.
 /** Byte-range read. substr() on a BLOB is byte-based and 1-indexed, so a JS
  * offset n is passed as n + 1. Reading the range in SQL avoids materialising a
  * whole ~960 KB vault transaction to slice a script out of it. */
-export function rangeReadSql (table: 'proven_txs' | 'proven_tx_reqs'): string {
+export function rangeReadSql(table: 'proven_txs' | 'proven_tx_reqs'): string {
   const usable = "AND status IN ('unsent','unmined','unconfirmed','sending','nosend','completed')"
   return `SELECT substr(rawTx, ?, ?) AS chunk FROM "${table}" WHERE txid = ? ${
     table === 'proven_tx_reqs' ? usable : ''
@@ -230,12 +236,14 @@ git commit -m "perf(storage): read byte ranges with substr instead of loading wh
 ### Task 3: Cap `proven_tx_reqs.history` note values
 
 **Files:**
+
 - Create: `storage/methods/historyNotes.ts`
 - Create: `__tests__/storage/historyNotes.test.ts`
 - Modify: `services/arcadeBroadcastProvider.ts` (the note-producing result objects)
 - Modify: `storage/StorageExpoSQLite.ts` (override `updateProvenTxReqDynamics`)
 
 **Interfaces:**
+
 - Produces: `NOTE_VALUE_MAX = 256`
 - Produces: `scrubNoteValues<T>(note: T): T` — returns a copy with every string property longer than `NOTE_VALUE_MAX` truncated to `NOTE_VALUE_MAX - 1` characters plus `…`.
 
@@ -302,11 +310,13 @@ git commit -m "fix(storage): cap history note values so a failed broadcast canno
 ### Task 4: `exportTransactionsAsCsv` height map via direct SQL
 
 **Files:**
+
 - Modify: `utils/exportTransactions.ts:48-54`
 - Modify: `storage/StorageExpoSQLite.ts` (add `getProvenTxHeights`)
 - Create: `__tests__/exportTransactionsHeights.test.ts`
 
 **Interfaces:**
+
 - Produces: `getProvenTxHeights(): Promise<Map<string, number>>` on `StorageExpoSQLite`.
 
 **Why:** `findProvenTxs({ partial: {} })` is an unbounded `SELECT * FROM proven_txs` that reads and `Array.from`-expands **every rawTx and merklePath in the wallet** purely to build a `txid → height` map. On a wallet with vault history that is hundreds of megabytes of transient heap for two columns.
@@ -349,6 +359,7 @@ git commit -m "perf(export): read txid/height directly instead of every rawTx in
 ### Task 5: Two call-site hygiene fixes
 
 **Files:**
+
 - Modify: `context/WalletContext.tsx:2106` (add `noRawTx: true`)
 - Modify: `app/index.tsx:1185-1195` (destructure `nativeEvent` before the async handler)
 
@@ -377,11 +388,13 @@ git commit -m "perf(wallet): stop retaining webview message strings and reading 
 ### Task 6: `abortReservingOutpoints` via `outputs.spentBy`
 
 **Files:**
+
 - Modify: `services/vault/transfers.ts:214-266`
 - Modify: `storage/StorageExpoSQLite.ts` (add `findSpendingTxidsForOutpoints`)
 - Modify: `__tests__/vault/transfers.test.ts`
 
 **Interfaces:**
+
 - Produces: `findSpendingTxidsForOutpoints(outpoints: string[]): Promise<string[]>` — the txids of transactions whose `outputs.spentBy` marks them as spending any of the given outpoints.
 
 **Why:** the current heal pages up to 25 × 200 actions with `includeInputs: true` and `stopAfter: Infinity`, purely to string-match `sourceOutpoint`. `listActionsSql` answers each page by fetching full rawTx and calling `Transaction.fromBinary` per action to read `input?.sequence` — so a vault withdrawal retry parses thousands of transactions to find one outpoint.
@@ -408,7 +421,7 @@ git commit -m "perf(vault): find the reserving transaction by outpoint instead o
 
 **Spec coverage (§7 + B0):** column projection → Task 1; SQL `substr` range reads → Task 2; `history` cap → Task 3; `exportTransactions` → Task 4; `noRawTx` at WalletContext and the retained event string → Task 5; `abortReservingOutpoints` → Task 6.
 
-**Deferred from §7 with reason:** "stop `Array.from`-ing large BLOBs" is **not** in this plan. `validateEntity` converts every `Uint8Array` to `number[]` because the toolbox's entity classes and `TableOutput`/`TableTransaction` types are declared `number[]`; changing that at the storage boundary is a cross-cutting type change that belongs with spec step B1 (codec to `Uint8Array` end to end), not here. Tasks 1, 2 and 4 remove the three worst *instances* of it without touching the contract. `releaseTemplateCache` guidance is a comment-only change deferred to the codec plan, where it is testable.
+**Deferred from §7 with reason:** "stop `Array.from`-ing large BLOBs" is **not** in this plan. `validateEntity` converts every `Uint8Array` to `number[]` because the toolbox's entity classes and `TableOutput`/`TableTransaction` types are declared `number[]`; changing that at the storage boundary is a cross-cutting type change that belongs with spec step B1 (codec to `Uint8Array` end to end), not here. Tasks 1, 2 and 4 remove the three worst _instances_ of it without touching the contract. `releaseTemplateCache` guidance is a comment-only change deferred to the codec plan, where it is testable.
 
 **Type consistency:** `buildFindSql`, `columnsExcluding`, `BLOB_COLUMNS`, `rangeReadSql`, `PROVEN_HEIGHTS_SQL` all live in `storage/methods/findSql.ts` and are referenced by those exact names in Tasks 1, 2 and 4. `scrubNoteValues`/`NOTE_VALUE_MAX` live in `storage/methods/historyNotes.ts`. `getProvenTxHeights` and `findSpendingTxidsForOutpoints` are both methods on `StorageExpoSQLite`.
 

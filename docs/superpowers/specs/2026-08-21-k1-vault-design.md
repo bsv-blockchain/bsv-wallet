@@ -11,7 +11,7 @@ and the template-compression design (`2026-08-18-vault-script-template-compressi
 The vault drops the on-chain secp256r1 (R1) spend path entirely. Vault outputs
 become plain P2PKH locked to per-output BIP32 K1 children of a vault xprv. The
 YubiKey remains the gate for every vault operation — deposit and withdrawal —
-but its role changes from *on-chain signer* to *hardware unwrap oracle*: it
+but its role changes from _on-chain signer_ to _hardware unwrap oracle_: it
 PIV-ECDH-unwraps the vault xprv, which lives briefly in memory while keys are
 derived and signatures gathered, then is zeroized.
 
@@ -68,7 +68,7 @@ exfiltrate the key controlling the vault.
 
 - Plain P2PKH locked to a per-output BIP32 K1 child of the vault HD node
   (derivation unchanged: `services/vault/vaultDerivation.ts`, vault seed =
-  `Mnemonic.toSeed(passphrase)` from the main mnemonic, deposit address *n* =
+  `Mnemonic.toSeed(passphrase)` from the main mnemonic, deposit address _n_ =
   `vaultHD.deriveChild(n)`).
 - `customInstructions` v3: `{ v: 3, type: 'K1', keyID: 'bip32/<n>' }`.
   The v2 fields `salt`, `r1PublicKey`, and `slot` are removed.
@@ -82,7 +82,7 @@ exfiltrate the key controlling the vault.
   plaintext `nextKeyIndex` counter. Nothing else. In particular, **no xpub is
   stored**, wrapped or plaintext: the xpub is derivable from the xprv on
   unwrap, so persisting it separately would only weaken privacy.
-- **Deposit:** YubiKey tap → ECDH-unwrap xprv → derive child *n*'s public key
+- **Deposit:** YubiKey tap → ECDH-unwrap xprv → derive child _n_'s public key
   → build P2PKH locking script → increment `nextKeyIndex` → zeroize.
   Consequence: vault deposits are deliberate tap ceremonies; no flow may
   auto-derive a vault address without the user present.

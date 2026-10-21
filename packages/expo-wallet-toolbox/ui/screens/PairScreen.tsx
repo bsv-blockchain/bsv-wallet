@@ -1,12 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  SafeAreaView,
-  ActivityIndicator,
-} from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ActivityIndicator } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { WalletClient } from '@bsv/sdk'
 import {
@@ -60,11 +53,7 @@ export function PairScreen() {
     reconnect?: string
   }>()
 
-  const {
-    status, sessionMeta, errorMsg,
-    connect, disconnect,
-    startNavTimer, cancelNavTimer,
-  } = useWalletConnection()
+  const { status, sessionMeta, errorMsg, connect, disconnect, startNavTimer, cancelNavTimer } = useWalletConnection()
 
   // Pre-connection validation error (before connect() is called)
   const [preConnectError, setPreConnectError] = useState<string | null>(null)
@@ -80,7 +69,9 @@ export function PairScreen() {
   const [autoApproveThreshold, setAutoApproveThreshold] = useState(DEFAULT_AUTO_APPROVE_THRESHOLD)
   useEffect(() => {
     AsyncStorage.getItem(profileScopedKey(AUTO_APPROVE_STORAGE_KEY))
-      .then(v => { if (v !== null) setAutoApproveThreshold(Number(v) || 0) })
+      .then(v => {
+        if (v !== null) setAutoApproveThreshold(Number(v) || 0)
+      })
       .catch(() => {})
   }, [])
 
@@ -89,7 +80,9 @@ export function PairScreen() {
 
   // Track current status for unmount cleanup without re-running the effect
   const statusRef = useRef(status)
-  useEffect(() => { statusRef.current = status }, [status])
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
 
   // Reset error state when leaving this screen so the next scan starts fresh
   useEffect(() => {
@@ -127,7 +120,9 @@ export function PairScreen() {
   // Nav timer — start when leaving this screen, cancel when returning
   useEffect(() => {
     cancelNavTimer()
-    return () => { if (status === 'connected') startNavTimer() }
+    return () => {
+      if (status === 'connected') startNavTimer()
+    }
   }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleApprove() {
@@ -163,21 +158,24 @@ export function PairScreen() {
           origin: external.origin,
           topic: params.topic,
           protocolID: params.protocolID,
-          backendIdentityKey: params.backendIdentityKey,
+          backendIdentityKey: params.backendIdentityKey
         })
         connectionStore.stageAuthorityTag(params.topic, tag)
       } catch (err) {
         console.warn('[PairScreen] failed to compute connection authority tag', err)
         connectionStore.discardStagedAuthorityTag(params.topic)
       }
-      await connect({
-        topic:              params.topic,
-        backendIdentityKey: params.backendIdentityKey,
-        protocolID:         params.protocolID,
-        origin:             external.origin,
-        expiry:             params.expiry,
-        sig:                params.sig,
-      }, wallet)
+      await connect(
+        {
+          topic: params.topic,
+          backendIdentityKey: params.backendIdentityKey,
+          protocolID: params.protocolID,
+          origin: external.origin,
+          expiry: params.expiry,
+          sig: params.sig
+        },
+        wallet
+      )
     } catch (err) {
       setPreConnectError(err instanceof Error ? err.message : 'Connection failed')
     }
@@ -198,7 +196,13 @@ export function PairScreen() {
         <View style={styles.centered}>
           <Text style={styles.errorTitle}>Connection Failed</Text>
           <Text style={styles.errorMsg}>{preConnectError}</Text>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => { disconnect(); router.back() }}>
+          <TouchableOpacity
+            style={styles.secondaryBtn}
+            onPress={() => {
+              disconnect()
+              router.back()
+            }}
+          >
             <Text style={styles.secondaryBtnText}>Go Back</Text>
           </TouchableOpacity>
         </View>
@@ -211,7 +215,13 @@ export function PairScreen() {
         <View style={styles.centered}>
           <Text style={styles.errorTitle}>Connection Failed</Text>
           <Text style={styles.errorMsg}>{errorMsg ?? 'Something went wrong'}</Text>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => { disconnect(); router.back() }}>
+          <TouchableOpacity
+            style={styles.secondaryBtn}
+            onPress={() => {
+              disconnect()
+              router.back()
+            }}
+          >
             <Text style={styles.secondaryBtnText}>Go Back</Text>
           </TouchableOpacity>
         </View>
@@ -247,7 +257,8 @@ export function PairScreen() {
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>Auto-approve</Text>
                   <Text style={styles.infoValue}>
-                    Up to {autoApproveThreshold.toLocaleString()} sats per request, {AUTO_APPROVE_DAILY_CAP_SATS.toLocaleString()} sats/24h total, without asking
+                    Up to {autoApproveThreshold.toLocaleString()} sats per request,{' '}
+                    {AUTO_APPROVE_DAILY_CAP_SATS.toLocaleString()} sats/24h total, without asking
                   </Text>
                 </View>
               </>
@@ -294,11 +305,7 @@ export function PairScreen() {
     )
   }
 
-  return (
-    <SafeAreaView style={styles.container}>
-      {renderContent()}
-    </SafeAreaView>
-  )
+  return <SafeAreaView style={styles.container}>{renderContent()}</SafeAreaView>
 }
 
 function makeStyles(colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox').useTheme>['colors']) {
@@ -307,9 +314,9 @@ function makeStyles(colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox')
       flex: 1,
       backgroundColor: colors.backgroundSecondary,
       justifyContent: 'center',
-      padding: spacing.xxl,
+      padding: spacing.xxl
     },
-    centered:  { alignItems: 'center' },
+    centered: { alignItems: 'center' },
     card: {
       backgroundColor: colors.backgroundElevated,
       borderRadius: radii.xl,
@@ -319,43 +326,67 @@ function makeStyles(colors: ReturnType<typeof import('@bsv/expo-wallet-toolbox')
       shadowColor: '#000',
       shadowOpacity: 0.08,
       shadowRadius: 12,
-      elevation: 3,
+      elevation: 3
     },
-    title:    { ...typography.title2,   color: colors.textPrimary, marginBottom: spacing.xs },
-    subtitle: { ...typography.subhead,  color: colors.textSecondary, marginBottom: spacing.xxl, textAlign: 'center' },
+    title: { ...typography.title2, color: colors.textPrimary, marginBottom: spacing.xs },
+    subtitle: { ...typography.subhead, color: colors.textSecondary, marginBottom: spacing.xxl, textAlign: 'center' },
     infoBox: {
       backgroundColor: colors.backgroundSecondary,
       borderRadius: radii.lg,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.separator,
-      marginBottom: spacing.xxl,
+      marginBottom: spacing.xxl
     },
-    infoRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.md },
-    divider:   { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
+    infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.md },
+    divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
     infoLabel: { ...typography.footnote, color: colors.textSecondary },
-    infoValue: { ...typography.footnote, fontWeight: '500', color: colors.textPrimary, maxWidth: '60%', textAlign: 'right' },
+    infoValue: {
+      ...typography.footnote,
+      fontWeight: '500',
+      color: colors.textPrimary,
+      maxWidth: '60%',
+      textAlign: 'right'
+    },
     buttonRow: { flexDirection: 'row', gap: spacing.md },
     rejectBtn: {
-      flex: 1, paddingVertical: spacing.md + 2, borderRadius: radii.lg,
-      borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator,
-      backgroundColor: colors.fillSecondary, alignItems: 'center',
+      flex: 1,
+      paddingVertical: spacing.md + 2,
+      borderRadius: radii.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.separator,
+      backgroundColor: colors.fillSecondary,
+      alignItems: 'center'
     },
-    rejectBtnText:  { ...typography.callout, fontWeight: '500', color: colors.textPrimary },
-    approveBtn:     { flex: 1, paddingVertical: spacing.md + 2, borderRadius: radii.lg, backgroundColor: colors.accent, alignItems: 'center' },
+    rejectBtnText: { ...typography.callout, fontWeight: '500', color: colors.textPrimary },
+    approveBtn: {
+      flex: 1,
+      paddingVertical: spacing.md + 2,
+      borderRadius: radii.lg,
+      backgroundColor: colors.accent,
+      alignItems: 'center'
+    },
     approveBtnText: { ...typography.callout, fontWeight: '600', color: colors.textOnAccent },
     secondaryBtn: {
-      marginTop: spacing.xxl, paddingVertical: spacing.md, paddingHorizontal: spacing.xxl,
-      borderRadius: radii.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator,
+      marginTop: spacing.xxl,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xxl,
+      borderRadius: radii.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.separator
     },
     secondaryBtnText: { ...typography.subhead, color: colors.textSecondary },
-    errorTitle:  { ...typography.title3, color: colors.error, marginBottom: spacing.sm },
-    errorMsg:    { ...typography.subhead, color: colors.textSecondary, textAlign: 'center' },
+    errorTitle: { ...typography.title3, color: colors.error, marginBottom: spacing.sm },
+    errorMsg: { ...typography.subhead, color: colors.textSecondary, textAlign: 'center' },
     successIcon: {
-      width: 64, height: 64, borderRadius: 32,
+      width: 64,
+      height: 64,
+      borderRadius: 32,
       backgroundColor: colors.fillTertiary,
-      justifyContent: 'center', alignItems: 'center', marginBottom: spacing.lg,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: spacing.lg
     },
     successCheck: { fontSize: 28, color: colors.success, fontWeight: '700' },
-    sessionId: { marginTop: spacing.lg, ...typography.caption2, color: colors.textTertiary },
+    sessionId: { marginTop: spacing.lg, ...typography.caption2, color: colors.textTertiary }
   })
 }

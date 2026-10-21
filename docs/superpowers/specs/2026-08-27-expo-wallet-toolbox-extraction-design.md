@@ -67,6 +67,7 @@ dependencies of `@bsv/expo-wallet-toolbox`:
 ## What moves where
 
 **Core:**
+
 - `storage/` (`StorageExpoSQLite`, `LocalStorageAdapter`, `methods/*`,
   `schema/*`) — fix the two screens (`app/index.tsx`, `app/pay.tsx`)
   that currently import `storage/methods/offlineActions` and
@@ -89,6 +90,7 @@ dependencies of `@bsv/expo-wallet-toolbox`:
   env-overridable).
 
 **UI:**
+
 - Screen logic extracted as plain components from `app/index.tsx`
   (→ `WalletHomeScreen`), `app/pay.tsx` (→ `PayScreen`),
   `app/settings.tsx` (→ `SettingsScreen`), `app/wallet-config.tsx`
@@ -106,6 +108,7 @@ dependencies of `@bsv/expo-wallet-toolbox`:
   wallet functionality.
 
 **Stays in `bsv-wallet` (not extracted):**
+
 - `app/_layout.tsx` (provider composition — becomes thin, imports from
   package), `app/*.tsx` route files (thin wrappers around package
   screens), `app.json`, `plugins/`, `ios/`, `android/`, `eas.json` —

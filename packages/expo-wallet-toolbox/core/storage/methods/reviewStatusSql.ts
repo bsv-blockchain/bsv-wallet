@@ -75,10 +75,7 @@ export async function failInvalidReqTxs(args: {
       failed++
     } catch (e) {
       skipped++
-      devLog(
-        `[reviewStatus] could not fail transaction ${row.transactionId}:`,
-        e instanceof Error ? e.message : e
-      )
+      devLog(`[reviewStatus] could not fail transaction ${row.transactionId}:`, e instanceof Error ? e.message : e)
     }
   }
   return { failed, skipped }

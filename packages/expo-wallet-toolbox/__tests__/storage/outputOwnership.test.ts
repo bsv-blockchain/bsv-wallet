@@ -14,11 +14,13 @@ describe('stored output ownership invariants', () => {
       updateOutput
     }
 
-    await expect(StorageProvider.prototype.relinquishOutput.call(
-      storage,
-      { userId: 1, identityKey: 'k' },
-      { basket: 'ordinary', output: `${TXID}.0` }
-    )).rejects.toThrow(/basket/i)
+    await expect(
+      StorageProvider.prototype.relinquishOutput.call(
+        storage,
+        { userId: 1, identityKey: 'k' },
+        { basket: 'ordinary', output: `${TXID}.0` }
+      )
+    ).rejects.toThrow(/basket/i)
     expect(updateOutput).not.toHaveBeenCalled()
     expect(storage.findOutputs).toHaveBeenCalledWith(expect.objectContaining({ trx }))
     expect(storage.findOutputBaskets).toHaveBeenCalledWith(expect.objectContaining({ trx }))
@@ -34,11 +36,13 @@ describe('stored output ownership invariants', () => {
       updateOutput
     }
 
-    await expect(StorageProvider.prototype.relinquishOutput.call(
-      storage,
-      { userId: 1, identityKey: 'k' },
-      { basket: 'ordinary', output: `${TXID}.0` }
-    )).resolves.toBe(1)
+    await expect(
+      StorageProvider.prototype.relinquishOutput.call(
+        storage,
+        { userId: 1, identityKey: 'k' },
+        { basket: 'ordinary', output: `${TXID}.0` }
+      )
+    ).resolves.toBe(1)
     expect(updateOutput).toHaveBeenCalledWith(7, { basketId: undefined }, trx)
   })
 
@@ -54,45 +58,52 @@ describe('stored output ownership invariants', () => {
         if (partial.basketId === 2) return [{ basketId: 2, userId: 1, name: 'admin vault' }]
         return []
       }),
-      findTransactions: jest.fn(async () => [{
-        transactionId: 3,
-        userId: 1,
-        txid: tx.id('hex'),
-        status: 'completed',
-        satoshis: 0
-      }]),
-      findOutputs: jest.fn(async () => [{
-        outputId: 7,
-        transactionId: 3,
-        userId: 1,
-        txid: tx.id('hex'),
-        vout: 0,
-        basketId: 2,
-        satoshis: 1,
-        type: 'custom',
-        change: false,
-        providedBy: 'you',
-        purpose: '',
-        spendable: true
-      }]),
+      findTransactions: jest.fn(async () => [
+        {
+          transactionId: 3,
+          userId: 1,
+          txid: tx.id('hex'),
+          status: 'completed',
+          satoshis: 0
+        }
+      ]),
+      findOutputs: jest.fn(async () => [
+        {
+          outputId: 7,
+          transactionId: 3,
+          userId: 1,
+          txid: tx.id('hex'),
+          vout: 0,
+          basketId: 2,
+          satoshis: 1,
+          type: 'custom',
+          change: false,
+          providedBy: 'you',
+          purpose: '',
+          spendable: true
+        }
+      ]),
       updateOutput: jest.fn()
     }
     const verify = jest.spyOn(Beef.prototype, 'verify').mockResolvedValue(true)
     try {
-      await expect(StorageProvider.prototype.internalizeAction.call(storage, { userId: 1 } as never, {
-        tx: beef.toBinaryAtomic(tx.id('hex')),
-        description: 'Try moving protected output',
-        labels: [],
-        outputs: [{
-          outputIndex: 0,
-          protocol: 'basket insertion',
-          insertionRemittance: { basket: 'ordinary' }
-        }]
-      })).rejects.toThrow(/cannot be reclassified/i)
+      await expect(
+        StorageProvider.prototype.internalizeAction.call(storage, { userId: 1 } as never, {
+          tx: beef.toBinaryAtomic(tx.id('hex')),
+          description: 'Try moving protected output',
+          labels: [],
+          outputs: [
+            {
+              outputIndex: 0,
+              protocol: 'basket insertion',
+              insertionRemittance: { basket: 'ordinary' }
+            }
+          ]
+        })
+      ).rejects.toThrow(/cannot be reclassified/i)
       expect(storage.updateOutput).not.toHaveBeenCalled()
     } finally {
       verify.mockRestore()
     }
   })
-
 })

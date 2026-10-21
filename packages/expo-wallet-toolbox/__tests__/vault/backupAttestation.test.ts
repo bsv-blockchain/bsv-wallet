@@ -13,11 +13,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -219,9 +227,7 @@ describe('recordBackupAttestation', () => {
     })
 
     try {
-      expect(await recordBackupAttestation(walletReturning(IDENTITY_A), ADMIN, 'shares')).toBe(
-        false
-      )
+      expect(await recordBackupAttestation(walletReturning(IDENTITY_A), ADMIN, 'shares')).toBe(false)
       expect(await backupAttestation.get(IDENTITY_A)).toBeNull()
     } finally {
       ;(AsyncStorage as unknown as Record<string, unknown>).setItem = original

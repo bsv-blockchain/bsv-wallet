@@ -3,7 +3,7 @@ jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(() => Promise.resolve()),
   notificationAsync: jest.fn(() => Promise.resolve()),
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
-  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
+  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' }
 }))
 
 // Pulled in as a side effect of importing anything from the barrel: its
@@ -31,7 +31,12 @@ import { render, fireEvent, act } from '@testing-library/react-native'
 import { AlertHost, showAlert } from '../../ui/components/ui/AlertCard'
 import { ThemeProvider } from '@bsv/expo-wallet-toolbox'
 
-const host = () => render(<ThemeProvider><AlertHost /></ThemeProvider>)
+const host = () =>
+  render(
+    <ThemeProvider>
+      <AlertHost />
+    </ThemeProvider>
+  )
 
 // 2026-09-25: Export Wallet Data spun forever on iOS. showAlert resolved on
 // the button press, while the alert's native modal was still presented, so
@@ -49,17 +54,23 @@ describe('showAlert resolves after its modal is dismissed', () => {
       let result!: Promise<string>
       act(() => {
         result = showAlert({ title: 'Export?', buttons: [{ text: 'Export', key: 'export' }] })
-        result.then(() => { settled = true })
+        result.then(() => {
+          settled = true
+        })
       })
       fireEvent.press(screen.getByText('Export'))
       await act(async () => {})
       expect(settled).toBe(false)
-      act(() => { jest.advanceTimersByTime(200) })
+      act(() => {
+        jest.advanceTimersByTime(200)
+      })
       const modal = screen.UNSAFE_getByType(Modal)
       expect(modal.props.visible).toBe(false)
       await act(async () => {})
       expect(settled).toBe(false)
-      act(() => { modal.props.onDismiss() })
+      act(() => {
+        modal.props.onDismiss()
+      })
       await expect(result).resolves.toBe('export')
     } finally {
       jest.useRealTimers()
@@ -71,9 +82,13 @@ describe('showAlert resolves after its modal is dismissed', () => {
     try {
       const screen = host()
       let result!: Promise<string>
-      act(() => { result = showAlert({ title: 'Heads up' }) })
+      act(() => {
+        result = showAlert({ title: 'Heads up' })
+      })
       fireEvent.press(screen.getByText('OK'))
-      act(() => { jest.advanceTimersByTime(2_000) })
+      act(() => {
+        jest.advanceTimersByTime(2_000)
+      })
       await expect(result).resolves.toBe('ok')
       expect(screen.queryByText('Heads up')).toBeNull()
     } finally {
@@ -92,8 +107,8 @@ describe('showAlert', () => {
         message: 'Apps will no longer resolve identities.',
         buttons: [
           { text: 'Cancel', style: 'cancel', key: 'cancel' },
-          { text: 'Delete', style: 'destructive', key: 'delete' },
-        ],
+          { text: 'Delete', style: 'destructive', key: 'delete' }
+        ]
       })
     })
     expect(screen.getByText('Delete Certifier?')).toBeTruthy()
@@ -105,7 +120,9 @@ describe('showAlert', () => {
   it('defaults to a single OK button resolving "ok"', async () => {
     const screen = host()
     let result!: Promise<string>
-    act(() => { result = showAlert({ title: 'Heads up' }) })
+    act(() => {
+      result = showAlert({ title: 'Heads up' })
+    })
     fireEvent.press(screen.getByText('OK'))
     await expect(result).resolves.toBe('ok')
   })
@@ -120,11 +137,11 @@ describe('showAlert', () => {
     act(() => {
       resultA = showAlert({
         title: 'Alert A',
-        buttons: [{ text: 'Confirm', key: 'confirm' }],
+        buttons: [{ text: 'Confirm', key: 'confirm' }]
       })
       resultB = showAlert({
         title: 'Alert B',
-        buttons: [{ text: 'OK', key: 'ok' }],
+        buttons: [{ text: 'OK', key: 'ok' }]
       })
     })
 
@@ -136,9 +153,13 @@ describe('showAlert', () => {
 
     // Advance past durations.instant (150ms) so the modal hides, then let it
     // report its dismissal: only now does A resolve and B take its place.
-    act(() => { jest.advanceTimersByTime(200) })
+    act(() => {
+      jest.advanceTimersByTime(200)
+    })
     const { Modal } = require('react-native')
-    act(() => { screen.UNSAFE_getByType(Modal).props.onDismiss() })
+    act(() => {
+      screen.UNSAFE_getByType(Modal).props.onDismiss()
+    })
     await expect(resultA).resolves.toBe('confirm')
 
     // Alert B should now be visible.
@@ -146,8 +167,12 @@ describe('showAlert', () => {
 
     // Pressing Alert B's button should resolve its promise once it is gone.
     fireEvent.press(screen.getByText('OK'))
-    act(() => { jest.advanceTimersByTime(200) })
-    act(() => { screen.UNSAFE_getByType(Modal).props.onDismiss() })
+    act(() => {
+      jest.advanceTimersByTime(200)
+    })
+    act(() => {
+      screen.UNSAFE_getByType(Modal).props.onDismiss()
+    })
     await expect(resultB).resolves.toBe('ok')
 
     jest.useRealTimers()

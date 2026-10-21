@@ -255,11 +255,7 @@ async function clearMetaTag(token: VaultScopeToken): Promise<void> {
  * atomically within the caller's enqueueMutation critical section. The tag
  * is computed BEFORE writeMeta so a tagger failure (a rejected wallet call)
  * leaves storage completely untouched rather than updated-but-untagged. */
-async function writeMetaAndTag(
-  token: VaultScopeToken,
-  meta: VaultMeta,
-  tagger?: VaultMetaTagger
-): Promise<void> {
+async function writeMetaAndTag(token: VaultScopeToken, meta: VaultMeta, tagger?: VaultMetaTagger): Promise<void> {
   const tag = tagger ? await tagger(meta) : undefined
   await writeMeta(token, meta)
   if (tag !== undefined) await writeMetaTag(token, tag)
@@ -305,7 +301,12 @@ function captureScope(required: boolean): VaultScopeToken | null {
     if (required) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
     return null
   }
-  return { generation: scopeGeneration, storageKey, chain: activeScope!.chain, profileIndex: activeScope!.profileIndex ?? 0 }
+  return {
+    generation: scopeGeneration,
+    storageKey,
+    chain: activeScope!.chain,
+    profileIndex: activeScope!.profileIndex ?? 0
+  }
 }
 
 function assertScope(token: VaultScopeToken): void {

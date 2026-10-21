@@ -14,7 +14,7 @@ import { MAX_INDEX_ENTRIES, type BackupChain } from './constants'
 import type { RequestSyncChunkArgs, SyncChunk } from '../toolboxTypes'
 
 export class BackupChainError extends Error {
-  constructor (message: string) {
+  constructor(message: string) {
     super(message)
     this.name = 'BackupChainError'
   }
@@ -27,21 +27,21 @@ const INDEX_PAGE_SIZE = 500
 // current chunk. Large chunks remain sequential to bound mobile memory use.
 const PREFETCH_MAX_BYTES = 1024 * 1024
 
-type BlobResult = { bytes: Uint8Array, error?: never } | { bytes?: never, error: unknown }
+type BlobResult = { bytes: Uint8Array; error?: never } | { bytes?: never; error: unknown }
 
 export class RemoteSyncReader {
   private entries: LogEntry[] | null = null
   private next = 0
-  private prefetched: { seq: number, result: Promise<BlobResult> } | null = null
+  private prefetched: { seq: number; result: Promise<BlobResult> } | null = null
   /** Decoded once, keyed by seq, so verifiedComplete's own look-ahead at the newest entry
    * never re-fetches or re-decrypts it when replay later reaches that same entry. */
-  private decodedCache: { seq: number, decoded: DecodedEntry } | null = null
+  private decodedCache: { seq: number; decoded: DecodedEntry } | null = null
   private verifiedCompletePromise: Promise<boolean> | null = null
   /** The most recent (i.e. furthest along in replay order) appData snapshot seen on any
    * entry so far — see the `appData` getter below. */
   private lastAppData: AppDataSnapshot | undefined
 
-  constructor (
+  constructor(
     private readonly client: BackupClient,
     private readonly wallet: CompletedProtoWallet,
     private readonly chain: BackupChain,
@@ -52,7 +52,7 @@ export class RemoteSyncReader {
   ) {}
 
   /** Settings for the storage being restored into. */
-  async makeAvailable (): Promise<TableSettings> {
+  async makeAvailable(): Promise<TableSettings> {
     return this.settings
   }
 
@@ -61,7 +61,7 @@ export class RemoteSyncReader {
    * replay) and verifiedComplete (which only needs to know how many entries exist and what
    * the last one is).
    */
-  private async ensureIndex (): Promise<LogEntry[]> {
+  private async ensureIndex(): Promise<LogEntry[]> {
     if (this.entries == null) {
       const entries: LogEntry[] = []
       let page = await this.client.index(this.deviceId, this.generation)
@@ -89,7 +89,7 @@ export class RemoteSyncReader {
     return this.entries
   }
 
-  private async fetchAndDecode (entry: LogEntry): Promise<DecodedEntry> {
+  private async fetchAndDecode(entry: LogEntry): Promise<DecodedEntry> {
     if (this.decodedCache?.seq === entry.seq) return this.decodedCache.decoded
     let ciphertext: Uint8Array
     if (this.prefetched?.seq === entry.seq) {
@@ -133,7 +133,7 @@ export class RemoteSyncReader {
    * Every entry is an ordinary chunk (see codec.ts's DecodedEntry) — a seal, when present,
    * rides alongside a chunk rather than replacing it, so nothing here needs to be swallowed.
    */
-  async getSyncChunk (_args: RequestSyncChunkArgs): Promise<SyncChunk> {
+  async getSyncChunk(_args: RequestSyncChunkArgs): Promise<SyncChunk> {
     await this.ensureIndex()
     const entries = this.entries!
 
@@ -154,15 +154,21 @@ export class RemoteSyncReader {
     // reader after either fails must retry the same entry rather than lose it.
     this.next++
     const following = entries[this.next]
-    if (following && entry.size > 0 && entry.size <= PREFETCH_MAX_BYTES &&
-        following.size > 0 && following.size <= PREFETCH_MAX_BYTES &&
-        this.decodedCache?.seq !== following.seq) {
+    if (
+      following &&
+      entry.size > 0 &&
+      entry.size <= PREFETCH_MAX_BYTES &&
+      following.size > 0 &&
+      following.size <= PREFETCH_MAX_BYTES &&
+      this.decodedCache?.seq !== following.seq
+    ) {
       this.prefetched = {
         seq: following.seq,
         // Store failures as values until consumed, so a stopped replay never
         // leaves an unhandled rejection from a speculative download.
         result: this.client.blob(this.deviceId, this.generation, following.seq).then(
-          bytes => ({ bytes }), error => ({ error })
+          bytes => ({ bytes }),
+          error => ({ error })
         )
       }
     }
@@ -171,7 +177,7 @@ export class RemoteSyncReader {
   }
 
   /** Number of chunks in this generation, once the index has been read. */
-  get length (): number {
+  get length(): number {
     return this.entries?.length ?? 0
   }
 
@@ -181,7 +187,7 @@ export class RemoteSyncReader {
    * reflects the newest chunk that carried the field — undefined for a log written entirely
    * before this feature shipped, or one with genuinely nothing app-owned to carry.
    */
-  get appData (): AppDataSnapshot | undefined {
+  get appData(): AppDataSnapshot | undefined {
     return this.lastAppData
   }
 
@@ -202,14 +208,14 @@ export class RemoteSyncReader {
    * false the moment a new chunk becomes the newest entry — a generation is not "un-verified"
    * by continuing to receive backups.
    */
-  async verifiedComplete (): Promise<boolean> {
+  async verifiedComplete(): Promise<boolean> {
     if (this.verifiedCompletePromise == null) {
       this.verifiedCompletePromise = this.computeVerifiedComplete()
     }
     return await this.verifiedCompletePromise
   }
 
-  private async computeVerifiedComplete (): Promise<boolean> {
+  private async computeVerifiedComplete(): Promise<boolean> {
     const entries = await this.ensureIndex()
     if (entries.length === 0) return false
 
@@ -235,18 +241,14 @@ export class RemoteSyncReader {
    * A restore that silently stops halfway is worse than one that fails: the wallet would
    * look healthy while missing the outputs it needs to spend.
    */
-  private verifyChain (entries: LogEntry[], start = 0): void {
+  private verifyChain(entries: LogEntry[], start = 0): void {
     for (let i = start; i < entries.length; i++) {
       const expectedSeq = i + 1
       if (entries[i].seq !== expectedSeq) {
-        throw new BackupChainError(
-          `backup chain has a gap: expected sequence ${expectedSeq}, found ${entries[i].seq}`
-        )
+        throw new BackupChainError(`backup chain has a gap: expected sequence ${expectedSeq}, found ${entries[i].seq}`)
       }
       if (i > 0 && entries[i].prevSha256 !== entries[i - 1].sha256) {
-        throw new BackupChainError(
-          `backup chain is forked at sequence ${entries[i].seq}: previous hash does not match`
-        )
+        throw new BackupChainError(`backup chain is forked at sequence ${entries[i].seq}: previous hash does not match`)
       }
     }
   }

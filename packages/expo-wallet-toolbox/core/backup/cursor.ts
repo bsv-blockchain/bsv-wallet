@@ -86,7 +86,7 @@ export interface PushCursor {
   maxObservedWallClock?: string
 }
 
-export function freshCursor (generation = 1): PushCursor {
+export function freshCursor(generation = 1): PushCursor {
   return {
     since: undefined,
     offsets: zeroOffsets(),
@@ -100,7 +100,7 @@ export function freshCursor (generation = 1): PushCursor {
   }
 }
 
-export function zeroOffsets (): Record<EntityName, number> {
+export function zeroOffsets(): Record<EntityName, number> {
   const out = {} as Record<EntityName, number>
   for (const name of ENTITY_NAMES) out[name] = 0
   return out
@@ -108,11 +108,11 @@ export function zeroOffsets (): Record<EntityName, number> {
 
 /** Offsets in the array-of-pairs shape `RequestSyncChunkArgs` expects. */
 // eslint-disable-next-line @typescript-eslint/array-type -- matches the SDK's own signature
-export function offsetsToArgs (offsets: Record<EntityName, number>): Array<{ name: string, offset: number }> {
+export function offsetsToArgs(offsets: Record<EntityName, number>): Array<{ name: string; offset: number }> {
   return ENTITY_NAMES.map(name => ({ name, offset: offsets[name] ?? 0 }))
 }
 
-export async function loadCursor (chain: BackupChain, pseudonym: string, deviceId: string): Promise<PushCursor> {
+export async function loadCursor(chain: BackupChain, pseudonym: string, deviceId: string): Promise<PushCursor> {
   const raw = await AsyncStorage.getItem(cursorKey(chain, pseudonym, deviceId))
   if (raw == null) return freshCursor()
 
@@ -144,11 +144,16 @@ export async function loadCursor (chain: BackupChain, pseudonym: string, deviceI
   }
 }
 
-export async function saveCursor (chain: BackupChain, pseudonym: string, deviceId: string, c: PushCursor): Promise<void> {
+export async function saveCursor(
+  chain: BackupChain,
+  pseudonym: string,
+  deviceId: string,
+  c: PushCursor
+): Promise<void> {
   await AsyncStorage.setItem(cursorKey(chain, pseudonym, deviceId), JSON.stringify(c))
 }
 
-export async function clearCursor (chain: BackupChain, pseudonym: string, deviceId: string): Promise<void> {
+export async function clearCursor(chain: BackupChain, pseudonym: string, deviceId: string): Promise<void> {
   await AsyncStorage.removeItem(cursorKey(chain, pseudonym, deviceId))
 }
 
@@ -160,7 +165,7 @@ export async function clearCursor (chain: BackupChain, pseudonym: string, device
  * server has never heard of instead of starting a fresh generation. Scoped by prefix so a
  * second wallet on the same device keeps its own bookkeeping.
  */
-export async function clearCursorsForPseudonym (chain: BackupChain, pseudonym: string): Promise<void> {
+export async function clearCursorsForPseudonym(chain: BackupChain, pseudonym: string): Promise<void> {
   const prefix = cursorKey(chain, pseudonym, '')
   const keys = (await AsyncStorage.getAllKeys()).filter(k => k.startsWith(prefix))
   if (keys.length > 0) await AsyncStorage.multiRemove(keys)

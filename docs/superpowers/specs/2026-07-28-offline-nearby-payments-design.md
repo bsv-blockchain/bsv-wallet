@@ -8,7 +8,7 @@
 
 Two people are on an underground train with no signal. One pays the other over
 AWDL or QR. Both wallets must accept, record, and — critically — be able to
-*re-spend* that money before either device sees the network again. When the
+_re-spend_ that money before either device sees the network again. When the
 train surfaces, every transaction that accumulated underground reaches the
 network, in dependency order, from whichever device gets signal first.
 
@@ -28,7 +28,7 @@ so full ancestry already crosses the air gap. None of that changes.
 
 Verified in `node_modules` on 2026-07-28.
 
-1. **BEEF verification needs a chain tracker.** `Beef.verify` calls *only*
+1. **BEEF verification needs a chain tracker.** `Beef.verify` calls _only_
    `chainTracker.isValidRootForHeight(root, height)` — once per distinct block
    height in the beef (`@bsv/sdk/dist/cjs/src/transaction/Beef.js:702-707`). It
    never calls `currentHeight`. The signer verifies with `allowTxidOnly = false`
@@ -58,7 +58,7 @@ Verified in `node_modules` on 2026-07-28.
    (`storage/schema/entities/EntityProvenTxReq.js:426-433`). Roughly twelve hours
    offline is enough.
 
-A fee lookup is *not* a blocker: `createAction` uses `storage.feeModel`
+A fee lookup is _not_ a blocker: `createAction` uses `storage.feeModel`
 (`storage/methods/createAction.js:61`), which is local.
 
 ## Architecture
@@ -72,15 +72,15 @@ Output spendability filters on **`transactions.status` only**.
 `storage/methods/listOutputsSql.ts:86`. So the two columns can be set
 independently to mean two different things:
 
-| column | value | meaning |
-| --- | --- | --- |
-| `transactions.status` | `unproven` | outputs are **spendable now** |
-| `proven_tx_reqs.status` | `nosend` | broadcast is **held** |
+| column                  | value      | meaning                       |
+| ----------------------- | ---------- | ----------------------------- |
+| `transactions.status`   | `unproven` | outputs are **spendable now** |
+| `proven_tx_reqs.status` | `nosend`   | broadcast is **held**         |
 
 `nosend` is the correct hold because every monitor task already ignores it:
 `TaskSendWaiting` selects `unsent`/`sending`; `TaskCheckForProofs` selects
 `callback`/`unmined`/`sending`/`unknown`/`unconfirmed`; `TaskFailAbandoned`
-sweeps *transactions* in `unprocessed`/`unsigned`; and `TaskCheckNoSends` reads
+sweeps _transactions_ in `unprocessed`/`unsigned`; and `TaskCheckNoSends` reads
 `nosend` rows but is explicitly barred from counting attempts against them
 (`countsAsAttempt && req.status !== 'nosend'`). It is also releasable —
 `readyToSendStatuses` includes `nosend` (`storage/storageProviderHelpers.js:14`),
@@ -150,7 +150,7 @@ time, which is what makes it spendable.
 
 ### Release order comes from BEEF, not from the queue
 
-A received transaction's ancestry can contain *other people's* unbroadcast
+A received transaction's ancestry can contain _other people's_ unbroadcast
 transactions: C pays B underground, B pays us. C's transaction is in our beef
 but was never in our queue. So queue rows cannot be the source of ordering.
 
@@ -181,8 +181,8 @@ On `invalidTx` or `doubleSpend` for transaction X:
   (`StorageProvider.js:421`);
 - every **descendant** of X gets the same treatment, with `poisonedByTxid = X`
   — and **children first, parents last**. Corrected 2026-07-28 after the Task 9
-  review. `updateTransactionStatus('failed')` releases a transaction's *own*
-  inputs and then marks its *own* outputs unspendable
+  review. `updateTransactionStatus('failed')` releases a transaction's _own_
+  inputs and then marks its _own_ outputs unspendable
   (`StorageProvider.js:421-424`), so failing a parent before its child lets the
   child's failure hand the parent's outputs back as `spendable: true`, with
   nothing running afterwards to re-mark them — network-refused money spendable
@@ -190,7 +190,7 @@ On `invalidTx` or `doubleSpend` for transaction X:
   `txid`+`vout` regardless of `spentBy` being cleared, so parent-first is
   unsalvageable rather than merely order-sensitive. The cascade order is
   `releaseOrder` **reversed**; reversing `descendantsOf`'s breadth-first output
-  is *not* a topological order and gets this wrong.
+  is _not_ a topological order and gets this wrong.
 - descendants are found across a graph widened with the wallet's own local
   spenders, not just the merged BEEF. BEEFs reach backwards, so a transaction
   we created by re-spending offline is absent from its parent's BEEF and would
@@ -239,12 +239,12 @@ It never runs while offline, so it costs nothing underground.
 Implementation found a better seam; below is the built design, not the intent.
 
 The seam is `StorageProvider.attemptToPostReqsToNetwork`, overridden in
-`storage/StorageExpoSQLite.ts`. It is the *only* overridable thing the forced
+`storage/StorageExpoSQLite.ts`. It is the _only_ overridable thing the forced
 broadcast inside `internalizeAction` reaches — `processAction.js:146` calls it as
 a method, declared at `StorageProvider.d.ts:111` — so overriding it holds the
 broadcast without duplicating ~400 lines of money-critical logic above it
 (proven-tx insertion, target-transaction merge, `markInputsSpent`, BRC-29
-payment records, labels, baskets). `TaskSendWaiting` calls the module *function*
+payment records, labels, baskets). `TaskSendWaiting` calls the module _function_
 directly (`TaskSendWaiting.js:180`), so the monitor's ordinary retries are
 deliberately **not** intercepted.
 
@@ -270,7 +270,7 @@ base class:
 **Nothing above storage changes.** The signer's `internalizeAction` already
 performs both required checks — BEEF ancestry `verify(chainTracker, false)` and
 the BRC-29 locking-script match against a freshly derived key
-(`signer/methods/internalizeAction.js:71-74`) — *before* it calls
+(`signer/methods/internalizeAction.js:71-74`) — _before_ it calls
 `wallet.storage.internalizeAction(args)`. No `node_modules` patch is required.
 
 ### Not built
@@ -345,7 +345,7 @@ checkpoint and prunes.
 - `headers/<chain>.bin` — contiguous 80-byte records starting at `baseHeight`.
 - `headers/<chain>.json` — `{ chain, baseHeight, count, tipHash, anchor, updatedAt }`.
 - `headers/<chain>-extra.json` — sparse `height → merkleRoot` for roots resolved
-  below `baseHeight` while online (see *root miss*).
+  below `baseHeight` while online (see _root miss_).
 
 At wallet build, one background pass streams the `.bin` and builds a 32-byte-per-height
 root array in memory (~1.7 MB/year), making `isValidRootForHeight` an O(1)
@@ -370,7 +370,7 @@ A miss means an ancestor was mined before `baseHeight`.
 ### Pre-warm
 
 While online, walk this wallet's own spendable outputs' merkle paths and cache
-the roots for exactly those heights. That set *is* what a counterparty's BEEF
+the roots for exactly those heights. That set _is_ what a counterparty's BEEF
 will reference, because our UTXOs become their inputs. So the payer's pre-warm
 is what makes the payee's offline verification succeed, and misses become rare
 rather than merely handled.
@@ -394,7 +394,7 @@ isInternetReachable !== false` — and re-point the existing call sites at it, s
 
 ### The risk to state plainly
 
-Accepting a transaction nobody has broadcast means the payer *can* double-spend
+Accepting a transaction nobody has broadcast means the payer _can_ double-spend
 it once online. Headers prove ancestry; they cannot prove the absence of a
 competing spend. No SPV check closes this, and it is inherent to the underground
 scenario rather than a defect of this design. The mitigation is the attribution
@@ -440,7 +440,7 @@ that unit tests provably cannot reach:
    window, bump the checkpoint to anchor B, relaunch, resync, then verify an
    offline payment still verifies and `rootForHeight` at a mid-window height is
    correct. This is the branch that shipped broken — the old `.bin` was left in
-   place and appended to, so the root index rebuilt from the *previous* anchor's
+   place and appended to, so the root index rebuilt from the _previous_ anchor's
    headers and every upgrading install would have refused all offline
    verification, permanently and silently. `expoHeaderFs.deleteFile` cannot run
    under Jest, so this is the only way to exercise the fix.

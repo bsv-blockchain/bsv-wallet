@@ -32,7 +32,7 @@ calls at 0x6950 and 0x6af0; check at @ 0x338-0x354, `size <= max`, failing
 - **Deposits succeed.** A transaction's own output scripts are never evaluated. Only
   `MaxTxSizePolicy` (10 MB) and standardness apply, and `RequireStandard: false`
   discards the standardness verdict entirely.
-- **Every spend fails.** The 959,632-byte *locking* script busts the limit by itself,
+- **Every spend fails.** The 959,632-byte _locking_ script busts the limit by itself,
   so the K1 recovery path dies too despite its 107-byte unlocking script.
 
 That asymmetry is a funds-lock trap, which drives a hard sequencing rule:
@@ -76,8 +76,8 @@ independent spending branches:
 - **K1** — an ordinary secp256k1 `OP_CHECKSIG`, keyed from the vault HD node. The
   recovery path for a lost or destroyed YubiKey.
 
-Today the YubiKey is a *key-wrapping* device: it performs PIV-ECDH to unwrap a sealed
-secp256k1 key, which then signs. After this change it is a *signing* device — the
+Today the YubiKey is a _key-wrapping_ device: it performs PIV-ECDH to unwrap a sealed
+secp256k1 key, which then signs. After this change it is a _signing_ device — the
 private key never leaves the card and nothing is sealed. This removes an entire class
 of failure (seal corruption, seal/meta version skew, key material transiting JS).
 
@@ -87,17 +87,17 @@ No backwards compatibility is required or provided.
 
 Recorded with rationale so the next reader does not relitigate them.
 
-| # | Decision | Rationale |
-|---|---|---|
-| D1 | Add a native `signEcdsa` to the YubiKeyPiv Nitro module (iOS + Android + mock) | The module exposes only `ecdh`. The R1 branch cannot exist without a raw-digest P-256 signature. |
-| D2 | K1 root is the vault HD node (mnemonic + vault passphrase), **not** the ordinary wallet key | "K1 applies if the YubiKey is lost" only means something if K1 is reachable without the YubiKey *and* unreachable from the plain wallet key. Otherwise the vault is not a security boundary. |
-| D3 | K1 per-output keys stay BIP32 xpub children | BRC-42 self-derivation needs the private key, which is offline at deposit time. The existing xpub path is already public-derivable and already tested. |
-| D4 | `TouchPolicy.CACHED` on the PIV slot | R1-K1 needs one signature per input. `ALWAYS` costs one physical touch per input; `CACHED` collapses a multi-input withdraw to one touch. |
-| D5 | Append-only deposits with a 200,000-sat floor; withdraw consolidates | Keeps deposits hardware-free. The floor is economic dust: an output should be worth more than the ~96,000 sats it costs to spend. |
-| D6 | `customInstructions` carries a BIP32 `keyID`, not BRC-29 prefix/suffix | Follows from D3. Supersedes the "prefix and suffix" wording in the original request. |
-| D7 | Wallet fee model unchanged at 100 sat/kb | Vault actions cost ~96,000 sats (~3¢). Not worth a per-action fee override. |
-| D8 | Fix the RN gzip gap with `patch-package`, not a global polyfill | Six patched lines and one small dependency versus shimming four web APIs globally. |
-| D9 | **No input cap** — a withdrawal spends every vault output | Measured (§3.7): peak heap is flat regardless of input count, because signing is sequential and each preimage is collected before the next. The binding constraint is broadcast payload size — a server limit to be found by testing, not a client memory limit. |
+| #   | Decision                                                                                    | Rationale                                                                                                                                                                                                                                                        |
+| --- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Add a native `signEcdsa` to the YubiKeyPiv Nitro module (iOS + Android + mock)              | The module exposes only `ecdh`. The R1 branch cannot exist without a raw-digest P-256 signature.                                                                                                                                                                 |
+| D2  | K1 root is the vault HD node (mnemonic + vault passphrase), **not** the ordinary wallet key | "K1 applies if the YubiKey is lost" only means something if K1 is reachable without the YubiKey _and_ unreachable from the plain wallet key. Otherwise the vault is not a security boundary.                                                                     |
+| D3  | K1 per-output keys stay BIP32 xpub children                                                 | BRC-42 self-derivation needs the private key, which is offline at deposit time. The existing xpub path is already public-derivable and already tested.                                                                                                           |
+| D4  | `TouchPolicy.CACHED` on the PIV slot                                                        | R1-K1 needs one signature per input. `ALWAYS` costs one physical touch per input; `CACHED` collapses a multi-input withdraw to one touch.                                                                                                                        |
+| D5  | Append-only deposits with a 200,000-sat floor; withdraw consolidates                        | Keeps deposits hardware-free. The floor is economic dust: an output should be worth more than the ~96,000 sats it costs to spend.                                                                                                                                |
+| D6  | `customInstructions` carries a BIP32 `keyID`, not BRC-29 prefix/suffix                      | Follows from D3. Supersedes the "prefix and suffix" wording in the original request.                                                                                                                                                                             |
+| D7  | Wallet fee model unchanged at 100 sat/kb                                                    | Vault actions cost ~96,000 sats (~3¢). Not worth a per-action fee override.                                                                                                                                                                                      |
+| D8  | Fix the RN gzip gap with `patch-package`, not a global polyfill                             | Six patched lines and one small dependency versus shimming four web APIs globally.                                                                                                                                                                               |
+| D9  | **No input cap** — a withdrawal spends every vault output                                   | Measured (§3.7): peak heap is flat regardless of input count, because signing is sequential and each preimage is collected before the next. The binding constraint is broadcast payload size — a server limit to be found by testing, not a client memory limit. |
 
 ### Non-goals
 
@@ -124,10 +124,10 @@ valid, interpreter-accepted scripts on both branches. **No SDK bump is required.
 
 Measured by building a real output and spending it:
 
-| | bytes |
-|---|---|
-| locking script | **959,632** |
-| R1 unlocking script | **959,871** |
+|                     | bytes                        |
+| ------------------- | ---------------------------- |
+| locking script      | **959,632**                  |
+| R1 unlocking script | **959,871**                  |
 | K1 unlocking script | 107 (template estimates 109) |
 
 `R1_K1_TEMPLATE_BYTE_LENGTH` is 959,592; `lock()` expands two 1-byte constructor slots
@@ -167,11 +167,11 @@ export const R1K1_K1_UNLOCK_LEN = 109
 
 Run through the SDK's `Spend` interpreter:
 
-| | verdict | wall clock |
-|---|---|---|
-| K1 | `true` | 65 ms |
-| R1, low-S signature | `true` | 298 ms |
-| R1, high-S signature | `true` | 234 ms |
+|                      | verdict | wall clock |
+| -------------------- | ------- | ---------- |
+| K1                   | `true`  | 65 ms      |
+| R1, low-S signature  | `true`  | 298 ms     |
+| R1, high-S signature | `true`  | 234 ms     |
 
 Two consequences:
 
@@ -190,11 +190,11 @@ code entirely.
 Signing N R1 inputs sequentially, measuring peak RSS and peak heap on a 5 ms sampler:
 
 | inputs | sign time | peak heap | peak RSS | retained unlock hex | spending tx |
-|---|---|---|---|---|---|
-| 1 | 61 ms | 30.7 MB | 109 MB | 1.8 MB | 0.9 MB |
-| 4 | 208 ms | 30.2 MB | 110 MB | 7.3 MB | 3.7 MB |
-| 10 | 529 ms | 30.4 MB | 110 MB | 18.3 MB | 9.2 MB |
-| 25 | 1296 ms | 30.5 MB | 110 MB | 45.8 MB | 22.9 MB |
+| ------ | --------- | --------- | -------- | ------------------- | ----------- |
+| 1      | 61 ms     | 30.7 MB   | 109 MB   | 1.8 MB              | 0.9 MB      |
+| 4      | 208 ms    | 30.2 MB   | 110 MB   | 7.3 MB              | 3.7 MB      |
+| 10     | 529 ms    | 30.4 MB   | 110 MB   | 18.3 MB             | 9.2 MB      |
+| 25     | 1296 ms   | 30.5 MB   | 110 MB   | 45.8 MB             | 22.9 MB     |
 
 **Peak heap is flat.** Each input's ~960 KB preimage — and the intermediate `number[]`
 forms of it inside `TransactionSignature.format` and `Array.from(preimage)` — is
@@ -207,16 +207,16 @@ transaction itself at 0.92 MB per input.
 
 The real ceiling is therefore the **broadcast payload**, not device memory. Arcade and
 TAAL are fed extended format, not BEEF — `arcadeBroadcastProvider.ts:59` posts
-`new Uint8Array(tx.toEF())`. EF inlines each input's *source locking script* alongside
+`new Uint8Array(tx.toEF())`. EF inlines each input's _source locking script_ alongside
 its unlocking script, and for a vault input both are ~0.92 MB, so the payload is
 almost exactly double the raw transaction:
 
-| inputs | raw tx | EF posted |
-|---|---|---|
-| 1 | 0.92 MB | **1.83 MB** |
-| 2 | 1.83 MB | 3.66 MB |
-| 4 | 3.66 MB | 7.32 MB |
-| 10 | 9.15 MB | 18.31 MB |
+| inputs | raw tx  | EF posted   |
+| ------ | ------- | ----------- |
+| 1      | 0.92 MB | **1.83 MB** |
+| 2      | 1.83 MB | 3.66 MB     |
+| 4      | 3.66 MB | 7.32 MB     |
+| 10     | 9.15 MB | 18.31 MB    |
 
 Exactly 1.83 MB per input, linear. Neither the SDK's `ARC` broadcaster nor the app
 imposes a client-side limit.
@@ -238,8 +238,7 @@ are not visible from this repo and are not assumed here.
 `R1K1Wallet.loadTemplateBytes()` decompresses its artifact with:
 
 ```js
-new Blob([compressed.buffer]).stream()
-  .pipeThrough(new DecompressionStream('gzip'))
+new Blob([compressed.buffer]).stream().pipeThrough(new DecompressionStream('gzip'))
 ```
 
 React Native 0.83 / Hermes provides none of `DecompressionStream`, `ReadableStream`,
@@ -270,8 +269,8 @@ PIN for you.
 
 ```ts
 const lockingScript = await new R1K1Wallet().lock(
-  Hash.hash160([...r1PublicKey33, ...salt32]),   // R1 commitment
-  Hash.hash160(k1PublicKey33)                     // K1 commitment
+  Hash.hash160([...r1PublicKey33, ...salt32]), // R1 commitment
+  Hash.hash160(k1PublicKey33) // K1 commitment
 )
 ```
 
@@ -316,12 +315,12 @@ Basket, tags and labels are unchanged: `admin vault`, `tags: ['vault']`, labels
 
 ## 5. Key material
 
-| | R1 leg | K1 leg |
-|---|---|---|
-| root | YubiKey PIV slot `0x82`, P-256, non-extractable | `HD.fromSeed(Mnemonic.toSeed(vaultPassphrase))` |
-| per-output | one pubkey, unique salt | `HD.fromString(xpub).deriveChild(n)` |
-| public derivation at deposit | pubkey from vault meta | existing xpub path |
-| spend requires | YubiKey + PIN + touch | mnemonic + vault passphrase |
+|                              | R1 leg                                          | K1 leg                                          |
+| ---------------------------- | ----------------------------------------------- | ----------------------------------------------- |
+| root                         | YubiKey PIV slot `0x82`, P-256, non-extractable | `HD.fromSeed(Mnemonic.toSeed(vaultPassphrase))` |
+| per-output                   | one pubkey, unique salt                         | `HD.fromString(xpub).deriveChild(n)`            |
+| public derivation at deposit | pubkey from vault meta                          | existing xpub path                              |
+| spend requires               | YubiKey + PIN + touch                           | mnemonic + vault passphrase                     |
 
 The two legs are fully independent: neither can produce the other, and losing either
 one leaves the funds reachable.
@@ -338,7 +337,7 @@ export interface VaultMetaV3 {
   nextKeyIndex: number
   lastUsedAt?: number
   xpub: string
-  r1PublicKey: string   // 33-byte compressed P-256, hex
+  r1PublicKey: string // 33-byte compressed P-256, hex
 }
 ```
 
@@ -368,7 +367,7 @@ the TS side. `driver.ts` gains a matching
 These are not defensive polish; each corresponds to a verified defect or a silent
 wrong answer.
 
-1. **Digest length.** Reject anything that is not exactly 32 bytes, in TS *and* again
+1. **Digest length.** Reject anything that is not exactly 32 bytes, in TS _and_ again
    natively. On iOS, an unrecognised `SecKeyAlgorithm` leaves the padding buffer nil
    and the code path signs **32 zero bytes** rather than erroring — the
    `"EC padding algorithm not supported."` branch is unreachable dead code. On
@@ -380,7 +379,7 @@ wrong answer.
    resolve/reject on a Nitro `Promise<String>` is a crash risk.
 3. **Explicit `verifyPin` before every sign.** Neither SDK does it. Yubico's own JCA
    wrapper verifies the PIN immediately before `rawSignOrDecrypt`; do the same. On
-   Android this must happen inside *every* call, because `withPiv` opens a fresh
+   Android this must happen inside _every_ call, because `withPiv` opens a fresh
    `SmartCardConnection`/`PivSession` per operation.
 
 ### 6.3 Touch policy
@@ -474,7 +473,7 @@ round — the intent being to rebuild the locking script locally from `salt` +
 `r1PublicKey` + the xpub child, so `unlockR1({ sourceSatoshis, lockingScript })`
 never needs the source transaction, keeping megabytes of BEEF out of memory.
 
-That reasoning is sound for *our* code and wrong about the toolbox. The signer layer
+That reasoning is sound for _our_ code and wrong about the toolbox. The signer layer
 resolves `sourceTransaction` solely from the caller's `inputBEEF` and throws
 `WERR_INTERNAL` without it — see §14. Every withdrawal and sweep fails before signing
 if the BEEF is omitted, and no mocked-wallet test can detect it. The local rebuild is
@@ -494,7 +493,7 @@ There is no input cap because there is no memory reason for one — §3.7 shows 
 flat across 1 to 25 inputs, since inputs are signed sequentially and each preimage is
 collected before the next. The only scaling concern is the 1.83 MB per input of
 extended format posted at broadcast, which is a server-side limit at Arcade/TAAL,
-unknown until tested (§14). If a ceiling turns up, bound by *EF payload size* against
+unknown until tested (§14). If a ceiling turns up, bound by _EF payload size_ against
 the measured limit — not by an arbitrary input count.
 
 ```
@@ -514,7 +513,8 @@ Entry point unchanged (`vault-recover`). Per output:
 ```ts
 tpl.unlockK1({
   privateKey: depositPrivKey(hd, indexFromKeyID(ci.keyID)),
-  sourceSatoshis, lockingScript
+  sourceSatoshis,
+  lockingScript
 })
 ```
 
@@ -536,7 +536,7 @@ branch of `makePrivilegedKeyGetter`; the `destroyPrivilegedKey()` calls in `vaul
 and `vault-recover.tsx`.
 
 **Kept:** a `PrivilegedKeyManager` returning the plain root key — the toolbox requires
-`providePrivilegedKeyManager`. `guardVaultAccess` stays and becomes *more* important,
+`providePrivilegedKeyManager`. `guardVaultAccess` stays and becomes _more_ important,
 not less: privileged now means the root key, so blocking non-admin originators is the
 only thing standing between a web page and it.
 
@@ -556,18 +556,18 @@ untested because every `transfers` fixture used v1 `vault/<n>` keyIDs.
 **one new code**, `template-invalid`, because `seal-corrupt` becomes a misnomer once
 §10 deletes sealing.
 
-| Condition | Code |
-|---|---|
-| digest not exactly 32 bytes | `template-invalid` — programmer error, must never reach a user |
+| Condition                                                       | Code                                                                     |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| digest not exactly 32 bytes                                     | `template-invalid` — programmer error, must never reach a user           |
 | armed signer's public key ≠ the output's recorded `r1PublicKey` | `wrong-key` — the YubiKey present is not the one that locked this output |
-| template gzip / length / SHA-256 failure | `template-invalid` |
-| tap dropped mid-signature | `nfc-lost`, retried per §7 |
+| template gzip / length / SHA-256 failure                        | `template-invalid`                                                       |
+| tap dropped mid-signature                                       | `nfc-lost`, retried per §7                                               |
 
 The "wrong YubiKey" signal is a direct comparison, in `spendVaultOutputs` (transfers.ts),
 between the armed `VaultR1Signer.publicKey` (read from the card at arm time) and the
 output's own recorded `r1PublicKey` — checked once per input, before `unlockR1` is ever
 invoked, so it costs no tap. (An earlier draft of this section described the check as
-living *inside* `unlockR1`'s own commitment verification; that cannot work; `unlockR1`
+living _inside_ `unlockR1`'s own commitment verification; that cannot work; `unlockR1`
 is handed `r1PublicKey`/`salt` reconstructed from the same output's own
 customInstructions, so its internal check is self-consistent by construction and can
 never observe a real mismatch. The serial check in the ceremony — `ceremony.ts`'s
@@ -586,6 +586,7 @@ Real script execution, not structural assertions, since `Spend.validate()` runs 
 under 300 ms.
 
 **Script correctness**
+
 - R1 round trip validates through `Spend`; single-input and multi-input.
 - K1 round trip validates through `Spend`.
 - A high-S R1 signature validates. This pins §3.4 so a template revision cannot
@@ -598,9 +599,10 @@ under 300 ms.
   catches template drift on a version bump.
 
 **Flows**
+
 - Deposit below 200,000 sats rejected; at or above, accepted, with
   `customInstructions` carrying `v:2`, `keyID`, `salt`, `r1PublicKey`, `slot`.
-- Withdraw spends *every* vault output, re-vaults the remainder as one output when it
+- Withdraw spends _every_ vault output, re-vaults the remainder as one output when it
   clears the floor, and folds a sub-floor remainder into the withdrawal — so the vault
   converges to at most one UTXO.
 - Signing 10 inputs stays within a flat heap ceiling (guards the §3.7 finding against
@@ -612,6 +614,7 @@ under 300 ms.
 - K1 sweep spends every output regardless of count.
 
 **Native / ceremony**
+
 - Mock `signEcdsa` produces a signature the template accepts.
 - Digest-length rejection asserted at the TS boundary and in the mock.
 - Ceremony signs N digests within one armed session; a `nfc-lost` on input 2 retries
@@ -619,6 +622,7 @@ under 300 ms.
 - Serial mismatch still aborts before any signing.
 
 **Hardware matrix** (cannot be automated)
+
 - iOS NFC and Android NFC + USB: enroll with `CACHED`, deposit, 1-input withdraw,
   4-input withdraw, tap dropped mid-withdraw, wrong PIN, PIN lockout.
 
@@ -641,13 +645,13 @@ release note.
 
 ## 14. Open risks
 
-| Risk | Handling |
-|---|---|
-| ~~`createAction` may demand `inputBEEF` despite `trustSelf: 'known'`~~ | **RESOLVED 2026-08-15 — it does demand it. The fallback is mandatory.** `trustSelf`/`localKnownInputTxids` govern the *storage* layer's merkle-proof check; the *signer* layer is what binds. Vault inputs carry `unlockingScriptLength` but no `unlockingScript`, so `isSignAction` is true (`@bsv/sdk` `validationHelpers.js:461-462`); `buildSignableTransaction` resolves `sourceTransaction` **only** from `args.inputBEEF` (`:14`, `:101`); with none supplied it throws `WERR_INTERNAL('Every signableTransaction input must have a sourceTransaction')` (`createAction.js:76-79`) on the first input, before signing. Withdraw and sweep therefore keep `include: 'entire transactions'` and forward `list.BEEF`. Deposits are unaffected — they supply no explicit inputs, so their `isSignAction` is false. Note the memory saving was always illusory: broadcast pays ~1.83 MB/input in extended format regardless. |
-| ~~The iOS Swift spelling of `signWithKeyInSlot:type:algorithm:message:completion:` is importer-derived~~ | **RESOLVED 2026-08-15 by compilation.** It imports as `signWithKey(in:type:algorithm:message:)`. The `...InSlot:` → `in:` pattern from `calculateSecretKey(in:)` held; the guess in the implementation plan (`sign(withKeyInSlot:…)`) was wrong and failed with `incorrect argument label in call … expected 'in:type:algorithm:message:_:'`. `xcodebuild` on the `BSVBrowser` workspace then reported BUILD SUCCEEDED, 0 errors, 0 warnings. |
-| `patch-package` drift on a future `@bsv/templates` bump | The template's own length + SHA-256 assertions fail loudly rather than silently. |
-| Arcade's `MaxScriptSizePolicy: 500000` makes every spend fail until raised | Operator action, owned outside this repo; miner policy is already 100,000,000. See §0 for the sequencing rule it imposes. |
-| `MaxStackMemoryUsagePolicy: 104857600` headroom for a ~960 KB P-256 verifier | Not determinable from source. Falls out of the §0 spend proof for free. |
-| TAAL's ARC limits are not visible from this repo | A second independent broadcaster (`WalletContext.tsx:743`). Assume it enforces the same 500,000 default until shown otherwise. |
-| Storage: ~1 MB per vault transaction in SQLite | Exercise alongside the §0 spend test. |
-| `readVaultPublicKey` returns null unconditionally for slot `0x82` on iOS, so the slot-occupancy guard is inert there | Pre-existing, unchanged by this work. Re-enrollment will silently overwrite an occupied slot on iOS. Worth a separate fix. |
+| Risk                                                                                                                 | Handling                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ~~`createAction` may demand `inputBEEF` despite `trustSelf: 'known'`~~                                               | **RESOLVED 2026-08-15 — it does demand it. The fallback is mandatory.** `trustSelf`/`localKnownInputTxids` govern the _storage_ layer's merkle-proof check; the _signer_ layer is what binds. Vault inputs carry `unlockingScriptLength` but no `unlockingScript`, so `isSignAction` is true (`@bsv/sdk` `validationHelpers.js:461-462`); `buildSignableTransaction` resolves `sourceTransaction` **only** from `args.inputBEEF` (`:14`, `:101`); with none supplied it throws `WERR_INTERNAL('Every signableTransaction input must have a sourceTransaction')` (`createAction.js:76-79`) on the first input, before signing. Withdraw and sweep therefore keep `include: 'entire transactions'` and forward `list.BEEF`. Deposits are unaffected — they supply no explicit inputs, so their `isSignAction` is false. Note the memory saving was always illusory: broadcast pays ~1.83 MB/input in extended format regardless. |
+| ~~The iOS Swift spelling of `signWithKeyInSlot:type:algorithm:message:completion:` is importer-derived~~             | **RESOLVED 2026-08-15 by compilation.** It imports as `signWithKey(in:type:algorithm:message:)`. The `...InSlot:` → `in:` pattern from `calculateSecretKey(in:)` held; the guess in the implementation plan (`sign(withKeyInSlot:…)`) was wrong and failed with `incorrect argument label in call … expected 'in:type:algorithm:message:_:'`. `xcodebuild` on the `BSVBrowser` workspace then reported BUILD SUCCEEDED, 0 errors, 0 warnings.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `patch-package` drift on a future `@bsv/templates` bump                                                              | The template's own length + SHA-256 assertions fail loudly rather than silently.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Arcade's `MaxScriptSizePolicy: 500000` makes every spend fail until raised                                           | Operator action, owned outside this repo; miner policy is already 100,000,000. See §0 for the sequencing rule it imposes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `MaxStackMemoryUsagePolicy: 104857600` headroom for a ~960 KB P-256 verifier                                         | Not determinable from source. Falls out of the §0 spend proof for free.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| TAAL's ARC limits are not visible from this repo                                                                     | A second independent broadcaster (`WalletContext.tsx:743`). Assume it enforces the same 500,000 default until shown otherwise.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Storage: ~1 MB per vault transaction in SQLite                                                                       | Exercise alongside the §0 spend test.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `readVaultPublicKey` returns null unconditionally for slot `0x82` on iOS, so the slot-occupancy guard is inert there | Pre-existing, unchanged by this work. Re-enrollment will silently overwrite an occupied slot on iOS. Worth a separate fix.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |

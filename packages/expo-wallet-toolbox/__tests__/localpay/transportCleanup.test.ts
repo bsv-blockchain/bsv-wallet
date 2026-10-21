@@ -6,7 +6,7 @@ import { CodecError, FRAME_VERSION, type PaymentFrame } from '../../core/localpa
 
 jest.mock('@bsv/react-native-localpay-transport', () => ({
   getLocalPayTransport: jest.fn(),
-  getLocalPayBleTransport: jest.fn(),
+  getLocalPayBleTransport: jest.fn()
 }))
 
 const session = mintSession({
@@ -15,7 +15,7 @@ const session = mintSession({
   derivationPrefix: 'cA',
   derivationSuffix: 'cw',
   supportsAwdl: true,
-  supportsBle: true,
+  supportsBle: true
 })
 const frame: PaymentFrame = {
   version: FRAME_VERSION,
@@ -24,7 +24,7 @@ const frame: PaymentFrame = {
   outputIndex: 0,
   derivationPrefix: 'cA',
   derivationSuffix: 'cw',
-  transaction: new Uint8Array([1, 2, 3]),
+  transaction: new Uint8Array([1, 2, 3])
 }
 
 describe.each(['awdl', 'nearby', 'ble-central', 'ble-peripheral'] as const)('%s cleanup', kind => {
@@ -43,14 +43,13 @@ describe.each(['awdl', 'nearby', 'ble-central', 'ble-peripheral'] as const)('%s 
       stopListening: jest.fn().mockResolvedValue(undefined),
       confirmFrame: jest.fn().mockResolvedValue(undefined),
       sendFrame: jest.fn().mockResolvedValue(btoa('{"ok":true}')),
-      sendFrameAdvertising: jest.fn().mockResolvedValue(btoa('{"ok":true}')),
+      sendFrameAdvertising: jest.fn().mockResolvedValue(btoa('{"ok":true}'))
     }
-    const transport = kind === 'awdl' || kind === 'nearby'
-      ? makeSocketTransport(kind, () => native, 4000)
-      : makeBleTransport(() => native as never, 15_000)
-    const sendSession = kind === 'ble-peripheral'
-      ? { ...session, caps: session.caps | CAP_BLE_SCAN }
-      : session
+    const transport =
+      kind === 'awdl' || kind === 'nearby'
+        ? makeSocketTransport(kind, () => native, 4000)
+        : makeBleTransport(() => native as never, 15_000)
+    const sendSession = kind === 'ble-peripheral' ? { ...session, caps: session.caps | CAP_BLE_SCAN } : session
     const send = kind === 'ble-peripheral' ? native.sendFrameAdvertising : native.sendFrame
     const controller = new AbortController()
     const added = jest.spyOn(controller.signal, 'addEventListener')
@@ -76,7 +75,9 @@ describe.each(['awdl', 'nearby', 'ble-central', 'ble-peripheral'] as const)('%s 
   it('removes the abort listener when the native send throws synchronously', async () => {
     const { transport, sendSession, send, controller, expectAbortListenerRemoved } = setup()
     const failure = new Error('native send failed')
-    send.mockImplementation(() => { throw failure })
+    send.mockImplementation(() => {
+      throw failure
+    })
 
     await expect(transport.send(sendSession, frame, controller.signal)).rejects.toBe(failure)
 
@@ -87,7 +88,9 @@ describe.each(['awdl', 'nearby', 'ble-central', 'ble-peripheral'] as const)('%s 
   it('cleans up when starting the native listener throws synchronously', async () => {
     const { native, transport, controller, expectAbortListenerRemoved } = setup()
     const failure = new Error('native listener failed')
-    native.startListening.mockImplementation(() => { throw failure })
+    native.startListening.mockImplementation(() => {
+      throw failure
+    })
 
     await expect(transport.receive(session, controller.signal)).rejects.toBe(failure)
 

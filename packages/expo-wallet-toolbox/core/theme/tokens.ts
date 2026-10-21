@@ -26,7 +26,7 @@ export const spacing = {
   lg: 16,
   xl: 20,
   xxl: 24,
-  xxxl: 32,
+  xxxl: 32
 } as const
 
 /* --------------------------------- Radii --------------------------------- */
@@ -42,7 +42,7 @@ export const radii = {
   md: 12,
   lg: 14,
   xl: 24,
-  pill: 999,
+  pill: 999
 } as const
 
 /* ------------------------------- Typography ------------------------------ */
@@ -68,7 +68,7 @@ export const typography = {
   subhead: { fontSize: 15, fontWeight: '400' as const, lineHeight: 20 },
   footnote: { fontSize: 13, fontWeight: '400' as const, lineHeight: 18 },
   caption1: { fontSize: 12, fontWeight: '400' as const, lineHeight: 16 },
-  caption2: { fontSize: 11, fontWeight: '400' as const, lineHeight: 13 },
+  caption2: { fontSize: 11, fontWeight: '400' as const, lineHeight: 13 }
 } as const
 
 /* --------------------------------- Colors -------------------------------- */
@@ -151,7 +151,7 @@ export const lightColors = {
   permissionProtocol: '#34C759',
   permissionBasket: '#34C759',
   permissionIdentity: '#007AFF',
-  permissionSpending: '#FF9500',
+  permissionSpending: '#FF9500'
 } as const
 
 export const darkColors = {
@@ -222,11 +222,11 @@ export const darkColors = {
   permissionProtocol: '#1fae4378',
   permissionBasket: '#1fae4378',
   permissionIdentity: '#24588dff',
-  permissionSpending: '#FF9F0A',
+  permissionSpending: '#FF9F0A'
 } as const
 
 /* ------------------------------ Hit Targets ------------------------------ */
 
 export const hitTargets = {
-  minimum: 44, // iOS HIG minimum touch target
+  minimum: 44 // iOS HIG minimum touch target
 } as const

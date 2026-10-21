@@ -84,7 +84,7 @@ export interface PushResult {
  * without yielding, so a long pass would stall the JS thread. Successive passes drain the
  * backlog.
  */
-export async function pushOnce (deps: PushDeps): Promise<PushResult> {
+export async function pushOnce(deps: PushDeps): Promise<PushResult> {
   // Checked FIRST, ahead of even reading the local database: the opt-out means no wallet
   // data leaves this device, and the cheapest way to guarantee that is to do nothing at
   // all. The cursor is left untouched, so opting back in resumes from where the log
@@ -115,9 +115,7 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
   cursor = {
     ...cursor,
     maxObservedWallClock:
-      cursor.maxObservedWallClock != null && cursor.maxObservedWallClock > nowIso
-        ? cursor.maxObservedWallClock
-        : nowIso
+      cursor.maxObservedWallClock != null && cursor.maxObservedWallClock > nowIso ? cursor.maxObservedWallClock : nowIso
   }
 
   // Back-fill: this cursor's window closed at least once (since is set) with real chunks
@@ -270,9 +268,9 @@ export async function pushOnce (deps: PushDeps): Promise<PushResult> {
  * identity key every auth proof signs toward — so constructing a fresh client
  * each pass would re-fetch it every minute for no reason.
  */
-let cachedClient: { key: string, client: BackupClient } | undefined
+let cachedClient: { key: string; client: BackupClient } | undefined
 
-function resolveClient (deps: PushDeps): BackupClient {
+function resolveClient(deps: PushDeps): BackupClient {
   if (deps.client != null) return deps.client
   if (deps.baseUrl == null || deps.baseUrl === '') {
     throw new Error('pushOnce requires either a client or a baseUrl')
@@ -310,7 +308,7 @@ function resolveClient (deps: PushDeps): BackupClient {
  * backwards could still orphan a record, but that was equally true of `>=` and is not
  * something a timestamp cursor can defend against.)
  */
-function nextInstant (iso: string | undefined): string | undefined {
+function nextInstant(iso: string | undefined): string | undefined {
   if (iso == null) return undefined
   const t = Date.parse(iso)
   // An unparseable timestamp must not silently reset the window to the epoch; leaving it
@@ -320,7 +318,7 @@ function nextInstant (iso: string | undefined): string | undefined {
 }
 
 /** Per-entity consumed counts grow by what this chunk carried. */
-function advanceOffsets (cursor: PushCursor, chunk: SyncChunk): PushCursor['offsets'] {
+function advanceOffsets(cursor: PushCursor, chunk: SyncChunk): PushCursor['offsets'] {
   const c = chunk as unknown as Record<string, unknown[] | undefined>
   const next = { ...cursor.offsets }
   for (const name of ENTITY_NAMES) {
@@ -330,7 +328,7 @@ function advanceOffsets (cursor: PushCursor, chunk: SyncChunk): PushCursor['offs
 }
 
 /** Greatest `updated_at` across everything in this chunk. */
-function maxUpdatedAt (current: string | undefined, chunk: SyncChunk): string | undefined {
+function maxUpdatedAt(current: string | undefined, chunk: SyncChunk): string | undefined {
   const c = chunk as unknown as Record<string, Array<Record<string, unknown>> | undefined> // eslint-disable-line @typescript-eslint/array-type
   let max = current
 
@@ -351,12 +349,12 @@ function maxUpdatedAt (current: string | undefined, chunk: SyncChunk): string | 
  * A generation is meant to be a coherent snapshot, so starting one mid-window would leave a
  * partially written generation that a restore could not trust.
  */
-function shouldRotate (cursor: PushCursor): boolean {
+function shouldRotate(cursor: PushCursor): boolean {
   return cursor.chunksInGeneration >= GENERATION_CHUNK_THRESHOLD
 }
 
 /** Begin a new generation: a full snapshot, from sequence one, with no `since` filter. */
-function rotate (cursor: PushCursor): PushCursor {
+function rotate(cursor: PushCursor): PushCursor {
   return freshCursor(cursor.generation + 1)
 }
 
@@ -367,7 +365,7 @@ function rotate (cursor: PushCursor): PushCursor {
  * remote log already covers, start a fresh generation — one extra full snapshot is cheap
  * next to a restore with a hole in it.
  */
-async function resyncFromServer (
+async function resyncFromServer(
   client: BackupClient,
   _pseudonym: string,
   deviceId: string,

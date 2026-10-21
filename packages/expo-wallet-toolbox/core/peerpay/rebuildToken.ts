@@ -1,9 +1,11 @@
 import type { OutboxEntry } from './outbox'
 
-export function instructionsFromOutput(customInstructions: unknown): {
-  derivationPrefix: string
-  derivationSuffix: string
-} | undefined {
+export function instructionsFromOutput(customInstructions: unknown):
+  | {
+      derivationPrefix: string
+      derivationSuffix: string
+    }
+  | undefined {
   let parsed: unknown = customInstructions
   if (typeof customInstructions === 'string') {
     try {
@@ -35,13 +37,14 @@ type RebuildOutput = {
  * is the one to take. If nothing is marked either way, fall back to the first
  * output that carries derivation data — the previous behaviour.
  */
-function paymentOutput(outputs: RebuildOutput[]):
-  | { instructions: { derivationPrefix: string; derivationSuffix: string }; out: RebuildOutput }
-  | undefined {
+function paymentOutput(
+  outputs: RebuildOutput[]
+): { instructions: { derivationPrefix: string; derivationSuffix: string }; out: RebuildOutput } | undefined {
   const parsed = outputs
     .map(out => ({ out, instructions: instructionsFromOutput(out.customInstructions) }))
-    .filter((x): x is { out: RebuildOutput; instructions: { derivationPrefix: string; derivationSuffix: string } } =>
-      x.instructions !== undefined
+    .filter(
+      (x): x is { out: RebuildOutput; instructions: { derivationPrefix: string; derivationSuffix: string } } =>
+        x.instructions !== undefined
     )
   if (parsed.length === 0) return undefined
   return parsed.find(x => !x.out.basket) ?? parsed[0]

@@ -40,12 +40,7 @@ export function generateKekId(): string {
   return Utils.toHex(Random(8))
 }
 
-export function sealSecret(
-  kek: number[],
-  kekId: string,
-  name: SecretName,
-  plaintext: string
-): EnvelopeBlob {
+export function sealSecret(kek: number[], kekId: string, name: SecretName, plaintext: string): EnvelopeBlob {
   const salt = Random(SALT_LEN)
   const dek = deriveDek(kek, salt, name)
   const c = new SymmetricKey(dek).encrypt(Utils.toArray(plaintext, 'utf8')) as number[]

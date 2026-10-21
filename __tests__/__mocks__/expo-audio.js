@@ -15,7 +15,7 @@ const calls = {
   played: 0,
   sought: [],
   removed: 0,
-  audioModes: [],
+  audioModes: []
 }
 
 class Player {
@@ -69,5 +69,5 @@ module.exports = {
   setAudioModeAsync,
   setIsAudioActiveAsync,
   __calls: calls,
-  __reset,
+  __reset
 }

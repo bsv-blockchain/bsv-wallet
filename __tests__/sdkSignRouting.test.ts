@@ -26,7 +26,7 @@ interface FixtureOpts {
 }
 
 /** n-input P2PKH fixture (distinct keys, self-funded source tx). */
-function fixture (n: number, opts: FixtureOpts = {}): { build: () => Transaction } {
+function fixture(n: number, opts: FixtureOpts = {}): { build: () => Transaction } {
   const p2pkh = new P2PKH()
   const keys: PrivateKey[] = []
   const srcTx = new Transaction()
@@ -35,9 +35,10 @@ function fixture (n: number, opts: FixtureOpts = {}): { build: () => Transaction
     keys.push(k)
     // An override must also be what the source output locks with: the SDK
     // rejects a template script that contradicts the source transaction.
-    const lock = opts.lockingScriptOverride != null
-      ? LockingScript.fromHex(opts.lockingScriptOverride.toHex())
-      : p2pkh.lock(k.toAddress())
+    const lock =
+      opts.lockingScriptOverride != null
+        ? LockingScript.fromHex(opts.lockingScriptOverride.toHex())
+        : p2pkh.lock(k.toAddress())
     srcTx.addOutput({ lockingScript: lock, satoshis: 1000 + i })
   }
   const dest = new PrivateKey(999999).toAddress()
@@ -49,9 +50,10 @@ function fixture (n: number, opts: FixtureOpts = {}): { build: () => Transaction
       tx.addInput({
         sourceTransaction: srcTx,
         sourceOutputIndex: i,
-        unlockingScriptTemplate: opts.lockingScriptOverride != null
-          ? p2pkh.unlock(keys[i], signOutputs, anyoneCanPay, 1000 + i, opts.lockingScriptOverride)
-          : p2pkh.unlock(keys[i], signOutputs, anyoneCanPay),
+        unlockingScriptTemplate:
+          opts.lockingScriptOverride != null
+            ? p2pkh.unlock(keys[i], signOutputs, anyoneCanPay, 1000 + i, opts.lockingScriptOverride)
+            : p2pkh.unlock(keys[i], signOutputs, anyoneCanPay),
         sequence: 0xffffffff
       })
     }
@@ -65,7 +67,7 @@ function fixture (n: number, opts: FixtureOpts = {}): { build: () => Transaction
 }
 
 /** ORIGINAL tier-3 semantics: sign template-by-template, no batch tiers. */
-async function manualSign (tx: Transaction): Promise<Transaction> {
+async function manualSign(tx: Transaction): Promise<Transaction> {
   for (let i = 0; i < tx.inputs.length; i++) {
     const t = tx.inputs[i].unlockingScriptTemplate
     if (typeof t === 'object' && t != null) {
@@ -76,7 +78,7 @@ async function manualSign (tx: Transaction): Promise<Transaction> {
 }
 
 /** Frame a twin's unlocking scripts as the engine reply for `indexes`. */
-function engineReplyFromTwin (twin: Transaction, indexes: number[]): ArrayBuffer {
+function engineReplyFromTwin(twin: Transaction, indexes: number[]): ArrayBuffer {
   const parts: Uint8Array[] = []
   for (const i of indexes) {
     const script = Uint8Array.from(twin.inputs[i].unlockingScript!.toBinary())
@@ -121,7 +123,7 @@ describe('tier 1 — engine-routed', () => {
     const n = 6
     const { build } = fixture(n)
     const twin = await manualSign(build())
-    const calls: { skel: Uint8Array, metas: Uint8Array }[] = []
+    const calls: { skel: Uint8Array; metas: Uint8Array }[] = []
     g.__bsvEngineNative = {
       batchSignP2pkhInputs: async (skel: ArrayBuffer, metas: ArrayBuffer) => {
         calls.push({ skel: new Uint8Array(skel), metas: new Uint8Array(metas) })
@@ -160,7 +162,7 @@ describe('tier 1 — engine-routed', () => {
     for (let i = 0; i < n; i++) {
       const txidInternal = Array.from(skel.subarray(o, o + 32))
         .reverse()
-        .map((b) => b.toString(16).padStart(2, '0'))
+        .map(b => b.toString(16).padStart(2, '0'))
         .join('')
       expect(txidInternal).toBe(srcIdHex)
       expect(sdv.getUint32(o + 32, true)).toBe(i) // vout
@@ -221,7 +223,7 @@ describe('fallback contract — anything else leaves the engine tier', () => {
     await tx.sign()
     expect(called).toBe(1)
     expect(tx.toHex()).toBe(twin.toHex())
-    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('[EngineNative]'))).toBe(true)
+    expect(warnSpy.mock.calls.some(c => String(c[0]).includes('[EngineNative]'))).toBe(true)
   })
 
   it('CR-5: a mixed tx SUBSET-routes its P2PKH inputs; the custom template signs itself', async () => {
@@ -270,7 +272,12 @@ describe('fallback contract — anything else leaves the engine tier', () => {
     }
     const twin = await manualSign(make())
     let called = 0
-    g.__bsvEngineNative = { batchSignP2pkhInputs: async () => { called++; throw new Error('NotP2pkh { input_index: 0 }') } }
+    g.__bsvEngineNative = {
+      batchSignP2pkhInputs: async () => {
+        called++
+        throw new Error('NotP2pkh { input_index: 0 }')
+      }
+    }
     const tx = make()
     await tx.sign()
     expect(called).toBe(1) // engine attempted the subset, then tier 2 carried the whole tx
@@ -283,7 +290,12 @@ describe('fallback contract — anything else leaves the engine tier', () => {
     const { build } = fixture(n, { lockingScriptOverride: weird })
     const twin = await manualSign(build())
     let called = 0
-    g.__bsvEngineNative = { batchSignP2pkhInputs: async () => { called++; throw new Error('never') } }
+    g.__bsvEngineNative = {
+      batchSignP2pkhInputs: async () => {
+        called++
+        throw new Error('never')
+      }
+    }
     const tx = build()
     await tx.sign()
     expect(called).toBe(0)

@@ -194,11 +194,7 @@ export function demoReceiveBsv(satoshis: number, description: string): DemoActio
 }
 
 /** Spend a token. Returns the new row, or null when the balance cannot cover it. */
-export function demoSendToken(
-  assetId: string,
-  baseUnits: number,
-  counterpartyKey?: string
-): TokenActivityRow | null {
+export function demoSendToken(assetId: string, baseUnits: number, counterpartyKey?: string): TokenActivityRow | null {
   if (!demoAssetById(assetId)) return null
   if (!Number.isFinite(baseUnits) || baseUnits <= 0) return null
   const held = demoTokenBaseUnits(assetId)

@@ -7,8 +7,10 @@ import { DEFAULT_SETTINGS as LIB_DEFAULT_SETTINGS, WalletSettings } from '@bsv/w
 // their certificates threw in the dApp. Same wording as ts-stack#665, which
 // fixes the library; drop this once @bsv/wallet-toolbox-mobile ships it.
 const LIB_CERTIFIER_DESCRIPTIONS: Record<string, string> = {
-  '03daf815fe38f83da0ad83b5bedc520aa488aef5cbc93a93c67a7fe60406cbffe8': 'Registry of protocols, baskets, certificate types',
-  '02cf6cdf466951d8dfc9e7c9367511d0007ed6fba35ed42d425cc412fd6cfd4a17': 'Certifies social media handles, phones and emails'
+  '03daf815fe38f83da0ad83b5bedc520aa488aef5cbc93a93c67a7fe60406cbffe8':
+    'Registry of protocols, baskets, certificate types',
+  '02cf6cdf466951d8dfc9e7c9367511d0007ed6fba35ed42d425cc412fd6cfd4a17':
+    'Certifies social media handles, phones and emails'
 }
 
 export const DEFAULT_SETTINGS: WalletSettings = {

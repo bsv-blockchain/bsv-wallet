@@ -29,18 +29,30 @@ describe.each([true, false])('native links (initial: %s)', initial => {
 
   it.each(['bsv-wallet', 'bsv-browser'])('supports root, nested and triple-slash %s routes', scheme => {
     expect(redirectSystemPath({ path: `${scheme}://`, initial })).toBe('/')
-    expect(redirectSystemPath({ path: `${scheme}://auth/mnemonic?flow=backup`, initial })).toBe('/auth/mnemonic?flow=backup')
-    expect(redirectSystemPath({ path: `${scheme}:///auth/mnemonic?flow=backup`, initial })).toBe('/auth/mnemonic?flow=backup')
+    expect(redirectSystemPath({ path: `${scheme}://auth/mnemonic?flow=backup`, initial })).toBe(
+      '/auth/mnemonic?flow=backup'
+    )
+    expect(redirectSystemPath({ path: `${scheme}:///auth/mnemonic?flow=backup`, initial })).toBe(
+      '/auth/mnemonic?flow=backup'
+    )
     expect(redirectSystemPath({ path: `${scheme}:///pair/?${pairingQuery}`, initial })).toBe(`/pair/?${pairingQuery}`)
   })
 
-  it.each(['bsv-wallet', 'bsv-browser'])('preserves a mixed-case pairing host for %s links (no rewrite to fold case)', scheme => {
-    expect(redirectSystemPath({ path: `${scheme}://PaIr?${pairingQuery}`, initial })).toBe(`/PaIr?${pairingQuery}`)
-  })
+  it.each(['bsv-wallet', 'bsv-browser'])(
+    'preserves a mixed-case pairing host for %s links (no rewrite to fold case)',
+    scheme => {
+      expect(redirectSystemPath({ path: `${scheme}://PaIr?${pairingQuery}`, initial })).toBe(`/PaIr?${pairingQuery}`)
+    }
+  )
 
-  it.each(['pairing', 'pair-other', 'pair/nested', 'pair.example'])('passes an unrelated %s route straight through', route => {
-    expect(redirectSystemPath({ path: `bsv-browser://${route}?${pairingQuery}`, initial })).toBe(`/${route}?${pairingQuery}`)
-  })
+  it.each(['pairing', 'pair-other', 'pair/nested', 'pair.example'])(
+    'passes an unrelated %s route straight through',
+    route => {
+      expect(redirectSystemPath({ path: `bsv-browser://${route}?${pairingQuery}`, initial })).toBe(
+        `/${route}?${pairingQuery}`
+      )
+    }
+  )
 
   describe('destructive recovery routes — refused regardless of wallet scheme', () => {
     it.each(['bsv-wallet', 'bsv-browser'])('redirects %s auth/scan-shares to /', scheme => {

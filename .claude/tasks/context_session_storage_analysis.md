@@ -1,16 +1,21 @@
 # Storage Layer Architecture Analysis
+
 ## Session: StorageExpoSQLite Rewrite Analysis
+
 ## Date: 2026-02-24
 
 ## Summary
+
 Comprehensive analysis of the @bsv/wallet-toolbox-mobile storage class hierarchy to determine exactly what StorageExpoSQLite must implement to properly extend StorageProvider.
 
 ## Package Structure
+
 - Only `@bsv/wallet-toolbox-mobile` is present in node_modules (no `@bsv/wallet-toolbox`)
 - StorageKnex does NOT exist in wallet-toolbox-mobile (it's server-only, not shipped)
 - The mobile package exports from `index.mobile.js`: WalletStorageManager, StorageProvider, StorageSyncReader, tables, entities, StorageMobile
 
 ## Class Hierarchy
+
 ```
 StorageReader (abstract)
   └─ StorageReaderWriter (abstract)
@@ -20,6 +25,7 @@ StorageReader (abstract)
 ```
 
 ## File Locations
+
 - StorageReader.d.ts: node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/StorageReader.d.ts
 - StorageReaderWriter.d.ts: node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/StorageReaderWriter.d.ts
 - StorageProvider.d.ts: node_modules/@bsv/wallet-toolbox-mobile/out/src/storage/StorageProvider.d.ts
@@ -28,18 +34,24 @@ StorageReader (abstract)
 - Current StorageExpoSQLiteImpl: storage/StorageExpoSQLiteImpl.ts (prototype extension pattern - wrong approach)
 
 ## Current Problem
+
 The current `StorageExpoSQLite` does NOT extend `StorageProvider`. It is a completely standalone class. This means:
+
 1. It misses all the complex business logic in StorageProvider (createAction, processAction, internalizeAction, etc.)
-2. It misses StorageReaderWriter convenience methods (findOrInsert*, setActive, tagOutput)
+2. It misses StorageReaderWriter convenience methods (findOrInsert\*, setActive, tagOutput)
 3. It misses StorageReader utility methods (validateEntityDate, getSyncChunk, findUserByIdentityKey)
 4. The `WalletStorageManager` cannot use it properly as a storage backend
 
 ## CORRECT APPROACH
+
 StorageExpoSQLite MUST extend StorageProvider:
+
 ```typescript
 import { StorageProvider, StorageProviderOptions } from '@bsv/wallet-toolbox-mobile'
 export class StorageExpoSQLite extends StorageProvider {
-  constructor(options: StorageProviderOptions) { super(options) }
+  constructor(options: StorageProviderOptions) {
+    super(options)
+  }
   // ... implement only the abstract methods listed below
 }
 ```
@@ -49,6 +61,7 @@ export class StorageExpoSQLite extends StorageProvider {
 ## METHODS ALREADY PROVIDED (DO NOT REIMPLEMENT)
 
 ### From StorageReader (inherited for free)
+
 - `isAvailable(): boolean` - checks if `_settings` is set
 - `makeAvailable(): Promise<TableSettings>` - calls readSettings() and caches result
 - `getSettings(): TableSettings` - returns cached settings
@@ -62,6 +75,7 @@ export class StorageExpoSQLite extends StorageProvider {
 - `validateDateForWhere(date)` - converts for WHERE clauses
 
 ### From StorageReaderWriter (inherited for free)
+
 - `setActive(auth, newActiveStorageIdentityKey)` - calls updateUser
 - `findCertificateById(id, trx?)`
 - `findCommissionById(id, trx?)`
@@ -87,6 +101,7 @@ export class StorageExpoSQLite extends StorageProvider {
 - `tagOutput(partial, tag, trx?)`
 
 ### From StorageProvider (inherited for free)
+
 - `isStorageProvider(): boolean` - returns true
 - `setServices(v)` / `getServices()`
 - `abortAction(auth, args)`
@@ -119,6 +134,7 @@ export class StorageExpoSQLite extends StorageProvider {
 ## ABSTRACT METHODS THAT MUST BE IMPLEMENTED
 
 ### From StorageReader (abstract)
+
 1. `destroy(): Promise<void>`
 2. `transaction<T>(scope: (trx: TrxToken) => Promise<T>, trx?: TrxToken): Promise<T>`
 3. `readSettings(trx?: TrxToken): Promise<TableSettings>`
@@ -150,6 +166,7 @@ export class StorageExpoSQLite extends StorageProvider {
 29. `getOutputTagMapsForUser(args: FindForUserSincePagedArgs): Promise<TableOutputTagMap[]>`
 
 ### From StorageReaderWriter (abstract - in addition to above)
+
 30. `dropAllData(): Promise<void>`
 31. `migrate(storageName: string, storageIdentityKey: string): Promise<string>`
 32. `findOutputTagMaps(args: FindOutputTagMapsArgs): Promise<TableOutputTagMap[]>`
@@ -193,6 +210,7 @@ export class StorageExpoSQLite extends StorageProvider {
 70. `processSyncChunk(args, chunk)` - abstract in StorageReaderWriter but StorageProvider implements it (so NOT needed if extending StorageProvider correctly)
 
 ### From StorageProvider (abstract - in addition to all above)
+
 71. `reviewStatus(args: { agedLimit: Date; trx?: TrxToken }): Promise<{ log: string }>`
 72. `purgeData(params: PurgeParams, trx?): Promise<PurgeResults>`
 73. `allocateChangeInput(userId, basketId, targetSatoshis, exactSatoshis, excludeSending, transactionId): Promise<TableOutput | undefined>`
@@ -236,6 +254,7 @@ export class StorageExpoSQLite extends StorageProvider {
 ```
 
 Use `StorageProvider.createStorageBaseOptions(chain)` as a helper to build the required options:
+
 ```typescript
 const opts = StorageProvider.createStorageBaseOptions('main')
 // Returns: { chain: 'main', feeModel: { model: 'sat/kb', value: 1 }, commissionSatoshis: 0, commissionPubKeyHex: undefined }
@@ -247,40 +266,49 @@ const storage = new StorageExpoSQLite({ ...opts, databaseName: 'my-wallet.db' })
 ## Key Implementation Notes
 
 ### DBType must be 'SQLite'
+
 The settings record MUST have `dbtype: 'SQLite'`. The base class `validateEntityDate` and
 `validateDateForWhere` methods switch on this to convert dates to ISO strings for SQLite.
 
 ### Date Handling
+
 All dates stored in SQLite as ISO strings. `validateEntityDate` handles this automatically
 once `dbtype: 'SQLite'` is set in settings.
 
 ### processSyncChunk
+
 This is abstract in StorageReaderWriter but StorageProvider provides the concrete implementation.
 StorageExpoSQLite does NOT need to implement this - StorageProvider handles it.
 
 ### listActions / listOutputs
+
 StorageIdb uses dedicated `listActionsIdb` and `listOutputsIdb` helper modules for the complex
 query logic. The StorageExpoSQLite equivalent should implement similar SQL query logic with
 proper filtering, paging, label/tag joins, etc.
 
 ### allocateChangeInput
+
 Critical for wallet funding. Must do an atomic read-then-update within a transaction to
 prevent double-spending. See StorageIdb.js lines 292-341 for the algorithm.
 
 ### getProvenTxsForUser / getProvenTxReqsForUser / getTxLabelMapsForUser / getOutputTagMapsForUser
-These are for sync. StorageIdb implements them via their filter* methods with userId filtering.
+
+These are for sync. StorageIdb implements them via their filter\* methods with userId filtering.
 StorageExpoSQLite should use SQL JOINs to filter by userId efficiently.
 
 ### validateEntity pattern
+
 StorageIdb.validateEntity (lines 2185-2210):
+
 - Converts all date fields to Date objects
 - Converts Uint8Array to number[]
 - Converts null to undefined
-The base StorageReader already provides validateEntityDate/validateDate helpers.
-The StorageIdb adds validateEntity/validateEntities/validatePartialForUpdate as public methods
-(not abstract - but expected by internal code via the Entity classes).
+  The base StorageReader already provides validateEntityDate/validateDate helpers.
+  The StorageIdb adds validateEntity/validateEntities/validatePartialForUpdate as public methods
+  (not abstract - but expected by internal code via the Entity classes).
 
 ### transaction() method
+
 IMPORTANT: The current StorageExpoSQLite.transaction() uses SQLite's `BEGIN TRANSACTION` / `COMMIT` / `ROLLBACK`
 directly. This is correct, but it needs to handle NESTED transactions (when a trx is passed in,
 reuse it rather than starting a new one). See how StorageIdb handles this (lines 1124-1140):
@@ -291,6 +319,7 @@ it just runs scope(trx) if trx is already provided.
 ## What the Current Implementation Has vs Needs
 
 ### Already Implemented (can be kept/adapted):
+
 - initDB / verifyDB / migrate pattern
 - insertUser, insertProvenTx, insertProvenTxReq, insertCertificate, insertCertificateField
 - insertOutputBasket, insertTransaction, insertCommission, insertOutput
@@ -303,12 +332,13 @@ it just runs scope(trx) if trx is already provided.
 - listOutputs, listActions, listCertificates (basic non-compliant versions)
 
 ### Missing / Wrong:
+
 - Does NOT extend StorageProvider (critical - the whole class needs to be restructured)
 - Missing: findCertificateFields, findCertificates, findCommissions, findMonitorEvents
 - Missing: findOutputBaskets, findOutputTags, findSyncStates, findTxLabels
 - Missing: findOutputTagMaps, findProvenTxReqs (used findProvenTxs for reqs - wrong)
 - Missing: findTxLabelMaps
-- Missing: all count* methods except countUsers/countTransactions/countOutputs
+- Missing: all count\* methods except countUsers/countTransactions/countOutputs
 - Missing: getProvenTxsForUser, getProvenTxReqsForUser, getTxLabelMapsForUser, getOutputTagMapsForUser
 - Missing: updateCertificate, updateCertificateField, updateCommission, updateMonitorEvent
 - Missing: updateOutputBasket, updateOutputTag, updateOutputTagMap, updateSyncState
@@ -320,7 +350,7 @@ it just runs scope(trx) if trx is already provided.
 - Missing: reviewStatus, purgeData
 - Missing: adminStats
 - Missing: validateEntity / validateEntities / validatePartialForUpdate public helpers
-- findOrInsert* methods duplicated in StorageExpoSQLiteImpl (these are FREE from StorageReaderWriter)
+- findOrInsert\* methods duplicated in StorageExpoSQLiteImpl (these are FREE from StorageReaderWriter)
 - findUserById / findTransactionById / findOutputById duplicated (FREE from StorageReaderWriter)
 - The prototype-patching pattern in StorageExpoSQLiteImpl.ts must be eliminated
 

@@ -36,17 +36,17 @@ The unlocking script at the reviewed revision is exactly 70 minimal pushes, bott
 BIP143 preimage. The lock then runs one straight-line program. Every stage ends in a VERIFY or
 feeds a later one; there is no OP_IF that skips a check.
 
-| Stage | What runs | What it pins down |
-| --- | --- | --- |
-| Shape | `OP_DEPTH 70 OP_NUMEQUALVERIFY` | Exactly 70 items. The alt stack is fresh per script by interpreter rule, so `n` and `p` cannot be preloaded. |
-| H0 | `preimage[0..4] == 01000000`; `e = BIN2NUM(HASH256(preimage) ‖ 00)`; preimage → alt | Transaction version 1. `e` is derived in-script from the same bytes OP_PUSH_TX will bind. |
-| H1 | `1 ≤ s ≤ (n−1)/2`; `1 ≤ s⁻¹ < n`; `1 ≤ r < p`; `r ≠ n`; `s·s⁻¹ ≡ 1 (mod n)`; `u1 = e·s⁻¹`; `u2 = r·s⁻¹` | Canonical scalars. With `p < 2n`, `r = n` is the only in-range value with `r ≡ 0 (mod n)`; rejecting it, together with `r < p`, closes the CRT forgery (one residue for the scalar multiply, another for the x check). |
-| H2/H3 | Recode `u2`, `u1` to 258 signed digits; `OP_NUMEQUALVERIFY` against the pushed recodings | The comb digits are a deterministic function of `(preimage, r, s⁻¹)`. The pushed copies exist only so the loop can reach them by depth. |
-| H4 | Lock pushes its baked 32-byte salt; 64 × `OP_PICK 33 OP_NUM2BIN OP_CAT`; `OP_HASH160` | `HASH160(salt ‖ le33(x₀) ‖ le33(y₀) ‖ … ‖ le33(y₃₁))`. `OP_NUM2BIN` normalises encodings, so the hash fixes the table's integer values, including sign. |
-| H5 | N = 1: `<C> OP_EQUALVERIFY`; N ≥ 2: `(OP_DUP <Cᵢ> OP_EQUAL OP_SWAP)×(N−1) <C_last> OP_EQUAL OP_BOOLOR×(N−1) OP_VERIFY` | The hash must equal one of the N baked commitments. Correct OR over N booleans. |
-| Suffix | 64 baked `G`-table coordinates; push `p`, swap it for `n` on alt; accumulator `(1, 1, 0)` | The `G` table is part of the lock, not the witness. `parseBakedLock` regenerates the whole suffix byte for byte. |
-| Comb | 43 columns of `DOUBLE`, then complete mixed add of `TQ[j₂]·±1`, then `TG[j₁]·±1` | Digit extraction by `OP_RSHIFTNUM 2 OP_MOD`, sign row XNOR'd into a 5-bit index, `y := p − y` for negative digits. The wrapper handles infinity, unequal add, equal (double), and inverse (infinity) explicitly. |
-| Tail | `Z ≠ 0`; `X ≡ r·Z² (mod p)`; clear 135 items; OP_PUSH_TX; `OP_CODESEPARATOR OP_CHECKSIG` | Exact affine x equality: `r ∈ [1, p)` and `X ∈ [0, p)` are both reduced. OP_PUSH_TX builds `(Gx, lowS(e_k1 + C1))` for dummy key `d1 = C1·Gx⁻¹`, or `(Gx, 1)` for `d2 = C2·Gx⁻¹` when the first scalar is zero, appends `0x41`, and CHECKSIGs against scriptCode `ac`. |
+| Stage  | What runs                                                                                                              | What it pins down                                                                                                                                                                                                                                                      |
+| ------ | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shape  | `OP_DEPTH 70 OP_NUMEQUALVERIFY`                                                                                        | Exactly 70 items. The alt stack is fresh per script by interpreter rule, so `n` and `p` cannot be preloaded.                                                                                                                                                           |
+| H0     | `preimage[0..4] == 01000000`; `e = BIN2NUM(HASH256(preimage) ‖ 00)`; preimage → alt                                    | Transaction version 1. `e` is derived in-script from the same bytes OP_PUSH_TX will bind.                                                                                                                                                                              |
+| H1     | `1 ≤ s ≤ (n−1)/2`; `1 ≤ s⁻¹ < n`; `1 ≤ r < p`; `r ≠ n`; `s·s⁻¹ ≡ 1 (mod n)`; `u1 = e·s⁻¹`; `u2 = r·s⁻¹`                | Canonical scalars. With `p < 2n`, `r = n` is the only in-range value with `r ≡ 0 (mod n)`; rejecting it, together with `r < p`, closes the CRT forgery (one residue for the scalar multiply, another for the x check).                                                 |
+| H2/H3  | Recode `u2`, `u1` to 258 signed digits; `OP_NUMEQUALVERIFY` against the pushed recodings                               | The comb digits are a deterministic function of `(preimage, r, s⁻¹)`. The pushed copies exist only so the loop can reach them by depth.                                                                                                                                |
+| H4     | Lock pushes its baked 32-byte salt; 64 × `OP_PICK 33 OP_NUM2BIN OP_CAT`; `OP_HASH160`                                  | `HASH160(salt ‖ le33(x₀) ‖ le33(y₀) ‖ … ‖ le33(y₃₁))`. `OP_NUM2BIN` normalises encodings, so the hash fixes the table's integer values, including sign.                                                                                                                |
+| H5     | N = 1: `<C> OP_EQUALVERIFY`; N ≥ 2: `(OP_DUP <Cᵢ> OP_EQUAL OP_SWAP)×(N−1) <C_last> OP_EQUAL OP_BOOLOR×(N−1) OP_VERIFY` | The hash must equal one of the N baked commitments. Correct OR over N booleans.                                                                                                                                                                                        |
+| Suffix | 64 baked `G`-table coordinates; push `p`, swap it for `n` on alt; accumulator `(1, 1, 0)`                              | The `G` table is part of the lock, not the witness. `parseBakedLock` regenerates the whole suffix byte for byte.                                                                                                                                                       |
+| Comb   | 43 columns of `DOUBLE`, then complete mixed add of `TQ[j₂]·±1`, then `TG[j₁]·±1`                                       | Digit extraction by `OP_RSHIFTNUM 2 OP_MOD`, sign row XNOR'd into a 5-bit index, `y := p − y` for negative digits. The wrapper handles infinity, unequal add, equal (double), and inverse (infinity) explicitly.                                                       |
+| Tail   | `Z ≠ 0`; `X ≡ r·Z² (mod p)`; clear 135 items; OP_PUSH_TX; `OP_CODESEPARATOR OP_CHECKSIG`                               | Exact affine x equality: `r ∈ [1, p)` and `X ∈ [0, p)` are both reduced. OP_PUSH_TX builds `(Gx, lowS(e_k1 + C1))` for dummy key `d1 = C1·Gx⁻¹`, or `(Gx, 1)` for `d2 = C2·Gx⁻¹` when the first scalar is zero, appends `0x41`, and CHECKSIGs against scriptCode `ac`. |
 
 The OP_PUSH_TX branch is total: `lowS((e + 2²⁴⁸) mod n_k1)` is never zero and the fallback exists
 only for the single digest where it would be, so no probabilistic retry is part of spend
@@ -116,40 +116,40 @@ Ordered by how directly the app refuses.
    never persisted (`ui/components/vault/EnrollWizard.tsx` header; `VaultKeyService.ts`). The PIN
    is a fourth secret the mnemonic cannot derive. Three wrong attempts block it; the driver exposes
    `changePuk` but no unblock, so recovery needs the PUK plus external Yubico tooling.
-   *Class: inherent to hardware-key custody; UX must say so.*
+   _Class: inherent to hardware-key custody; UX must say so._
 2. **Backup lacks the deposit.** Discovery is database-only. Metadata comes from output
    `customInstructions`; the source transaction must already sit in `proven_txs` or `proven_tx_reqs`
    (`core/storage/StorageExpoSQLite.ts`, `getProvenOrRawTx`, which does not consult
    `transactions.rawTx`). There is no network fallback; `core/storage/methods/listOutputsSql.ts`
    silently skips a transaction it cannot assemble, and the vault then throws `no-transaction`. The
-   deposit gate checks that backup is *configured*, not that the record was uploaded (BACKUP-02).
+   deposit gate checks that backup is _configured_, not that the record was uploaded (BACKUP-02).
    A phone lost before the push lands leaves an output the restored app cannot see.
-   *Class: release blocker (handoff §Recovery).*
+   _Class: release blocker (handoff §Recovery)._
 3. **Held signed deposit in the snapshot.** `reconcileHeldVaultDeposits` runs before every
    withdrawal; a `nosend` deposit with a txid throws `relock-required` ("needs manual broadcast-state
    reconciliation"), and any pending or failed action holding a vault output blocks likewise. The
    manual workflow does not exist yet. A backup taken between `signAction` and the `sendWith`
    confirmation leaves the restored wallet unable to withdraw anything through the app.
-   *Class: release blocker (handoff §Signed-action operations).*
+   _Class: release blocker (handoff §Signed-action operations)._
 4. **Key not committed to the output.** Outputs created before this key was added, never re-locked
    since, fail selection with `key-not-committed`; the transfer reports them as `unreachable`.
-   *Class: design-inherent; see §1.5.*
+   _Class: design-inherent; see §1.5._
 5. **Stale device-local metadata.** `recoverVaultMetaFromOutputs` returns early when SecureStore
    already holds a record (`transfers.ts`, `if (existing) return existing`). Outputs carrying a
    higher revision then fail `requireOutputMetaConsistency` ("newer than the local enrollment").
    iOS Keychain survives app reinstall, and nothing clears the entry except disabling an empty
    vault, so reinstall-on-same-device or a second device that added or renamed a key can hit this
-   with no repair path. *Class: code gap.*
+   with no repair path. _Class: code gap._
 6. **Release flag off.** Both `/vault` entry points are hidden when `EXPO_PUBLIC_VAULT_ENABLED` is
    not `true` (`ui/screens/WalletHomeScreen.tsx`, `ui/screens/SettingsScreen.tsx`). Withdrawal of
    existing outputs is not gated by `requireReleased`, and `VaultScreen` renders an enrolled vault
    with the flag off, but there is no route to reach it. A store build with the flag off strands
-   TestFlight depositors. *Class: gating gap.*
+   TestFlight depositors. _Class: gating gap._
 7. **Mainnet policy unproven for the exact bytes.** Chronicle opcodes are live on mainnet since block
    943,816 (2026-04-07), so `OP_RSHIFTNUM` and `OP_2MUL` availability is not a concern. Acceptance
    of the 45 KB lock, the 2.5 KB witness, and a 32-input BEEF of roughly 1.5 MB by the target
    node/miner and ARC policy has not been exercised, and the production TestFlight profile has the
-   vault switched on. *Class: release blocker (handoff §Node, hardware, and native proof).*
+   vault switched on. _Class: release blocker (handoff §Node, hardware, and native proof)._
 
 Steps that are required but not blockers when the key and PIN are present: online state; the
 recovered key must pass the live possession challenge (`adoptVaultKey`: serial match, PIN, slot

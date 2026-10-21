@@ -32,9 +32,15 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -53,11 +59,11 @@ const PRIMARY = new PrivateKey(41).toArray('be', 32)
 const IDENTITY = '02' + 'cd'.repeat(32)
 const DEVICE_A = 'd'.repeat(32)
 
-function sha256Hex (bytes: number[]): string {
+function sha256Hex(bytes: number[]): string {
   return Utils.toHex(Hash.sha256(bytes))
 }
 
-function chunkWithTx (txid: string): SyncChunk {
+function chunkWithTx(txid: string): SyncChunk {
   const c = emptyChunk('a', 'b', IDENTITY) as unknown as Record<string, unknown[]>
   c.provenTxs = [{ provenTxId: 1, txid, rawTx: [1, 2, 3], updated_at: '2026-08-01T00:00:00.000Z' }]
   return c as unknown as SyncChunk
@@ -68,17 +74,19 @@ function chunkWithTx (txid: string): SyncChunk {
  * shared by both the pushing device and the restoring device in these tests, exactly as the
  * real server is shared by every device on a wallet.
  */
-function fakeBackupServer (): any {
+function fakeBackupServer(): any {
   const logs = new Map<string, number[][]>()
   const key = (d: string, g: number): string => `${d}/${g}`
   return {
-    append: jest.fn(async (deviceId: string, generation: number, seq: number, _prevSha: string | undefined, ciphertext: number[]) => {
-      const k = key(deviceId, generation)
-      const arr = logs.get(k) ?? []
-      arr[seq - 1] = ciphertext
-      logs.set(k, arr)
-      return { sha256: sha256Hex(ciphertext) }
-    }),
+    append: jest.fn(
+      async (deviceId: string, generation: number, seq: number, _prevSha: string | undefined, ciphertext: number[]) => {
+        const k = key(deviceId, generation)
+        const arr = logs.get(k) ?? []
+        arr[seq - 1] = ciphertext
+        logs.set(k, arr)
+        return { sha256: sha256Hex(ciphertext) }
+      }
+    ),
     manifest: jest.fn(async () => {
       const out: any[] = []
       for (const [k, arr] of logs.entries()) {
@@ -105,15 +113,19 @@ function fakeBackupServer (): any {
         createdAt: '2026-08-15T00:00:00Z'
       }))
     }),
-    blob: jest.fn(async (deviceId: string, generation: number, seq: number) => (logs.get(key(deviceId, generation)) ?? [])[seq - 1]),
-    limits: jest.fn().mockResolvedValue({ maxBlobBytes: 1 << 20, maxBodyBytes: 1 << 21, serverIdentityKey: '02'.padEnd(66, 'a') }),
+    blob: jest.fn(
+      async (deviceId: string, generation: number, seq: number) => (logs.get(key(deviceId, generation)) ?? [])[seq - 1]
+    ),
+    limits: jest
+      .fn()
+      .mockResolvedValue({ maxBlobBytes: 1 << 20, maxBodyBytes: 1 << 21, serverIdentityKey: '02'.padEnd(66, 'a') }),
     pruneGeneration: jest.fn()
   }
 }
 
 /** The pushing ("old", about-to-be-lost) device's storage: real KV semantics, plus a
  * getSyncChunk the test drives explicitly to control exactly when entity activity exists. */
-function pushingDeviceStorage (chunks: SyncChunk[]): PendingKVStorage & { getSyncChunk: jest.Mock } {
+function pushingDeviceStorage(chunks: SyncChunk[]): PendingKVStorage & { getSyncChunk: jest.Mock } {
   const kv = new Map<string, string>()
   const queue = [...chunks]
   return {
@@ -124,7 +136,7 @@ function pushingDeviceStorage (chunks: SyncChunk[]): PendingKVStorage & { getSyn
 }
 
 /** The restoring ("new") device's storage — mirrors restoreOnImport.test.ts's own fake. */
-function freshDeviceStorage (): any {
+function freshDeviceStorage(): any {
   const kv = new Map<string, string>()
   const s: any = {
     kv,
@@ -146,7 +158,7 @@ function freshDeviceStorage (): any {
   return s
 }
 
-function frame (): PaymentFrame {
+function frame(): PaymentFrame {
   return {
     version: FRAME_VERSION,
     kind: 'bsv',
@@ -158,7 +170,9 @@ function frame (): PaymentFrame {
   }
 }
 
-beforeEach(async () => { await AsyncStorage.clear() })
+beforeEach(async () => {
+  await AsyncStorage.clear()
+})
 
 /**
  * Runs the shared scaffold: a baseline push that lands a real backup (so restore itself
@@ -166,9 +180,9 @@ beforeEach(async () => { await AsyncStorage.clear() })
  * change, then a second push observes an empty entity chunk (the ledger's own scenario: "no
  * other wallet entity activity in that window"), then a fresh device restores.
  */
-async function runIsolatedActivityScenario (
+async function runIsolatedActivityScenario(
   writeAppOwnedRow: (storage: PendingKVStorage) => Promise<void>
-): Promise<{ pushed2: number, windowClosed2: boolean, restoredStorage: any, chunksReplayed: number }> {
+): Promise<{ pushed2: number; windowClosed2: boolean; restoredStorage: any; chunksReplayed: number }> {
   const server = fakeBackupServer()
   const pushingStorage = pushingDeviceStorage([chunkWithTx('base')])
   const deps: PushDeps = {
@@ -209,9 +223,11 @@ async function runIsolatedActivityScenario (
 describe('XR-011/XR-055: appData written in an activity-free window is not backed up (known gap)', () => {
   it('XR-011: a receiver-side acknowledged localpay pending frame is stranded, not merely delayed', async () => {
     let saved: Awaited<ReturnType<typeof savePending>> | undefined
-    const { pushed2, windowClosed2, restoredStorage, chunksReplayed } = await runIsolatedActivityScenario(async (storage) => {
-      saved = await savePending(storage, frame(), 'qr')
-    })
+    const { pushed2, windowClosed2, restoredStorage, chunksReplayed } = await runIsolatedActivityScenario(
+      async storage => {
+        saved = await savePending(storage, frame(), 'qr')
+      }
+    )
 
     // The second push genuinely sent nothing — confirms this run reproduces the reviewer's
     // premise (an empty entity chunk), not merely a stale assertion.
@@ -230,7 +246,7 @@ describe('XR-011/XR-055: appData written in an activity-free window is not backe
   })
 
   it('secondary instance of the same gap: peerpay_outbox delivery checkpoint is stranded', async () => {
-    const { pushed2, restoredStorage } = await runIsolatedActivityScenario(async (storage) => {
+    const { pushed2, restoredStorage } = await runIsolatedActivityScenario(async storage => {
       await storage.setKeyValue('peerpay_outbox', JSON.stringify([{ id: 'o1', status: 'unsent', delivering: true }]))
     })
 
@@ -239,7 +255,7 @@ describe('XR-011/XR-055: appData written in an activity-free window is not backe
   })
 
   it('XR-055: an issued conventional-receive date is stranded the same way', async () => {
-    const { pushed2, restoredStorage } = await runIsolatedActivityScenario(async (storage) => {
+    const { pushed2, restoredStorage } = await runIsolatedActivityScenario(async storage => {
       await recordIssuedDate(storage, '2026-09-01')
     })
 

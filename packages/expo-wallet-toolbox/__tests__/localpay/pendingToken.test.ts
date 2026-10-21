@@ -191,7 +191,11 @@ describe('processPending: onTokenCredited', () => {
 
   it('does not fire when the credit itself failed', async () => {
     const storage = memoryStorage()
-    const wallet = { internalizeAction: jest.fn(async (_args: unknown) => { throw new Error('db locked') }) }
+    const wallet = {
+      internalizeAction: jest.fn(async (_args: unknown) => {
+        throw new Error('db locked')
+      })
+    }
     const onTokenCredited = jest.fn(async () => undefined)
     await savePending(storage, tokenFrame(), 'nearby')
     const results = await processPending(wallet as never, storage, 'admin.com', undefined, onTokenCredited)
@@ -206,7 +210,9 @@ describe('processPending: onTokenCredited', () => {
   it('never turns a completed credit into a failure when the hook throws', async () => {
     const storage = memoryStorage()
     const wallet = walletStub()
-    const onTokenCredited = jest.fn(async () => { throw new Error('settlement store down') })
+    const onTokenCredited = jest.fn(async () => {
+      throw new Error('settlement store down')
+    })
     await savePending(storage, tokenFrame(), 'nearby')
     const results = await processPending(wallet as never, storage, 'admin.com', undefined, onTokenCredited)
     expect(results).toEqual([{ id: expect.any(String), success: true }])

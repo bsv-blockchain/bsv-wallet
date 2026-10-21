@@ -35,15 +35,32 @@ function load(): HapticsModule | null {
   return mod
 }
 
-const swallow = (p: Promise<void>) => { p.catch(() => {}) }
+const swallow = (p: Promise<void>) => {
+  p.catch(() => {})
+}
 const isIOS = () => Platform.OS === 'ios'
 
 export const haptics = {
-  tap: () => { const h = load(); if (h && isIOS()) swallow(h.selectionAsync()) },
-  confirm: () => { const h = load(); if (h && isIOS()) swallow(h.impactAsync(h.ImpactFeedbackStyle.Light)) },
-  success: () => { const h = load(); if (h) swallow(h.notificationAsync(h.NotificationFeedbackType.Success)) },
-  warning: () => { const h = load(); if (h) swallow(h.notificationAsync(h.NotificationFeedbackType.Warning)) },
-  error: () => { const h = load(); if (h) swallow(h.notificationAsync(h.NotificationFeedbackType.Error)) },
+  tap: () => {
+    const h = load()
+    if (h && isIOS()) swallow(h.selectionAsync())
+  },
+  confirm: () => {
+    const h = load()
+    if (h && isIOS()) swallow(h.impactAsync(h.ImpactFeedbackStyle.Light))
+  },
+  success: () => {
+    const h = load()
+    if (h) swallow(h.notificationAsync(h.NotificationFeedbackType.Success))
+  },
+  warning: () => {
+    const h = load()
+    if (h) swallow(h.notificationAsync(h.NotificationFeedbackType.Warning))
+  },
+  error: () => {
+    const h = load()
+    if (h) swallow(h.notificationAsync(h.NotificationFeedbackType.Error))
+  }
 } as const
 
 export type HapticName = keyof typeof haptics

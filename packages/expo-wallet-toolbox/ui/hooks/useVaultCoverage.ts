@@ -15,7 +15,13 @@
  * must not mistake "could not look" for "looked and saw nothing".
  */
 import { useCallback, useEffect, useState } from 'react'
-import { useWallet, useVault, getVaultKeyCoverage, type VaultKeyCoverage, type VaultWallet } from '@bsv/expo-wallet-toolbox'
+import {
+  useWallet,
+  useVault,
+  getVaultKeyCoverage,
+  type VaultKeyCoverage,
+  type VaultWallet
+} from '@bsv/expo-wallet-toolbox'
 
 export function useVaultCoverage(): { coverage: VaultKeyCoverage | null; refresh: () => void } {
   const { managers, adminOriginator, txStatusVersion } = useWallet()

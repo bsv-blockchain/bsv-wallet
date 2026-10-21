@@ -28,8 +28,7 @@ function adapt(db: DatabaseSync) {
       db.exec(sql)
     },
     getAllAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).all(...(params as never[])),
-    getFirstAsync: async (sql: string, params: unknown[] = []) =>
-      db.prepare(sql).get(...(params as never[])) ?? null,
+    getFirstAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).get(...(params as never[])) ?? null,
     runAsync: async (sql: string, params: unknown[] = []) => {
       const result = db.prepare(sql).run(...(params as never[]))
       return { ...result, lastInsertRowId: Number(result.lastInsertRowid) }
@@ -200,7 +199,7 @@ describe('migrateMandalaBasketName', () => {
   })
 
   describe('the per-user pass (adversarial-review finding 6)', () => {
-    it('migrates a restored backup\'s old-named rows for the current user even though the marker already says done', async () => {
+    it("migrates a restored backup's old-named rows for the current user even though the marker already says done", async () => {
       // The full scan already ran on this device (for a different user) and
       // set the marker -- simulating "this device shipped the rename a long
       // time ago".

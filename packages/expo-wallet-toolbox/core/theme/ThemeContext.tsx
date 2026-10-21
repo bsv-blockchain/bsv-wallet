@@ -1,9 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo } from 'react'
 import { useColorScheme } from 'react-native'
-import {
-  lightColors as tokenLightColors,
-  darkColors as tokenDarkColors
-} from './tokens'
+import { lightColors as tokenLightColors, darkColors as tokenDarkColors } from './tokens'
 import { assertThemeContrast } from './assertThemeContrast'
 
 // Theme type definitions
@@ -137,7 +134,7 @@ const darkColors: ThemeColors = {
   basketApproval: tokenDarkColors.permissionBasket,
   identityApproval: tokenDarkColors.permissionIdentity,
   renewalApproval: tokenDarkColors.accentSecondary,
-  gold: '#92811f',
+  gold: '#92811f'
 }
 
 // Create the context with default values
@@ -167,16 +164,15 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     assertThemeContrast(colors, isDark ? 'dark' : 'light')
   }, [colors, isDark])
 
-  const value = useMemo(() => ({
-    mode: 'system' as ThemeMode,
-    setThemeMode: () => {},
-    colors,
-    isDark
-  }), [colors, isDark])
-
-  return (
-    <ThemeContext.Provider value={value}>
-      {children}
-    </ThemeContext.Provider>
+  const value = useMemo(
+    () => ({
+      mode: 'system' as ThemeMode,
+      setThemeMode: () => {},
+      colors,
+      isDark
+    }),
+    [colors, isDark]
   )
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
 }

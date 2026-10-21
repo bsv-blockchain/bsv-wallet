@@ -3,7 +3,7 @@ jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(() => Promise.resolve()),
   notificationAsync: jest.fn(() => Promise.resolve()),
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
-  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
+  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' }
 }))
 
 jest.mock('react-native-svg', () => {
@@ -62,16 +62,16 @@ describe('Celebration', () => {
 
   it('fires success haptic on mount', () => {
     wrapper()
-    expect(Haptics.notificationAsync).toHaveBeenCalledWith(
-      Haptics.NotificationFeedbackType.Success,
-    )
+    expect(Haptics.notificationAsync).toHaveBeenCalledWith(Haptics.NotificationFeedbackType.Success)
   })
 
   it('calls onDone after timers advance past 700ms', () => {
     const onDone = jest.fn()
     wrapper(onDone)
     expect(onDone).not.toHaveBeenCalled()
-    act(() => { jest.advanceTimersByTime(700) })
+    act(() => {
+      jest.advanceTimersByTime(700)
+    })
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 })

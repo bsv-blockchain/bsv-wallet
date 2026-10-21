@@ -88,7 +88,7 @@ describe('runBoundedUnfail', () => {
       updates,
       storage: {
         findProvenTxReqs: async () => reqs.map(r => ({ ...r })),
-        runAsStorageProvider: async <T,>(fn: (sp: typeof provider) => Promise<T>) => await fn(provider)
+        runAsStorageProvider: async <T>(fn: (sp: typeof provider) => Promise<T>) => await fn(provider)
       }
     }
   }
@@ -128,7 +128,7 @@ describe('runBoundedUnfail', () => {
     }
     const storage = {
       findProvenTxReqs: async () => (reads++ === 0 ? [{ provenTxReqId: 1, txid: 'a' }] : []),
-      runAsStorageProvider: async <T,>(fn: (sp: typeof provider) => Promise<T>) => await fn(provider)
+      runAsStorageProvider: async <T>(fn: (sp: typeof provider) => Promise<T>) => await fn(provider)
     }
     await runBoundedUnfail({ storage, unfail: async () => ({ log: 'unfailed\n' }) })
     expect(provider.updateProvenTxReq).not.toHaveBeenCalled()

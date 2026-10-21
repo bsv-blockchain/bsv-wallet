@@ -34,7 +34,7 @@ type Report = {
     js: OpStats
     speedupMean: number
     speedupP50: number
-  }[]  
+  }[]
   m3?: {
     conformance: { pass: number; fail: number; failures: string[] }
     nativeCallCounts: Record<string, number>
@@ -48,31 +48,54 @@ type Report = {
       droppedFrames: number
       longestStallMs: number
       workloadMsP50: number
-    }[]  
+    }[]
   }
 }
 
-const hex = (a: number[]): string => a.map((b) => b.toString(16).padStart(2, '0')).join('')
+const hex = (a: number[]): string => a.map(b => b.toString(16).padStart(2, '0')).join('')
 const now = (): number =>
-  typeof performance !== 'undefined' && typeof performance.now === 'function'
-    ? performance.now()
-    : Date.now()
+  typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()
 
 const g = globalThis as Record<string, any>
 
 const NATIVE_KEYS = [
-  'ecdsaSign', 'ecdsaVerify', 'pubkeyCreate', 'pubkeyTweakAdd', 'privkeyTweakAdd',
-  'ecdhSharedPoint', 'brc42DeriveChild', 'ecdsaRecover', 'ecdsaRecoveryFactor',
-  'pubkeyTweakMul', 'pubkeyCombine', 'schnorrGenerateProof', 'schnorrVerifyProof',
+  'ecdsaSign',
+  'ecdsaVerify',
+  'pubkeyCreate',
+  'pubkeyTweakAdd',
+  'privkeyTweakAdd',
+  'ecdhSharedPoint',
+  'brc42DeriveChild',
+  'ecdsaRecover',
+  'ecdsaRecoveryFactor',
+  'pubkeyTweakMul',
+  'pubkeyCombine',
+  'schnorrGenerateProof',
+  'schnorrVerifyProof',
   // M3 (issues #8/#9)
-  'pubkeyCreateUncompressed', 'ecdhSharedPointUncompressed', 'pubkeyTweakAddUncompressed',
-  'ecdsaRecoverUncompressed', 'brc42DeriveChildPubUncompressed',
-  'batchEcdsaSign', 'batchEcdsaVerify', 'batchBrc42DeriveChild', 'batchBrc42DeriveChildPubUncompressed'
+  'pubkeyCreateUncompressed',
+  'ecdhSharedPointUncompressed',
+  'pubkeyTweakAddUncompressed',
+  'ecdsaRecoverUncompressed',
+  'brc42DeriveChildPubUncompressed',
+  'batchEcdsaSign',
+  'batchEcdsaVerify',
+  'batchBrc42DeriveChild',
+  'batchBrc42DeriveChildPubUncompressed'
 ]
-const BATCH_KEYS = ['batchEcdsaSign', 'batchEcdsaVerify', 'batchBrc42DeriveChild', 'batchBrc42DeriveChildPubUncompressed']
+const BATCH_KEYS = [
+  'batchEcdsaSign',
+  'batchEcdsaVerify',
+  'batchBrc42DeriveChild',
+  'batchBrc42DeriveChildPubUncompressed'
+]
 
 /** Counting proxy over a native module object (only keys present on it). */
-function countingProxy (real: Record<string, any>, counts: Record<string, number>, omit: string[] = []): Record<string, any> {
+function countingProxy(
+  real: Record<string, any>,
+  counts: Record<string, number>,
+  omit: string[] = []
+): Record<string, any> {
   const proxy: Record<string, any> = {}
   for (const key of NATIVE_KEYS) {
     if (typeof real[key] !== 'function' || omit.includes(key)) continue
@@ -97,7 +120,7 @@ function withCounting<T>(fn: (counts: Record<string, number>) => T): T {
   }
 }
 
-function runConformance (): { pass: number; fail: number; failures: string[]; counts: Record<string, number> } {
+function runConformance(): { pass: number; fail: number; failures: string[]; counts: Record<string, number> } {
   const curve = new Curve()
   let pass = 0
   const failures: string[] = []
@@ -105,18 +128,14 @@ function runConformance (): { pass: number; fail: number; failures: string[]; co
     if (ok) pass++
     else failures.push(label)
   }
-  const counts = withCounting((counts) => {
+  const counts = withCounting(counts => {
     for (const v of vectors.sign) {
       const key = new PrivateKey(v.privkey, 16)
       const sig = ECDSA.sign(new BigNumber(v.msg32, 16), key, true)
       const ok =
         hex(sig.toDER() as number[]) === v.der &&
         key.toPublicKey().encode(true, 'hex') === v.pubkey &&
-        ECDSA.verify(
-          new BigNumber(v.msg32, 16),
-          Signature.fromDER(v.der, 'hex'),
-          PublicKey.fromString(v.pubkey)
-        )
+        ECDSA.verify(new BigNumber(v.msg32, 16), Signature.fromDER(v.der, 'hex'), PublicKey.fromString(v.pubkey))
       check(`sign ${v.msg32.slice(0, 8)}`, ok)
     }
     for (const v of vectors.brc42) {
@@ -166,21 +185,19 @@ function runConformance (): { pass: number; fail: number; failures: string[]; co
     // against BOTH verifier paths below).
     const schnorr = new Schnorr()
     for (const v of vectors.schnorrAccept) {
-      const ok = schnorr.verifyProof(
-        Point.fromString(v.A),
-        Point.fromString(v.B),
-        Point.fromString(v.S),
-        { R: Point.fromString(v.R), SPrime: Point.fromString(v.SPrime), z: new BigNumber(v.z, 16) }
-      )
+      const ok = schnorr.verifyProof(Point.fromString(v.A), Point.fromString(v.B), Point.fromString(v.S), {
+        R: Point.fromString(v.R),
+        SPrime: Point.fromString(v.SPrime),
+        z: new BigNumber(v.z, 16)
+      })
       check(`schnorrAccept ${v.z.slice(0, 8)}`, ok === true)
     }
     for (const v of vectors.schnorrReject) {
-      const ok = schnorr.verifyProof(
-        Point.fromString(v.A),
-        Point.fromString(v.B),
-        Point.fromString(v.S),
-        { R: Point.fromString(v.R), SPrime: Point.fromString(v.SPrime), z: new BigNumber(v.z, 16) }
-      )
+      const ok = schnorr.verifyProof(Point.fromString(v.A), Point.fromString(v.B), Point.fromString(v.S), {
+        R: Point.fromString(v.R),
+        SPrime: Point.fromString(v.SPrime),
+        z: new BigNumber(v.z, 16)
+      })
       check(`schnorrReject ${v.label}`, ok === false)
     }
     // routed generateProof (random nonce) → accepted by BOTH the routed
@@ -218,7 +235,7 @@ interface BenchSetup {
 
 const r2 = (x: number): number => Math.round(x * 100) / 100
 
-function benchOne (label: string, iters: number, setup: BenchSetup, op: (s: BenchSetup, i: number) => void): OpStats {
+function benchOne(label: string, iters: number, setup: BenchSetup, op: (s: BenchSetup, i: number) => void): OpStats {
   // Pinned warmup: busy-loop the SAME op for ~500ms before timing. The device
   // bench track proved a 3-iteration warmup reads 5-10x slow on these phones
   // (efficiency cores + cold JIT); half a second of the identical work pins the
@@ -247,7 +264,7 @@ function benchOne (label: string, iters: number, setup: BenchSetup, op: (s: Benc
   }
 }
 
-function runBench (iters: number): Report['bench'] {
+function runBench(iters: number): Report['bench'] {
   const base = new PrivateKey(vectors.sign[0].privkey, 16)
   const cpPub = PublicKey.fromString(vectors.brc42[0].counterpartyPub)
   const keys: PrivateKey[] = []
@@ -258,16 +275,24 @@ function runBench (iters: number): Report['bench'] {
     b[28] = (i >> 8) & 0xff
     b[29] = i & 0xff
     keys.push(new PrivateKey(b))
-    const m = vectors.sign.map((v) => v.msg32)[i % vectors.sign.length]
+    const m = vectors.sign.map(v => v.msg32)[i % vectors.sign.length]
     const mb = new BigNumber(m, 16).toArray('be', 32)
     mb[30] = (i >> 8) & 0xff
     mb[31] = i & 0xff
     msgs.push(new BigNumber(mb))
   }
-  const pubsAll = keys.map((k) => k.toPublicKey())
+  const pubsAll = keys.map(k => k.toPublicKey())
   const pubs = pubsAll.slice(0, 25)
   const setup: BenchSetup = {
-    keys, msgs, cpPub, sigs: [], pubs, pubsAll, recoveries: [], schnorr: new Schnorr(), schnorrInstances: []
+    keys,
+    msgs,
+    cpPub,
+    sigs: [],
+    pubs,
+    pubsAll,
+    recoveries: [],
+    schnorr: new Schnorr(),
+    schnorrInstances: []
   }
   setup.sigs = msgs.map((m, i) => ECDSA.sign(m, keys[i], true))
   setup.recoveries = setup.sigs.map((sig, i) => sig.CalculateRecoveryFactor(pubsAll[i], msgs[i]))
@@ -282,22 +307,68 @@ function runBench (iters: number): Report['bench'] {
   }
 
   const ops: [string, (s: BenchSetup, i: number) => void][] = [
-    ['ECDSA.sign (forceLowS)', (s, i) => { ECDSA.sign(s.msgs[i], s.keys[i], true) }],
-    ['ECDSA.verify', (s, i) => { ECDSA.verify(s.msgs[i], s.sigs[i], s.pubsAll[i]) }],
-    ['PrivateKey.toPublicKey', (s, i) => { s.keys[i].toPublicKey() }],
-    ['PrivateKey.deriveChild (BRC-42)', (s, i) => { s.keys[i].deriveChild(s.cpPub, `bench-${i}`) }],
-    ['PublicKey.deriveChild (BRC-42)', (s, i) => { s.cpPub.deriveChild(s.keys[i], `bench-${i}`) }],
-    ['PrivateKey.deriveSharedSecret', (s, i) => { s.keys[i].deriveSharedSecret(s.pubs[i % 25]) }],
-    ['Signature.RecoverPublicKey', (s, i) => { s.sigs[i].RecoverPublicKey(s.recoveries[i], s.msgs[i]) }],
-    ['Signature.CalculateRecoveryFactor', (s, i) => { s.sigs[i].CalculateRecoveryFactor(s.pubsAll[i], s.msgs[i]) }],
-    ['Schnorr.generateProof', (s, i) => {
-      const inst = s.schnorrInstances[i % 25]
-      s.schnorr.generateProof(s.keys[i % 25], inst.A, inst.B, inst.S)
-    }],
-    ['Schnorr.verifyProof', (s, i) => {
-      const inst = s.schnorrInstances[i % 25]
-      s.schnorr.verifyProof(inst.A, inst.B, inst.S, inst.proof)
-    }]
+    [
+      'ECDSA.sign (forceLowS)',
+      (s, i) => {
+        ECDSA.sign(s.msgs[i], s.keys[i], true)
+      }
+    ],
+    [
+      'ECDSA.verify',
+      (s, i) => {
+        ECDSA.verify(s.msgs[i], s.sigs[i], s.pubsAll[i])
+      }
+    ],
+    [
+      'PrivateKey.toPublicKey',
+      (s, i) => {
+        s.keys[i].toPublicKey()
+      }
+    ],
+    [
+      'PrivateKey.deriveChild (BRC-42)',
+      (s, i) => {
+        s.keys[i].deriveChild(s.cpPub, `bench-${i}`)
+      }
+    ],
+    [
+      'PublicKey.deriveChild (BRC-42)',
+      (s, i) => {
+        s.cpPub.deriveChild(s.keys[i], `bench-${i}`)
+      }
+    ],
+    [
+      'PrivateKey.deriveSharedSecret',
+      (s, i) => {
+        s.keys[i].deriveSharedSecret(s.pubs[i % 25])
+      }
+    ],
+    [
+      'Signature.RecoverPublicKey',
+      (s, i) => {
+        s.sigs[i].RecoverPublicKey(s.recoveries[i], s.msgs[i])
+      }
+    ],
+    [
+      'Signature.CalculateRecoveryFactor',
+      (s, i) => {
+        s.sigs[i].CalculateRecoveryFactor(s.pubsAll[i], s.msgs[i])
+      }
+    ],
+    [
+      'Schnorr.generateProof',
+      (s, i) => {
+        const inst = s.schnorrInstances[i % 25]
+        s.schnorr.generateProof(s.keys[i % 25], inst.A, inst.B, inst.S)
+      }
+    ],
+    [
+      'Schnorr.verifyProof',
+      (s, i) => {
+        const inst = s.schnorrInstances[i % 25]
+        s.schnorr.verifyProof(inst.A, inst.B, inst.S, inst.proof)
+      }
+    ]
   ]
 
   const results: Report['bench'] = []
@@ -322,8 +393,11 @@ function runBench (iters: number): Report['bench'] {
 
 // ═══ M3 (issues #8/#9/#10): batch flows, uncompressed routes, frame harness ═══
 
-const sleep = async (ms: number): Promise<void> => await new Promise((resolve) => setTimeout(resolve, ms))
-const hexU8 = (u: Uint8Array): string => Array.from(u).map((b) => b.toString(16).padStart(2, '0')).join('')
+const sleep = async (ms: number): Promise<void> => await new Promise(resolve => setTimeout(resolve, ms))
+const hexU8 = (u: Uint8Array): string =>
+  Array.from(u)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
 const hexToBuf = (h: string): ArrayBuffer => {
   const u = new Uint8Array(h.length / 2)
   for (let i = 0; i < u.length; i++) u[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16)
@@ -331,7 +405,7 @@ const hexToBuf = (h: string): ArrayBuffer => {
 }
 
 /** N-input P2PKH transaction fixture (distinct keys, self-funded source tx). */
-function txFixture (nInputs: number): { build: () => Transaction } {
+function txFixture(nInputs: number): { build: () => Transaction } {
   const p2pkh = new P2PKH()
   const keys: PrivateKey[] = []
   const srcTx = new Transaction()
@@ -358,7 +432,12 @@ function txFixture (nInputs: number): { build: () => Transaction } {
 }
 
 /** M3 conformance: batch fns vs SDK-generated vectors + routed flow equivalence. */
-async function runM3Conformance (): Promise<{ pass: number; fail: number; failures: string[]; counts: Record<string, number> }> {
+async function runM3Conformance(): Promise<{
+  pass: number
+  fail: number
+  failures: string[]
+  counts: Record<string, number>
+}> {
   let pass = 0
   const failures: string[] = []
   const check = (label: string, ok: boolean): void => {
@@ -374,14 +453,15 @@ async function runM3Conformance (): Promise<{ pass: number; fail: number; failur
     // batchSign vectors: ONE native call == per-element SDK DER + pubkey
     {
       const v = (vectors as any).batchSign as { privkey: string; msg32: string; der: string; pubkey: string }[]
-      const msgs = hexToBuf(v.map((t) => t.msg32).join(''))
-      const keys = hexToBuf(v.map((t) => t.privkey).join(''))
+      const msgs = hexToBuf(v.map(t => t.msg32).join(''))
+      const keys = hexToBuf(v.map(t => t.privkey).join(''))
       const framed = new Uint8Array(await nat.batchEcdsaSign(msgs, keys))
       let off = 0
       let ok = true
       for (const t of v) {
         const len = framed[off]
-        ok = ok &&
+        ok =
+          ok &&
           hexU8(framed.subarray(off + 1, off + 1 + len)) === t.der &&
           hexU8(framed.subarray(off + 1 + len, off + 1 + len + 33)) === t.pubkey
         off += 1 + len + 33
@@ -390,22 +470,42 @@ async function runM3Conformance (): Promise<{ pass: number; fail: number; failur
     }
     // batchVerify vectors: verdicts match the SDK's per-element verdicts
     for (const setName of ['valid', 'corrupted'] as const) {
-      const set = (vectors as any).batchVerify[setName] as { msg32: string; der: string; pubkey: string; valid: boolean }[]
-      const msgs = hexToBuf(set.map((t) => t.msg32).join(''))
-      const sigs = hexToBuf(set.map((t) => (t.der.length / 2).toString(16).padStart(2, '0') + t.der).join(''))
-      const pubs = hexToBuf(set.map((t) => t.pubkey).join(''))
+      const set = (vectors as any).batchVerify[setName] as {
+        msg32: string
+        der: string
+        pubkey: string
+        valid: boolean
+      }[]
+      const msgs = hexToBuf(set.map(t => t.msg32).join(''))
+      const sigs = hexToBuf(set.map(t => (t.der.length / 2).toString(16).padStart(2, '0') + t.der).join(''))
+      const pubs = hexToBuf(set.map(t => t.pubkey).join(''))
       const verdicts = new Uint8Array(await nat.batchEcdsaVerify(msgs, sigs, pubs))
-      check(`m3 batchVerify ${setName}`, set.every((t, i) => (verdicts[i] === 1) === t.valid))
+      check(
+        `m3 batchVerify ${setName}`,
+        set.every((t, i) => (verdicts[i] === 1) === t.valid)
+      )
     }
     // batchDerive vectors: priv side + uncompressed pub side
     {
       const d = (vectors as any).batchDerive
-      const privCat = new Uint8Array(await nat.batchBrc42DeriveChild(
-        hexToBuf(d.root), hexToBuf(d.counterpartyPub), d.invoiceNumbers))
-      const pubCat = new Uint8Array(await nat.batchBrc42DeriveChildPubUncompressed(
-        hexToBuf(d.counterpartyPriv), hexToBuf(d.rootPub), d.invoiceNumbers))
-      check('m3 batchDerive priv', d.derivedPrivs.every((h: string, i: number) => hexU8(privCat.subarray(i * 32, (i + 1) * 32)) === h))
-      check('m3 batchDerive pubUncompressed', d.derivedPubsUncompressed.every((h: string, i: number) => hexU8(pubCat.subarray(i * 65, (i + 1) * 65)) === h))
+      const privCat = new Uint8Array(
+        await nat.batchBrc42DeriveChild(hexToBuf(d.root), hexToBuf(d.counterpartyPub), d.invoiceNumbers)
+      )
+      const pubCat = new Uint8Array(
+        await nat.batchBrc42DeriveChildPubUncompressed(
+          hexToBuf(d.counterpartyPriv),
+          hexToBuf(d.rootPub),
+          d.invoiceNumbers
+        )
+      )
+      check(
+        'm3 batchDerive priv',
+        d.derivedPrivs.every((h: string, i: number) => hexU8(privCat.subarray(i * 32, (i + 1) * 32)) === h)
+      )
+      check(
+        'm3 batchDerive pubUncompressed',
+        d.derivedPubsUncompressed.every((h: string, i: number) => hexU8(pubCat.subarray(i * 65, (i + 1) * 65)) === h)
+      )
     }
     // uncompressed single-op vectors through the ROUTED SDK calls (the calls
     // now internally take the *Uncompressed native fns — counts prove it)
@@ -413,10 +513,16 @@ async function runM3Conformance (): Promise<{ pass: number; fail: number; failur
       const u = (vectors as any).uncompressed
       const k = new PrivateKey(u.privkey, 16)
       check('m3 uncomp toPublicKey', k.toPublicKey().encode(false, 'hex') === u.pubkeyCreate)
-      check('m3 uncomp deriveSharedSecret', k.deriveSharedSecret(PublicKey.fromString(u.pubkey)).encode(false, 'hex') === u.ecdhSharedPoint)
+      check(
+        'm3 uncomp deriveSharedSecret',
+        k.deriveSharedSecret(PublicKey.fromString(u.pubkey)).encode(false, 'hex') === u.ecdhSharedPoint
+      )
       const sig = Signature.fromCompact(u.compact, 'hex')
       const rec = (parseInt(u.compact.slice(0, 2), 16) - 27) & 3
-      check('m3 uncomp RecoverPublicKey', sig.RecoverPublicKey(rec, new BigNumber(u.msg32, 16)).encode(false, 'hex') === u.recovered)
+      check(
+        'm3 uncomp RecoverPublicKey',
+        sig.RecoverPublicKey(rec, new BigNumber(u.msg32, 16)).encode(false, 'hex') === u.recovered
+      )
     }
     // ROUTED FLOW: Transaction.sign batch path == pure-JS byte-identical, and
     // the whole 12-input signing took exactly ONE native crossing. M5.5: with
@@ -440,9 +546,7 @@ async function runM3Conformance (): Promise<{ pass: number; fail: number; failur
       await txN.sign()
       const secpCrossings = (counts.batchEcdsaSign ?? 0) - before
       const engineCrossings = engineCounts.batchSignP2pkhInputs ?? 0
-      const oneCrossing = realEngine != null
-        ? engineCrossings === 1 && secpCrossings === 0
-        : secpCrossings === 1
+      const oneCrossing = realEngine != null ? engineCrossings === 1 && secpCrossings === 0 : secpCrossings === 1
       const nativeHex = txN.toHex()
       delete g.__bsvSecpNative
       delete g.__bsvEngineNative
@@ -458,8 +562,13 @@ async function runM3Conformance (): Promise<{ pass: number; fail: number; failur
       const d = (vectors as any).batchDerive
       const rootPub = PublicKey.fromString(d.rootPub)
       const cpPriv = new PrivateKey(d.counterpartyPriv, 16)
-      check('m3 pub deriveChild composite', d.invoiceNumbers.every((inv: string, i: number) =>
-        rootPub.deriveChild(cpPriv, inv).encode(false, 'hex') === d.derivedPubsUncompressed[i]))
+      check(
+        'm3 pub deriveChild composite',
+        d.invoiceNumbers.every(
+          (inv: string, i: number) =>
+            rootPub.deriveChild(cpPriv, inv).encode(false, 'hex') === d.derivedPubsUncompressed[i]
+        )
+      )
     }
     return { pass, fail: failures.length, failures, counts }
   } finally {
@@ -467,9 +576,15 @@ async function runM3Conformance (): Promise<{ pass: number; fail: number; failur
   }
 }
 
-interface FlowStats { flow: string, iters: number, batchedMs: OpStats, singlesMs: OpStats, jsMs: OpStats }
+interface FlowStats {
+  flow: string
+  iters: number
+  batchedMs: OpStats
+  singlesMs: OpStats
+  jsMs: OpStats
+}
 
-function msStats (samples: number[]): OpStats {
+function msStats(samples: number[]): OpStats {
   const s = [...samples].sort((a, b) => a - b)
   const mean = s.reduce((a, b) => a + b, 0) / s.length
   return {
@@ -480,7 +595,7 @@ function msStats (samples: number[]): OpStats {
   } // NOTE: field names say Us; flow benches record MILLISECONDS (formatter labels them)
 }
 
-async function benchFlow (label: string, iters: number, run: () => Promise<void>): Promise<OpStats> {
+async function benchFlow(label: string, iters: number, run: () => Promise<void>): Promise<OpStats> {
   // flow-scale warmup: 3 runs (each flow run is itself hundreds of ops)
   for (let w = 0; w < 3; w++) await run()
   const samples: number[] = []
@@ -496,7 +611,11 @@ async function benchFlow (label: string, iters: number, run: () => Promise<void>
  *  M5.5: the Tier-3 engine is REMOVED for the duration so these legs keep
  *  measuring the secp tiers (the M3 numbers stay comparable release-to-
  *  release); the engine-routed flow bench lives in engineNativeProof.ts. */
-async function runM3FlowBench (): Promise<{ flows: FlowStats[]; batchedCounts: Record<string, number>; singlesCounts: Record<string, number> }> {
+async function runM3FlowBench(): Promise<{
+  flows: FlowStats[]
+  batchedCounts: Record<string, number>
+  singlesCounts: Record<string, number>
+}> {
   const real = g.__bsvSecpNative
   const realEngine = g.__bsvEngineNative
   delete g.__bsvEngineNative
@@ -507,7 +626,9 @@ async function runM3FlowBench (): Promise<{ flows: FlowStats[]; batchedCounts: R
   }
 }
 
-async function runM3FlowBenchInner (real: any): Promise<{ flows: FlowStats[]; batchedCounts: Record<string, number>; singlesCounts: Record<string, number> }> {
+async function runM3FlowBenchInner(
+  real: any
+): Promise<{ flows: FlowStats[]; batchedCounts: Record<string, number>; singlesCounts: Record<string, number> }> {
   const flows: FlowStats[] = []
   const batchedCounts: Record<string, number> = {}
   const singlesCounts: Record<string, number> = {}
@@ -518,11 +639,17 @@ async function runM3FlowBenchInner (real: any): Promise<{ flows: FlowStats[]; ba
     const { build } = txFixture(50)
     const signIters = 12
     g.__bsvSecpNative = real
-    const batchedMs = await benchFlow('sign50 batched', signIters, async () => { await build().sign() })
+    const batchedMs = await benchFlow('sign50 batched', signIters, async () => {
+      await build().sign()
+    })
     g.__bsvSecpNative = countingProxy(real, singlesCounts, BATCH_KEYS) // native singles, no batch fns
-    const singlesMs = await benchFlow('sign50 singles', signIters, async () => { await build().sign() })
+    const singlesMs = await benchFlow('sign50 singles', signIters, async () => {
+      await build().sign()
+    })
     delete g.__bsvSecpNative
-    const jsMs = await benchFlow('sign50 js', 4, async () => { await build().sign() }) // pure JS is ~50x slower; fewer iters
+    const jsMs = await benchFlow('sign50 js', 4, async () => {
+      await build().sign()
+    }) // pure JS is ~50x slower; fewer iters
     g.__bsvSecpNative = countingProxy(real, batchedCounts)
     await build().sign() // one counted batched run for the crossing-count evidence
     g.__bsvSecpNative = real
@@ -575,7 +702,7 @@ interface FrameScenario {
  * Reanimated worklets keep running, but JS-driven animation/gesture/response
  * work does not — this measures that).
  */
-async function measureFrames (
+async function measureFrames(
   scenario: string,
   runs: number,
   frameBudgetMs: number,
@@ -620,7 +747,7 @@ async function measureFrames (
 
 /** The representative createAction-scale workload: 20 BRC-42 derivations + a 20-input tx sign.
  *  M5.5: engine removed for the duration (same rationale as runM3FlowBench). */
-async function runM3FrameHarness (): Promise<FrameScenario[]> {
+async function runM3FrameHarness(): Promise<FrameScenario[]> {
   const realEngine = g.__bsvEngineNative
   delete g.__bsvEngineNative
   try {
@@ -630,7 +757,7 @@ async function runM3FrameHarness (): Promise<FrameScenario[]> {
   }
 }
 
-async function runM3FrameHarnessInner (): Promise<FrameScenario[]> {
+async function runM3FrameHarnessInner(): Promise<FrameScenario[]> {
   const real = g.__bsvSecpNative
   const out: FrameScenario[] = []
   const { build } = txFixture(20)
@@ -652,7 +779,10 @@ async function runM3FrameHarnessInner (): Promise<FrameScenario[]> {
   await sleep(600)
   raf = false
   await sleep(50)
-  const idleGaps = stamps.slice(1).map((t, i) => t - stamps[i]).sort((a, b) => a - b)
+  const idleGaps = stamps
+    .slice(1)
+    .map((t, i) => t - stamps[i])
+    .sort((a, b) => a - b)
   const frameBudgetMs = Math.max(4, idleGaps[Math.floor(idleGaps.length / 2)] ?? 16.7)
 
   const workloadBatched = async (): Promise<void> => {
@@ -677,7 +807,7 @@ async function runM3FrameHarnessInner (): Promise<FrameScenario[]> {
   return out
 }
 
-function formatReport (r: Report): string {
+function formatReport(r: Report): string {
   const lines: string[] = []
   lines.push('════ SecpNative M2 proof ════')
   lines.push(`native module present: ${String(r.native)}  |  hermes dev mode: ${String(r.hermesDev)}`)
@@ -695,12 +825,18 @@ function formatReport (r: Report): string {
     const m = r.m3
     lines.push('')
     lines.push('════ M3 (issues #8/#9/#10) ════')
-    lines.push(`m3 conformance (batch fns + routed flows): ${m.conformance.pass}/${m.conformance.pass + m.conformance.fail} pass`)
+    lines.push(
+      `m3 conformance (batch fns + routed flows): ${m.conformance.pass}/${m.conformance.pass + m.conformance.fail} pass`
+    )
     if (m.conformance.failures.length > 0) lines.push(`M3 FAILURES: ${m.conformance.failures.join(', ')}`)
     lines.push(`m3 native call counts: ${JSON.stringify(m.nativeCallCounts)}`)
-    lines.push(`flow crossing counts — batched: ${JSON.stringify(m.flowCallCounts.batched)}  singles: ${JSON.stringify(m.flowCallCounts.singles)}`)
+    lines.push(
+      `flow crossing counts — batched: ${JSON.stringify(m.flowCallCounts.batched)}  singles: ${JSON.stringify(m.flowCallCounts.singles)}`
+    )
     lines.push('')
-    lines.push('| flow | iters | batched min/p50/p95/mean ms | singles min/p50/p95/mean ms | pure-JS min/p50/p95/mean ms |')
+    lines.push(
+      '| flow | iters | batched min/p50/p95/mean ms | singles min/p50/p95/mean ms | pure-JS min/p50/p95/mean ms |'
+    )
     lines.push('|---|---|---|---|---|')
     for (const f of m.flowBench) {
       const s = (x: OpStats): string => `${x.minUs} / ${x.p50Us} / ${x.p95Us} / ${x.meanUs}`
@@ -710,13 +846,15 @@ function formatReport (r: Report): string {
     lines.push('| frame scenario | runs | budget ms | frames | dropped | longest stall ms | workload p50 ms |')
     lines.push('|---|---|---|---|---|---|---|')
     for (const fr of m.frames) {
-      lines.push(`| ${fr.scenario} | ${fr.runs} | ${fr.frameBudgetMs} | ${fr.totalFrames} | ${fr.droppedFrames} | ${fr.longestStallMs} | ${fr.workloadMsP50} |`)
+      lines.push(
+        `| ${fr.scenario} | ${fr.runs} | ${fr.frameBudgetMs} | ${fr.totalFrames} | ${fr.droppedFrames} | ${fr.longestStallMs} | ${fr.workloadMsP50} |`
+      )
     }
   }
   return lines.join('\n')
 }
 
-async function deliverReport (payload: string): Promise<void> {
+async function deliverReport(payload: string): Promise<void> {
   // 1) Write into the app's Documents dir so the host can pull it via
   //    `xcrun devicectl device copy from ... --domain-type appDataContainer`
   //    (works wired, no network assumptions — the release/device path).
@@ -749,7 +887,7 @@ async function deliverReport (payload: string): Promise<void> {
   }
 }
 
-export async function runSecpProof (): Promise<Report> {
+export async function runSecpProof(): Promise<Report> {
   const native = g.__bsvSecpNative != null
   const conf = runConformance()
   const report: Report = {
@@ -780,9 +918,9 @@ export async function runSecpProof (): Promise<Report> {
   return report
 }
 
-export function scheduleSecpProof (): void {
+export function scheduleSecpProof(): void {
   // Give the app + JSI modules a moment to finish booting before hammering the JS thread.
   setTimeout(() => {
-    runSecpProof().catch((e) => console.error('[SecpNative] proof run failed:', e))
+    runSecpProof().catch(e => console.error('[SecpNative] proof run failed:', e))
   }, 4000)
 }

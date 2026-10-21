@@ -14,7 +14,7 @@
 import { AuthFetch, CompletedProtoWallet, PrivateKey } from '@bsv/sdk'
 
 /** normalizeBodyToNumberArray is private; reach it deliberately rather than reimplement. */
-async function normalize (body: unknown): Promise<number[]> {
+async function normalize(body: unknown): Promise<number[]> {
   const client = new AuthFetch(new CompletedProtoWallet(PrivateKey.fromRandom()))
   return await (
     client as unknown as {

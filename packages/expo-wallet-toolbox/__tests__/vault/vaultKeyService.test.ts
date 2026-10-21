@@ -1446,7 +1446,13 @@ describe('addVaultKey / disableVault', () => {
     const scope = vaultStore.getScope()!
     const staleTag = await vaultStore.getMetaTag()
     await expect(
-      verifyVaultMetaAuthorityTag(FAKE_WALLET, ADMIN, { ...meta, revision: meta.revision + 5, keys: [attackerKey, rec(2)] }, scope, staleTag)
+      verifyVaultMetaAuthorityTag(
+        FAKE_WALLET,
+        ADMIN,
+        { ...meta, revision: meta.revision + 5, keys: [attackerKey, rec(2)] },
+        scope,
+        staleTag
+      )
     ).resolves.toBe(false)
   })
 

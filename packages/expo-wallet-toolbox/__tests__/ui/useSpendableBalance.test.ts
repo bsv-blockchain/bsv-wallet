@@ -13,11 +13,15 @@ import { useSpendableBalance } from '../../ui/hooks/useSpendableBalance'
 
 const fetchBalance = jest.mocked(readWalletBalance)
 const settle = async () => {
-  await act(async () => { await new Promise(resolve => setImmediate(resolve)) })
+  await act(async () => {
+    await new Promise(resolve => setImmediate(resolve))
+  })
 }
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>(r => { resolve = r })
+  const promise = new Promise<T>(r => {
+    resolve = r
+  })
   return { promise, resolve }
 }
 
@@ -27,8 +31,11 @@ beforeEach(async () => {
   fetchBalance.mockReset()
   mockWalletCtx = {
     managers: { permissionsManager: { listOutputs: jest.fn(async () => ({ totalOutputs: 75 })) } },
-    adminOriginator: 'admin', selectedNetwork: 'main', storage: { chain: 'main' },
-    walletUserId: 1, txStatusVersion: 0
+    adminOriginator: 'admin',
+    selectedNetwork: 'main',
+    storage: { chain: 'main' },
+    walletUserId: 1,
+    txStatusVersion: 0
   }
 })
 
@@ -44,7 +51,9 @@ it('coalesces invalidations during a read and commits the subsequent balance', a
     await settle()
   }
   expect(fetchBalance).toHaveBeenCalledTimes(1)
-  await act(async () => { first.resolve(100) })
+  await act(async () => {
+    first.resolve(100)
+  })
   await settle()
   expect(fetchBalance).toHaveBeenCalledTimes(2)
   expect(screen.result.current).toBe(200)
@@ -78,7 +87,9 @@ it('does not publish or cache a previous network read after switching networks',
   await settle()
   mockWalletCtx = { ...mockWalletCtx, selectedNetwork: 'test', storage: { chain: 'test' } }
   screen.rerender(undefined)
-  await act(async () => { first.resolve(500) })
+  await act(async () => {
+    first.resolve(500)
+  })
   await settle()
   expect(screen.result.current).toBe(80)
   expect(await AsyncStorage.getItem('cached_wallet_balance_main')).toBeNull()
@@ -100,6 +111,8 @@ it('does not update cache after unmount while a read is pending', async () => {
   const screen = renderHook(() => useSpendableBalance())
   await settle()
   screen.unmount()
-  await act(async () => { first.resolve(500) })
+  await act(async () => {
+    first.resolve(500)
+  })
   expect(AsyncStorage.setItem).not.toHaveBeenCalled()
 })

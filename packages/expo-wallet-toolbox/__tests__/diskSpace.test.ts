@@ -1,9 +1,4 @@
-import {
-  DISK_BLOCK_BYTES,
-  DISK_WARN_BYTES,
-  availableDiskBytes,
-  diskPressure
-} from '../core/diskSpace'
+import { DISK_BLOCK_BYTES, DISK_WARN_BYTES, availableDiskBytes, diskPressure } from '../core/diskSpace'
 
 describe('diskPressure', () => {
   it('reports ok well above the warn threshold', () => {

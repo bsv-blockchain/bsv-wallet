@@ -112,22 +112,22 @@ hashes under the assumed collision resistance of SHA-256.
 `buildLock({ commitments, saltHex64 })` accepts one through five distinct 20-byte commitments
 and one 32-byte salt. Product flows pass two through five commitments.
 
-| Region | Purpose | Exact bytes |
-|---|---|---:|
-| H0-H4 | Exact witness depth; version-1 preimage; scalar checks and recoding; 32-byte witness-salt check; canonical Q-table hash | 789 |
-| H5, N = 1 | One commitment equality | 22 |
-| H5, N >= 2 | OR chain over N commitments | `25N - 2` |
-| Shared suffix | G table, pre-loop, complete 43-column comb, projective result check, total covenant tail | 44,388 |
+| Region        | Purpose                                                                                                                 | Exact bytes |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------: |
+| H0-H4         | Exact witness depth; version-1 preimage; scalar checks and recoding; 32-byte witness-salt check; canonical Q-table hash |         789 |
+| H5, N = 1     | One commitment equality                                                                                                 |          22 |
+| H5, N >= 2    | OR chain over N commitments                                                                                             |   `25N - 2` |
+| Shared suffix | G table, pre-loop, complete 43-column comb, projective result check, total covenant tail                                |      44,388 |
 
 The exact total is:
 
 | Committed keys | Lock bytes |
-|---:|---:|
-| 1 | 45,199 |
-| 2 | 45,225 |
-| 3 | 45,250 |
-| 4 | 45,275 |
-| 5 | 45,300 |
+| -------------: | ---------: |
+|              1 |     45,199 |
+|              2 |     45,225 |
+|              3 |     45,250 |
+|              4 |     45,275 |
+|              5 |     45,300 |
 
 For N >= 2, `R1C_LOCK_LEN(N) = 45,175 + 25N`. Exact parsing first checks one of these
 lengths, extracts the commitments, and then regenerates the salt-free header and shared suffix

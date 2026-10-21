@@ -11,13 +11,19 @@ jest.mock('expo-sqlite', () => {
   const { DatabaseSync } = jest.requireActual('node:sqlite')
   class TestDatabase {
     db = new DatabaseSync(':memory:')
-    async execAsync(sql: string) { this.db.exec(sql) }
+    async execAsync(sql: string) {
+      this.db.exec(sql)
+    }
     async runAsync(sql: string, params: unknown[] = []) {
       const result = this.db.prepare(sql).run(...params)
       return { lastInsertRowId: Number(result.lastInsertRowid), changes: Number(result.changes) }
     }
-    async getFirstAsync(sql: string, params: unknown[] = []) { return this.db.prepare(sql).get(...params) ?? null }
-    async getAllAsync(sql: string, params: unknown[] = []) { return this.db.prepare(sql).all(...params) }
+    async getFirstAsync(sql: string, params: unknown[] = []) {
+      return this.db.prepare(sql).get(...params) ?? null
+    }
+    async getAllAsync(sql: string, params: unknown[] = []) {
+      return this.db.prepare(sql).all(...params)
+    }
     async withExclusiveTransactionAsync(fn: (transaction: TestDatabase) => Promise<void>) {
       this.db.exec('BEGIN')
       try {
@@ -28,7 +34,9 @@ jest.mock('expo-sqlite', () => {
         throw error
       }
     }
-    async closeAsync() { this.db.close() }
+    async closeAsync() {
+      this.db.close()
+    }
   }
   return { openDatabaseAsync: async () => new TestDatabase() }
 })
@@ -44,29 +52,58 @@ const timestamps = { created_at: START, updated_at: START }
 
 function request(txid = TXID, id = 21): any {
   return {
-    ...timestamps, provenTxReqId: id, txid, status: 'unsent', attempts: 0,
-    history: JSON.stringify({ notes: [] }), notify: JSON.stringify({ transactionIds: [31] }),
-    rawTx: [1], inputBEEF: [2], notified: false
+    ...timestamps,
+    provenTxReqId: id,
+    txid,
+    status: 'unsent',
+    attempts: 0,
+    history: JSON.stringify({ notes: [] }),
+    notify: JSON.stringify({ transactionIds: [31] }),
+    rawTx: [1],
+    inputBEEF: [2],
+    notified: false
   }
 }
 
 function pendingChunk(): SyncChunk {
   const chunk = emptyChunk(DEVICE, 'backup', IDENTITY)
   chunk.provenTxReqs = [request()]
-  chunk.transactions = [{
-    ...timestamps, transactionId: 31, userId: 99, txid: TXID, status: 'sending',
-    reference: 'restore-regression', isOutgoing: true, satoshis: -10, description: 'test',
-    version: 1, lockTime: 0, rawTx: [1], inputBEEF: [2]
-  }]
+  chunk.transactions = [
+    {
+      ...timestamps,
+      transactionId: 31,
+      userId: 99,
+      txid: TXID,
+      status: 'sending',
+      reference: 'restore-regression',
+      isOutgoing: true,
+      satoshis: -10,
+      description: 'test',
+      version: 1,
+      lockTime: 0,
+      rawTx: [1],
+      inputBEEF: [2]
+    }
+  ]
   return chunk
 }
 
 function completedChunk(): SyncChunk {
   const chunk = pendingChunk()
-  chunk.provenTxs = [{
-    ...timestamps, updated_at: LATER, provenTxId: 41, txid: TXID, rawTx: [1],
-    height: 100, index: 0, merklePath: [0], blockHash: 'b'.repeat(64), merkleRoot: TXID
-  }]
+  chunk.provenTxs = [
+    {
+      ...timestamps,
+      updated_at: LATER,
+      provenTxId: 41,
+      txid: TXID,
+      rawTx: [1],
+      height: 100,
+      index: 0,
+      merklePath: [0],
+      blockHash: 'b'.repeat(64),
+      merkleRoot: TXID
+    }
+  ]
   chunk.transactions![0] = { ...chunk.transactions![0], updated_at: LATER, status: 'completed', provenTxId: 41 }
   chunk.provenTxReqs![0] = { ...request(), updated_at: LATER, status: 'completed', provenTxId: 41, notified: true }
   return chunk
@@ -86,20 +123,36 @@ async function clientFor(chunks: SyncChunk[]): Promise<any> {
   const wallet = deriveBackupWallet(PRIMARY, 'main')
   const blobs = await Promise.all(chunks.map(chunk => encodeChunk(wallet, chunk, 'main')))
   return {
-    manifest: jest.fn().mockResolvedValue([{
-      deviceId: DEVICE, generation: 1, headSeq: blobs.length, updatedAt: LATER.toISOString()
-    }]),
-    index: jest.fn().mockResolvedValue(blobs.map((blob, i) => ({
-      seq: i + 1, size: blob.length, sha256: Utils.toHex(Hash.sha256(blob)),
-      prevSha256: i ? Utils.toHex(Hash.sha256(blobs[i - 1])) : undefined,
-      createdAt: LATER.toISOString()
-    }))),
+    manifest: jest.fn().mockResolvedValue([
+      {
+        deviceId: DEVICE,
+        generation: 1,
+        headSeq: blobs.length,
+        updatedAt: LATER.toISOString()
+      }
+    ]),
+    index: jest.fn().mockResolvedValue(
+      blobs.map((blob, i) => ({
+        seq: i + 1,
+        size: blob.length,
+        sha256: Utils.toHex(Hash.sha256(blob)),
+        prevSha256: i ? Utils.toHex(Hash.sha256(blobs[i - 1])) : undefined,
+        createdAt: LATER.toISOString()
+      }))
+    ),
     blob: jest.fn(async (_device, _generation, seq) => new Uint8Array(blobs[seq - 1]))
   }
 }
 
 function restore(client: any, validateRestoredCoins?: () => Promise<void>) {
-  return restoreOnImport({ storage, client, primaryKey: PRIMARY, identityKey: IDENTITY, chain: 'main', validateRestoredCoins })
+  return restoreOnImport({
+    storage,
+    client,
+    primaryKey: PRIMARY,
+    identityKey: IDENTITY,
+    chain: 'main',
+    validateRestoredCoins
+  })
 }
 
 it('reconciles an unsent request after a later completed chunk, using the mapped existing proof', async () => {
@@ -136,7 +189,8 @@ it('reconciles an unsent request after a later completed chunk, using the mapped
 it('leaves unproven requests without an existing proof unchanged across request pages', async () => {
   const chunk = emptyChunk(DEVICE, 'backup', IDENTITY)
   chunk.provenTxReqs = Array.from({ length: 26 }, (_, i) => ({
-    ...request(i.toString(16).padStart(64, '0'), i + 1), notify: '{}'
+    ...request(i.toString(16).padStart(64, '0'), i + 1),
+    notify: '{}'
   }))
   const complete = jest.spyOn(storage, 'updateProvenTxReqWithNewProvenTx')
   await restore(await clientFor([chunk]))
@@ -156,7 +210,8 @@ it('does not rewrite an existing completed request when a later replay leaves it
 })
 
 it('fails before coin validation on reconciliation errors and allows an idempotent retry', async () => {
-  const complete = jest.spyOn(storage, 'updateProvenTxReqWithNewProvenTx')
+  const complete = jest
+    .spyOn(storage, 'updateProvenTxReqWithNewProvenTx')
     .mockRejectedValueOnce(new Error('proof write failed'))
   const validate = jest.fn(async () => {})
   const client = await clientFor([pendingChunk(), completedChunk()])
@@ -169,14 +224,17 @@ it('fails before coin validation on reconciliation errors and allows an idempote
 
 it('fails the restore when the canonical completion reports incomplete notification', async () => {
   jest.spyOn(storage, 'updateProvenTxReqWithNewProvenTx').mockResolvedValue({
-    status: 'completed', provenTxId: 1, history: '{}', notified: false
+    status: 'completed',
+    provenTxId: 1,
+    history: '{}',
+    notified: false
   })
   const validate = jest.fn(async () => {})
-  await expect(restore(await clientFor([pendingChunk(), completedChunk()]), validate))
-    .rejects.toThrow(/reconciliation did not complete/)
+  await expect(restore(await clientFor([pendingChunk(), completedChunk()]), validate)).rejects.toThrow(
+    /reconciliation did not complete/
+  )
   expect(validate).not.toHaveBeenCalled()
 })
-
 
 it('does not skip the next request when reconciliation completes an earlier page', async () => {
   const pending = pendingChunk()
@@ -184,10 +242,19 @@ it('does not skip the next request when reconciliation completes an earlier page
   const secondTxid = 'd'.repeat(64)
   pending.transactions!.push({ ...pending.transactions![0], transactionId: 32, txid: secondTxid, reference: 'second' })
   pending.provenTxReqs!.push({ ...request(secondTxid, 22), notify: JSON.stringify({ transactionIds: [32] }) })
-  completed.transactions!.push({ ...completed.transactions![0], transactionId: 32, txid: secondTxid, reference: 'second', provenTxId: 42 })
+  completed.transactions!.push({
+    ...completed.transactions![0],
+    transactionId: 32,
+    txid: secondTxid,
+    reference: 'second',
+    provenTxId: 42
+  })
   completed.provenTxs!.push({ ...completed.provenTxs![0], provenTxId: 42, txid: secondTxid })
   completed.provenTxReqs!.push({
-    ...completed.provenTxReqs![0], provenTxReqId: 22, txid: secondTxid, provenTxId: 42,
+    ...completed.provenTxReqs![0],
+    provenTxReqId: 22,
+    txid: secondTxid,
+    provenTxId: 42,
     notify: JSON.stringify({ transactionIds: [32] })
   })
   const complete = jest.spyOn(storage, 'updateProvenTxReqWithNewProvenTx')

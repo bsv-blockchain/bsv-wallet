@@ -149,7 +149,10 @@ export async function verifyVaultMetaAuthorityTag(
  * tagged: every code path that reads them already requires a fresh
  * driver.signEcdsa challenge before doing anything with them, so a forged
  * draft at those levels gains nothing. */
-function vaultDraftAuthorityMessage(record: Pick<VaultKeyRecord, 'serial' | 'slot' | 'pubkey'>, scope: VaultStoreScope): number[] {
+function vaultDraftAuthorityMessage(
+  record: Pick<VaultKeyRecord, 'serial' | 'slot' | 'pubkey'>,
+  scope: VaultStoreScope
+): number[] {
   return bytesOf({
     v: 1,
     kind: 'vault-enrollment-draft',

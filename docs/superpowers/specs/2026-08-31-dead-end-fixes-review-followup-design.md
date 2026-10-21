@@ -29,20 +29,20 @@ The first dead-end change put the right mechanisms in place. This change stops t
 
 The review is technically correct on the ordered items:
 
-| Claim | Code |
-|---|---|
-| `payment_cancelled` drops inbox tokens by txid alone | `dropInboxTokenForTxid` filters `txidFromInboxBody(m.body) === txid` and never compares `m.sender` |
-| Resend falls back to the requester | `rebuildAndDeliver`: `entry?.recipient \|\| recipientFromLabels(listed?.labels) \|\| args.recipient`; `handleResendRequests` passes `recipient: sender` |
-| Send labels are only `peerpay` | `createAction({ labels: ['peerpay'] })` — `recipientFromLabels` never matches |
-| Spec-op auto-release on Check Wallet | `listOutputs({ basket: specOpInvalidChange, tags: ['all','release'] })` |
-| `checkUtxoSpendability` includes `nosend`/`unproven` | `txStatus: ['completed', 'unproven', 'nosend']`; BEEF-fetch failure still `updateOutput({ spendable: false })` |
-| `reviewStatus` invalid-req query includes completed txs | `WHERE r.status = 'invalid' AND t.status <> 'failed'` — no `provenTxId IS NULL`, no `status <> 'completed'` |
-| Shipping `reviewStatus` uses `updateTransactionStatus` | `StorageExpoSQLite.reviewStatus` — tests call `reviewStatusOnDb` only |
-| `takeLastMissHeight` is consume-once, snapshotted pre-pass | `makeCreditClassifier` calls it once before any payment |
-| Check ports swallow errors and Done says OK | `WalletCheckScreen` port wrappers `catch { return zeros }`; Done uses `wallet_check_ok` whenever counts are zero |
-| `cancelOutboxPayment` uses the caller’s snapshot | `if (mode !== 'abandon' && (entry.delivered \|\| entry.delivering))` — no re-read |
-| Corrupt `PENDING_KEY` is never replaced with a valid empty/repaired blob | `readAll` copies aside and throws; original key stays corrupt forever |
-| Completed nearby entries stay in the blob | `getUnprocessed` filters them in memory; `writeAll` never drops `completed` |
+| Claim                                                                    | Code                                                                                                                                                    |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `payment_cancelled` drops inbox tokens by txid alone                     | `dropInboxTokenForTxid` filters `txidFromInboxBody(m.body) === txid` and never compares `m.sender`                                                      |
+| Resend falls back to the requester                                       | `rebuildAndDeliver`: `entry?.recipient \|\| recipientFromLabels(listed?.labels) \|\| args.recipient`; `handleResendRequests` passes `recipient: sender` |
+| Send labels are only `peerpay`                                           | `createAction({ labels: ['peerpay'] })` — `recipientFromLabels` never matches                                                                           |
+| Spec-op auto-release on Check Wallet                                     | `listOutputs({ basket: specOpInvalidChange, tags: ['all','release'] })`                                                                                 |
+| `checkUtxoSpendability` includes `nosend`/`unproven`                     | `txStatus: ['completed', 'unproven', 'nosend']`; BEEF-fetch failure still `updateOutput({ spendable: false })`                                          |
+| `reviewStatus` invalid-req query includes completed txs                  | `WHERE r.status = 'invalid' AND t.status <> 'failed'` — no `provenTxId IS NULL`, no `status <> 'completed'`                                             |
+| Shipping `reviewStatus` uses `updateTransactionStatus`                   | `StorageExpoSQLite.reviewStatus` — tests call `reviewStatusOnDb` only                                                                                   |
+| `takeLastMissHeight` is consume-once, snapshotted pre-pass               | `makeCreditClassifier` calls it once before any payment                                                                                                 |
+| Check ports swallow errors and Done says OK                              | `WalletCheckScreen` port wrappers `catch { return zeros }`; Done uses `wallet_check_ok` whenever counts are zero                                        |
+| `cancelOutboxPayment` uses the caller’s snapshot                         | `if (mode !== 'abandon' && (entry.delivered \|\| entry.delivering))` — no re-read                                                                       |
+| Corrupt `PENDING_KEY` is never replaced with a valid empty/repaired blob | `readAll` copies aside and throws; original key stays corrupt forever                                                                                   |
+| Completed nearby entries stay in the blob                                | `getUnprocessed` filters them in memory; `writeAll` never drops `completed`                                                                             |
 
 ---
 
@@ -138,11 +138,11 @@ If HandleReceive is focused, it already owns the overlay — do not double-toast
 
 Parent spec §11.5 still binds. New keys, all 12 locales (non-English may copy English):
 
-| Key | English |
-|---|---|
-| `wallet_check_couldnt` | Couldn't check |
+| Key                         | English                                                            |
+| --------------------------- | ------------------------------------------------------------------ |
+| `wallet_check_couldnt`      | Couldn't check                                                     |
 | `wallet_check_couldnt_body` | A repair step didn't finish. Nothing was assumed about your coins. |
-| `payment_arrived` | Payment received |
+| `payment_arrived`           | Payment received                                                   |
 
 No `Alert.alert`. No celebration on Check Wallet. Retry is a 44×44 `PressableScale` (or the existing retry `TouchableOpacity` already at 44×44 — do not shrink it).
 

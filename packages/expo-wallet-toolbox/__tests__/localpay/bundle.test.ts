@@ -33,11 +33,7 @@ const PKH = new Array(20).fill(9)
 const FEE_ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
 
 /** A token transaction: `amounts` token outputs of `assetId`, spending `spends`. */
-function tokenTx(
-  amounts: number[],
-  spends: { tx: Transaction; vout: number }[] = [],
-  assetId = ASSET
-): Transaction {
+function tokenTx(amounts: number[], spends: { tx: Transaction; vout: number }[] = [], assetId = ASSET): Transaction {
   const tx = new Transaction()
   for (const s of spends) {
     tx.addInput({
@@ -227,7 +223,15 @@ describe('assembleBundle', () => {
 
   it('walks a shared parent once, however many inputs reach it', async () => {
     const x0 = tokenTx([50, 50])
-    const tip = throughBeef(tokenTx([100], [{ tx: x0, vout: 0 }, { tx: x0, vout: 1 }]))
+    const tip = throughBeef(
+      tokenTx(
+        [100],
+        [
+          { tx: x0, vout: 0 },
+          { tx: x0, vout: 1 }
+        ]
+      )
+    )
     const store = storeOf({ [x0.id('hex')]: admission(x0.id('hex')) }, {})
 
     const bundle = await assemble(tip, store)
@@ -283,9 +287,7 @@ describe('assembleBundle', () => {
 })
 
 describe('coverFromFrame', () => {
-  const okVerifier = jest.fn(
-    async (): Promise<CoverResult> => ({ ok: true, mustSubmit: ['tip'] })
-  )
+  const okVerifier = jest.fn(async (): Promise<CoverResult> => ({ ok: true, mustSubmit: ['tip'] }))
 
   function tokenFrame(tip: Transaction, patch: Partial<PaymentFrame['token']> = {}): PaymentFrame {
     return {
@@ -357,7 +359,9 @@ describe('coverFromFrame', () => {
   // The verifier is injected and may be a third party's; a throw out of it is
   // a refusal, never an exception that escapes into the settle path.
   it('reports a throwing verifier as a shape refusal', async () => {
-    const verifier = jest.fn(async (): Promise<CoverResult> => { throw new Error('boom') })
+    const verifier = jest.fn(async (): Promise<CoverResult> => {
+      throw new Error('boom')
+    })
     await expect(coverFromFrame(tokenFrame(tokenTx([100])), verifier)).resolves.toEqual({
       ok: false,
       reason: 'shape'
