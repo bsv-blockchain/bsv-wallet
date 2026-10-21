@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.17.0
+
+### Added
+
+- **Direct pay core for push payments** (`core/directpay/`, exported from
+  `core/index.ts`). This is the device-free half of paying a person live over
+  WebRTC, mirroring BSV Desktop:
+  - **Settings.** Receiving is on by default. The default relay is
+    `wss://webrtpay-relay-us-1.bsvblockchain.tech`, and BSV Association's STUN
+    server comes first. Relay, STUN and TURN addresses are validated without
+    `URL`. Settings are stored per device under `direct_pay_settings_v1`
+    through the host's `KVStorage`.
+  - **`payIdentity`.** Outcomes are `paid_live`, `paid_messagebox`,
+    `ask_fallback` and `failed`.
+  - **"Isn't online" prompt.** This prompt is the only route to the message
+    box, and only when nothing was spent: a route that stops first must
+    throw `NotSentError`.
+  - **`dialFailure`** classifies a dial error.
+  - **`liveStatus`** gives the Receive card's status.
+  - **`paymentKey`** is the dedupe key shared with the desktop.
+  - **Host config.** `configureToolbox` takes an optional `directPay` field,
+    read with `getDirectPayConfig()`. It is unset by default, so existing
+    hosts see no change.
+  - **Translations.** The new strings are in all 12 locales.
+
+  Nothing is wired into `WalletContext` or a screen yet. The live manager
+  and receive/send rails follow in a later release.
+- **`deriveCallbackToken` is exported.** Known-answer vectors pin it. BSV
+  Desktop now derives the same Arcade callback token, so a wallet open in both
+  apps hears one status stream. No behaviour change.
+
+### Fixed
+
+- **Backups restore on every network.** A seed imported on mainnet then
+  switched to testnet or teratestnet came up empty even when the server held
+  a backup for that network. Each network's backup is now restored the first
+  time that network's database is built: after an import, on a network
+  switch, and for every network a discovered profile has backups on. Profile
+  0's other networks are included. Backup format, derivation and keys are
+  unchanged.
+
 ## 0.16.0
 
 ### Added
