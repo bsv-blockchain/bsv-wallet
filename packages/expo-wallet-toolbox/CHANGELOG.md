@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.18.0
+
+### Added
+
+- **Live (WebRTC) push payments.** Hosts can now pay and be paid live, with
+  the message box as the fallback.
+  - **Opt in.** It turns on when the host installs `@bsv/webrtpay` (an
+    optional peer, `^0.2.1`), sets `configureToolbox({ directPay: { enabled:
+    true, RTCPeerConnection } })` and mounts `DirectPayProvider` inside
+    `WalletContextProvider`. Without all three nothing changes.
+  - **`DirectPayManager`.** Wallets find each other through the relay by
+    default. If the relay is not online within 5 s, receiving falls back to
+    the message box while the relay is retried (5 s doubling to 5 min). It
+    uses the relay's TURN servers and gives a dial 10 s. It receives only
+    while the app is in the foreground.
+  - **Receiving** (`core/directpay/receive.ts`). A live payment is verified
+    and taken into the wallet once, labelled `peerpay`. A seen store keyed by
+    `paymentKey`, shared with the inbox credit path, stops a payment that
+    arrives both live and through the message box from being credited or
+    toasted twice. A payment that cannot be added for environmental reasons
+    is kept on the device and retried. It is never dropped.
+  - **Sending** (`core/pay/rails/direct.ts`, `sendViaDirect`). One
+    transaction and one outbox row per payment. The order is dial, mint,
+    send, then broadcast after the ack. Once a payment has been sent it is
+    never aborted: a refused or unconfirmed live delivery finishes through
+    the message box. Every stop before sending throws `NotSentError`, so
+    `payIdentity` can offer the message box.
+  - **`useDirectPay()`** exposes the snapshot, the Receive card status
+    (`live`), settings, `canSendDirect` and `sendDirect`, the `direct` route
+    for `payIdentity`.
+  - **`withReactNativeDataChannels(RTCPeerConnection)`** makes
+    react-native-webrtc data channels acceptable to `@bsv/webrtpay` 0.2.1
+    (Android reports -1 and iOS 65535 for an unset limit). Drop it once
+    webrtpay ships the fix.
+
+### Changed
+
+- **The inbox credit path takes an optional seen store.**
+  `internalizeIncoming` returns `'credited' | 'duplicate'`, and
+  `autoAcceptInbox` does not count duplicates.
+
 ## 0.17.0
 
 ### Added
