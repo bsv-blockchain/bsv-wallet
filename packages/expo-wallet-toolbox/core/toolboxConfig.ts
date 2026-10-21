@@ -311,7 +311,7 @@ export function getServiceConfig(chain: AppChain): ToolboxServiceConfig {
  * override" rather than crash.
  */
 export function getMessageBoxUrlOverride(chain: AppChain): string | undefined {
-  const url = current?.services[chain]?.messageBoxUrl?.trim().replace(/\/+$/, '') ?? ''
+  const url = trimTrailingSlashes(current?.services[chain]?.messageBoxUrl?.trim() ?? '')
   if (url === '') return undefined
   let parsed: URL
   try {
