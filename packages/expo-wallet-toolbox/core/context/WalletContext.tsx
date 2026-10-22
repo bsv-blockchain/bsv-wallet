@@ -159,7 +159,6 @@ import {
 import type { MandalaRuntime } from '../mandala/runtime'
 import { mandalaSettlementDeps, type CancelParkedSettlementDeps } from '../offline/cancelParked'
 import { drainMandalaInbox } from '../pay/rails/handle'
-import { forgetSessionPsks, sealedFramePayloadDecoder } from '../offline/tokenFrames'
 import { disconnectActivePairedSession } from './WalletConnectionContext'
 import connectionStore from '../stores/ConnectionStore'
 import { loadUserAvatarIcon } from '../userAvatar'
@@ -2117,10 +2116,6 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                       chain
                     ) as unknown as MandalaMessageBox
                 : undefined,
-              // The payer's own frames are sealed with a nearby session PSK the
-              // drain never persists; this opens the ones whose session this
-              // process still holds. See offline/tokenFrames.ts.
-              decodeSealedFrame: sealedFramePayloadDecoder(),
               // The one thing `settleNow` asks about connectivity: whether a
               // hand-over that just landed should be followed by this device's
               // own submit now, or left to the drain. The runtime deliberately
@@ -3089,7 +3084,6 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // task or a screen draining the departed wallet's tables.
     mandalaRef.current = undefined
     setMandala(undefined)
-    forgetSessionPsks()
 
     // Tear down current wallet state (but keep mnemonic / config)
     vaultStore.clearScope()
@@ -4003,7 +3997,6 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       setStorage(null)
       mandalaRef.current = undefined
       setMandala(undefined)
-      forgetSessionPsks()
 
       vaultStore.clearScope()
       updateManagers({})

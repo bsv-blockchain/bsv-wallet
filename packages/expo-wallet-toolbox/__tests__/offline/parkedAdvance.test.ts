@@ -12,25 +12,17 @@
  * now returns this row".
  */
 import { DatabaseSync } from 'node:sqlite'
-import { Beef, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '../../core/mandala/token'
+import type { WalletInterface } from '@bsv/sdk'
 import { createTables } from '../../core/storage/schema/createTables'
 import { findOfflineActions, type OfflineActionRow } from '../../core/storage/methods/offlineActions'
 import { holdSentPaymentOffline, parkSentPaymentOffline, releaseParkedPayment } from '../../core/offline/payerHold'
-import { createSettlementStore, type SettlementDb, type SqlSettlementStore } from '../../core/mandala/settlementStore'
-import {
-  forgetSessionPsks,
-  sealedFramePayloadDecoder,
-  tokenFrameSourcesFromOfflineActions
-} from '../../core/offline/tokenFrames'
+import { createNearbyPayer } from '../../core/mandala/nearby'
+import { createTransferJournal, type JournalDb, type TransferJournal } from '../../core/mandala/transferJournal'
 import { TaskSendOffline } from '../../core/monitor/TaskSendOffline'
-import type { EvidenceFrame, TokenHandedOverHook } from '../../core/mandala/types'
 import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 
 const TXID = 'aa'.repeat(32)
 const ASSET = 'ab'.repeat(32) + '_0'
-const OVERLAY = 'https://overlay.issuer.example'
-const OVERLAY_KEY = '03'.padEnd(66, 'b')
 
 function adapt(db: DatabaseSync) {
   return {
@@ -69,7 +61,6 @@ beforeEach(async () => {
   raw.prepare(`INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (7,'n','n','k')`).run()
   promoted = []
   TaskSendOffline.resetForTests()
-  forgetSessionPsks()
   log = jest.spyOn(console, 'log').mockImplementation(() => {})
 })
 
@@ -113,146 +104,103 @@ it('a repeated confirm never duplicates the row or re-promotes a moved transacti
   expect(promoted).toEqual([['unproven', 99]])
 })
 
-// ─────────────────── the payer's own durability (spec §4.4, §5) ───────────────────
+// ─────────────────── the payer's own durability (plan 07 Task 15) ───────────────────
 //
-// `offline_actions.framePayload` is the frame SEALED with the nearby session's
-// PSK, and that key lives in memory only — so a payer that restarts can no
-// longer open its own frame, and a `token_settlements` row derived ONLY from it
-// simply never exists. With no row, `processOfflineActions` reads the payment as
-// an ordinary BSV transaction and broadcasts an unadmitted token tip.
-//
-// So park/hold are handed the PLAINTEXT frame while it is still open.
+// A token payment's durable host record is its `color_transfers` row (W1).
+// The runtime journals it `built` at hand-over time, before any frame exists,
+// so nothing here depends on the session key that seals `framePayload`: park
+// and hold only move that row forward through `nearby.onHandedOver`.
 
-function tokenFrame(): EvidenceFrame {
-  const tx = new Transaction()
-  tx.addOutput({ satoshis: 1, lockingScript: new MandalaToken().lock(ASSET, 250, new Array(20).fill(9)) })
-  const beef = new Beef()
-  beef.mergeTransaction(tx)
-  return {
-    kind: 'token',
-    senderIdentityKey: '02'.padEnd(66, 'a'),
-    token: { assetId: ASSET, overlayUrl: OVERLAY, overlayIdentityKey: OVERLAY_KEY, linkage: [], admissions: [] },
-    transaction: new Uint8Array(beef.toBinaryAtomic(tx.id('hex')))
-  }
-}
+let journal: TransferJournal
 
-let settlements: SqlSettlementStore
+/** The runtime's real hook over this test's database. */
+const hooks = () =>
+  createNearbyPayer({
+    wallet: { abortAction: async () => ({ aborted: true }) } as unknown as WalletInterface,
+    identityKey: async () => '02'.padEnd(66, 'a'),
+    journal,
+    recipientRefusal: () => null
+  })
 
-/** What the Mandala runtime implements: upsert the row at the state it was told. */
-const onTokenHandedOver: TokenHandedOverHook = async (frame, txid, state) => {
-  const existing = await settlements.getSettlement(txid)
-  await settlements.upsertSettlement({
-    txid,
+async function journalBuilt(): Promise<void> {
+  await journal.insert({
+    txid: TXID,
     role: 'sent',
-    assetId: frame.token!.assetId,
-    state: existing?.state ?? state,
-    counterpartyKey: frame.senderIdentityKey,
-    overlayUrl: frame.token!.overlayUrl,
-    overlayIdentityKey: frame.token!.overlayIdentityKey,
-    createdAt: existing?.createdAt
+    state: 'built',
+    assetId: ASSET,
+    units: 250n,
+    outputIndex: 0,
+    rail: 'nearby',
+    delivered: false,
+    reference: 'ref-1'
   })
 }
 
-describe('a token payment’s settlement row survives the session key', () => {
-  beforeEach(() => {
-    settlements = createSettlementStore(conn as unknown as SettlementDb)
+describe('a token payment’s journal row moves with its queue row', () => {
+  beforeEach(async () => {
+    journal = createTransferJournal(conn as unknown as JournalDb)
+    await journalBuilt()
   })
 
-  it('park writes the row from the plaintext frame, at parked', async () => {
+  it('park moves the row to parked and leaves nothing drainable', async () => {
     await parkSentPaymentOffline({
       storage: storageStub('nosend'),
       txid: TXID,
       framePayload: 'bsvpayf1:sealed',
-      frame: tokenFrame(),
-      onTokenHandedOver
+      onHandedOver: hooks().onHandedOver
     })
 
-    expect(await settlements.getSettlement(TXID)).toMatchObject({ state: 'parked', role: 'sent', assetId: ASSET })
-    // `parked` is the USER's state: the drain must never pull it into a submit
-    // set, and it does not make the payment drainable either.
+    expect(await journal.get(TXID)).toMatchObject({ state: 'parked', role: 'sent', assetId: ASSET })
+    // `parked` is the USER's state: nobody settles it (FIX F), and the queue
+    // row is not drainable either.
     expect(await drainable()).toEqual([])
   })
 
   it('park → confirm advances BOTH rows in the same confirm', async () => {
-    const frame = tokenFrame()
+    const { onHandedOver } = hooks()
     await parkSentPaymentOffline({
       storage: storageStub('nosend'),
       txid: TXID,
       framePayload: 'bsvpayf1:sealed',
-      frame,
-      onTokenHandedOver
+      onHandedOver
     })
 
-    await holdSentPaymentOffline({ storage: storageStub('nosend'), txid: TXID, frame, onTokenHandedOver })
+    await holdSentPaymentOffline({ storage: storageStub('nosend'), txid: TXID, onHandedOver })
 
     expect(await drainable()).toEqual([expect.objectContaining({ txid: TXID, status: 'queued' })])
-    // The settlement twin of that advance. `upsertSettlement` never writes
-    // `state` on conflict, so without the explicit advance the row would sit at
-    // `parked` forever — the one non-terminal state the drain refuses to
-    // submit — and the payer's optional submit (rule 6) could never start.
-    expect((await settlements.getSettlement(TXID))?.state).toBe('handed_over')
+    expect(await journal.get(TXID)).toMatchObject({ state: 'handed_over', delivered: true })
   })
 
-  it('releaseParkedPayment advances the settlement row too, with no frame in hand', async () => {
+  it('releaseParkedPayment advances the journal row too', async () => {
+    const { onHandedOver } = hooks()
     await parkSentPaymentOffline({
       storage: storageStub('nosend'),
       txid: TXID,
       framePayload: 'bsvpayf1:sealed',
-      frame: tokenFrame(),
-      onTokenHandedOver
+      onHandedOver
     })
 
-    await releaseParkedPayment({ storage: storageStub('nosend'), txid: TXID })
+    await releaseParkedPayment({ storage: storageStub('nosend'), txid: TXID, isTokenHold: true, onHandedOver })
 
     expect(await drainable()).toEqual([expect.objectContaining({ txid: TXID, status: 'queued' })])
-    expect((await settlements.getSettlement(TXID))?.state).toBe('handed_over')
+    expect((await journal.get(TXID))?.state).toBe('handed_over')
   })
 
-  // The whole reason the plaintext frame is threaded through: after a restart
-  // the PSK is gone, so the sealed `framePayload` yields NOTHING — and the row
-  // has to already be there.
-  it('after a restart with no PSK the row still gates the tip', async () => {
-    await holdSentPaymentOffline({
-      storage: storageStub('nosend'),
-      txid: TXID,
-      framePayload: 'bsvpayf1:sealed',
-      frame: tokenFrame(),
-      onTokenHandedOver
-    })
-
-    // Restart: the process forgets every session key it held.
-    forgetSessionPsks()
-    const rows = (await findOfflineActions(conn as never, {})) as OfflineActionRow[]
-    expect(tokenFrameSourcesFromOfflineActions(rows, sealedFramePayloadDecoder())).toEqual([])
-
-    // …and the settlement row is still there, so `processOfflineActions` takes
-    // its token branch and `attemptToPostReqsToNetwork`'s guard #2 — which is
-    // literally this query — still holds the request.
-    const fresh = createSettlementStore(conn as unknown as SettlementDb)
-    expect((await fresh.getSettlement(TXID))?.state).toBe('handed_over')
-    expect([...(await fresh.settlementTxidsIn([TXID]))]).toEqual([TXID])
+  it('leaves a BSV hand-over’s journal alone', async () => {
+    await holdSentPaymentOffline({ storage: storageStub('nosend'), txid: TXID })
+    expect((await journal.get(TXID))?.state).toBe('built')
   })
 
-  it('leaves a BSV hand-over with no settlement row at all', async () => {
-    await holdSentPaymentOffline({ storage: storageStub('nosend'), txid: TXID, onTokenHandedOver })
-    expect(await settlements.getSettlement(TXID)).toBeUndefined()
-  })
-
-  // XR-036: updated from "a throwing hook never costs the payment its queue
-  // row" — that used to mean the row was promoted to 'queued' (drainable)
-  // regardless, which is exactly the gap XR-036 closes: `processOfflineActions`
-  // tells "ordinary BSV" from "token, needs overlay admission" by whether ANY
-  // `token_settlements` row exists, so a drainable row with a failed journal
-  // write was read as plain BSV and posted straight past admission. The queue
-  // row is still never LOST (it exists, at 'parked'), it is just not handed to
-  // the drain until the journal write that protects it has actually landed.
+  // XR-036, re-keyed: a hold whose journal hook fails leaves the queue row
+  // parked rather than queued. The broadcast hold would still hold the tx (a
+  // row short of `settled` holds, W1), but a queued row whose journal never
+  // reads `handed_over` is a payment nothing will ever settle.
   it('a throwing hook leaves the queue row parked, not drainable, for a token hold', async () => {
     await expect(
       holdSentPaymentOffline({
         storage: storageStub('nosend'),
         txid: TXID,
-        frame: tokenFrame(),
-        onTokenHandedOver: async () => {
+        onHandedOver: async () => {
           throw new Error('db locked')
         }
       })

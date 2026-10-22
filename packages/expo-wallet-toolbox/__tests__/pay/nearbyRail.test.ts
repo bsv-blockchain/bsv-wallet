@@ -14,6 +14,7 @@ import * as codec from '../../core/localpay/codec'
 import * as pending from '../../core/localpay/pending'
 import * as build from '../../core/localpay/build'
 import * as types from '../../core/localpay/types'
+import * as payerHold from '../../core/offline/payerHold'
 import { awdlTransport } from '../../core/localpay/transport/awdl'
 import { bleTransport } from '../../core/localpay/transport/ble'
 import {
@@ -25,8 +26,6 @@ import {
 import { requestBlePermissions } from '../../core/localpay/blePermissions'
 import { capsFromProbe, prepareBle, probeDeviceCaps, readBluetoothState } from '../../core/localpay/deviceCaps'
 import { raceReceivers } from '../../core/localpay/transport/race'
-import * as settlementAck from '../../core/localpay/settlementAck'
-import * as bundle from '../../core/mandala/bundle'
 
 describe('nearby rail adapter', () => {
   it('re-exports the localpay functions by identity, so nothing is reimplemented', () => {
@@ -49,21 +48,32 @@ describe('nearby rail adapter', () => {
     expect(nearby.localSupportsAwdl).toBe(localSupportsAwdl)
   })
 
-  // The token path is the same rail, not a second one: every symbol below is
-  // the localpay/mandala implementation by identity, so a screen importing
-  // from here and a test importing from there can never diverge.
-  it('re-exports the token settlement path by identity too', () => {
-    expect(nearby.selectTokenCoins).toBe(build.selectTokenCoins)
+  // The token path is the same rail, not a second one. Since 1Color (plan 07
+  // Task 15) the payer hands over through the color module, so the wallet's
+  // own coin selection, σI settlement ack and session-key cache are gone from
+  // the rail: a screen can no longer reach them by importing from here.
+  it('re-exports the token path by identity, and none of the retired σI pieces', () => {
     expect(nearby.declineReasonFor).toBe(verify.declineReasonFor)
-    expect(nearby.assembleBundle).toBe(bundle.assembleBundle)
-    expect(nearby.coverFromFrame).toBe(bundle.coverFromFrame)
-    expect(nearby.tokenParentsOf).toBe(bundle.tokenParentsOf)
-    expect(nearby.MANDALA_BASKET).toBe(bundle.MANDALA_BASKET)
-    expect(nearby.encodeSettlementAck).toBe(settlementAck.encodeSettlementAck)
-    expect(nearby.decodeSettlementAck).toBe(settlementAck.decodeSettlementAck)
-    expect(nearby.readSettlementAck).toBe(settlementAck.readSettlementAck)
-    expect(nearby.tokenSendState).toBe(settlementAck.tokenSendState)
-    expect(nearby.SETTLEMENT_ACK_PREFIX).toBe(settlementAck.SETTLEMENT_ACK_PREFIX)
+    expect(nearby.holdSentPaymentOffline).toBe(payerHold.holdSentPaymentOffline)
+    expect(nearby.parkSentPaymentOffline).toBe(payerHold.parkSentPaymentOffline)
+    expect(nearby.releaseParkedPayment).toBe(payerHold.releaseParkedPayment)
+    const rail = nearby as Record<string, unknown>
+    for (const gone of [
+      'selectTokenCoins',
+      'assembleBundle',
+      'tokenParentsOf',
+      'MANDALA_BASKET',
+      'encodeSettlementAck',
+      'decodeSettlementAck',
+      'readSettlementAck',
+      'tokenSendState',
+      'SETTLEMENT_ACK_PREFIX',
+      'rememberSessionPsk',
+      'forgetSessionPsks',
+      'sealedFramePayloadDecoder'
+    ]) {
+      expect(rail[gone]).toBeUndefined()
+    }
   })
 
   it('re-exports the BLE rung and the device-caps helpers by identity', () => {

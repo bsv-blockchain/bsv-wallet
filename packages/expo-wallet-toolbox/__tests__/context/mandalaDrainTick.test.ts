@@ -84,9 +84,9 @@ describe('tearing a wallet down stops its tick', () => {
   const clears = [...source.matchAll(/mandalaRef\.current = undefined/g)].map(m => m.index ?? 0)
   /**
    * The three real teardowns (rebuild, network switch, logout), told apart from
-   * the build's own failure path by the session sweep that follows them.
+   * the build's own failure path by the vault-scope reset that follows them.
    */
-  const teardowns = clears.filter(at => source.slice(at, at + 300).includes('forgetSessionPsks()'))
+  const teardowns = clears.filter(at => source.slice(at, at + 300).includes('vaultStore.clearScope()'))
 
   it('every teardown path clears the runtime — rebuild, network/profile switch and logout', () => {
     // Rebuild, network switch and profile switch share teardownBuiltWallet;

@@ -158,7 +158,6 @@ import {
   localSupportsBle,
   localSupportsNearby,
   mintSession,
-  rememberSessionPsk,
   nearbyTransport,
   nextPhaseAfterUnsealFailure,
   prepareBle,
@@ -186,9 +185,9 @@ import {
   verifyFramePayment,
   type VerifiedPayment,
   type CoverVerifier,
+  type NearbyTokenDeps,
   type SessionAsset
 } from '@bsv/expo-wallet-toolbox'
-import { readSettlementAck, tokenSendState } from '../../../core/localpay/settlementAck'
 import { useMandala } from '../../hooks/useMandala'
 import { useOnline } from '../../hooks/useOnline'
 import { formatTokenAmount, formatTokenAmountWithUnit } from '../../tokenFormat'
@@ -409,6 +408,22 @@ function satsFrom(text: string): number {
   const n = Math.round(Number(text))
   return Number.isFinite(n) && n > 0 ? n : 0
 }
+
+/**
+ * Token base units from the amount field, exact, or 0n when it is not yet a
+ * usable figure. The field is in token mode on a token session and emits
+ * whole base units as plain digits; anything else (a fraction, a sign, junk)
+ * is not a figure, and nothing is ever rounded into one.
+ */
+function unitsFrom(text: string): bigint {
+  const t = text.trim()
+  if (!/^[0-9]+$/.test(t)) return 0n
+  const u = BigInt(t)
+  return u > 0n ? u : 0n
+}
+
+/** How long the payer's receipt waits on its own post-ACK settle before it stays "settling" (W5). */
+const SETTLE_AFTER_HANDOVER_MS = 8_000
 
 /**
  * The unit a token session's figures are typed and shown in on THIS device.
@@ -750,20 +765,49 @@ function NearbyFlow({
     async (txid: string, issuer: string, signal: AbortSignal): Promise<void> => {
       const runtime = mandala.runtime
       if (!runtime || !onlineRef.current) return
+      let timer: ReturnType<typeof setTimeout> | undefined
       try {
-        const state = await runtime.settleNow(txid)
+        // W5: the payee's positive ack is the ACK; this names the hand-over
+        // to the module's settle (post-ACK intent, IC §2.3). Raced against a
+        // timeout so a slow overlay only delays the sentence, never the
+        // payment; the settle itself keeps running, and the tick retries it.
+        const state = await Promise.race([
+          runtime.settleNow(txid),
+          new Promise<undefined>(resolve => {
+            timer = setTimeout(() => resolve(undefined), SETTLE_AFTER_HANDOVER_MS)
+          })
+        ])
         if (signal.aborted || !mountedRef.current) return
-        // `admitted` is the issuer's overlay having folded this transaction
-        // into its own state — the broadcast on top of it is bookkeeping — so
-        // both read as settled, exactly as the activity list reads them.
-        if (state === 'admitted' || state === 'broadcast') setSettledStatusNote(t('token_sent_settled', { issuer }))
+        // Only the overlay's verified admission reads as settled, exactly as
+        // the activity list reads it.
+        if (state === 'settled') setSettledStatusNote(t('token_sent_settled', { issuer }))
       } catch (e) {
         // The payment is made and the row is durable; this was only ever an
         // attempt to finish it early.
         console.warn('[localpay] could not settle the hand-over immediately:', e instanceof Error ? e.message : e)
+      } finally {
+        if (timer !== undefined) clearTimeout(timer)
       }
     },
     [mandala.runtime, t]
+  )
+
+  /**
+   * The token half of every payer hold, park and release: the runtime's
+   * journal hook, which moves the payment's `color_transfers` row forward
+   * (plan 07 Task 15). With no runtime (torn down mid-payment) the hook
+   * fails, so `payerHold` keeps the queue row parked rather than treating a
+   * token payment as plain BSV.
+   */
+  const tokenHoldDeps = useCallback(
+    (): { onHandedOver: NearbyTokenDeps['onHandedOver'] } => ({
+      onHandedOver:
+        mandala.runtime?.nearby.onHandedOver ??
+        (async () => {
+          throw new Error('the token runtime is not available to journal this payment')
+        })
+    }),
+    [mandala.runtime]
   )
 
   /**
@@ -1554,10 +1598,6 @@ function NearbyFlow({
           hints: capsFromProbe({ ...probe, bluetooth: bleHere ? bleNow : probe.bluetooth }),
           os: Platform.OS === 'ios' ? 'ios' : 'android'
         })
-        // Same reason as the payer's side: the drain re-derives this device's own
-        // settlement rows from sealed frames, and the key that opens them lives
-        // only here, for this process.
-        if (session.asset) rememberSessionPsk(session.psk)
         setRole('payee')
         setHostedSession(session)
         setPhase('receive_wait')
@@ -1619,11 +1659,6 @@ function NearbyFlow({
 
   /** The state moves that follow a valid session, whether scanned here or handed in. */
   const adoptSession = useCallback((session: Session) => {
-    // The payer's own sealed `offline_actions.framePayload` can only be
-    // re-opened by the settlement drain while this process still holds the
-    // session key — it is deliberately never written to disk. Remembered at
-    // the moment the session is adopted, before anything is built with it.
-    if (session.asset) rememberSessionPsk(session.psk)
     setScannedSession(session)
     // Prompt-free read of this device's Bluetooth state for describeFloor.
     // Never prepare() here: a payer who lands on QR must never be prompted.
@@ -1784,10 +1819,20 @@ function NearbyFlow({
    * mode there (`scannedAssetUnits`) and never emits anything else. 0 means
    * "not a usable amount yet" and keeps Send disabled.
    */
+  const payUnits = useMemo(() => {
+    if (!scannedSession?.asset) return 0n
+    return scannedSession.units ?? unitsFrom(sendAmount)
+  }, [scannedSession, sendAmount])
+  /**
+   * The same figure as a number, for the BSV path and for the token DISPLAY
+   * helpers that still take numbers (plan 07 Task 18 moves them to bigint).
+   * The money path on a token session uses `payUnits`, never this.
+   */
   const payAmount = useMemo(() => {
     if (!scannedSession) return 0
+    if (scannedSession.asset) return Number(payUnits)
     return scannedSession.amount ?? satsFrom(sendAmount)
-  }, [scannedSession, sendAmount])
+  }, [scannedSession, sendAmount, payUnits])
 
   /**
    * The token receipt, once a hand-over is accepted — one writer for BOTH
@@ -1808,10 +1853,12 @@ function NearbyFlow({
    * still runs to completion (see settleAfterHandover).
    */
   const writeTokenReceipt = useCallback(
-    (asset: SessionAsset, built: { txid?: string; tokenAmount?: number }, alreadySettled: boolean) => {
+    (asset: SessionAsset, built: { txid?: string; tokenAmount?: bigint }, alreadySettled: boolean) => {
       const issuer = issuerNameFor(asset.id)
       setSettledTokenText(
-        formatTokenAmountWithUnit(built.tokenAmount ?? payAmount, scannedAssetUnits ?? assetUnits(asset)) ??
+        // Display only: the helper still takes a number until plan 07 Task 18
+        // moves token formatting to bigint. The payment itself is exact.
+        formatTokenAmountWithUnit(Number(built.tokenAmount ?? payUnits), scannedAssetUnits ?? assetUnits(asset)) ??
           t('token_row_amount_pending')
       )
       setSettledStatusNote(
@@ -1828,7 +1875,7 @@ function NearbyFlow({
         abortsRef.current.delete(controller)
       })
     },
-    [issuerNameFor, payAmount, scannedAssetUnits, peerName, settleAfterHandover, t]
+    [issuerNameFor, payUnits, scannedAssetUnits, peerName, settleAfterHandover, t]
   )
 
   // ── Send: release an abandoned build ──
@@ -1845,7 +1892,7 @@ function NearbyFlow({
   // must not overwrite the real error already on screen.
 
   const abortBuild = useCallback(
-    (reference: string | undefined) => {
+    (reference: string | undefined, tokenTxid?: string) => {
       if (!reference || !wallet) return
       void (async () => {
         try {
@@ -1864,9 +1911,17 @@ function NearbyFlow({
             ).catch(() => undefined)
           }
         }
+        // A token build nobody received never moved money: its journal row
+        // goes built → cancelled (a failed abort above is queued for replay,
+        // and the abort guard allows a cancelled row).
+        if (tokenTxid) {
+          await mandala.runtime?.journal.advance(tokenTxid, ['built'], 'cancelled').catch((e: unknown) => {
+            console.warn('[localpay] could not journal the released build:', messageOf(e))
+          })
+        }
       })()
     },
-    [wallet, adminOriginator, storage]
+    [wallet, adminOriginator, storage, mandala.runtime]
   )
 
   /**
@@ -1890,7 +1945,7 @@ function NearbyFlow({
     if (!session || !sendKind) return
     // Guards the open-request path: with no figure there is nothing to build,
     // and buildPaymentFrame would refuse it anyway.
-    if (payAmount <= 0) return
+    if (session.asset ? payUnits <= 0n : payAmount <= 0) return
     if (!wallet) {
       fail('generic', t('wallet_not_ready'))
       return
@@ -1932,13 +1987,9 @@ function NearbyFlow({
           storage,
           txid: built.txid,
           framePayload,
-          ...(session.asset
-            ? {
-                frame: built.frame,
-                onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
-                reference: built.reference
-              }
-            : {})
+          // Token sessions only: the journal hook moves the payer's
+          // `color_transfers` row built → parked (see `TokenHandoverDeps`).
+          ...(session.asset ? tokenHoldDeps() : {})
         })
       } catch (e) {
         console.warn('[localpay] could not park an uncertain delivery:', e instanceof Error ? e.message : e)
@@ -1946,12 +1997,13 @@ function NearbyFlow({
     }
 
     // A token request this wallet is not set up for is refused before anything
-    // is built: v1 resolves one overlay, and paying a token whose issuer this
-    // device cannot reach would produce a frame nobody can settle.
+    // is built: the asset must be one this wallet holds. The session names no
+    // overlay (W6): the hand-over settles on THIS device's configured overlay,
+    // so a request cannot steer it anywhere else.
     if (session.asset) {
       const runtime = mandala.runtime
       const known = (mandala.balances ?? []).find(b => b.asset.assetId === session.asset?.id)
-      if (!runtime || !known || known.asset.overlayIdentityKey !== session.asset.overlayIdentityKey) {
+      if (!runtime || !known) {
         fail('generic', t('pay_asset_nearby_wrong_overlay'))
         return
       }
@@ -1968,13 +2020,12 @@ function NearbyFlow({
           wallet as unknown as PayingWalletArg,
           session,
           adminOriginator,
-          payAmount,
-          // The token half of the build: the payee lock (blinded A′, which no
-          // BRC-100 method can produce) and this device's evidence tables, for
-          // the AdmissionBundle the frame carries. Nothing is submitted here —
-          // hand-over comes first, unconditionally, so a face-to-face payment
-          // never waits on a network.
-          session.asset ? mandala.runtime?.tokenBuildDeps : undefined,
+          session.asset ? payUnits : payAmount,
+          // The token half of the build: the runtime's module hand-over, bound
+          // to this session's remittance and journaled `built`. Nothing is
+          // submitted here — hand-over comes first, unconditionally, so a
+          // face-to-face payment never waits on a network.
+          session.asset && mandala.runtime ? { handover: mandala.runtime.nearby.handover } : undefined,
           note,
           // XR-088: a build failure whose own release also fails used to be
           // logged only — no durable retry record at all — unlike the
@@ -2007,7 +2058,7 @@ function NearbyFlow({
       if (controller.signal.aborted) {
         // The user backed out or the screen blurred while "Delivering…" was up.
         // The frame was never handed to a transport and never rendered.
-        abortBuild(built.reference)
+        abortBuild(built.reference, session.asset ? built.txid : undefined)
         return
       }
 
@@ -2019,7 +2070,7 @@ function NearbyFlow({
         // below share these bytes rather than sealing the frame twice.
         const sealed = sealFrame(built.frame, session.psk)
         if (sealed.length > MAX_MESSAGE_BYTES) {
-          abortBuild(built.reference)
+          abortBuild(built.reference, session.asset ? built.txid : undefined)
           setPaymentQr(null)
           fail('generic', t('local_pay_too_large'))
           return
@@ -2116,33 +2167,10 @@ function NearbyFlow({
           await holdSentPaymentOffline({
             storage,
             txid,
-            // Token sessions only: the still-plaintext frame and the hook that
-            // journals it, so the payer's own settlement row survives a
-            // restart (see `TokenHandoverDeps`). The BSV rail has neither.
-            ...(session.asset
-              ? {
-                  frame: built.frame,
-                  onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
-                  // The noSend action's own reference, onto the settlement row:
-                  // it is what lets the abort guard tell a handed-over token
-                  // payment from an abandoned one (core/mandala/abortGuard.ts).
-                  reference: built.reference,
-                  // XR-036: this rail acked over the radio and never sealed a
-                  // QR, so unlike the QR/fallback paths it had no framePayload
-                  // to give FIX G's re-derivation. Sealed here purely for local
-                  // durability — never rendered — so a restart that loses the
-                  // in-memory session PSK still has bytes to re-derive this
-                  // settlement row from if the journal write below did not land.
-                  ...(() => {
-                    try {
-                      return { framePayload: sealedToQr(sealFrame(built.frame, session.psk)) }
-                    } catch (e) {
-                      console.warn('[localpay] could not seal a fallback framePayload for the queue row:', e)
-                      return {}
-                    }
-                  })()
-                }
-              : {})
+            // Token sessions only: the journal hook moves the payer's
+            // `color_transfers` row to handed_over before the queue row wakes
+            // the drain (see `TokenHandoverDeps`). The BSV rail has none.
+            ...(session.asset ? tokenHoldDeps() : {})
           })
         },
         queueFailedAbort: async reference => {
@@ -2199,15 +2227,19 @@ function NearbyFlow({
             storage,
             txid,
             framePayload: sealedToQr(sealFrame(built.frame, session.psk)),
-            ...(session.asset
-              ? {
-                  frame: built.frame,
-                  onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
-                  reference: built.reference
-                }
-              : {})
+            ...(session.asset ? tokenHoldDeps() : {})
           })
-        }
+        },
+        // Plan 07 Task 15: a decline whose inputs were released never moved
+        // the money, so the token row is journaled cancelled (built →
+        // cancelled; a parked or handed-over row is left alone).
+        ...(session.asset
+          ? {
+              onReleased: async (txid: string) => {
+                await mandala.runtime?.journal.advance(txid, ['built'], 'cancelled')
+              }
+            }
+          : {})
       })
       if (controller.signal.aborted) return
 
@@ -2242,26 +2274,11 @@ function NearbyFlow({
       // satoshi, per BRC-92, and `built.tokenAmount` is the payment.
       setSettledAmount(built.satoshis)
       if (session.asset) {
-        // σ_I, if the recipient's drain already had it and sent it back — and
-        // only if it VERIFIES (FIX H). An unverified payload is treated as
-        // absent, never as proof and never as a decline, so the worst a forged
-        // ack can cost this payer is one idempotent submit by their own drain.
-        let admission
-        try {
-          const verify = mandala.runtime?.verifyAdmissionEntry
-          admission = verify
-            ? await readSettlementAck(ack, {
-                overlayIdentityKey: session.asset.overlayIdentityKey,
-                expectTxid: built.txid,
-                expectVout: built.frame.outputIndex,
-                verify
-              })
-            : undefined
-        } catch {
-          // Absent, like every other unreadable payload.
-          admission = undefined
-        }
-        writeTokenReceipt(session.asset, built, tokenSendState(admission) === 'sent-settled')
+        // W5: the positive ack is the ACK. The receipt opens as "settling",
+        // and `settleAfterHandover` (inside the writer) names this hand-over
+        // to the module's settle; only a verified admission turns it to
+        // "settled".
+        writeTokenReceipt(session.asset, built, false)
       }
       setPhase('done')
     } finally {
@@ -2271,6 +2288,8 @@ function NearbyFlow({
     scannedSession,
     sendKind,
     payAmount,
+    payUnits,
+    tokenHoldDeps,
     note,
     writeTokenReceipt,
     wallet,
@@ -2358,17 +2377,8 @@ function NearbyFlow({
               storage,
               txid: built.txid,
               framePayload,
-              // Token sessions only — see the hold callback below for why.
-              ...(session.asset
-                ? {
-                    frame: built.frame,
-                    onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
-                    // The noSend action's own reference, onto the settlement row:
-                    // it is what lets the abort guard tell a handed-over token
-                    // payment from an abandoned one (core/mandala/abortGuard.ts).
-                    reference: built.reference
-                  }
-                : {})
+              // Token sessions only: the journal row moves built → parked.
+              ...(session.asset ? tokenHoldDeps() : {})
             })
           }
         } catch (e) {
@@ -2390,18 +2400,8 @@ function NearbyFlow({
               txid,
               framePayload,
               // Token sessions only: same reasoning as the executeSend hold call —
-              // the plaintext frame and the journal hook, so a restart does not
-              // strand this payer's settlement row.
-              ...(session.asset
-                ? {
-                    frame: built.frame,
-                    onTokenHandedOver: mandala.runtime?.onTokenHandedOver,
-                    // The noSend action's own reference, onto the settlement row:
-                    // it is what lets the abort guard tell a handed-over token
-                    // payment from an abandoned one (core/mandala/abortGuard.ts).
-                    reference: built.reference
-                  }
-                : {})
+              // the journal row moves to handed_over before the queue row wakes.
+              ...(session.asset ? tokenHoldDeps() : {})
             })
           },
           queueFailedAbort: async reference => {
@@ -2423,14 +2423,14 @@ function NearbyFlow({
       }
       if (celebrate) {
         setSettledAmount(built.satoshis)
-        // This rail has no ack payload to read σ_I from, so the receipt opens as
-        // "settling" and the writer's own submit is what may settle it.
+        // The receipt opens as "settling"; the writer's own settleNow is what
+        // may settle it (W5: tapping Done is this rail's ACK).
         if (session.asset) writeTokenReceipt(session.asset, built, false)
         setRole('payer')
         setPhase('done')
       }
     },
-    [wallet, storage, adminOriginator, payAmount, scannedSession, paymentQr, mandala.runtime, writeTokenReceipt, t]
+    [wallet, storage, adminOriginator, payAmount, scannedSession, paymentQr, tokenHoldDeps, writeTokenReceipt, t]
   )
 
   // ── Send: leave send_qr without Done ──
@@ -2550,8 +2550,8 @@ function NearbyFlow({
    * payment the build would have made; with no holding resolved yet there is
    * nothing to compare against and the build decides, as it always has.
    */
-  const overHolding = scannedHolding != null && payAmount > scannedHolding.baseUnits
-  const canSend = payAmount > 0 && !overHolding && !unitsUnknown
+  const overHolding = scannedHolding != null && payUnits > scannedHolding.units
+  const canSend = (scannedSession?.asset ? payUnits > 0n : payAmount > 0) && !overHolding && !unitsUnknown
   const scannerOpen = phase === 'send_scan' || phase === 'receive_scan'
 
   /**

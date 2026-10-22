@@ -410,7 +410,53 @@ describe('members wired by later tasks', () => {
   it('reject until wired, never pretend to have done something', async () => {
     const rt = runtimeWith()
     await expect(rt.tick()).rejects.toThrow(/not yet wired/)
-    await expect(rt.nearby.onHandedOver('a1'.repeat(32), 'parked')).rejects.toThrow(/not yet wired/)
+    await expect(
+      rt.nearby.onReceived(
+        { txid: 'a1'.repeat(32), assetId: ASSET, units: 1n, counterpartyKey: SELF, outputIndex: 0 },
+        { ok: true }
+      )
+    ).rejects.toThrow(/not yet wired/)
+  })
+})
+
+describe('the nearby payer members (Task 15)', () => {
+  it('journal the payer row through the runtime’s own journal', async () => {
+    const rt = runtimeWith()
+    await rt.journal.insert({
+      txid: 'a1'.repeat(32),
+      role: 'sent',
+      state: 'built',
+      assetId: ASSET,
+      units: 5n,
+      outputIndex: 0,
+      rail: 'nearby',
+      delivered: false,
+      reference: 'ref-a1'
+    })
+    const listener = jest.fn()
+    rt.subscribe(listener)
+    await rt.nearby.onHandedOver('a1'.repeat(32), 'parked')
+    expect((await rt.journal.get('a1'.repeat(32)))?.state).toBe('parked')
+    expect(listener).toHaveBeenCalled()
+    await expect(rt.nearby.onHandedOver('b2'.repeat(32), 'parked')).rejects.toThrow(/no sent row/)
+  })
+
+  it('without the module, a nearby hand-over refuses before anything is built', async () => {
+    const rt = runtimeWith({ color: null })
+    await expect(
+      rt.nearby.handover({
+        assetId: ASSET,
+        units: 1n,
+        recipientKey: SELF,
+        derivationPrefix: 'cA==',
+        derivationSuffix: 'cw=='
+      })
+    ).rejects.toThrow(/not available/)
+  })
+
+  it('without a database, neither member pretends to journal', async () => {
+    const rt = runtimeWith({ storage: { sqliteDb: undefined } as never })
+    await expect(rt.nearby.onHandedOver('a1'.repeat(32), 'handed_over')).rejects.toThrow(/not available/)
   })
 })
 

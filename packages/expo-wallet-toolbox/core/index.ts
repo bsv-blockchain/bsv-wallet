@@ -146,7 +146,6 @@ export * from './offline/hold'
 export * from './offline/order'
 export * from './offline/plan'
 export * from './offline/payerHold'
-export * from './offline/tokenFrames'
 export {
   cancelParkedPayment,
   chainAlreadyKnows,

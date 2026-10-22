@@ -15,9 +15,10 @@
  *    hold and the abort refusal read.
  *
  * Plan 07 Task 11 builds the reads, Task 12 settlement (`settle.ts`) and
- * Task 13 the handle rail (`handle.ts`). The nearby hooks (Tasks 15–16) and
- * the tick (Task 17) are wired by their tasks; until then each rejects with
- * `not yet wired` rather than pretending to have done something.
+ * Task 13 the handle rail (`handle.ts`), Task 15 the nearby payer hooks
+ * (`nearby.ts`). The nearby payee hook (Task 16) and the tick (Task 17) are
+ * wired by their tasks; until then each rejects with `not yet wired` rather
+ * than pretending to have done something.
  */
 import { PublicKey, type WalletInterface } from '@bsv/sdk'
 import type { ColorOverlayProvider, ColorPermissionModule } from '@bsv/color-permission-module'
@@ -44,6 +45,7 @@ import {
   reportIsUnreachable,
   type Settler
 } from './settle'
+import { createNearbyPayer } from './nearby'
 import { createTransferJournal, type JournalDb, type TransferJournal } from './transferJournal'
 import {
   COLOR_TRANSFER_STATES,
@@ -414,9 +416,22 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         }
       : undefined
 
+  // ── Nearby rail, payer half (Task 15) ──
+  //
+  // `onHandedOver` needs only the journal, so a payment built before the
+  // module went away can still be parked or released. `handover` needs the
+  // module too; without either it refuses rather than building a payment
+  // nothing could journal or settle.
+  const nearbyPayer =
+    db !== undefined
+      ? createNearbyPayer({ wallet: bound, identityKey, journal, recipientRefusal: recipientRefusalOf, onChange: emit })
+      : undefined
+  const nearbyUnavailable = async (): Promise<never> => {
+    throw new Error('Stablecoins are not available on this network')
+  }
   const nearby: NearbyTokenDeps = {
-    handover: notYetWired('nearby.handover'),
-    onHandedOver: notYetWired('nearby.onHandedOver'),
+    handover: nearbyPayer && color !== undefined ? nearbyPayer.handover : nearbyUnavailable,
+    onHandedOver: nearbyPayer ? nearbyPayer.onHandedOver : nearbyUnavailable,
     onReceived: notYetWired('nearby.onReceived')
   }
 
