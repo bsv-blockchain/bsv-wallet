@@ -22,7 +22,8 @@ import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-nativ
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { hitTargets, radii, spacing, typography, useTheme } from '@bsv/expo-wallet-toolbox'
 import type { TokenBalance } from '../../../core/mandala/runtime'
-import { shortAssetId, tokenAmountParts } from '../../tokenFormat'
+import { useTranslation } from 'react-i18next'
+import { shortAssetId, tokenAmountParts, tokenBalanceSplit } from '../../tokenFormat'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set, one of which
@@ -70,6 +71,7 @@ export default function AssetSwitcherDropdown({
   bsv
 }: AssetSwitcherDropdownProps) {
   const { colors } = useTheme()
+  const { t } = useTranslation()
 
   // Fade + scale in place, no gesture — this is a dropdown, not a draggable
   // drawer. Mirrors Sheet's rendered/visible split so content unmounts only
@@ -149,7 +151,8 @@ export default function AssetSwitcherDropdown({
               fullName={b.asset.label}
               issuerName={b.asset.issuerName}
               fingerprint={shortAssetId(b.asset.assetId)}
-              figure={tokenAmountParts(b.baseUnits, b.asset)}
+              figure={tokenAmountParts(b.units, b.asset)}
+              pending={tokenBalanceSplit(b, t)?.pending}
               selected={selected === b.asset.assetId}
               onPress={() => choose(b.asset.assetId)}
             />
@@ -166,6 +169,7 @@ function CoinRow({
   issuerName,
   fingerprint,
   figure,
+  pending,
   selected,
   onPress
 }: {
@@ -176,6 +180,8 @@ function CoinRow({
   /** XR-044: `shortAssetId(assetId)` — the one thing a look-alike asset cannot share. Absent for BSV. */
   fingerprint?: string
   figure: { value: string; unit: string } | null
+  /** W10: the part of `figure` not yet settled with the issuer, as its own line. Absent when none is. */
+  pending?: string
   selected: boolean
   onPress: () => void
 }) {
@@ -194,7 +200,7 @@ function CoinRow({
       accessibilityRole="button"
       // The checkmark is not the only signal: state travels with the element.
       accessibilityState={{ selected }}
-      accessibilityLabel={[ticker, fullName, identityLine, figureText].filter(Boolean).join(', ')}
+      accessibilityLabel={[ticker, fullName, identityLine, figureText, pending].filter(Boolean).join(', ')}
     >
       <View style={styles.body}>
         <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
@@ -212,10 +218,21 @@ function CoinRow({
         )}
       </View>
       {figure && (
-        <Text style={[styles.figure, { color: colors.textPrimary }]} numberOfLines={1} accessibilityLabel={figureText}>
-          {figure.value}
-          {figure.unit ? <Text style={[styles.unit, { color: colors.textSecondary }]}> {figure.unit}</Text> : null}
-        </Text>
+        <View style={styles.figureColumn}>
+          <Text
+            style={[styles.figure, { color: colors.textPrimary }]}
+            numberOfLines={1}
+            accessibilityLabel={figureText}
+          >
+            {figure.value}
+            {figure.unit ? <Text style={[styles.unit, { color: colors.textSecondary }]}> {figure.unit}</Text> : null}
+          </Text>
+          {!!pending && (
+            <Text style={[styles.pending, { color: colors.textSecondary }]} numberOfLines={1}>
+              {pending}
+            </Text>
+          )}
+        </View>
       )}
       <View style={styles.check}>{selected && <Ionicons name="checkmark" size={20} color={colors.accent} />}</View>
     </TouchableOpacity>
@@ -277,5 +294,7 @@ const styles = StyleSheet.create({
   identity: { ...typography.caption2, marginTop: 1, fontVariant: ['tabular-nums'] },
   figure: { ...typography.body, fontWeight: '600', fontVariant: ['tabular-nums'] },
   unit: { ...typography.footnote },
+  figureColumn: { alignItems: 'flex-end' },
+  pending: { ...typography.caption2, marginTop: 1, fontVariant: ['tabular-nums'] },
   check: { width: 20, alignItems: 'center' }
 })

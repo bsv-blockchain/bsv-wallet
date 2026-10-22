@@ -26,6 +26,7 @@ import type { BindValue } from '../storage/methods/offlineActions'
 import { PENDING_JOURNAL_KEY } from '../identity/handleRegistry/registration'
 import { PENDING_KEY } from '../localpay/pending'
 import { getOutboxEntriesStrict, unsentEntries } from '../peerpay/outbox'
+import { TERMINAL_TRANSFER_STATES } from '../mandala/types'
 
 /** Why a profile cannot be removed. One code per thing found, for the UI to explain. */
 export type RemovalBlocker =
@@ -87,13 +88,14 @@ export interface AssertProfileEmptyDeps {
    */
   creditInbox: () => Promise<{ attention: number; pending: boolean }>
   /**
-   * The Mandala runtime's `balances()`, when this wallet has one. Belt and
-   * braces only: the runtime's own token listing swallows its errors into an
-   * empty list, so a zero here proves less than it appears to. The SQL checks
-   * on outputs and settlements are what actually cover tokens, which is why
-   * this may be left out.
+   * The Mandala runtime's `balances()`, when this wallet has one: exact
+   * `bigint` units (W10), `units` from the `p color balance` view and
+   * `offlineUnits` from the `color_offline` inventory records. Belt and braces
+   * only: the SQL checks on outputs and the `color_transfers` journal are what
+   * actually cover tokens, which is why this may be left out. Any figure that
+   * is not exactly `0n` — including one that is not a bigint at all — blocks.
    */
-  mandalaBalances?: () => Promise<ReadonlyArray<{ baseUnits: number; unsettledBaseUnits: number }>>
+  mandalaBalances?: () => Promise<ReadonlyArray<{ units: bigint; offlineUnits: bigint }>>
 }
 
 // Terminal lists, not blocking lists — see the header.
@@ -103,9 +105,14 @@ const OPEN_TRANSACTIONS =
 // Equal to queued/posting/parked/import_hold for every status there is.
 const OPEN_OFFLINE_ACTIONS =
   "SELECT 1 AS found FROM offline_actions WHERE userId = ? AND status NOT IN ('sent', 'rejected', 'acknowledged') LIMIT 1"
-// No userId column: this table is one database's worth, and a database is one profile's.
-const OPEN_SETTLEMENTS =
-  "SELECT 1 AS found FROM token_settlements WHERE state NOT IN ('broadcast', 'admitted', 'refused', 'orphaned') LIMIT 1"
+// The `color_transfers` journal (plan 07 W1). No userId column: this table is
+// one database's worth, and a database is one profile's. Terminal states come
+// from the journal's own list, so a state added later blocks until somebody
+// decides it should not. A file without the table (never booted since the
+// 1Color migration) throws here and reads as `check-failed`: fail closed.
+const OPEN_SETTLEMENTS = `SELECT 1 AS found FROM color_transfers WHERE state NOT IN (${TERMINAL_TRANSFER_STATES.map(
+  s => `'${s}'`
+).join(', ')}) LIMIT 1`
 // A corrupt localpay queue is copied here and the live key reset (pending.ts `readAll`).
 const QUARANTINED_PENDING =
   "SELECT 1 AS found FROM key_value_store WHERE key LIKE 'localpay\\_pending\\_corrupt\\_%' ESCAPE '\\' LIMIT 1"
@@ -169,7 +176,9 @@ export async function assertProfileEmpty(
   await check('token-balance', async () => {
     if (!deps.mandalaBalances) return false
     const balances = await deps.mandalaBalances()
-    return balances.some(b => !(b.baseUnits === 0 && b.unsettledBaseUnits === 0))
+    // `units` already includes the offline part, but the two views are
+    // separate snapshots (0207:657-660), so each is checked on its own.
+    return balances.some(b => !(b.units === 0n && b.offlineUnits === 0n))
   })
   await check('localpay-pending', () => receivedPaymentsWaiting(storage))
   await check('peerpay-outbox', async () => unsentEntries(await getOutboxEntriesStrict(storage)).length > 0)

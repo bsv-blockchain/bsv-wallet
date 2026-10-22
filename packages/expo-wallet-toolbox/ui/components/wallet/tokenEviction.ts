@@ -22,18 +22,18 @@ export interface EvictionNotice {
   txid: string
   ticker: string
   issuer?: string
-  /** Base units the holder lost. */
-  baseUnits: number
+  /** Exact token units the holder lost. */
+  units: bigint
   decimals: number
 }
 
 /**
  * Money that was credited to this wallet and is no longer there.
  *
- * A `reversed` row is exactly that and nothing else: a `refused` SENT payment
- * never left, so the holder's balance is unchanged and there is nothing to
- * announce; a `refused` RECEIVED payment is the settlement spec's row 1
- * (reversed credit) and belongs here too.
+ * A `refused` RECEIVED row is exactly that: the color module credited it
+ * (spendable, `color_offline`) and withdrew it when the issuer's overlay
+ * refused it. A `refused` SENT payment never left, so the holder's balance is
+ * unchanged and there is nothing to announce.
  */
 export function evictionsFrom(
   rows: readonly TokenActivityRow[] | null,
@@ -41,13 +41,13 @@ export function evictionsFrom(
 ): EvictionNotice[] {
   if (!rows) return []
   return rows
-    .filter(r => r.role === 'received' && (r.status === 'reversed' || r.status === 'refused'))
+    .filter(r => r.role === 'received' && r.status === 'refused')
     .filter(r => !alreadySeen.includes(r.txid))
     .map(r => ({
       txid: r.txid,
       ticker: r.asset.ticker,
       issuer: r.asset.issuerName,
-      baseUnits: r.baseUnits,
+      units: r.units,
       decimals: r.asset.decimals
     }))
 }
@@ -55,7 +55,7 @@ export function evictionsFrom(
 /** Raises the alert and resolves once it has been acknowledged. */
 export async function announceEviction(t: Translate, notice: EvictionNotice): Promise<void> {
   const issuer = notice.issuer || t('token_issuer_fallback')
-  const amount = formatTokenAmount(notice.baseUnits, notice.decimals)
+  const amount = formatTokenAmount(notice.units, notice.decimals)
   await showAlert({
     title: t('token_evicted_title', { ticker: notice.ticker }),
     // Without a figure the sentence would be "some money left" — true, useless,

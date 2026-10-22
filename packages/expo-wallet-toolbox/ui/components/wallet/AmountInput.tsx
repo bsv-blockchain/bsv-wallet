@@ -17,7 +17,7 @@ import {
   satoshisPerFiatUnit,
   decimalSeparator
 } from '@bsv/expo-wallet-toolbox'
-import { parseTokenAmount, tokenAmountInputText, tokenAmountMask } from '../../tokenFormat'
+import { parseTokenAmount, tokenAmountInputText, tokenAmountMask, tokenUnitsFromField } from '../../tokenFormat'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -146,7 +146,9 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   useEffect(() => {
     if (!asset) return
     if (value === lastEmitted.current) return
-    setDisplayText(!value || value === '0' ? '' : tokenAmountInputText(Number(value), asset.decimals))
+    // `value` is exact token units as plain digits; never through a number.
+    const units = tokenUnitsFromField(value)
+    setDisplayText(units === undefined ? '' : tokenAmountInputText(units, asset.decimals))
     lastEmitted.current = value
     // `asset` is a fresh object literal on every render of most callers
     // (e.g. `asset={{ ticker, decimals }}`), so depending on it directly
@@ -164,10 +166,11 @@ export const AmountInput: React.FC<AmountInputProps> = ({
     if (asset) {
       if (text && !tokenAmountMask(asset.decimals).test(text)) return
       setDisplayText(text)
-      const baseUnits = parseTokenAmount(text, asset.decimals)
-      // The field never emits a fraction: the wire takes whole base units, and
-      // a rounded figure would pay an amount other than the one on screen.
-      const next = baseUnits === null ? '' : String(baseUnits)
+      const units = parseTokenAmount(text, asset.decimals)
+      // The field never emits a fraction, a zero or a figure above uint64: the
+      // wire takes exact whole units, and a rounded figure would pay an amount
+      // other than the one on screen. Emitted as the bigint's own digits.
+      const next = units === null ? '' : units.toString()
       lastEmitted.current = next
       onChangeText(next)
       return

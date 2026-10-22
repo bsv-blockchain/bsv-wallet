@@ -9,13 +9,14 @@ const NEARBY_FIXED: Record<'sent' | 'received', string> = {
  * The message-box rail's own fixed wording (`@bsv/mandala`'s `transfer.ts`
  * `Send ${amount} of ${assetId}` / `receive.ts` `Receive ${amount} of
  * ${assetId}`), reconstructed from the row's own fields so it can be told
- * apart from a real note. Requires `assetId`/`baseUnits` — without them
+ * apart from a real note. Requires `assetId`/`units` — without them
  * there is nothing to reconstruct against, so the caller below treats the
  * rail as unrecognised rather than guess.
  */
-function messageBoxFixed(role: 'sent' | 'received', assetId?: string, baseUnits?: number): string | undefined {
-  if (assetId === undefined || baseUnits === undefined) return undefined
-  return `${role === 'sent' ? 'Send' : 'Receive'} ${baseUnits} of ${assetId}`
+function messageBoxFixed(role: 'sent' | 'received', assetId?: string, units?: bigint): string | undefined {
+  if (assetId === undefined || typeof units !== 'bigint') return undefined
+  // A bigint's own decimal string: exact past 2^53, as the lib wrote it.
+  return `${role === 'sent' ? 'Send' : 'Receive'} ${units.toString()} of ${assetId}`
 }
 
 /**
@@ -27,11 +28,11 @@ function fixedDescriptionFor(
   role: 'sent' | 'received',
   labels: string[] | undefined,
   assetId: string | undefined,
-  baseUnits: number | undefined
+  units: bigint | undefined
 ): string | undefined {
   const set = new Set(labels ?? [])
   if (set.has(PEERPAY_LABEL)) return NEARBY_FIXED[role]
-  if (set.has('transfer') || set.has('receive')) return messageBoxFixed(role, assetId, baseUnits)
+  if (set.has('transfer') || set.has('receive')) return messageBoxFixed(role, assetId, units)
   return undefined
 }
 
@@ -44,7 +45,7 @@ function fixedDescriptionFor(
  * (label `'localpay'`, fixed wording "Sent/Received token") and the
  * message-box rail (label `'transfer'`/`'receive'`, `@bsv/mandala`'s own
  * fixed wording "Send/Receive N of assetId"). An action from neither rail —
- * or a message-box action missing the `assetId`/`baseUnits` needed to
+ * or a message-box action missing the `assetId`/`units` needed to
  * reconstruct its fixed wording — never has its description shown: it may be
  * an opaque developer string the lib wrote for some other purpose, not
  * anything a user typed (the reason this override existed in the first
@@ -57,11 +58,11 @@ export function tokenRowTitle(args: {
   description?: string
   /** The row's own asset id — needed to recognise the message-box rail's fixed wording. */
   assetId?: string
-  /** The row's own amount, in base units — same reason as `assetId`. */
-  baseUnits?: number
+  /** The row's own exact token units — same reason as `assetId`. */
+  units?: bigint
   t: (key: string, values?: Record<string, unknown>) => string
 }): string {
-  const fixed = fixedDescriptionFor(args.role, args.labels, args.assetId, args.baseUnits)
+  const fixed = fixedDescriptionFor(args.role, args.labels, args.assetId, args.units)
   const hasNote = fixed !== undefined && !!args.description && args.description !== fixed
   if (hasNote) return args.description as string
   return args.t(args.role === 'sent' ? 'token_row_sent' : 'token_row_received', { ticker: args.ticker })

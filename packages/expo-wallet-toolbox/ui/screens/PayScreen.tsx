@@ -21,7 +21,7 @@ import { partitionQueueByGrace } from '../../core/offline/queueGrace'
 import PaymentQrDisplay from '../components/pay/PaymentQrDisplay'
 import UniversalSend, { type UniversalSendHandle } from '../components/pay/UniversalSend'
 import type { PayStep } from '../components/pay/StepBar'
-import RequestHub, { requestSatsFrom, type RequestMethod } from '../components/pay/RequestHub'
+import RequestHub, { requestSatsFrom, requestUnitsFrom, type RequestMethod } from '../components/pay/RequestHub'
 import NearbyFlow from '../components/pay/NearbyFlow'
 import HandleReceive from '../components/pay/HandleReceive'
 import AddressReceive from '../components/pay/AddressReceive'
@@ -164,7 +164,7 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
   const satsParam = linkSats ?? Number(firstParam(params.sats))
   const initialSats = Number.isFinite(satsParam) && satsParam > 0 ? Number(satsParam) : undefined
   const initialTokenAmount = useMemo(
-    () => (linkAsset && linkAmount ? { assetId: linkAsset, baseUnits: linkAmount } : undefined),
+    () => (linkAsset && linkAmount ? { assetId: linkAsset, units: linkAmount } : undefined),
     [linkAsset, linkAmount]
   )
   // Memoized: useRecipientInput re-adopts initialTarget whenever its identity changes.
@@ -259,25 +259,19 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
    * on the payee's own screen and binding the payer to that figure. The
    * discriminated shape makes the unit impossible to lose.
    */
-  const request: { kind: 'bsv'; sats?: number } | { kind: 'token'; baseUnits?: number; assetId: string } = asset
-    ? { kind: 'token', baseUnits: requestSatsFrom(requestSats), assetId: asset.assetId }
+  const request: { kind: 'bsv'; sats?: number } | { kind: 'token'; units?: bigint; assetId: string } = asset
+    ? { kind: 'token', units: requestUnitsFrom(requestSats), assetId: asset.assetId }
     : { kind: 'bsv', sats: requestSatsFrom(requestSats) }
   const initialNearbyRequest = useMemo(
-    () => ({
-      sats: requestSatsFrom(requestSats),
-      ...(asset
+    () =>
+      asset
         ? {
-            asset: {
-              id: asset.assetId,
-              label: asset.label,
-              ticker: asset.ticker,
-              decimals: asset.decimals,
-              overlayUrl: asset.overlayUrl,
-              overlayIdentityKey: asset.overlayIdentityKey
-            }
+            // Exact token units (session v2 carries `a` as a decimal string);
+            // the session names no overlay, the payer uses its own (W6).
+            units: requestUnitsFrom(requestSats),
+            asset: { id: asset.assetId, label: asset.label, ticker: asset.ticker, decimals: asset.decimals }
           }
-        : {})
-    }),
+        : { sats: requestSatsFrom(requestSats) },
     [requestSats, asset]
   )
   // One camera raise per deep link; a cancelled advisory must not re-open it.
@@ -527,8 +521,8 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
     // base units, and every satoshi-shaped prop below must not see them.
     const sats = request.kind === 'bsv' ? request.sats : undefined
     const requestedAmountText =
-      asset && request.kind === 'token' && request.baseUnits !== undefined
-        ? (formatTokenAmountWithUnit(request.baseUnits, asset) ?? undefined)
+      asset && request.kind === 'token' && request.units !== undefined
+        ? (formatTokenAmountWithUnit(request.units, asset) ?? undefined)
         : undefined
     switch (method) {
       case 'get-nearby':
@@ -540,7 +534,7 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
           <HandleReceive
             initialSats={sats}
             asset={asset ? { assetId: asset.assetId, ticker: asset.ticker, issuerName: asset.issuerName } : null}
-            requestedBaseUnits={request.kind === 'token' ? request.baseUnits : undefined}
+            requestedUnits={request.kind === 'token' ? request.units : undefined}
             requestedAmountText={requestedAmountText}
             assetMessageBoxUrl={selectedAssetStatus?.messageBoxUrl ?? null}
             onBsvInstead={() => setSelectedAssetId(null)}

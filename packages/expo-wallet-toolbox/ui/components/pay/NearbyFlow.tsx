@@ -420,6 +420,11 @@ function unitsFrom(text: string): bigint {
   return u > 0n ? u : 0n
 }
 
+/** A host's request figure: exact `units` on a token request when given, else `sats`. */
+function requestedFigure(r: { sats?: number; units?: bigint; asset?: SessionAsset }): number | bigint | undefined {
+  return r.asset && r.units !== undefined ? r.units : r.sats
+}
+
 /** How long the payer's receipt waits on its own post-ACK settle before it stays "settling" (W5). */
 const SETTLE_AFTER_HANDOVER_MS = 8_000
 
@@ -569,7 +574,8 @@ export interface NearbyFlowProps {
    * when one is — the session carries the asset alongside the figure, so the
    * two can never be read in the wrong unit downstream.
    */
-  initialRequest?: { sats?: number; asset?: SessionAsset }
+  /** `units` is a token request's exact figure; `sats` a BSV one (or, from an older host, a token's units as a number). */
+  initialRequest?: { sats?: number; units?: bigint; asset?: SessionAsset }
   /** Where the post-payment overlay and an exited QR flow send the user. Defaults to `/`. */
   dismissTo?: DismissTarget
   /**
@@ -1332,16 +1338,15 @@ function NearbyFlow({
       // failure. A payee who is told "failed" taps Retry, mints a fresh session,
       // and the payer builds a second createAction from different UTXOs: both
       // internalize, the payee is credited twice and the payer pays twice.
-      // TODO(plan 07 Task 18): `formatTokenAmountWithUnit` still takes a
-      // number; the bigint display lands there. Everything that DECIDES
-      // (the binding above, the journal, the receipt) stays exact.
-      const shownUnits = verified.kind === 'token' ? Number(verified.units) : verified.satoshis
-      setSettledAmount(shownUnits)
+      // `settledAmount` is the satoshi-shaped figure the receipt draws only
+      // when there is no `amountText`; on the token path the exact bigint
+      // text below is the figure, and the number is never read for it.
+      setSettledAmount(verified.kind === 'token' ? 0 : verified.satoshis)
       setSettledTokenText(
-        session.asset
+        session.asset && verified.kind === 'token'
           ? // Never `null` on the token path: falling through to the satoshi
             // renderer would print base units as satoshis.
-            (formatTokenAmountWithUnit(shownUnits, {
+            (formatTokenAmountWithUnit(verified.units, {
               decimals: session.asset.decimals ?? 0,
               ticker: session.asset.ticker ?? ''
             }) ?? t('token_row_amount_pending'))
@@ -1521,13 +1526,22 @@ function NearbyFlow({
   // ── Receive: mint the request ──
 
   const startRequest = useCallback(
-    async (requested?: number, asset?: SessionAsset) => {
+    async (requested?: number | bigint, asset?: SessionAsset) => {
       // Zero (or blank) is the user asking the payer to choose, so it becomes an
       // open session rather than a rejected input. Undefined, never 0 — the codec
       // refuses a non-positive amount precisely so a corrupt zero can never be
-      // read back as "any amount".
+      // read back as "any amount". A token request arrives as exact `bigint`
+      // units and never passes through a number on its way to the session.
       const sats =
-        requested !== undefined && Number.isFinite(requested) && requested > 0 ? Math.round(requested) : undefined
+        typeof requested === 'number' && Number.isFinite(requested) && requested > 0 ? Math.round(requested) : undefined
+      const units =
+        typeof requested === 'bigint'
+          ? requested > 0n
+            ? requested
+            : undefined
+          : sats !== undefined
+            ? BigInt(sats)
+            : undefined
       // Gate on storage too, not just the wallet. Advertising with storage null
       // means a payer can deliver a frame the payee then cannot persist, after the
       // transport has already acked it as accepted.
@@ -1571,7 +1585,7 @@ function NearbyFlow({
           // token request (session v2 refuses a satoshi `amount` beside an
           // asset). The asset travels with the figure, so the payer can never
           // read one as the other.
-          ...(asset ? { units: sats !== undefined ? BigInt(sats) : undefined } : { amount: sats }),
+          ...(asset ? { units } : { amount: sats }),
           asset,
           derivationPrefix,
           derivationSuffix,
@@ -1704,7 +1718,7 @@ function NearbyFlow({
     if (initialRole === 'payee' && initialRequest) {
       if (!permissionsSettled || mintedRef.current) return
       mintedRef.current = true
-      void startRequest(initialRequest.sats, initialRequest.asset)
+      void startRequest(requestedFigure(initialRequest), initialRequest.asset)
       return
     }
     if (enteredRef.current) return
@@ -1727,7 +1741,7 @@ function NearbyFlow({
     abortAll()
     clearFlowState()
     if (initialRole === 'payee') {
-      if (initialRequest) void startRequest(initialRequest.sats, initialRequest.asset)
+      if (initialRequest) void startRequest(requestedFigure(initialRequest), initialRequest.asset)
       else setPhase('receive_amount')
     } else if (initialSession) {
       adoptSession(initialSession)
@@ -1816,9 +1830,9 @@ function NearbyFlow({
     return scannedSession.units ?? unitsFrom(sendAmount)
   }, [scannedSession, sendAmount])
   /**
-   * The same figure as a number, for the BSV path and for the token DISPLAY
-   * helpers that still take numbers (plan 07 Task 18 moves them to bigint).
-   * The money path on a token session uses `payUnits`, never this.
+   * The same figure as a number: satoshis on the BSV path, and on a token
+   * session only the hosted renderers' number-shaped `amount` (their legacy
+   * contract). The money path and every token display use `payUnits`.
    */
   const payAmount = useMemo(() => {
     if (!scannedSession) return 0
@@ -1826,11 +1840,13 @@ function NearbyFlow({
     return scannedSession.amount ?? satsFrom(sendAmount)
   }, [scannedSession, sendAmount, payUnits])
   /**
-   * The figure the payee NAMED, for display, or undefined for an open
-   * request: `units` on a token session (session v2 carries no satoshi
-   * `amount` beside an asset), `amount` on a BSV one. A number only because
-   * the display helpers still take one (plan 07 Task 18).
+   * The figure the payee NAMED, or undefined for an open request: `units` on a
+   * token session (session v2 carries no satoshi `amount` beside an asset),
+   * `amount` on a BSV one. `fixedUnits` is the exact token figure every token
+   * display uses; `fixedAmount` is its number-shaped twin for the BSV path and
+   * the hosted renderers' legacy `fixedAmount` field.
    */
+  const fixedUnits = scannedSession?.asset ? scannedSession.units : undefined
   const fixedAmount = useMemo(() => {
     if (!scannedSession) return undefined
     if (scannedSession.asset) return scannedSession.units !== undefined ? Number(scannedSession.units) : undefined
@@ -1859,9 +1875,8 @@ function NearbyFlow({
     (asset: SessionAsset, built: { txid?: string; tokenAmount?: bigint }, alreadySettled: boolean) => {
       const issuer = issuerNameFor(asset.id)
       setSettledTokenText(
-        // Display only: the helper still takes a number until plan 07 Task 18
-        // moves token formatting to bigint. The payment itself is exact.
-        formatTokenAmountWithUnit(Number(built.tokenAmount ?? payUnits), scannedAssetUnits ?? assetUnits(asset)) ??
+        // Exact: the payment's own bigint units, never through a number.
+        formatTokenAmountWithUnit(built.tokenAmount ?? payUnits, scannedAssetUnits ?? assetUnits(asset)) ??
           t('token_row_amount_pending')
       )
       setSettledStatusNote(
@@ -2647,8 +2662,8 @@ function NearbyFlow({
    * units of a 2-decimal asset would render as "2,500 satoshis" and, in a fiat
    * display mode, as a dollar figure this wallet invented.
    */
-  const amountBlock = (amount: number, key?: string, units?: AmountInputAsset) => {
-    const tokenText = units ? formatTokenAmountWithUnit(amount, units) : null
+  const amountBlock = (amount: number, key?: string, token?: { units: bigint; asset: AmountInputAsset }) => {
+    const tokenText = token ? formatTokenAmountWithUnit(token.units, token.asset) : null
     return (
       <Animated.View key={key} entering={settleIn} style={styles.amountBlock}>
         <Text
@@ -2831,9 +2846,8 @@ function NearbyFlow({
           >
             {(hostedSession.asset ? hostedSession.units : hostedSession.amount) === undefined ? (
               t('local_pay_any_amount')
-            ) : hostedSession.asset ? (
-              // TODO(plan 07 Task 18): bigint display.
-              formatTokenAmountWithUnit(Number(hostedSession.units), {
+            ) : hostedSession.asset && hostedSession.units !== undefined ? (
+              formatTokenAmountWithUnit(hostedSession.units, {
                 decimals: hostedSession.asset.decimals ?? 0,
                 ticker: hostedSession.asset.ticker ?? ''
               })
@@ -2971,7 +2985,7 @@ function NearbyFlow({
                 maxValue={scannedHolding && !unitsUnknown ? String(scannedHolding.units) : undefined}
                 availableText={
                   scannedHolding && scannedAssetUnits && !unitsUnknown
-                    ? (formatTokenAmount(Number(scannedHolding.units), scannedAssetUnits.decimals) ?? undefined)
+                    ? (formatTokenAmount(scannedHolding.units, scannedAssetUnits.decimals) ?? undefined)
                     : undefined
                 }
                 // No money chrome at all while the unit is unknown: an
@@ -2998,7 +3012,13 @@ function NearbyFlow({
                     </Text>
                   </Animated.View>
                 ) : (
-                  amountBlock(fixedAmount, undefined, scannedAssetUnits)
+                  amountBlock(
+                    fixedAmount,
+                    undefined,
+                    scannedAssetUnits && fixedUnits !== undefined
+                      ? { units: fixedUnits, asset: scannedAssetUnits }
+                      : undefined
+                  )
                 )}
               </View>
               <View style={styles.gapXl} />
@@ -3104,7 +3124,7 @@ function NearbyFlow({
             numberOfLines={1}
           >
             {scannedAssetUnits ? (
-              formatTokenAmountWithUnit(payAmount, scannedAssetUnits)
+              formatTokenAmountWithUnit(payUnits, scannedAssetUnits)
             ) : (
               <AmountDisplay>{payAmount}</AmountDisplay>
             )}

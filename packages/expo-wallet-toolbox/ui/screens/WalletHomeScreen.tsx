@@ -101,7 +101,7 @@ import { announceEviction, evictionsFrom } from '../components/wallet/tokenEvict
 import { SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
 import { profileScopedKey, useActiveProfileIndex } from '../../core/profiles/profileStore'
 import { tokenRowStatusView } from '../tokenStatus'
-import { formatTokenAmount, tokenAmountParts } from '../tokenFormat'
+import { formatTokenAmount, tokenAmountParts, tokenBalanceSplit } from '../tokenFormat'
 import AssetSwitcherDropdown, { BSV_LABEL } from '../components/wallet/AssetSwitcherDropdown'
 import { exportTransactionsAsCsv } from '../exportTransactions'
 import {
@@ -623,7 +623,9 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
             return
           }
           const { totalOutputs } = await pm.listOutputs({ basket: sdk.specOpWalletBalance }, adminOriginator)
-          total = totalOutputs ?? 0
+          // sdk 4 types `totalOutputs` as number | DecimalString (BRC-112 module
+          // balances); the satoshi wallet balance is always a safe integer.
+          total = Number(totalOutputs ?? 0)
         }
         setBalance(total)
         await AsyncStorage.setItem(balanceCacheKey, String(total))
@@ -1486,8 +1488,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     const actionByTxid = new Map(actions.filter(a => a.txid).map(a => [a.txid as string, a]))
     const map = new Map<string, NonNullable<React.ComponentProps<typeof ActivityRow>['token']>>()
     for (const [txid, row] of tokenByTxid) {
-      const signedBaseUnits = row.role === 'sent' ? -row.baseUnits : row.baseUnits
-      const figure = formatTokenAmount(signedBaseUnits, row.asset.decimals, {
+      const signedUnits = row.role === 'sent' ? -row.units : row.units
+      const figure = formatTokenAmount(signedUnits, row.asset.decimals, {
         showPlus: row.role === 'received'
       })
       const action = actionByTxid.get(txid)
@@ -1498,7 +1500,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           labels: action?.labels,
           description: action?.description,
           assetId: row.asset.assetId,
-          baseUnits: row.baseUnits,
+          units: row.units,
           t
         }),
         amount: figure ? { value: figure, unit: row.asset.ticker } : undefined,
@@ -1713,8 +1715,15 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
    * up. Everything below them still scrolls with the activity it describes.
    */
   /** The hero figure: the token on screen, or the BSV balance. `null` is UNKNOWN. */
-  const heroParts = heldAsset ? tokenAmountParts(heldAsset.baseUnits, heldAsset.asset) : balanceParts
+  const heroParts = heldAsset ? tokenAmountParts(heldAsset.units, heldAsset.asset) : balanceParts
   const heroText = heroParts ? `${heroParts.value} ${heroParts.unit}`.trim() : undefined
+  /**
+   * W10: the hero figure is everything spendable, offline credits included.
+   * When part of it is not yet settled with the issuer, the line under it says
+   * how much is pending and how much is settled — never folded together, and
+   * never summed (the pending part is already inside the figure).
+   */
+  const heroPending = useMemo(() => (heldAsset ? tokenBalanceSplit(heldAsset, t) : null), [heldAsset, t])
 
   const pinnedHeader = useMemo(
     () => (
@@ -1772,6 +1781,12 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
                 <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>
                   {heldAsset.asset.label || heldAsset.asset.issuerName || ''}
                 </Text>
+              ) : null}
+              {heroPending ? (
+                <>
+                  <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>{heroPending.pending}</Text>
+                  <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>{heroPending.settled}</Text>
+                </>
               ) : null}
             </>
           )}
@@ -1835,6 +1850,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       hasVaultMeta,
       hasTokens,
       heldAsset,
+      heroPending,
       payDestination,
       destinationPress,
       MaterialCommunityIcons
