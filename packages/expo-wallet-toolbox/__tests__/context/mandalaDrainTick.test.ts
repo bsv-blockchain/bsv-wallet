@@ -137,17 +137,15 @@ describe('the published manager carries the abort guard', () => {
     expect(wiring).toContain('wrapAbortActionForSettlements(')
   })
 
-  it('sits INSIDE guardVaultAccess, beside the createAction wrapper', () => {
+  it('sits INSIDE guardVaultAccess, around the result-conforming manager', () => {
     expect(wiring.indexOf('guardVaultAccess(')).toBeLessThan(wiring.indexOf('wrapAbortActionForSettlements('))
-    expect(wiring.indexOf('wrapAbortActionForSettlements(')).toBeLessThan(
-      wiring.indexOf('wrapCreateActionForTokenInputs(')
-    )
+    expect(wiring.indexOf('wrapAbortActionForSettlements(')).toBeLessThan(wiring.indexOf('conformWalletResults('))
   })
 
-  it('reads the settlement store off the ref, never a captured runtime', () => {
+  it('reads the transfer journal off the ref, never a captured runtime', () => {
     // The runtime is built AFTER this line and replaced on every rebuild; a
-    // captured store would guard the departed wallet's tables.
-    expect(wiring).toContain('mandalaRef.current?.store')
+    // captured journal would guard the departed wallet's table.
+    expect(wiring).toContain('mandalaRef.current?.journal')
   })
 })
 

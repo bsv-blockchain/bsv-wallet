@@ -12,17 +12,14 @@ import {
 import { MandalaToken } from '../mandala/token'
 import { FRAME_VERSION, type PaymentFrame } from './codec'
 import { isRequestableAmount, type Session } from './session'
-import { PEERPAY_LABEL, PEERPAY_PROTOCOL_ID } from './pending'
+import { MANDALA_TOKEN_SPEND_LABEL, PEERPAY_LABEL, PEERPAY_PROTOCOL_ID } from './pending'
 import { FT_PROTOCOL_ID } from './verify'
 import type { Ack } from './types'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET, assembleBundle, type BundleStore } from '../mandala/bundle'
 // XR-037: bundle.ts's MANDALA_ACTION_LABEL ('mandala') is the home-screen
-// row-recognition label; permissionModule.ts exports a DIFFERENT constant
-// under the SAME name ('p mandala token-spend') — the only label that
-// P-routes a listActions query to MandalaTokenModule's consent gate (label
-// routing is listActions' only signal; the shared 'p mandala' BASKET does
-// not make listActions route here). A real token action must carry both.
-import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../mandala/permissionModule'
+// row-recognition label; MANDALA_TOKEN_SPEND_LABEL (pending.ts) is the
+// transitional P-routing label, until Tasks 15/16 move this path onto the
+// color module.
 import { getOnline } from '../net/online'
 
 /** The toolbox's per-txid verdict on a `sendWith` release. */

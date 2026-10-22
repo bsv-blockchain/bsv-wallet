@@ -1,14 +1,20 @@
 import { Beef } from '@bsv/sdk'
 import type { PaymentFrame, TokenPayment } from './codec'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET } from '../mandala/bundle'
-// XR-037: see build.ts's identical import for why these two same-named
-// exports are both needed — bundle.ts's is the home-screen row label,
-// permissionModule.ts's is the one that P-routes a listActions query to
-// MandalaTokenModule's consent gate.
-import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../mandala/permissionModule'
 import type { AdmissionEntryWire } from '../mandala/types'
 import { isRetriableInternalizeFailure } from '../mandala/drain'
 import { failedPostReason } from '../pay/creditErrors'
+
+/**
+ * XR-037: the label that P-routed a listActions query to the deleted
+ * `'p mandala'` P-module's consent gate, beside bundle.ts's home-screen row
+ * label of the same original name. Its module was deleted in plan 07 Task 10
+ * (the color module replaces it), so a `'p mandala'` label now fails closed
+ * with "Unsupported P-module scheme". Transitional: the nearby token path that
+ * carries it is rewritten onto the color module in Tasks 15/16, which delete
+ * this constant.
+ */
+export const MANDALA_TOKEN_SPEND_LABEL = 'p mandala token-spend'
 
 export const PENDING_KEY = 'localpay_pending'
 /**

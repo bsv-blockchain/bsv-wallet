@@ -120,10 +120,11 @@ const PRIVILEGED_CAPABLE = new Set<keyof WalletInterface>([
  * own vault code ever reaches it. */
 const VAULT_PROTOCOL_NAMES = new Set(['vault', 'vault salt', 'vault marker', 'vault descriptor', 'vault meta'])
 
-/** Mandala's token protocol (`[2, 'p mandala token']`) is not reserved here:
- * its `'p '` prefix routes every call under it to MandalaTokenModule
- * (core/mandala/permissionModule.ts), which binds connected-app signatures to
- * transactions the user approved.
+/** The 1Color token protocols (`[2, 'p color <assetTag> <prefix> <suffix>']`)
+ * are not reserved here: their `'p '` prefix routes every call under them to
+ * the BRC-207 color module (`permissionModules.color`, core/mandala/colorModule.ts),
+ * which signs only through a signature envelope binding the signature to a
+ * transaction the user approved, and refuses a bare digest (A.13).
  *
  * BRC-29 (`[2, '3241645161d8']`) was reserved here too (XR-020) and is not any
  * more: it is the standard BRC-100 payment protocol, and refusing it broke

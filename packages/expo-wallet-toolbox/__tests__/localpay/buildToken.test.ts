@@ -16,7 +16,7 @@ import { buildPaymentFrame, finalizeDelivery, selectTokenCoins, type TokenBuildD
 import { FRAME_VERSION, decodeFrame, encodeFrame } from '../../core/localpay/codec'
 import { mintSession, type Session } from '../../core/localpay/session'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET, type BundleStore } from '../../core/mandala/bundle'
-import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../../core/mandala/permissionModule'
+import { MANDALA_TOKEN_SPEND_LABEL } from '../../core/localpay/pending'
 import { FT_PROTOCOL_ID } from '../../core/localpay/verify'
 import type { TokenAdmissionRow } from '../../core/mandala/types'
 

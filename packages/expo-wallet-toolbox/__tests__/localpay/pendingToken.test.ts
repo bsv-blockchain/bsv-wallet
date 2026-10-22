@@ -14,10 +14,15 @@
  */
 import { Beef, LockingScript, Transaction } from '@bsv/sdk'
 import { MandalaToken } from '../../core/mandala/token'
-import { processPending, savePending, PEERPAY_LABEL, type KVStorage } from '../../core/localpay/pending'
+import {
+  processPending,
+  savePending,
+  MANDALA_TOKEN_SPEND_LABEL,
+  PEERPAY_LABEL,
+  type KVStorage
+} from '../../core/localpay/pending'
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET } from '../../core/mandala/bundle'
-import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../../core/mandala/permissionModule'
 import { SESSION_VERSION } from '../../core/localpay/session'
 
 const ASSET = 'ab'.repeat(32) + '_0'
