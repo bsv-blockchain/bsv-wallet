@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.21.0
+## 0.22.0
 
 1Color / BRC-207 tokens through `@bsv/color-permission-module`. There is no
 compatibility with `@bsv/mandala` 0.4: its assets, `'p mandala'` outputs,
@@ -86,6 +86,16 @@ versions below 6, session version 1 and MessageBox bodies v1/v2 are all gone.
 - The services for the scaling teratestnet (`scaletest`, toolbox chain
   `'regtest'`) now build on toolbox 2.15.0. The network stays out of the
   picker.
+
+## 0.21.0
+
+### Breaking
+
+- **Live payments are received only while a Receive screen is showing.** A host that takes
+  live payments without rendering `HandleReceive` (which calls it for you) must call
+  `useDirectPay().openReceiveScreen()` while its receive UI is showing, and the function it
+  returns when that UI goes. Otherwise it no longer receives live payments; payers use the
+  message box.
 
 ### Live payments
 
