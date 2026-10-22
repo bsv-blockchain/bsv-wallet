@@ -27,6 +27,22 @@ config.resolver.extraNodeModules = {
   ...config.resolver.extraNodeModules
 }
 
+// 1Color packages (@bsv/color-permission-module, @bsv/mandala, @bsv/templates)
+// are ESM-only or exports-first: their entry points live under `exports` and
+// end in .mjs/.cjs. Expo's default config already turns both on; set them here
+// explicitly so a default change upstream cannot silently break resolution.
+config.resolver.unstable_enablePackageExports = true
+for (const ext of ['mjs', 'cjs']) {
+  if (!config.resolver.sourceExts.includes(ext)) config.resolver.sourceExts.push(ext)
+}
+
+// IC D21: @bsv/color-permission-module imports @bsv/wallet-toolbox-client
+// values. On React Native that is the same toolbox as -mobile, so alias the
+// exact name (no fork, one toolbox instance in the bundle).
+const MODULE_ALIASES = {
+  '@bsv/wallet-toolbox-client': '@bsv/wallet-toolbox-mobile'
+}
+
 const emptyShim = path.resolve(__dirname, 'metro-shims/empty.js')
 const quickCryptoMain = require.resolve('react-native-quick-crypto')
 
@@ -38,6 +54,9 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   }
   if (moduleName === 'node:buffer' || moduleName === 'node:process') {
     return { type: 'sourceFile', filePath: emptyShim }
+  }
+  if (Object.prototype.hasOwnProperty.call(MODULE_ALIASES, moduleName)) {
+    moduleName = MODULE_ALIASES[moduleName]
   }
   if (typeof upstream === 'function') return upstream(context, moduleName, platform)
   return context.resolveRequest(context, moduleName, platform)
