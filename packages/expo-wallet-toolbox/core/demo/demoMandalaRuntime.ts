@@ -2,52 +2,69 @@
  * A `MandalaRuntime` backed entirely by the demo ledger.
  *
  * DEV-ONLY. Implements the members the UI actually reads or calls; everything
- * else on the interface is drain/settlement machinery that has nothing to
- * drain here, so it answers "nothing happened" rather than throwing — a demo
- * must never crash on a background tick.
+ * else on the interface is settlement machinery that has nothing to settle
+ * here, so it answers "nothing happened" rather than throwing — a demo must
+ * never crash on a background tick.
  *
  * `endpoints` deliberately carries the `.invalid` demo overlay rather than the
  * configured one: if any code path ever did try to settle one of these rows,
- * it must fail to resolve rather than reach a real issuer.
+ * it must fail to resolve rather than reach a real issuer. The journal refuses
+ * every call for the same reason.
  */
-import type { MandalaRuntime, TokenAssetInfo, TokenAssetStatus, TokenBalance } from '../mandala/runtime'
-import { DEMO_ASSETS, DEMO_USD } from './demoAssets'
-import {
-  demoSendToken,
-  demoTokenActivity,
-  demoTokenBaseUnits,
-  demoUnsettledBaseUnits,
-  subscribeDemoLedger
-} from './demoLedger'
+import type {
+  MandalaRuntime,
+  TokenAssetInfo,
+  TokenAssetStatus,
+  TokenBalance,
+  TokenSendResult
+} from '../mandala/runtime'
+import type { TransferJournal } from '../mandala/transferJournal'
+import { DEMO_ASSETS, DEMO_OVERLAY_KEY, DEMO_OVERLAY_URL } from './demoAssets'
+import { demoOfflineUnits, demoSendToken, demoTokenActivity, demoTokenUnits, subscribeDemoLedger } from './demoLedger'
+
+const DEMO_MESSAGEBOX_URL = 'https://messagebox.demo.invalid'
 
 function statusFor(): TokenAssetStatus {
   return {
     paused: false,
-    frozenBaseUnits: 0,
+    frozenUnits: 0n,
     selfAdmitted: true,
     recipientAdmitted: async () => true,
     metadataResolved: true,
-    messageBoxUrl: 'https://messagebox.demo.invalid'
+    messageBoxUrl: DEMO_MESSAGEBOX_URL
   }
 }
 
 function balanceFor(asset: TokenAssetInfo): TokenBalance {
+  const units = demoTokenUnits(asset.assetId)
+  const offline = demoOfflineUnits(asset.assetId)
+  return { asset, units, offlineUnits: offline > units ? units : offline }
+}
+
+function demoJournal(): TransferJournal {
+  const refuse = async (): Promise<never> => {
+    throw new Error('demo mode has no color_transfers journal')
+  }
   return {
-    asset,
-    baseUnits: demoTokenBaseUnits(asset.assetId),
-    unsettledBaseUnits: demoUnsettledBaseUnits(asset.assetId)
+    get: refuse,
+    getByReference: refuse,
+    list: refuse,
+    insert: refuse,
+    advance: refuse,
+    setDelivered: refuse,
+    statesOf: refuse
   }
 }
 
 export function createDemoMandalaRuntime(): MandalaRuntime {
-  const runtime = {
+  const runtime: MandalaRuntime = {
     available: true,
     endpoints: {
-      overlayUrl: DEMO_USD.overlayUrl,
-      overlayIdentityKey: DEMO_USD.overlayIdentityKey,
-      messageBoxUrl: 'https://messagebox.demo.invalid'
+      overlayUrl: DEMO_OVERLAY_URL,
+      overlayIdentityKey: DEMO_OVERLAY_KEY,
+      messageBoxUrl: DEMO_MESSAGEBOX_URL
     },
-    store: {} as MandalaRuntime['store'],
+    journal: demoJournal(),
 
     // ── what the UI reads ───────────────────────────────────────────
     listAssets: async () => DEMO_ASSETS,
@@ -56,41 +73,39 @@ export function createDemoMandalaRuntime(): MandalaRuntime {
     stuck: async () => [],
     assetStatus: async () => statusFor(),
     refreshAssetStatus: async () => statusFor(),
+    rememberDeploy: async () => {},
     recipientRefusal: () => null,
     subscribe: subscribeDemoLedger,
 
     // ── what the UI calls ───────────────────────────────────────────
-    sendToHandle: async (args: { assetId: string; recipientIdentityKey: string; baseUnits: number }) => {
-      const row = demoSendToken(args.assetId, args.baseUnits, args.recipientIdentityKey)
+    sendToHandle: async (args: {
+      assetId: string
+      recipientIdentityKey: string
+      units: bigint
+    }): Promise<TokenSendResult> => {
+      const row = demoSendToken(args.assetId, args.units, args.recipientIdentityKey)
       if (!row) {
-        return {
-          kind: 'refused' as const,
-          code: 'ERR_INSUFFICIENT_FUNDS',
-          message: 'Not enough balance in demo mode.'
-        }
+        return { kind: 'refused', code: 'ERR_INSUFFICIENT_FUNDS', message: 'Not enough balance in demo mode.' }
       }
-      return { kind: 'sent' as const, txid: row.txid, settled: true, notified: true }
+      return { kind: 'sent', txid: row.txid, settled: true, notified: true }
     },
     receiveFromInbox: async () => ({ credited: 0, failed: 0 }),
-    settleNow: async () => 'broadcast' as const,
-    cover: async () => ({ ok: true, mustSubmit: [] }),
+    settleNow: async () => 'settled',
+    resendTransfer: async () => 'unavailable',
 
     // ── machinery with nothing to do ────────────────────────────────
-    drainNow: async () => {},
-    settlePendingSends: async () => 0,
-    ensureAdmissionsForHoldings: async () => 0,
-    reconcileJournals: async () => {},
-    recoverStaleAdmissions: async () => 0,
-    repairAdmittedAborted: async () => 0,
-    pruneBlindingReservations: async () => 0,
-    reviewTokenHoldings: async () => ({ settled: 0, removed: 0, unattested: 0, unreachable: false }),
-    resendTransfer: async () => ({ kind: 'unavailable', message: 'Demo mode' })
+    settleAll: async () => 0,
+    reviewTokenHoldings: async () => ({ settled: 0, refused: 0, pending: 0, unreachable: false }),
+    isHandoverAdmitted: async () => undefined,
+    reconcileHeld: async () => {},
+    tick: async () => {},
+    nearby: {
+      handover: async () => {
+        throw new Error('demo mode does not build nearby token payments')
+      },
+      onHandedOver: async () => {},
+      onReceived: async () => {}
+    }
   }
-
-  // The remaining members are injection points for machinery demo mode never
-  // starts (the drain, the nearby build, the frame verifier, the pending
-  // queue). Casting rather than stubbing each one keeps this file honest about
-  // the fact that nothing here is a real settlement path — the same approach
-  // `__tests__/__mocks__/fakeMandalaRuntime.ts` takes.
-  return runtime as unknown as MandalaRuntime
+  return runtime
 }

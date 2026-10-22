@@ -1,15 +1,15 @@
 /**
  * The demo wallet's whole world: one mutable, in-memory ledger.
  *
- * DEV-ONLY. Holds a BSV balance with its action history and a base-unit
- * balance per demo stablecoin with its settlement history, and mutates both
+ * DEV-ONLY. Holds a BSV balance with its action history and an exact token
+ * unit balance per demo stablecoin with its settlement history, and mutates both
  * when the UI "sends". Nothing here touches SQLite, the keychain, an overlay
  * or the network, so a demo send can never become a real one — and everything
  * is gone at reload, which is what makes the mode safe to hand to someone.
  *
- * Figures are integers throughout (satoshis, token base units) for the same
- * reason `ui/tokenFormat.ts` is: a float balance prints money that is not
- * owned.
+ * Figures are integers throughout (satoshis as numbers, token units as
+ * `bigint`) for the same reason `ui/tokenFormat.ts` is: a float balance prints
+ * money that is not owned.
  */
 import type { TokenActivityRow, TokenActivityStatus } from '../mandala/runtime'
 import type { WalletAction } from '@bsv/sdk'
@@ -17,7 +17,7 @@ import {
   DEMO_CHF,
   DEMO_COUNTERPARTIES,
   DEMO_OPENING_SATS,
-  DEMO_OPENING_TOKEN_BASE_UNITS,
+  DEMO_OPENING_TOKEN_UNITS,
   DEMO_USD,
   demoAssetById
 } from './demoAssets'
@@ -32,7 +32,7 @@ export type DemoAction = WalletAction & {
 interface DemoState {
   satoshis: number
   actions: DemoAction[]
-  tokenBaseUnits: Record<string, number>
+  tokenUnits: Record<string, bigint>
   tokenActivity: TokenActivityRow[]
 }
 
@@ -70,14 +70,14 @@ function bsvAction(over: Partial<DemoAction> & { satoshis: number; description: 
 function tokenRow(
   assetId: string,
   role: 'sent' | 'received',
-  baseUnits: number,
+  units: bigint,
   at: string,
   counterpartyKey?: string,
   status: TokenActivityStatus = 'settled'
 ): TokenActivityRow {
   const asset = demoAssetById(assetId)
   if (!asset) throw new Error(`demo: unknown assetId ${assetId}`)
-  return { txid: demoTxid(), role, asset, baseUnits, counterpartyKey, status, at }
+  return { txid: demoTxid(), role, asset, units, counterpartyKey, status, at, rail: 'handle' }
 }
 
 /**
@@ -98,16 +98,16 @@ function seed(): DemoState {
       bsvAction({ satoshis: 15_000_000, description: `From ${lena.name}`, created_at: daysAgo(2, 13) }),
       bsvAction({ satoshis: -1_000_000, description: 'Lunch', created_at: daysAgo(0, 12) })
     ],
-    tokenBaseUnits: { ...DEMO_OPENING_TOKEN_BASE_UNITS },
+    tokenUnits: { ...DEMO_OPENING_TOKEN_UNITS },
     tokenActivity: [
-      tokenRow(DEMO_USD.assetId, 'received', 50_000, daysAgo(16, 11), sofia.key),
-      tokenRow(DEMO_CHF.assetId, 'received', 40_000, daysAgo(13, 15), lena.key),
-      tokenRow(DEMO_USD.assetId, 'sent', 12_500, daysAgo(9, 19), store.key),
-      tokenRow(DEMO_CHF.assetId, 'sent', 7_450, daysAgo(6, 12), marco.key),
-      tokenRow(DEMO_USD.assetId, 'received', 86_500, daysAgo(3, 14), marco.key),
-      tokenRow(DEMO_CHF.assetId, 'received', 53_500, daysAgo(1, 17), sofia.key),
+      tokenRow(DEMO_USD.assetId, 'received', 50_000n, daysAgo(16, 11), sofia.key),
+      tokenRow(DEMO_CHF.assetId, 'received', 40_000n, daysAgo(13, 15), lena.key),
+      tokenRow(DEMO_USD.assetId, 'sent', 12_500n, daysAgo(9, 19), store.key),
+      tokenRow(DEMO_CHF.assetId, 'sent', 7_450n, daysAgo(6, 12), marco.key),
+      tokenRow(DEMO_USD.assetId, 'received', 86_500n, daysAgo(3, 14), marco.key),
+      tokenRow(DEMO_CHF.assetId, 'received', 53_500n, daysAgo(1, 17), sofia.key),
       // One row mid-flight, so the "settling" copy has something to render.
-      tokenRow(DEMO_USD.assetId, 'sent', 2_000, daysAgo(0, 11), lena.key, 'settling')
+      tokenRow(DEMO_USD.assetId, 'sent', 2_000n, daysAgo(0, 11), lena.key, 'settling')
     ]
   }
 }
@@ -148,8 +148,8 @@ export function demoTotalActions(): number {
   return state.actions.length
 }
 
-export function demoTokenBaseUnits(assetId: string): number {
-  return state.tokenBaseUnits[assetId] ?? 0
+export function demoTokenUnits(assetId: string): bigint {
+  return state.tokenUnits[assetId] ?? 0n
 }
 
 export function demoTokenActivity(limit?: number): TokenActivityRow[] {
@@ -157,11 +157,11 @@ export function demoTokenActivity(limit?: number): TokenActivityRow[] {
   return limit == null ? sorted : sorted.slice(0, limit)
 }
 
-/** Base units awaiting settlement — what the UI shows as not-yet-final. */
-export function demoUnsettledBaseUnits(assetId: string): number {
+/** Units received but not yet settled — what the UI shows as pending. */
+export function demoOfflineUnits(assetId: string): bigint {
   return state.tokenActivity
     .filter(r => r.asset.assetId === assetId && r.role === 'received' && r.status === 'settling')
-    .reduce((sum, r) => sum + r.baseUnits, 0)
+    .reduce((sum, r) => sum + r.units, 0n)
 }
 
 // ── writes ─────────────────────────────────────────────────────────────
@@ -194,16 +194,15 @@ export function demoReceiveBsv(satoshis: number, description: string): DemoActio
 }
 
 /** Spend a token. Returns the new row, or null when the balance cannot cover it. */
-export function demoSendToken(assetId: string, baseUnits: number, counterpartyKey?: string): TokenActivityRow | null {
+export function demoSendToken(assetId: string, units: bigint, counterpartyKey?: string): TokenActivityRow | null {
   if (!demoAssetById(assetId)) return null
-  if (!Number.isFinite(baseUnits) || baseUnits <= 0) return null
-  const held = demoTokenBaseUnits(assetId)
-  const amount = Math.round(baseUnits)
-  if (amount > held) return null
-  const row = tokenRow(assetId, 'sent', amount, new Date().toISOString(), counterpartyKey, 'settled')
+  if (typeof units !== 'bigint' || units <= 0n) return null
+  const held = demoTokenUnits(assetId)
+  if (units > held) return null
+  const row = tokenRow(assetId, 'sent', units, new Date().toISOString(), counterpartyKey, 'settled')
   state = {
     ...state,
-    tokenBaseUnits: { ...state.tokenBaseUnits, [assetId]: held - amount },
+    tokenUnits: { ...state.tokenUnits, [assetId]: held - units },
     tokenActivity: [...state.tokenActivity, row]
   }
   notify()
@@ -211,18 +210,13 @@ export function demoSendToken(assetId: string, baseUnits: number, counterpartyKe
 }
 
 /** Receive a token — for demonstrating an incoming payment on cue. */
-export function demoReceiveToken(
-  assetId: string,
-  baseUnits: number,
-  counterpartyKey?: string
-): TokenActivityRow | null {
+export function demoReceiveToken(assetId: string, units: bigint, counterpartyKey?: string): TokenActivityRow | null {
   if (!demoAssetById(assetId)) return null
-  if (!Number.isFinite(baseUnits) || baseUnits <= 0) return null
-  const amount = Math.round(baseUnits)
-  const row = tokenRow(assetId, 'received', amount, new Date().toISOString(), counterpartyKey, 'settled')
+  if (typeof units !== 'bigint' || units <= 0n) return null
+  const row = tokenRow(assetId, 'received', units, new Date().toISOString(), counterpartyKey, 'settled')
   state = {
     ...state,
-    tokenBaseUnits: { ...state.tokenBaseUnits, [assetId]: demoTokenBaseUnits(assetId) + amount },
+    tokenUnits: { ...state.tokenUnits, [assetId]: demoTokenUnits(assetId) + units },
     tokenActivity: [...state.tokenActivity, row]
   }
   notify()

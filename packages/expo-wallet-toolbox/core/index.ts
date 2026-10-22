@@ -198,18 +198,29 @@ export {
 // an app may import `@bsv/mandala` itself.
 export type {
   MandalaRuntime,
+  NearbyTokenDeps,
   TokenActivityRow,
   TokenActivityStatus,
   TokenAssetInfo,
+  TokenAssetStatus,
   TokenBalance,
-  TokenSendResult
+  TokenHoldingsReview,
+  TokenSendResult,
+  TokenSettleState
 } from './mandala/runtime'
+export {
+  createAssetMetadata,
+  offlineUnitsOf,
+  readAvailable,
+  readInventory,
+  shortAssetId,
+  type InventoryRecord
+} from './mandala/assets'
 export {
   activityStatusOf,
   bindOriginator,
   createMandalaKvStorage,
   createMandalaRuntime,
-  verdictFromError,
   type CreateMandalaRuntimeArgs,
   type MandalaKvStorage,
   type MandalaMessageBox
