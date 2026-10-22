@@ -149,14 +149,14 @@ describe('the published manager carries the abort guard', () => {
   })
 })
 
-describe('the receiver’s queue gets both settlement hooks', () => {
-  it('passes the pre-internalize hook as well as the post-credit one', () => {
+describe('the receiver’s queue reports nearby receipts to the runtime', () => {
+  it('passes nearby.onReceived, read off the ref, and no pre-internalize hook', () => {
     const start = source.indexOf('const results = await processPending(')
     expect(start).toBeGreaterThan(0)
-    const call = source.slice(start, source.indexOf(')', source.indexOf('onTokenHeld', start)))
-    expect(call).toContain('mandalaRef.current?.onTokenCredited')
-    // The one that runs BEFORE the credit: without it the unadmitted-broadcast
-    // guard has no row to read on the first internalize (§4.3 guard #2).
-    expect(call).toContain('mandalaRef.current?.onTokenHeld')
+    const call = source.slice(start, source.indexOf(')', source.indexOf('nearby.onReceived', start)))
+    expect(call).toContain('mandalaRef.current?.nearby.onReceived')
+    // A missing color_transfers row already holds the tx (W1), so nothing has
+    // to be written before the internalize any more.
+    expect(call).not.toMatch(/onToken(Held|Credited)/)
   })
 })

@@ -1,44 +1,33 @@
 import { Hash, P2PKH, PublicKey, Transaction, Utils } from '@bsv/sdk'
-import type { ChainTracker } from '@bsv/sdk'
-import { MandalaToken } from '../mandala/token'
+import type { ChainTracker, WalletProtocol } from '@bsv/sdk'
+import { OneColor } from '@bsv/templates'
+import { ATTESTED_PROFILE_ID, MAX_UINT64, colorProtocolID, decodeToken } from '@bsv/mandala'
 import type { PaymentFrame } from './codec'
-import { coverFromFrame, type CoverVerifier } from '../mandala/bundle'
 import { PEERPAY_PROTOCOL_ID } from './pending'
 import { isRequestableAmount } from './session'
 import type { DeclineReason } from './types'
-import { trimTrailingSlashes } from '../net/trimTrailingSlashes'
 
-// mandala's FT derivation protocol — the payer locks token outputs under it
-// with OUR payee-minted nonces as keyID, preserving the frame-to-session binding
-export const FT_PROTOCOL_ID: [2, string] = [2, 'p mandala token']
+/** keyID of every `p color` derivation (0207:540-546), as lib `sendHandover` derives it. */
+const COLOR_KEY_ID = 'color'
 
-export type VerifiedPayment =
-  | { kind: 'bsv'; satoshis: number }
-  | {
-      kind: 'token'
-      assetId: string
-      amount: number
-      /**
-       * COVER's own answer: the chain transactions that still have to reach the
-       * overlay, parents first, tip last. The payee is the party nominally
-       * responsible for submitting them (settlement rule 3), so it is handed
-       * the list it proved rather than recomputing it later from storage.
-       */
-      mustSubmit: string[]
-    }
+/**
+ * What a verified frame pays this device: satoshis on the BSV path, exact
+ * token base units (1..2^64-1, read from the script) on the token path.
+ */
+export type VerifiedPayment = { kind: 'bsv'; satoshis: number } | { kind: 'token'; assetId: string; units: bigint }
 
 /**
  * Why a frame could not be shown to pay this device.
  *
  * Four kinds, because the payee's decline reason differs: bytes that are not a
  * transaction are a decode problem the payer can retry from; a transaction that
- * pays someone else is a frame that was never for us; a token frame whose
- * evidence does not COVER its own ancestry is a frame that pays us with a coin
- * the issuer's overlay has never vouched for — retrying it will not help; and
- * a transaction whose ancestry ends at a block root this device could not
- * confirm, which is what an offline payee with no header for that block sees.
- * That last one is fixed by the PAYEE getting online briefly, so the payer
- * needs to hear which of the four it was.
+ * pays someone else (or another asset than the session's) is a frame that was
+ * never for us; a token frame whose `profileData` is not the attested evidence
+ * this wallet's module requires is a frame the issuer's evidence does not
+ * cover — retrying it will not help; and a transaction whose ancestry ends at
+ * a block root this device could not confirm, which is what an offline payee
+ * with no header for that block sees. That last one is fixed by the PAYEE
+ * getting online briefly, so the payer needs to hear which of the four it was.
  */
 export type FrameVerifyKind = 'unparseable' | 'not_mine' | 'not_covered' | 'root_unverified'
 
@@ -93,14 +82,16 @@ export interface FrameVerifyDeps {
 }
 
 /**
- * The satoshis a delivered frame actually pays this device.
+ * What a delivered frame actually pays this device: satoshis, or exact token
+ * units.
  *
  * `internalizeAction` credits the output, not any field beside it, so the
  * figure a payee renders as a receipt has to come from the transaction — and
- * is only worth reading once the output is shown to be ours. The derivation
- * below is the payee-side mirror of the payer's in `build.ts`: same protocol,
- * same keyID, same counterparty, `forSelf` flipped. If the script matches, the
- * output is spendable by this device and its satoshi count is the payment.
+ * is only worth reading once the output is shown to be ours. Each derivation
+ * below is the payee-side mirror of the payer's (PeerPay in `build.ts`, the
+ * `p color` recipient key in lib `sendHandover`): same protocol, same keyID,
+ * same counterparty, `forSelf` flipped. If the script matches, the output is
+ * spendable by this device and its value is the payment.
  *
  * Throws on every failure and returns on none, so a caller cannot mistake a
  * refusal for a zero-value payment. MUST be called before the settle path
@@ -112,33 +103,12 @@ export async function verifyFramePayment(
   frame: PaymentFrame,
   originator: string,
   /**
-   * Token frames only. `cover` is the pure COVER walk (spec §1.2), injected
-   * because it lives in `@bsv/mandala` beside the overlay's own σ_I digest.
-   *
-   * Its ABSENCE refuses a token frame rather than crediting one: no verifier
-   * is no evidence, and a caller that forgot to wire it must not get a credit
-   * indistinguishable from a covered one. The BSV path never reads it.
+   * Token frames only: THIS DEVICE's own session asset id, the asset the payee
+   * asked to be paid in. The frame's `token.assetId` is data that must equal
+   * it, and the script must move it. Its ABSENCE refuses a token frame: no
+   * session asset is no binding.
    */
-  opts?: {
-    cover?: CoverVerifier
-    /**
-     * Token frames only. THIS DEVICE's configured facts about the asset it
-     * agreed to be paid in — the session's own `asset` block, which the payee
-     * minted and the payer echoed back, not anything read off the frame.
-     *
-     * Wire contract §9.10: the verifier's trust anchor comes from its own
-     * configuration, and the bundle's `overlayIdentityKey` is DATA that must
-     * EQUAL it. Without this comparison a frame names its own overlay, and
-     * `coverFromFrame` — which builds the COVER bundle straight from
-     * `frame.token.overlayIdentityKey` — would happily verify every σ_I in the
-     * frame against a key the payer chose. A payer with any keypair could then
-     * sign its own admissions and be credited for a coin no issuer ever saw.
-     *
-     * Its ABSENCE refuses a token frame, exactly as a missing `cover` does: no
-     * configured asset is no anchor.
-     */
-    asset?: { overlayUrl: string; overlayIdentityKey: string }
-  }
+  opts?: { assetId?: string }
 ): Promise<VerifiedPayment> {
   let tx: Transaction
   try {
@@ -241,141 +211,96 @@ export async function verifyFramePayment(
 
   if (!frame.token) throw new FrameVerifyError('unparseable', 'token frame without token block')
 
-  let decoded: { assetId: string; amount: number; pubKeyHash: number[] }
-  try {
-    decoded = MandalaToken.decode(output.lockingScript)
-  } catch (e) {
-    throw new FrameVerifyError('not_mine', `the named output is not a token script: ${messageOf(e)}`)
+  // There is no COVER walk and no conservation sum here. The color module
+  // validates the receipt's whole frontier (attestations, unattested
+  // ancestors, conservation) inside `internalizeAction`, against this
+  // device's OWN configured overlay key, before it credits anything (IC
+  // §2.2-5, 0207:299-357). What this function adds is the cheap, certain part
+  // that must decide the payer's decline BEFORE the settle path latches or
+  // writes: the output is a 1Color value output of the session's asset, it
+  // pays a key this device derives, and the evidence is the kind the module
+  // will accept.
+
+  // (1) The named output is a 1Color VALUE output of the session's asset.
+  const decoded = decodeToken(output.lockingScript, tx.id('hex'), frame.outputIndex)
+  if (decoded === null || decoded.role !== 'value' || decoded.assetId === undefined) {
+    throw new FrameVerifyError('not_mine', 'the named output is not a 1Color value output')
   }
   if (decoded.assetId !== frame.token.assetId) {
     throw new FrameVerifyError('not_mine', 'the output moves a different asset than the frame declares')
   }
+  if (opts?.assetId === undefined || decoded.assetId !== opts.assetId) {
+    throw new FrameVerifyError('not_mine', 'the output moves a different asset than this request asked for')
+  }
+  const units = decoded.amount
+  if (typeof units !== 'bigint' || units < 1n || units > MAX_UINT64) {
+    throw new FrameVerifyError('not_mine', `the named output carries no usable token amount: ${String(units)}`)
+  }
+
+  // (2) It pays us: the payee-side mirror of lib `sendHandover`'s recipient
+  //     derivation — `p color <assetTag> <prefix> <suffix>`, keyID 'color',
+  //     the frame's sender (A, or A′ when blinded) as counterparty, forSelf.
+  //     Through the PUBLISHED manager: the module passes getPublicKey through
+  //     after checking the key args (0207:597). Remittance strings the lib
+  //     refuses to name a protocol with cannot be ours either.
+  let protocolID: [2, string]
+  try {
+    protocolID = colorProtocolID(decoded.assetId, frame.derivationPrefix, frame.derivationSuffix)
+  } catch (e) {
+    throw new FrameVerifyError('not_mine', `the frame’s remittance names no p color key: ${messageOf(e)}`)
+  }
   const { publicKey } = await wallet.getPublicKey(
     {
-      protocolID: FT_PROTOCOL_ID,
-      keyID: `${frame.derivationPrefix} ${frame.derivationSuffix}`,
+      protocolID: protocolID as WalletProtocol,
+      keyID: COLOR_KEY_ID,
       counterparty: frame.senderIdentityKey,
       forSelf: true
     },
     originator
   )
-  const expectedPkh = Hash.hash160(Utils.toArray(publicKey, 'hex'))
-  const mine =
-    decoded.pubKeyHash.length === expectedPkh.length && decoded.pubKeyHash.every((b, i) => b === expectedPkh[i])
-  if (!mine) throw new FrameVerifyError('not_mine', 'the named token output does not pay this device')
-  if (!Number.isSafeInteger(decoded.amount) || decoded.amount < 1) {
-    throw new FrameVerifyError('not_mine', `the named output carries no usable token amount: ${decoded.amount}`)
+  let expected: string
+  try {
+    expected = new OneColor()
+      .lock(decoded.assetId, units, Hash.hash160(Utils.toArray(publicKey, 'hex')))
+      .toHex()
+  } catch (e) {
+    throw new FrameVerifyError('not_mine', `could not derive this device’s expected token script: ${messageOf(e)}`)
+  }
+  if (output.lockingScript.toHex() !== expected) {
+    throw new FrameVerifyError('not_mine', 'the named token output does not pay this device')
   }
 
-  // XR-099. COVER proves ancestry admission, never value: nothing before this
-  // point sums a token input against a token output, so a payer could spend a
-  // real, small admitted coin into an output naming any larger amount it
-  // likes and have it accepted. Cheap and certain, like the ownership checks
-  // above it, so it runs before the COVER walk below.
-  if (!tokenConservationHolds(tx, frame.token.assetId)) {
-    throw new FrameVerifyError('not_covered', 'the frame’s admission evidence does not cover it: conservation')
+  // (3) The evidence is exactly the attested leaf for this asset: the only
+  //     profile a Mandala receipt carries (IC §7.1, no issuer-v1 leaf). The
+  //     module checks what is inside it.
+  if (!isAttestedOnly(frame.token.profileData, decoded.assetId)) {
+    throw new FrameVerifyError('not_covered', 'the frame does not carry attested evidence for this asset')
   }
 
-  // Coverage runs LAST, and only for an output already proven to be ours.
-  // Ownership is the cheaper, more certain check, and running a third party's
-  // injected verifier over a stranger's frame would hand it bytes that were
-  // never this device's business.
-  //
-  // This is the whole offline-settlement gate: the coin is credited — spendable
-  // immediately, which is what makes chained offline re-spend work — the moment
-  // every token ancestor bottoms out at a σ_I this device can verify against
-  // THIS session's overlay key, or at bytes it can walk further. Anything else
-  // is refused here, before the settle path latches or writes anything, so the
-  // refusal stays an unlatched "queued nothing" by construction.
-  if (!opts?.cover) {
-    throw new FrameVerifyError('not_covered', 'no coverage verifier was supplied for a token frame')
-  }
-
-  // The trust anchor, BEFORE the walk (wire contract §9.10). `coverFromFrame`
-  // takes the bundle's `overlayIdentityKey` from the frame, so this equality is
-  // what makes that key the CONFIGURED one rather than the payer's choice —
-  // and the overlay URL goes with it, because the linkage payloads this frame
-  // carries are the bytes a later `/submit` is aimed at, and aiming them at an
-  // attacker's overlay is how a wallet is talked into treating a stranger's
-  // "admitted" as the issuer's.
-  const asset = opts.asset
-  if (!asset || !sameOverlay(frame.token, asset)) {
-    throw new FrameVerifyError('not_covered', `the frame’s admission evidence does not cover it: unsafe_asset`)
-  }
-
-  const covered = await coverFromFrame(frame, opts.cover)
-  if (!covered.ok) {
-    throw new FrameVerifyError('not_covered', `the frame’s admission evidence does not cover it: ${covered.reason}`)
-  }
-
-  return { kind: 'token', assetId: decoded.assetId, amount: decoded.amount, mustSubmit: covered.mustSubmit }
+  return { kind: 'token', assetId: decoded.assetId, units }
 }
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  v !== null && typeof v === 'object' && !Array.isArray(v)
+
 /**
- * Both overlay facts, compared the way each is actually written.
- *
- * The identity key is hex and case-insensitive — a frame writing it uppercase
- * is the same overlay and must not be refused. The URL is compared exactly
- * apart from a trailing slash: anything cleverer (host-only, scheme-agnostic)
- * would start accepting `http://` for `https://`, or a path under the
- * configured origin, which is precisely what this check exists to stop.
+ * `profileData` is a JSON object with exactly one key, the attested profile,
+ * whose value is an object holding an object leaf for `assetId`.
  */
-function sameOverlay(
-  token: { overlayUrl: string; overlayIdentityKey: string },
-  asset: { overlayUrl: string; overlayIdentityKey: string }
-): boolean {
-  const url = (u: string) => trimTrailingSlashes(u.trim())
-  return (
-    token.overlayIdentityKey.toLowerCase() === asset.overlayIdentityKey.toLowerCase() &&
-    url(token.overlayUrl) === url(asset.overlayUrl)
-  )
+function isAttestedOnly(profileData: string, assetId: string): boolean {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(profileData)
+  } catch {
+    return false
+  }
+  if (!isPlainObject(parsed)) return false
+  const keys = Object.keys(parsed)
+  if (keys.length !== 1 || keys[0] !== ATTESTED_PROFILE_ID) return false
+  const attested = parsed[ATTESTED_PROFILE_ID]
+  return isPlainObject(attested) && Object.prototype.hasOwnProperty.call(attested, assetId) && isPlainObject(attested[assetId])
 }
 
 function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
-}
-
-/**
- * XR-099. Sums `tip`'s own decodable token inputs and outputs for `assetId`
- * and reports whether the outputs are actually covered by the inputs.
- *
- * Deliberately scoped to the tip's OWN direct inputs, not the whole ancestor
- * tree COVER walks: a direct input's previous output is always present in the
- * frame's AtomicBEEF regardless (the payer needs its locking script to build
- * and sign against it), so this is real evidence, not an assumption. An input
- * whose `sourceTransaction` is absent, or whose source output is not a
- * MandalaToken of this asset at all (an ordinary BSV fee input, most
- * commonly), contributes nothing to `inputSum` — which only ever makes this
- * check MORE likely to refuse, never less: there is no way to under-count an
- * output or over-count an input by omission, so this cannot be defeated by a
- * payer hiding a real input behind a hole.
- */
-function tokenConservationHolds(tip: Transaction, assetId: string): boolean {
-  let inputSum = 0
-  for (const input of tip.inputs) {
-    const source = input.sourceTransaction
-    const output = source?.outputs[input.sourceOutputIndex]
-    if (!output?.lockingScript) continue
-    try {
-      const decoded = MandalaToken.decode(output.lockingScript)
-      if (decoded.assetId === assetId && Number.isSafeInteger(decoded.amount) && decoded.amount > 0) {
-        inputSum += decoded.amount
-      }
-    } catch {
-      // Not a token script — an ordinary fee input, per FIX K (see
-      // core/mandala/bundle.ts's `tokenParentsOf`).
-    }
-  }
-  let outputSum = 0
-  for (const output of tip.outputs) {
-    try {
-      const decoded = MandalaToken.decode(output.lockingScript)
-      if (decoded.assetId === assetId && Number.isSafeInteger(decoded.amount) && decoded.amount > 0) {
-        outputSum += decoded.amount
-      }
-    } catch {
-      // Not a token output of this asset.
-    }
-  }
-  return outputSum <= inputSum
 }

@@ -176,22 +176,6 @@ export {
   type TransferJournalLookup,
   type TokenSettlementPossible
 } from './mandala/abortGuard'
-export {
-  deriveTokenEdges,
-  isRetriableInternalizeFailure,
-  listStuckSettlements,
-  populateEvidenceFromFrame,
-  postTokenStep,
-  reconcileSettlements,
-  NON_TERMINAL_SETTLEMENT_STATES,
-  TERMINAL_SETTLEMENT_STATES,
-  type EvidenceFrame,
-  type EvidencePopulated,
-  type EvidenceTokenBlock,
-  type EvidenceTrustAnchor,
-  type TokenFrameSource,
-  type TokenStepDeps
-} from './mandala/drain'
 // The runtime the UI consumes: its pure interface, and its one construction
 // site. `useMandala()` reads `useWallet().mandala`; nothing above this line in
 // an app may import `@bsv/mandala` itself.
@@ -224,16 +208,15 @@ export {
   type MandalaKvStorage,
   type MandalaMessageBox
 } from './mandala/createRuntime'
+// The nearby payee's BRC-207 §7.1 receipt (plan 07 Task 16).
 export {
-  assembleBundle,
-  coverFromFrame,
-  tokenParentsOf,
-  type AdmissionBundle,
-  type BundleStore,
-  type CoverBundle,
-  type CoverTip,
-  type CoverVerifier
-} from './mandala/bundle'
+  declarationTxOf,
+  isColorProviderError,
+  isRetriableReceiptFailure,
+  receiptFailureCode,
+  receiptFromFrame,
+  receiptInternalizeOutput
+} from './mandala/receipt'
 
 // Contacts
 export { mergeContactCache, type ContactCache } from './contacts/contactCache'

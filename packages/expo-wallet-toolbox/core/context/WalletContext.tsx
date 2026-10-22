@@ -3548,18 +3548,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           storage,
           adminOriginator,
           undefined,
-          // A credited TOKEN frame is the moment this device becomes
-          // responsible for submitting its chain (settlement rule 3), so the
-          // row and the evidence the frame carried are written here — not
-          // inside the queue, which knows nothing about settlement. Its own
-          // failure is never the payment's: the coin is already credited, and
-          // the drain re-derives what this missed on the next online tick.
-          mandalaRef.current?.onTokenCredited,
-          // The same facts, written BEFORE the internalize — which is the only
-          // ordering the unadmitted-broadcast guard can actually read
-          // (§4.3 guard #2). This one IS allowed to refuse the credit: the
-          // frame stays durable in the queue and the next tick retries it.
-          mandalaRef.current?.onTokenHeld
+          // How a TOKEN frame's receipt internalize settled, for the
+          // `color_transfers` journal (held / settled / refused). Read off the
+          // ref on every pass: the runtime is rebuilt with the wallet. Its own
+          // failure is never the payment's, and until a row lands the missing
+          // row holds the tx from broadcast (W1).
+          mandalaRef.current?.nearby.onReceived
         )
         const successes = results.filter(r => r.success)
         if (successes.length > 0) {

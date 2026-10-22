@@ -16,7 +16,7 @@ jest.mock('@bsv/mandala', () => {
 jest.mock('@bsv/mandala/adminState', () => ({ resolveAssetState: jest.fn() }))
 
 import type { DatabaseSync } from 'node:sqlite'
-import { Hash, PrivateKey, type WalletInterface } from '@bsv/sdk'
+import { Hash, LockingScript, PrivateKey, Transaction, UnlockingScript, type WalletInterface } from '@bsv/sdk'
 import { OneColor } from '@bsv/templates'
 import { assetTag, fetchRegistry } from '@bsv/mandala'
 import { resolveAssetState } from '@bsv/mandala/adminState'
@@ -410,12 +410,110 @@ describe('members wired by later tasks', () => {
   it('reject until wired, never pretend to have done something', async () => {
     const rt = runtimeWith()
     await expect(rt.tick()).rejects.toThrow(/not yet wired/)
-    await expect(
-      rt.nearby.onReceived(
-        { txid: 'a1'.repeat(32), assetId: ASSET, units: 1n, counterpartyKey: SELF, outputIndex: 0 },
-        { ok: true }
+  })
+})
+
+describe('the nearby payee member (Task 16)', () => {
+  const TXID = 'c3'.repeat(32)
+  const received = (over: Partial<Parameters<ReturnType<typeof runtimeWith>['nearby']['onReceived']>[0]> = {}) => ({
+    txid: TXID,
+    assetId: ASSET,
+    units: 18446744073709551615n,
+    counterpartyKey: SELF,
+    outputIndex: 0,
+    ...over
+  })
+  const credit = (tags: string[]) => rec({ outpoint: `${TXID}.0`, units: 18446744073709551615n, tags })
+
+  it('journals a credited offline receipt as held, exactly, on the nearby rail', async () => {
+    const rt = runtimeWith({ inventory: [credit(['color_state_available', 'color_offline'])] })
+    const listener = jest.fn()
+    rt.subscribe(listener)
+    await rt.nearby.onReceived(received(), { ok: true })
+    expect(await rt.journal.get(TXID)).toMatchObject({
+      role: 'received',
+      state: 'held',
+      rail: 'nearby',
+      units: 18446744073709551615n,
+      counterpartyKey: SELF,
+      outputIndex: 0,
+      delivered: false
+    })
+    expect(listener).toHaveBeenCalled()
+  })
+
+  it('journals a credit the inventory shows settled as settled', async () => {
+    const rt = runtimeWith({ inventory: [credit(['color_state_available'])] })
+    await rt.nearby.onReceived(received(), { ok: true })
+    expect((await rt.journal.get(TXID))?.state).toBe('settled')
+  })
+
+  it('keeps a credit held when the inventory cannot be read or does not show it yet', async () => {
+    const unreadable = runtimeWith({ inventoryError: new Error('view down') })
+    await unreadable.nearby.onReceived(received(), { ok: true })
+    expect((await unreadable.journal.get(TXID))?.state).toBe('held')
+
+    const other = 'd4'.repeat(32)
+    const unseen = runtimeWith({ inventory: [] })
+    await unseen.nearby.onReceived(received({ txid: other }), { ok: true })
+    expect((await unseen.journal.get(other))?.state).toBe('held')
+  })
+
+  it('a replayed credit never forks the row and still settles it', async () => {
+    const offline = runtimeWith({ inventory: [credit(['color_state_available', 'color_offline'])] })
+    await offline.nearby.onReceived(received(), { ok: true })
+    const settled = runtimeWith({ inventory: [credit(['color_state_available'])] })
+    await Promise.all([
+      settled.nearby.onReceived(received(), { ok: true }),
+      settled.nearby.onReceived(received(), { ok: true })
+    ])
+    expect(await settled.journal.list()).toEqual([expect.objectContaining({ txid: TXID, state: 'settled' })])
+  })
+
+  it('caches the attested deploy the receipt carried, so the asset is named offline', async () => {
+    // IC §4 fixture F-REQ (as in assets.test): K is the deploy's overlay key.
+    const K = '02798b81951a6a8c7ef8beda09b06a23031d7efaf37b663265e0188ab378124046'
+    const REQ_HEX =
+      'a2781c68747470733a2f2f6272632e6465762f3230372f6174746573746564a266706172616d73a26974727573744d6f6465686964656e746974796b6964656e746974794b657978423032373938623831393531613661386337656638626564613039623036613233303331643765666166333762363633323635653031383861623337383132343034366776657273696f6e01785068747470733a2f2f6769746875622e636f6d2f6273762d626c6f636b636861696e2f6d616e64616c612f626c6f622f6d61737465722f646f63732f70726f66696c65732f6973737565722d76312e6d64a266706172616d73a16b6964656e746974794b657978423032373938623831393531613661386337656638626564613039623036613233303331643765666166333762363633323635653031383861623337383132343034366776657273696f6e01'
+    const PAYLOAD_HEX = `a4636465630263726571${REQ_HEX}6373796d6454555344656c6162656c6b5465737420446f6c6c6172`
+    const deploy = new Transaction()
+    deploy.addInput({ sourceTXID: '11'.repeat(32), sourceOutputIndex: 0, unlockingScript: UnlockingScript.fromHex('00') })
+    deploy.addOutput({
+      satoshis: 1,
+      lockingScript: LockingScript.fromHex(
+        `00006d4d6d01${PAYLOAD_HEX}7576a914a1d8edf2f9ebd6d2fe4728e0eb3bd369ab78d76a88ac`
       )
-    ).rejects.toThrow(/not yet wired/)
+    })
+    const assetId = `${deploy.id('hex')}_0`
+    const rt = runtimeWith({ endpoints: { ...EP, overlayIdentityKey: K }, inventory: [] })
+    await rt.nearby.onReceived(received({ assetId, declarationTx: deploy.toHex() }), { ok: true })
+    expect(await rt.listAssets()).toEqual([expect.objectContaining({ assetId, ticker: 'TUSD', resolved: true })])
+  })
+
+  it('journals a definitive refusal as refused with its code, and a retriable one not at all', async () => {
+    const rt = runtimeWith()
+    await rt.nearby.onReceived(received(), { ok: false, code: 'AttestationEvidenceError', final: true })
+    expect(await rt.journal.get(TXID)).toMatchObject({
+      role: 'received',
+      state: 'refused',
+      code: 'AttestationEvidenceError',
+      rail: 'nearby'
+    })
+    const other = 'e5'.repeat(32)
+    await rt.nearby.onReceived(received({ txid: other }), { ok: false, code: 'ERR_BUSY', final: false })
+    expect(await rt.journal.get(other)).toBeUndefined()
+  })
+
+  it('never overwrites a credited row with a later refusal', async () => {
+    const rt = runtimeWith({ inventory: [credit(['color_state_available', 'color_offline'])] })
+    await rt.nearby.onReceived(received(), { ok: true })
+    await rt.nearby.onReceived(received(), { ok: false, code: 'ProfileDataError', final: true })
+    expect((await rt.journal.get(TXID))?.state).toBe('held')
+  })
+
+  it('without a database, refuses rather than pretending to journal', async () => {
+    const rt = runtimeWith({ storage: { sqliteDb: undefined } as never })
+    await expect(rt.nearby.onReceived(received(), { ok: true })).rejects.toThrow(/not available/)
   })
 })
 

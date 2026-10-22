@@ -184,7 +184,6 @@ import {
   declineReasonFor,
   verifyFramePayment,
   type VerifiedPayment,
-  type CoverVerifier,
   type NearbyTokenDeps,
   type SessionAsset
 } from '@bsv/expo-wallet-toolbox'
@@ -633,18 +632,6 @@ function NearbyFlow({
    * plain reason rather than paid in satoshis.
    */
   const mandala = useMandala()
-  /**
-   * COVER at hand-over (offline-settlement §1.2). The payee credits a token
-   * frame only once every un-admitted ancestor in it is covered by the
-   * evidence the frame itself carries; a frame that fails is refused exactly
-   * like an unreadable one, because crediting money the issuer's overlay has
-   * never vouched for is the mistake this whole evidence model exists to
-   * prevent.
-   *
-   * The walk is the lib's, beside the overlay's own σ_I digest, and reaches
-   * this screen through the runtime — `ui/` never imports `@bsv/mandala`.
-   */
-  const coverVerifier: CoverVerifier | null = mandala.runtime?.coverVerifier ?? null
 
   /**
    * Who to name in a token sentence. Best-effort and never load-bearing: an
@@ -1158,24 +1145,25 @@ function NearbyFlow({
       }
       let verified: VerifiedPayment
       try {
-        verified = await verifyFramePayment({ wallet, chainTracker }, frame, adminOriginator, {
-          // A token frame with no verifier is REFUSED, not credited: no
-          // verifier is no evidence, and verify.ts enforces that. Absent on a
-          // BSV request, where it is never read.
-          //
-          // `asset` is the session's OWN block — this device minted it — and is
-          // the trust anchor wire contract §9.10 requires: the frame's
-          // `overlayUrl`/`overlayIdentityKey` are data, and must equal it or
-          // the frame is refused before COVER ever runs.
-          ...(session.asset ? { cover: coverVerifier ?? undefined, asset: session.asset } : {})
-        })
+        verified = await verifyFramePayment(
+          { wallet, chainTracker },
+          frame,
+          adminOriginator,
+          // The session's OWN asset — this device minted it. A token frame is
+          // verified structurally against it (value output of this asset,
+          // paying our `p color` key, attested evidence); the color module
+          // checks the evidence itself at internalize, against this device's
+          // own configured overlay. Absent on a BSV request, where a token
+          // frame is refused for naming no asset.
+          session.asset ? { assetId: session.asset.id } : undefined
+        )
       } catch (e) {
         // `not_mine` is a frame that was never for this request; `unparseable`
         // is bytes that are not a transaction; `not_covered` is a token frame
-        // whose evidence does not cover its own ancestry; `root_unverified` is
-        // a block this device could not confirm (offline, headers behind). All
-        // four leave the request LIVE and unspent, exactly as a nonce mismatch
-        // does, so the genuine payer can still complete.
+        // that does not carry the issuer's attested evidence; `root_unverified`
+        // is a block this device could not confirm (offline, headers behind).
+        // All four leave the request LIVE and unspent, exactly as a nonce
+        // mismatch does, so the genuine payer can still complete.
         const kind = e instanceof FrameVerifyError ? e.kind : 'unparseable'
         void confirm?.(false, declineReasonFor(kind))
         if (kind === 'root_unverified') {
@@ -1212,10 +1200,10 @@ function NearbyFlow({
         setListenerEpoch(n => n + 1)
         return
       }
-      // Satoshis on the BSV path, base units of the session's asset on the
-      // token path. Every check below binds the figure the payee ASKED for to
-      // the figure that was actually locked, in whichever unit that is.
-      const satoshis = verified.kind === 'token' ? verified.amount : verified.satoshis
+      // Satoshis on the BSV path, exact base units of the session's asset on
+      // the token path. Every check below binds the figure the payee ASKED for
+      // to the figure that was actually locked, in whichever unit that is —
+      // `session.units` (bigint) for a token request, `session.amount` for BSV.
 
       // (0) Bind the frame to THIS session, before the one-shot latch and before
       //     any write. Two distinct holes close here:
@@ -1243,7 +1231,10 @@ function NearbyFlow({
       //
       //     Deliberately NOT terminal, and deliberately does NOT mark the session
       //     spent: the request stays live so the genuine payer can still complete.
-      const amountDisagrees = session.amount !== undefined && satoshis !== session.amount
+      const amountDisagrees =
+        verified.kind === 'token'
+          ? session.units !== undefined && verified.units !== session.units
+          : session.amount !== undefined && verified.satoshis !== session.amount
       if (
         frame.derivationPrefix !== session.derivationPrefix ||
         frame.derivationSuffix !== session.derivationSuffix ||
@@ -1341,12 +1332,16 @@ function NearbyFlow({
       // failure. A payee who is told "failed" taps Retry, mints a fresh session,
       // and the payer builds a second createAction from different UTXOs: both
       // internalize, the payee is credited twice and the payer pays twice.
-      setSettledAmount(satoshis)
+      // TODO(plan 07 Task 18): `formatTokenAmountWithUnit` still takes a
+      // number; the bigint display lands there. Everything that DECIDES
+      // (the binding above, the journal, the receipt) stays exact.
+      const shownUnits = verified.kind === 'token' ? Number(verified.units) : verified.satoshis
+      setSettledAmount(shownUnits)
       setSettledTokenText(
         session.asset
           ? // Never `null` on the token path: falling through to the satoshi
             // renderer would print base units as satoshis.
-            (formatTokenAmountWithUnit(satoshis, {
+            (formatTokenAmountWithUnit(shownUnits, {
               decimals: session.asset.decimals ?? 0,
               ticker: session.asset.ticker ?? ''
             }) ?? t('token_row_amount_pending'))
@@ -1354,7 +1349,8 @@ function NearbyFlow({
       )
       // Credited and spendable — and not yet confirmed by the issuer. Both are
       // true at this moment and the receipt says both, because a receipt that
-      // said only the first would be claiming a settlement nobody has.
+      // said only the first would be claiming a settlement nobody has. It is
+      // lifted below only when the journal reads `settled`.
       setSettledStatusNote(
         session.asset ? t('local_pay_token_not_cleared', { issuer: issuerNameFor(session.asset.id) }) : null
       )
@@ -1408,16 +1404,12 @@ function NearbyFlow({
               receivedVia: info.receivedVia
             })
           },
-          // A credited token frame's settlement row and evidence. Isolated
-          // inside processPending from the internalize itself, so a failing
-          // journal write can never un-credit a coin that is already ours.
-          mandala.runtime?.onTokenCredited,
-          // The same write, BEFORE the internalize. This is the path that
-          // actually needs it: a payee on Wi-Fi internalizing a frame from an
-          // offline payer triggers a forced broadcast inside `internalizeAction`,
-          // and the only thing that stops an unadmitted token going out there is
-          // the `token_settlements` row this hook writes first (§4.3 guard #2).
-          mandala.runtime?.onTokenHeld
+          // How the receipt internalize settled, for the `color_transfers`
+          // journal (held / settled / refused). Isolated inside processPending
+          // from the credit itself: a failing journal write can never
+          // un-credit a coin that is already ours, and until it lands the
+          // missing row holds the tx from broadcast (W1).
+          mandala.runtime?.nearby.onReceived
         )
         const credited = results.some(r => r.success)
         setNotice(
@@ -1428,6 +1420,18 @@ function NearbyFlow({
         // copy instead — the money is safe (still queued, will resolve on
         // the next retry) but not yet in the wallet.
         setReceivedVerification(credited ? 'verified' : 'not-credited')
+        // The "not cleared by the issuer" copy stays unless the journal says
+        // the overlay admitted it (`settled`). An unreadable journal keeps it:
+        // a receipt must never claim a settlement nobody has.
+        if (credited && session.asset && mandala.runtime) {
+          try {
+            const txid = Beef.fromBinary(frame.transaction).atomicTxid
+            const row = txid ? await mandala.runtime.journal.get(txid) : undefined
+            if (row?.role === 'received' && row.state === 'settled') setSettledStatusNote(null)
+          } catch {
+            // Keep the pending copy.
+          }
+        }
         // The success overlay is already up by this point (set unconditionally
         // at the top of this function) — this only refines its `broadcast`
         // flag once storage confirms a network hand-off. Not reachable when
@@ -1452,7 +1456,7 @@ function NearbyFlow({
         setReceivedVerification('not-credited')
       }
     },
-    [storage, wallet, adminOriginator, coverVerifier, issuerNameFor, mandala.runtime, fail, t]
+    [storage, wallet, adminOriginator, issuerNameFor, mandala.runtime, fail, t]
   )
 
   // Read through refs so the listener effect below depends only on the session
@@ -1563,10 +1567,11 @@ function NearbyFlow({
         const bleLive = bleNow === 'poweredOn' && blePermitted
         const session = mintSession({
           identityKey,
-          // Satoshis, or base units of `asset` — `isRequestableAmount` is
-          // unit-agnostic and the asset travels with the figure, so the payer
-          // can never read one as the other.
-          amount: sats,
+          // Satoshis for BSV; base units of `asset` as exact `units` for a
+          // token request (session v2 refuses a satoshi `amount` beside an
+          // asset). The asset travels with the figure, so the payer can never
+          // read one as the other.
+          ...(asset ? { units: sats !== undefined ? BigInt(sats) : undefined } : { amount: sats }),
           asset,
           derivationPrefix,
           derivationSuffix,
@@ -1820,6 +1825,17 @@ function NearbyFlow({
     if (scannedSession.asset) return Number(payUnits)
     return scannedSession.amount ?? satsFrom(sendAmount)
   }, [scannedSession, sendAmount, payUnits])
+  /**
+   * The figure the payee NAMED, for display, or undefined for an open
+   * request: `units` on a token session (session v2 carries no satoshi
+   * `amount` beside an asset), `amount` on a BSV one. A number only because
+   * the display helpers still take one (plan 07 Task 18).
+   */
+  const fixedAmount = useMemo(() => {
+    if (!scannedSession) return undefined
+    if (scannedSession.asset) return scannedSession.units !== undefined ? Number(scannedSession.units) : undefined
+    return scannedSession.amount
+  }, [scannedSession])
 
   /**
    * The token receipt, once a hand-over is accepted — one writer for BOTH
@@ -2813,10 +2829,11 @@ function NearbyFlow({
             maxFontSizeMultiplier={1.4}
             numberOfLines={1}
           >
-            {hostedSession.amount === undefined ? (
+            {(hostedSession.asset ? hostedSession.units : hostedSession.amount) === undefined ? (
               t('local_pay_any_amount')
             ) : hostedSession.asset ? (
-              formatTokenAmountWithUnit(hostedSession.amount, {
+              // TODO(plan 07 Task 18): bigint display.
+              formatTokenAmountWithUnit(Number(hostedSession.units), {
                 decimals: hostedSession.asset.decimals ?? 0,
                 ticker: hostedSession.asset.ticker ?? ''
               })
@@ -2933,9 +2950,9 @@ function NearbyFlow({
             when the payee fixed it, or the live field when they left it open. */}
       {phase === 'send_confirm' && scannedSession && (
         <Animated.View entering={settleIn}>
-          {phaseTitle(scannedSession.amount === undefined ? t('local_pay_choose_amount') : t('local_pay_send'))}
+          {phaseTitle(fixedAmount === undefined ? t('local_pay_choose_amount') : t('local_pay_send'))}
 
-          {scannedSession.amount === undefined ? (
+          {fixedAmount === undefined ? (
             <>
               {supportText(t('local_pay_enter_amount_send'))}
               <View style={styles.gapXl} />
@@ -2951,10 +2968,10 @@ function NearbyFlow({
                 value={sendAmount}
                 onChangeText={setSendAmount}
                 asset={scannedAssetUnits}
-                maxValue={scannedHolding && !unitsUnknown ? String(scannedHolding.baseUnits) : undefined}
+                maxValue={scannedHolding && !unitsUnknown ? String(scannedHolding.units) : undefined}
                 availableText={
                   scannedHolding && scannedAssetUnits && !unitsUnknown
-                    ? (formatTokenAmount(scannedHolding.baseUnits, scannedAssetUnits.decimals) ?? undefined)
+                    ? (formatTokenAmount(Number(scannedHolding.units), scannedAssetUnits.decimals) ?? undefined)
                     : undefined
                 }
                 // No money chrome at all while the unit is unknown: an
@@ -2981,7 +2998,7 @@ function NearbyFlow({
                     </Text>
                   </Animated.View>
                 ) : (
-                  amountBlock(scannedSession.amount, undefined, scannedAssetUnits)
+                  amountBlock(fixedAmount, undefined, scannedAssetUnits)
                 )}
               </View>
               <View style={styles.gapXl} />
@@ -3387,11 +3404,11 @@ function NearbyFlow({
                 render={renderPayer.confirm}
                 value={{
                   session: scannedSession,
-                  fixedAmount: scannedSession.amount,
+                  fixedAmount,
                   amount: payAmount,
                   setAmount: units => setSendAmount(units !== undefined && units > 0 ? String(Math.round(units)) : ''),
                   asset: scannedAssetUnits,
-                  holding: scannedHolding && !unitsUnknown ? scannedHolding.baseUnits : undefined,
+                  holding: scannedHolding && !unitsUnknown ? Number(scannedHolding.units) : undefined,
                   note,
                   setNote,
                   recipient: payerRecipient,

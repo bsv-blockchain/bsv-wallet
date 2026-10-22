@@ -43,7 +43,7 @@ export {
   processPending,
   savePending,
   type PendingPayment,
-  type TokenCreditedHook
+  type TokenReceiveHook
 } from '../../localpay/pending'
 /**
  * The token half of the rail (plan 07 Tasks 15–16).
@@ -59,7 +59,11 @@ export {
  *    every token payment, online or off (guard #1); the screen calls
  *    `settleNow` after the payee's positive ack (W5), and only a verified
  *    admission ever releases the tx.
- *  · PAYEE: `verifyFramePayment` and `processPending` (Task 16).
+ *  · PAYEE: `verifyFramePayment` checks the frame structurally (a value
+ *    output of the session's asset, paying this device's `p color` key, with
+ *    attested evidence), and `processPending` internalizes it as the BRC-207
+ *    §7.1 receipt into `p color <assetTag>`; the runtime's
+ *    `nearby.onReceived` journals it held, settled or refused (Task 16).
  */
 export {
   buildPaymentFrame,

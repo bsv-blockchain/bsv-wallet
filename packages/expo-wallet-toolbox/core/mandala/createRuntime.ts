@@ -16,9 +16,9 @@
  *
  * Plan 07 Task 11 builds the reads, Task 12 settlement (`settle.ts`) and
  * Task 13 the handle rail (`handle.ts`), Task 15 the nearby payer hooks
- * (`nearby.ts`). The nearby payee hook (Task 16) and the tick (Task 17) are
- * wired by their tasks; until then each rejects with `not yet wired` rather
- * than pretending to have done something.
+ * (`nearby.ts`), Task 16 the nearby payee hook (`nearby.onReceived`). The
+ * tick (Task 17) is wired by its task; until then it rejects with `not yet
+ * wired` rather than pretending to have done something.
  */
 import { PublicKey, type WalletInterface } from '@bsv/sdk'
 import type { ColorOverlayProvider, ColorPermissionModule } from '@bsv/color-permission-module'
@@ -429,10 +429,70 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   const nearbyUnavailable = async (): Promise<never> => {
     throw new Error('Stablecoins are not available on this network')
   }
+  // ── Nearby rail, payee half (Task 16) ──
+  //
+  // Told how a nearby receipt internalize settled. A credit is journaled
+  // `held` FIRST and only then promoted from the module inventory
+  // (`reconcileHeld`), the handle rail's order (Task 13): a row exists before
+  // any view read, and an unreadable or not-yet-listing view leaves it held,
+  // never settled (Review Focus 4). A definitive refusal is journaled
+  // `refused` with its code; a retriable failure writes nothing (a missing
+  // row already holds, W1). Every write is INSERT OR IGNORE, so a replay, a
+  // second tab or a later refusal of an already credited txid never forks or
+  // downgrades the row.
+  const onReceived: NearbyTokenDeps['onReceived'] = async (a, outcome) => {
+    if (db === undefined) await nearbyUnavailable()
+    if (outcome.ok) {
+      const wrote = await journal.insert({
+        txid: a.txid,
+        role: 'received',
+        assetId: a.assetId,
+        units: a.units,
+        outputIndex: a.outputIndex,
+        rail: 'nearby',
+        state: 'held',
+        delivered: false,
+        counterpartyKey: a.counterpartyKey
+      })
+      if (wrote) emit()
+      try {
+        await reconcileHeld([a.txid])
+      } catch (e) {
+        devLog(`[mandala] nearby: reconciling the receipt ${a.txid} failed; it stays held:`, e)
+      }
+      if (a.declarationTx !== undefined) {
+        try {
+          await metadata.remember(a.declarationTx)
+          emit()
+        } catch (e) {
+          devLog('[mandala] nearby: caching a received deploy failed:', e)
+        }
+      }
+      return
+    }
+    if (!outcome.final) return
+    if (
+      await journal.insert({
+        txid: a.txid,
+        role: 'received',
+        assetId: a.assetId,
+        units: a.units,
+        outputIndex: a.outputIndex,
+        rail: 'nearby',
+        state: 'refused',
+        delivered: false,
+        code: outcome.code,
+        counterpartyKey: a.counterpartyKey
+      })
+    ) {
+      emit()
+    }
+  }
+
   const nearby: NearbyTokenDeps = {
     handover: nearbyPayer && color !== undefined ? nearbyPayer.handover : nearbyUnavailable,
     onHandedOver: nearbyPayer ? nearbyPayer.onHandedOver : nearbyUnavailable,
-    onReceived: notYetWired('nearby.onReceived')
+    onReceived
   }
 
   const runtime: MandalaRuntime = {

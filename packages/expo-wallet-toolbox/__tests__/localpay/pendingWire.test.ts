@@ -143,18 +143,27 @@ describe('pending queue: token frame bytes survive the KV round-trip', () => {
     expect(Array.from(encodeFrame(back.frame))).toEqual(Array.from(encodeFrame(original)))
   })
 
-  it('hands processPending hooks a frame whose certificates are bytes and profileData intact', async () => {
+  it('hands internalizeAction a §7.1 receipt whose profileData survived the queue exactly', async () => {
     const kv = memoryStorage()
     const original = tokenFrame()
     await savePending(kv, original)
-    const seen: PaymentFrame[] = []
-    const wallet = { internalizeAction: async () => ({ accepted: true }) }
-    const results = await processPending(wallet, kv, 'test', undefined, undefined, async frame => {
-      seen.push(frame)
-    })
+    const seen: unknown[] = []
+    const wallet = {
+      internalizeAction: async (args: unknown) => {
+        seen.push(args)
+        return { accepted: true }
+      }
+    }
+    const results = await processPending(wallet, kv, 'test')
     expect(results).toEqual([expect.objectContaining({ success: true })])
     expect(seen).toHaveLength(1)
-    expectTokenFrameIntact(seen[0], original)
+    const args = seen[0] as { tx: number[]; outputs: { insertionRemittance: { customInstructions: string } }[] }
+    expect(args.tx).toEqual(Array.from(original.transaction))
+    // Including the amount string above 2^53 inside the leaf: no number ever
+    // touched it on the way through the queue.
+    expect(JSON.parse(args.outputs[0].insertionRemittance.customInstructions).profileData).toEqual(
+      JSON.parse(PROFILE_DATA)
+    )
   })
 })
 
