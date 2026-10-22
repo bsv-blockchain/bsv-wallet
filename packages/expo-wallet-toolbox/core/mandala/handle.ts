@@ -229,7 +229,15 @@ async function runSend(
       assetId: a.assetId,
       amount: a.units,
       recipientKey: a.recipientKey,
-      ...(note !== undefined ? { note } : {})
+      ...(note !== undefined ? { note } : {}),
+      // The wallet owns this send's durability: the `color_transfers` row
+      // (written next) and the module's own store. The lib's txJournal would
+      // keep a 'signed'/'delivered' entry holding the tx hex that only
+      // `settleHandover`/`reconcileWallet` clear, and this wallet runs
+      // neither, so with the default it grew by one tx per send. The lib's
+      // precondition for `false` (run `reconcileWallet` with `sweep: false`)
+      // holds vacuously: no sweep runs here at all.
+      journal: false
     })
   } catch (e) {
     return sendErrorResult(e)

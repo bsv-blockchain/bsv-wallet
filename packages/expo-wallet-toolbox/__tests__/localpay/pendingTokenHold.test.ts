@@ -142,7 +142,9 @@ describe('nearby.handover journals the payer row', () => {
       recipientKey: PAYEE,
       derivationPrefix: PREFIX,
       derivationSuffix: SUFFIX,
-      note: 'lunch'
+      note: 'lunch',
+      // The wallet owns durability: no lib txJournal entry per send.
+      journal: false
     })
     expect(await journal.get(h.txid)).toMatchObject({
       role: 'sent',

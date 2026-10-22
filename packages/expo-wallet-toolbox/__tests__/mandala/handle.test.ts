@@ -200,8 +200,19 @@ describe('sendToHandle', () => {
       'settleNow'
     ])
     expect(r).toEqual({ kind: 'sent', txid: T, settled: true, notified: true })
+    // `journal: false`: the wallet owns durability (`color_transfers` plus the
+    // module). The lib's txJournal 'signed'/'delivered' entries hold the tx hex
+    // and only `settleHandover`/`reconcileWallet` ever clear them, neither of
+    // which this wallet runs, so with the default they piled up one per send.
     expect(sendHandoverMock).toHaveBeenCalledWith(
-      expect.objectContaining({ identityKey: ME, assetId: A, amount: 1500n, recipientKey: B, note: 'lunch' })
+      expect.objectContaining({
+        identityKey: ME,
+        assetId: A,
+        amount: 1500n,
+        recipientKey: B,
+        note: 'lunch',
+        journal: false
+      })
     )
     expect(deliverHandoverMock).toHaveBeenCalledWith(
       expect.objectContaining({ recipientKey: B, handover: expect.objectContaining({ txid: T }), note: 'lunch' })

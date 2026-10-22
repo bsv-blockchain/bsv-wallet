@@ -116,7 +116,10 @@ export function createNearbyPayer(d: NearbyPayerDeps): NearbyPayer {
       recipientKey,
       derivationPrefix: a.derivationPrefix,
       derivationSuffix: a.derivationSuffix,
-      ...(note !== undefined ? { note } : {})
+      ...(note !== undefined ? { note } : {}),
+      // The journal row below and the module own durability; see the handle
+      // rail's `sendToHandle` for why the lib's txJournal stays off.
+      journal: false
     })
 
     // Signed. From here every exit either journals it or releases it.
