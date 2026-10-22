@@ -2891,7 +2891,7 @@ function NearbyFlow({
           {/* A frame arrived that could not be credited. Advisory, not a
                 failure: this session was deliberately NOT marked spent, so
                 the pairing QR above is still live for the real payer. `notice`
-                (set only for a token frame that failed COVER) names the
+                (set only for a token frame refused as not_covered) names the
                 ISSUER's records as the reason — a specific true sentence beats
                 the generic "wrong session" one, and must never read as a
                 scanning mistake this device made (ux design §4.3). */}

@@ -215,14 +215,13 @@ describe('holdSentPaymentOffline', () => {
     })
   })
 
-  // XR-036: `processOfflineActions.ts`'s `readSettlement` tells "ordinary BSV"
-  // from "token, needs overlay admission first" by whether ANY
-  // `token_settlements` row exists for the txid at all. `holdSentPaymentOffline`
-  // used to insert the queue row straight at 'queued' and wake the drain BEFORE
-  // `journalHandover` had written that row — so a process kill or a transient
-  // write fault right there left a drainable row with no settlement to match
-  // it, and the drain read that absence as "plain BSV" and posted it straight
-  // past overlay admission.
+  // XR-036: `holdSentPaymentOffline` used to insert the queue row straight at
+  // 'queued' and wake the drain BEFORE the hand-over had been journaled — so a
+  // process kill or a transient write fault right there left a drainable row
+  // with no journal entry to match it. The drain's broadcast hold now keys on
+  // the `color_transfers` journal (`colorHeldTxids`, a missing row holds), but
+  // a token-bearing row is still parked until its journal write lands, so the
+  // drain never sees it early.
   describe('XR-036: a token-bearing hold is not drainable before its settlement journals', () => {
     it('inserts at parked, never queued, when the settlement journal write fails', async () => {
       const onHandedOver = jest.fn().mockRejectedValue(new Error('SQLITE_BUSY: database is locked'))

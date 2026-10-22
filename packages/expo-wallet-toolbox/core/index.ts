@@ -208,6 +208,20 @@ export {
   type MandalaKvStorage,
   type MandalaMessageBox
 } from './mandala/createRuntime'
+// The BRC-207 color module as WalletContext registers it
+// (`permissionModules.color`): the module with the attested and Mandala
+// profiles, its `ColorModuleStore` over `key_value_store`, and the host
+// consent policy. A host that builds its own permissions manager needs all
+// three to give `createMandalaRuntime` a module and a provider.
+export { buildColorModule, type BuildColorModuleArgs, type BuiltColorModule } from './mandala/colorModule'
+export { createColorModuleStore, type WalletKv } from './mandala/kvStore'
+export {
+  createColorAccessPolicy,
+  colorPromptType,
+  COLOR_PROMPT_TYPES,
+  type ColorAccessPolicyOptions,
+  type ColorPromptType
+} from './mandala/accessPolicy'
 // The nearby payee's BRC-207 §7.1 receipt (plan 07 Task 16).
 export {
   declarationTxOf,

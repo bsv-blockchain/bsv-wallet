@@ -6,17 +6,15 @@
  * asset's own units (never satoshis), the payee's own waiting screen never
  * shows a figure for an open request, a radio-acked send reads the drain's
  * own settlement state back as "settling" vs "settled", and a frame that
- * fails COVER at hand-over is refused with the issuer-attributed sentence
- * rather than read as a scanning mistake.
+ * carries no attested evidence for the asset (`not_covered`) is refused with
+ * the issuer-attributed sentence rather than read as a scanning mistake.
  *
  * The mock surface mirrors the existing NearbyFlow-adjacent suites
  * (payScreen.test.tsx, tokenPay.test.tsx, __tests__/localpay/deviceCaps.test.ts):
  * every native/radio boundary NearbyFlow itself only reaches through the
  * `@bsv/expo-wallet-toolbox` barrel is stubbed to force the QR-only, no-probe
- * path (`selectTransport` picks per test), and the two local money-write
- * modules NearbyFlow imports directly (`core/localpay/build`,
- * `core/localpay/settlementAck`) are stubbed the same way `readSettlementAck`
- * already is in the real settle path.
+ * path (`selectTransport` picks per test), and the local money-write module
+ * NearbyFlow imports directly (`core/localpay/build`) is stubbed.
  */
 jest.mock('expo-haptics', () => ({
   selectionAsync: jest.fn(() => Promise.resolve()),
@@ -327,7 +325,7 @@ describe('NearbyFlow — the token path', () => {
     await waitFor(() => expect(s.getByText('token_sent_settled:Acme Bank')).toBeTruthy())
   })
 
-  it("a COVER failure at hand-over reads as the issuer's own refusal, not a scanning mistake", async () => {
+  it("a not_covered refusal at hand-over reads as the issuer's own refusal, not a scanning mistake", async () => {
     mockVerifyFramePayment.mockRejectedValue(new FrameVerifyError('not_covered', 'evidence does not cover this frame'))
 
     const s = wrap(

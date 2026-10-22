@@ -29,11 +29,11 @@ export type DeclineReason =
   /** The frame did not decode — version skew, truncation, trailing bytes. */
   | 'decode_failed'
   /**
-   * Token frames only: the frame's admission evidence does not COVER its own
-   * ancestry (offline-settlement spec §1.2). Some token ancestor bottoms out
-   * at neither a σ_I this device can verify against the session's overlay key
-   * nor bytes it can walk further — so the coin being offered is one the
-   * issuer's overlay has never vouched for.
+   * Token frames only: the frame's `profileData` is not the attested leaf
+   * for the session's asset (BRC-207 receipt evidence), so the coin being
+   * offered is not one the issuer's overlay has vouched for. The color module
+   * checks the evidence itself at internalize; this is the payee's structural
+   * pre-check (core/localpay/verify.ts).
    *
    * Distinct from `session_mismatch` because it is not retryable and not the
    * payer's mistake about WHICH request they are paying: the payer must get
