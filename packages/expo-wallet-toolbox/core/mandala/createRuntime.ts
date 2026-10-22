@@ -501,8 +501,16 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     if (rows.length === 0) return []
     const reqs: { txid: string; rawTx?: number[] }[] = []
     for (const r of rows) {
-      const req = (await storage.findProvenTxReqs({ partial: { txid: r.txid } }))[0]
-      reqs.push({ txid: r.txid, rawTx: req?.rawTx })
+      // Per row, like the release pass's own `findReq`: one unreadable request
+      // must not starve the rest. With no bytes `colorHeldTxids` still names
+      // it (fail closed), and the inventory read decides whether it is ours.
+      let rawTx: number[] | undefined
+      try {
+        rawTx = (await storage.findProvenTxReqs({ partial: { txid: r.txid } }))[0]?.rawTx
+      } catch (e) {
+        devLog(`[mandala] tick: could not read the request for ${r.txid}:`, e)
+      }
+      reqs.push({ txid: r.txid, rawTx })
     }
     return [...(await storage.colorHeldTxids(reqs))]
   }

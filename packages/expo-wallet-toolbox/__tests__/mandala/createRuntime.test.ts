@@ -416,10 +416,11 @@ describe('tick (Task 17)', () => {
    * the tick's held-receipt step makes. `colorHeldTxids` names only the 1Color
    * one, as the real guard does for a plain-BSV queue row.
    */
-  function tickStorage(calls: string[], o: { heldError?: Error } = {}) {
-    const findProvenTxReqs = jest.fn(async (a: { partial: { txid: string } }) => [
-      { txid: a.partial.txid, rawTx: [1, 2, 3] }
-    ])
+  function tickStorage(calls: string[], o: { heldError?: Error; unreadableReq?: string } = {}) {
+    const findProvenTxReqs = jest.fn(async (a: { partial: { txid: string } }) => {
+      if (a.partial.txid === o.unreadableReq) throw new Error('request row unreadable')
+      return [{ txid: a.partial.txid, rawTx: [1, 2, 3] }]
+    })
     const colorHeldTxids = jest.fn(async (reqs: readonly { txid: string }[]) => {
       calls.push(`held:${reqs.map(r => r.txid.slice(0, 2)).join(',')}`)
       if (o.heldError) throw o.heldError
@@ -509,6 +510,20 @@ describe('tick (Task 17)', () => {
     const rt = runtimeWith({ storage: stub, inventory: [heldCredit()] })
     await expect(rt.tick()).resolves.toBeUndefined()
     expect(await rt.journal.get(QUEUED_COLOR)).toBeUndefined()
+  })
+
+  it('one unreadable request never starves the reconcile of the other held receipts', async () => {
+    await seedTickRows()
+    const calls: string[] = []
+    const { stub, colorHeldTxids } = tickStorage(calls, { unreadableReq: QUEUED_PLAIN })
+    const rt = runtimeWith({ storage: stub, inventory: [heldCredit()] })
+    await rt.tick()
+    // The unreadable one reaches the guard with no bytes (which holds it).
+    expect(colorHeldTxids).toHaveBeenCalledWith([
+      { txid: QUEUED_COLOR, rawTx: [1, 2, 3] },
+      { txid: QUEUED_PLAIN, rawTx: undefined }
+    ])
+    expect((await rt.journal.get(QUEUED_COLOR))?.state).toBe('held')
   })
 
   it('without the module or a database, a tick is a quiet no-op', async () => {
