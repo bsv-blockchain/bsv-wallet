@@ -6,9 +6,11 @@
  * not the wallet's key/value table, which is per wallet and cleared with it).
  *
  * Receiving is on by default, and wallets find each other through the public WebRTPay relay by
- * default, with the message box as the other choice. There is no migration: this key is the
- * first, and a stored value that is missing or no longer valid falls back to the default
- * field by field.
+ * default, with the message box as the other choice. A stored value that is missing or no
+ * longer valid falls back to the default field by field; a stored STUN list that is exactly
+ * the previous default ({@link PREVIOUS_DEFAULT_STUN_URLS}) is read as the current default.
+ * Receiving answers live payments only while the Receive screen is showing (see
+ * DirectPayManager.openReceiveScreen).
  *
  * Addresses are checked with regexes, not `URL`: `URL.hostname` is unreliable on Hermes. A relay
  * must be `wss://` (desktop also allows `ws://` for localhost; a phone has no local relay, so
@@ -33,11 +35,54 @@ export const DEFAULT_DIRECT_PAY_SETTINGS: Readonly<Omit<DirectPaySettings, 'stun
   receiveEnabled: true,
   signaling: 'relay',
   relayUrl: DEFAULT_RELAY_URL,
-  stunUrls: Object.freeze([
-    'stun:stun-us-1.bsvb.tech:3478',
-    'stun:stun.l.google.com:19302',
-    'stun:stun.cloudflare.com:3478'
-  ])
+  // BSVA's own STUN server only (2026-10-21): every STUN server learns this device's address
+  // and when it connects.
+  stunUrls: Object.freeze(['stun:stun-us-1.bsvb.tech:3478'])
+}
+
+/**
+ * The STUN list that was the default until 2026-10-21. A stored list that is exactly this
+ * (saved before, never edited) is read as the current default; any other list is the user's.
+ */
+export const PREVIOUS_DEFAULT_STUN_URLS: readonly string[] = Object.freeze([
+  'stun:stun-us-1.bsvb.tech:3478',
+  'stun:stun.l.google.com:19302',
+  'stun:stun.cloudflare.com:3478'
+])
+
+/**
+ * Largest transaction (Atomic BEEF) sent or taken live: 1 MB (2026-10-21). A larger payment
+ * is refused before anything is spent and the message box is offered; a payee refuses larger
+ * live messages and closes the session.
+ */
+export const MAX_LIVE_TRANSACTION_BYTES = 1_000_000
+/**
+ * The largest message an authenticated live session may send this wallet: a `payment` with a
+ * {@link MAX_LIVE_TRANSACTION_BYTES} transaction in base64 (a third larger), plus 4096 bytes for
+ * the rest of the message, as @bsv/webrtpay counts it (MAX_DIRECT_TRANSACTION_BYTES).
+ */
+export const MAX_LIVE_MESSAGE_BYTES = 4 * Math.ceil(MAX_LIVE_TRANSACTION_BYTES / 3) + 4096
+
+/**
+ * `servers` (the relay's TURN answer) without its STUN entries: the relay passes on the TURN
+ * provider's STUN urls (Cloudflare's), and only the settings' STUN list is asked.
+ */
+export function onlyOwnStun<T extends { urls: string | string[] }>(servers: T[]): T[] {
+  const out: T[] = []
+  for (const server of servers) {
+    const urls = (typeof server.urls === 'string' ? [server.urls] : [...server.urls]).filter(u => !/^stuns?:/i.test(u))
+    if (urls.length > 0) out.push({ ...server, urls })
+  }
+  return out
+}
+
+/** True for a stored STUN list that is exactly {@link PREVIOUS_DEFAULT_STUN_URLS}. */
+function previousDefaultStun(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length === PREVIOUS_DEFAULT_STUN_URLS.length &&
+    value.every((u, i) => u === PREVIOUS_DEFAULT_STUN_URLS[i])
+  )
 }
 
 // A host is a name or IPv4 address that starts and ends with a letter or digit, or a bracketed
@@ -208,7 +253,9 @@ export async function loadDirectPaySettings(
       receiveEnabled: field(checkReceiveEnabled, stored.receiveEnabled, defaults.receiveEnabled),
       signaling: field(checkSignaling, stored.signaling, defaults.signaling),
       relayUrl: field(checkRelayUrl, stored.relayUrl, defaults.relayUrl),
-      stunUrls: field(checkStunUrls, stored.stunUrls, [...defaults.stunUrls])
+      stunUrls: field(checkStunUrls, previousDefaultStun(stored.stunUrls) ? [...defaults.stunUrls] : stored.stunUrls, [
+        ...defaults.stunUrls
+      ])
     },
     field(checkTurn, stored.turn, undefined)
   )

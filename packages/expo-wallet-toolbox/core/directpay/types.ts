@@ -52,7 +52,16 @@ export interface DirectPaySettings {
  * - `aborted`: the dial was cancelled.
  * - `unknown`: anything else (a refusal with some other reason, a closed link, a bad handshake).
  */
-export type DialFailure = 'offline' | 'rejected' | 'unavailable' | 'timeout' | 'wrong_network' | 'aborted' | 'unknown'
+export type DialFailure =
+  | 'offline'
+  | 'rejected'
+  | 'unavailable'
+  | 'timeout'
+  | 'wrong_network'
+  | 'aborted'
+  | 'unknown'
+  /** Not a dial failure: the recipient was reached, but the payment is over the 1 MB live limit (released). */
+  | 'too_large'
 
 /** Some wording for the user, as an i18n key and its parameters (core modules never return English). */
 export interface DirectPayMessage {
@@ -61,7 +70,7 @@ export interface DirectPayMessage {
 }
 
 /** Why a live attempt is offering the message box: the recipient is not there, or the link failed. */
-export type FallbackReason = 'offline' | 'link_failed'
+export type FallbackReason = 'offline' | 'link_failed' | 'too_large'
 
 /** Paying stopped, and nothing more is offered. */
 export interface PayFailure extends DirectPayMessage {

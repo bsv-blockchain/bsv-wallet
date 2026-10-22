@@ -495,6 +495,12 @@ export default function HandleReceive({
     }, [identityKey, loadIdentityKey])
   )
 
+  // Live payments are answered only while this screen is focused, and only for BSV (a token
+  // always arrives by message box): the rest of the time payers use the message box.
+  const { openReceiveScreen } = directPay
+  const liveReceive = !asset
+  useFocusEffect(useCallback(() => (liveReceive ? openReceiveScreen() : undefined), [liveReceive, openReceiveScreen]))
+
   const newPeerPayClient = useCallback((): PeerPayClient | null => {
     if (!isConfigured || !messageBoxUrl || !wallet) return null
     try {
