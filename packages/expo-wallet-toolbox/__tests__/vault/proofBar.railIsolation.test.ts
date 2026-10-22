@@ -550,11 +550,8 @@ describe('I3: the offline pending-payment queue never credits into the Vault bas
       derivationSuffix: Utils.toBase64(Utils.toArray('admin', 'utf8')),
       token: {
         assetId,
-        overlayUrl: 'https://overlay.invalid',
-        overlayIdentityKey: PrivateKey.fromRandom().toPublicKey().toString(),
         certificates: [],
-        linkage: [],
-        admissions: []
+        profileData: JSON.stringify({ basket: VAULT_BASKET })
       },
       transaction: new Uint8Array(beef.toBinaryAtomic(tx.id('hex')))
     }

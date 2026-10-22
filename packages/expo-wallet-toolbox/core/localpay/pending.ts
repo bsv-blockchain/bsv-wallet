@@ -1,7 +1,6 @@
 import { Beef } from '@bsv/sdk'
 import type { PaymentFrame, TokenPayment } from './codec'
 import { MANDALA_ACTION_LABEL, MANDALA_BASKET } from '../mandala/bundle'
-import type { AdmissionEntryWire } from '../mandala/types'
 import { isRetriableInternalizeFailure } from '../mandala/drain'
 import { failedPostReason } from '../pay/creditErrors'
 
@@ -117,19 +116,15 @@ export function getPendingCorruptNotice(): boolean {
 
 /**
  * Every byte field of a frame travels as a `number[]`: `JSON.stringify` turns a
- * `Uint8Array` into an index-keyed object, and a token frame's linkage
- * payloads, certificates and σ_I signatures came back that way for as long as
- * only `transaction` was converted. `processPending` then handed the mangled
- * frame to `onTokenHeld`, whose `putLinkage` bound a plain object — which
- * expo-sqlite on Android stringifies into a TEXT row, unreadable by every later
- * send that walked the received coin's ancestry (2026-09-16).
+ * `Uint8Array` into an index-keyed object, and a token frame's byte fields
+ * came back that way for as long as only `transaction` was converted
+ * (2026-09-16). The v6 token block's byte fields are `certificates`;
+ * `profileData` is already a string and is stored as that exact string.
  */
 type WireBytes = number[]
 
-interface WireToken extends Omit<TokenPayment, 'certificates' | 'linkage' | 'admissions'> {
+interface WireToken extends Omit<TokenPayment, 'certificates'> {
   certificates: WireBytes[]
-  linkage: Array<{ txid: string; payload: WireBytes }>
-  admissions: Array<Omit<AdmissionEntryWire, 'signature'> & { signature: WireBytes }>
 }
 
 interface Serialised extends Omit<PendingPayment, 'frame'> {
@@ -141,8 +136,7 @@ interface Serialised extends Omit<PendingPayment, 'frame'> {
  * index-keyed object JSON makes of a `Uint8Array` — entries like that are still
  * sitting in queues on devices), or already revived. Never throws: `readAll`
  * quarantines the WHOLE queue on a throw, and one unreadable byte field must not
- * cost every other payment in it. An unreadable field comes back EMPTY, which
- * every consumer treats as "nothing held" (`putLinkage` refuses to store it).
+ * cost every other payment in it. An unreadable field comes back EMPTY.
  */
 function reviveBytes(value: unknown): Uint8Array {
   if (value instanceof Uint8Array) return value
@@ -173,9 +167,7 @@ function toWire(p: PendingPayment): Serialised {
         ? {
             token: {
               ...token,
-              certificates: token.certificates.map(c => Array.from(c)),
-              linkage: token.linkage.map(l => ({ txid: l.txid, payload: Array.from(l.payload) })),
-              admissions: token.admissions.map(a => ({ ...a, signature: Array.from(a.signature) }))
+              certificates: token.certificates.map(c => Array.from(c))
             }
           }
         : {})
@@ -194,9 +186,7 @@ function fromWire(s: Serialised): PendingPayment {
         ? {
             token: {
               ...token,
-              certificates: (token.certificates ?? []).map(reviveBytes),
-              linkage: (token.linkage ?? []).map(l => ({ txid: l.txid, payload: reviveBytes(l.payload) })),
-              admissions: (token.admissions ?? []).map(a => ({ ...a, signature: reviveBytes(a.signature) }))
+              certificates: (Array.isArray(token.certificates) ? token.certificates : []).map(reviveBytes)
             }
           }
         : {})
