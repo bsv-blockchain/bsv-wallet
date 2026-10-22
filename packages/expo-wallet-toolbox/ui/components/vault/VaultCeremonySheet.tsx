@@ -107,10 +107,7 @@ export const VaultCeremonySheet: React.FC = () => {
   const pulse = useSharedValue(1)
   useEffect(() => {
     const active =
-      phase === 'waiting-for-key' ||
-      phase === 'awaiting-touch' ||
-      phase === 'preparing' ||
-      phase === 'broadcasting'
+      phase === 'waiting-for-key' || phase === 'awaiting-touch' || phase === 'preparing' || phase === 'broadcasting'
     if (active && !reducedMotion) {
       pulse.value = withRepeat(
         withSequence(
@@ -295,7 +292,10 @@ export const VaultCeremonySheet: React.FC = () => {
                 setPin('')
               }}
               accessibilityState={{ disabled: !/^[0-9]{6,8}$/.test(pin) }}
-              style={[styles.primaryBtn, { backgroundColor: colors.accent, opacity: /^[0-9]{6,8}$/.test(pin) ? 1 : 0.4 }]}
+              style={[
+                styles.primaryBtn,
+                { backgroundColor: colors.accent, opacity: /^[0-9]{6,8}$/.test(pin) ? 1 : 0.4 }
+              ]}
             >
               <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_unlock_cta')}</Text>
             </PressableScale>

@@ -106,10 +106,7 @@ describe('vaultStore v6', () => {
 
   it('keeps generated-key drafts non-authoritative and in their captured scope after a switch', async () => {
     const tokenA = vaultStore.captureScopeToken()
-    await vaultStore.preserveEnrollmentDraft(
-      { record: key(1), assurance: 'management-uncertain' },
-      tokenA
-    )
+    await vaultStore.preserveEnrollmentDraft({ record: key(1), assurance: 'management-uncertain' }, tokenA)
     expect(await vaultStore.getMeta()).toBeNull()
 
     vaultStore.configureScope({ identityKey: ID_B, chain: 'test' })
@@ -118,9 +115,7 @@ describe('vaultStore v6', () => {
     expect(await vaultStore.getMeta()).toBeNull()
 
     vaultStore.configureScope({ identityKey: ID_A, chain: 'main' })
-    expect(await vaultStore.getEnrollmentDrafts()).toEqual([
-      { record: key(1), assurance: 'challenge-required' }
-    ])
+    expect(await vaultStore.getEnrollmentDrafts()).toEqual([{ record: key(1), assurance: 'challenge-required' }])
     expect(await vaultStore.getMeta()).toBeNull()
   })
 
@@ -510,7 +505,7 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
     expect(await vaultStore.getEnrollmentDraftTag(key(1).serial, scopeToken)).toBe(`tag-${key(1).serial}`)
   })
 
-  it('discardEnrollmentDraft removes that serial\'s stored draft tag', async () => {
+  it("discardEnrollmentDraft removes that serial's stored draft tag", async () => {
     const scopeToken = vaultStore.captureScopeToken()
     await vaultStore.preserveEnrollmentDraft(
       { record: key(1), assurance: 'ready' },

@@ -28,7 +28,7 @@ const A2 = note(110.0)
 
 // One additive voice: partials [ratio, gain], exponential decay, soft attack.
 function voice(t, f0, partials, attack, decay) {
-  const env = (t < attack ? t / attack : Math.exp(-(t - attack) / decay))
+  const env = t < attack ? t / attack : Math.exp(-(t - attack) / decay)
   let s = 0
   for (const [ratio, gain] of partials) s += gain * Math.sin(2 * Math.PI * f0 * ratio * t)
   return env * s
@@ -72,15 +72,56 @@ function render(durationS, fn) {
 // plus a quiet high metallic partial that decays fast — the "turn".
 const open = render(0.7, t => {
   const door =
-    voice(t, D3, [[1, 0.6], [2, 0.18], [3, 0.06]], 0.012, 0.45) +
-    voice(t, F3, [[1, 0.5], [2, 0.14], [3, 0.05]], 0.03, 0.4)
-  const metal = 0.08 * voice(t, D3, [[9.2, 1], [11.7, 0.6]], 0.004, 0.08)
+    voice(
+      t,
+      D3,
+      [
+        [1, 0.6],
+        [2, 0.18],
+        [3, 0.06]
+      ],
+      0.012,
+      0.45
+    ) +
+    voice(
+      t,
+      F3,
+      [
+        [1, 0.5],
+        [2, 0.14],
+        [3, 0.05]
+      ],
+      0.03,
+      0.4
+    )
+  const metal =
+    0.08 *
+    voice(
+      t,
+      D3,
+      [
+        [9.2, 1],
+        [11.7, 0.6]
+      ],
+      0.004,
+      0.08
+    )
   return door + metal
 })
 
 // vault-close: single A2 thunk, quick decay, tiny click transient at onset.
 const close = render(0.5, t => {
-  const thunk = voice(t, A2, [[1, 0.7], [2, 0.2], [3, 0.05]], 0.006, 0.16)
+  const thunk = voice(
+    t,
+    A2,
+    [
+      [1, 0.7],
+      [2, 0.2],
+      [3, 0.05]
+    ],
+    0.006,
+    0.16
+  )
   const click = 0.12 * voice(t, A2, [[6.1, 1]], 0.001, 0.02)
   return thunk + click
 })
@@ -88,4 +129,6 @@ const close = render(0.5, t => {
 writeFileSync(join(OUT, 'vault-open.wav'), open.out)
 writeFileSync(join(OUT, 'vault-close.wav'), close.out)
 console.log(`vault-open.wav  ${open.samples} samples (${(open.samples / SR).toFixed(2)}s) peak ${open.peak.toFixed(3)}`)
-console.log(`vault-close.wav ${close.samples} samples (${(close.samples / SR).toFixed(2)}s) peak ${close.peak.toFixed(3)}`)
+console.log(
+  `vault-close.wav ${close.samples} samples (${(close.samples / SR).toFixed(2)}s) peak ${close.peak.toFixed(3)}`
+)

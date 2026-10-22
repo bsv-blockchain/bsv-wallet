@@ -183,7 +183,7 @@ export function wrapAbortActionForSettlements<T extends AbortableManager>(
               return { aborted: false }
             }
           } catch (e) {
-            console.warn('[mandala] refusing to abort: could not read this action\'s settlement state:', e)
+            console.warn("[mandala] refusing to abort: could not read this action's settlement state:", e)
             return { aborted: false }
           }
           return await target.abortAction(args, originator)

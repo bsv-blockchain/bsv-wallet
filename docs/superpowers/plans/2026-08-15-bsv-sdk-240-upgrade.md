@@ -20,14 +20,14 @@
 
 ## File Structure
 
-| File | Responsibility | Action |
-|---|---|---|
-| `package.json` | Pins `@bsv/sdk` version | Modify |
-| `package-lock.json` | Lockfile | Regenerate |
-| `patches/@bsv+sdk+2.1.9.patch` | Old native-secp patch | **Delete** |
-| `patches/@bsv+sdk+2.4.0.patch` | Rebased native-secp patch | Create (generated) |
-| `__tests__/nobleBackend.test.ts` | Byte-parity gate for the noble backend | Verify unchanged, extend |
-| `__tests__/sdkAuthFetchBinaryBody.test.ts` | Locks in the 2.4.0 binary-body fix | Create |
+| File                                       | Responsibility                         | Action                   |
+| ------------------------------------------ | -------------------------------------- | ------------------------ |
+| `package.json`                             | Pins `@bsv/sdk` version                | Modify                   |
+| `package-lock.json`                        | Lockfile                               | Regenerate               |
+| `patches/@bsv+sdk+2.1.9.patch`             | Old native-secp patch                  | **Delete**               |
+| `patches/@bsv+sdk+2.4.0.patch`             | Rebased native-secp patch              | Create (generated)       |
+| `__tests__/nobleBackend.test.ts`           | Byte-parity gate for the noble backend | Verify unchanged, extend |
+| `__tests__/sdkAuthFetchBinaryBody.test.ts` | Locks in the 2.4.0 binary-body fix     | Create                   |
 
 The patch covers 8 SDK source files in both `dist/cjs` and `dist/esm`: `ECDSA.js`,
 `NativeSecp.js` (added wholesale by the patch), `PrivateKey.js`, `PublicKey.js`,
@@ -38,9 +38,11 @@ The patch covers 8 SDK source files in both `dist/cjs` and `dist/esm`: `ECDSA.js
 ### Task 1: Branch and capture the 2.1.9 baseline
 
 **Files:**
+
 - Create: `/tmp/sdk-upgrade-baseline.json` (scratch, not committed)
 
 **Interfaces:**
+
 - Consumes: nothing
 - Produces: a baseline signature vector file used by Task 4 to prove byte-exactness across the version change.
 
@@ -106,11 +108,13 @@ git commit --allow-empty -m "chore(sdk): branch point for @bsv/sdk 2.4.0 upgrade
 ### Task 2: Bump the dependency and remove the stale patch
 
 **Files:**
+
 - Modify: `package.json` (the `@bsv/sdk` entry under `dependencies`)
 - Modify: `package-lock.json` (regenerated)
 - Delete: `patches/@bsv+sdk+2.1.9.patch`
 
 **Interfaces:**
+
 - Consumes: the branch from Task 1
 - Produces: an installed, **unpatched** `@bsv/sdk` 2.4.0 in `node_modules`, ready for Task 3 to re-apply the native-secp changes by hand.
 
@@ -176,6 +180,7 @@ git commit -m "chore(sdk): bump @bsv/sdk to 2.4.0 and drop the 2.1.9 patch"
 ### Task 3: Rebase the native-secp patch onto 2.4.0
 
 **Files:**
+
 - Modify: `node_modules/@bsv/sdk/dist/{cjs,esm}/src/primitives/ECDSA.js`
 - Create: `node_modules/@bsv/sdk/dist/{cjs,esm}/src/primitives/NativeSecp.js`
 - Modify: `node_modules/@bsv/sdk/dist/{cjs,esm}/src/primitives/{PrivateKey,PublicKey,Schnorr,Signature}.js`
@@ -184,6 +189,7 @@ git commit -m "chore(sdk): bump @bsv/sdk to 2.4.0 and drop the 2.1.9 patch"
 - Create: `patches/@bsv+sdk+2.4.0.patch` (generated)
 
 **Interfaces:**
+
 - Consumes: unpatched 2.4.0 from Task 2; the old patch body from git history at
   `HEAD~1:patches/@bsv+sdk+2.1.9.patch`
 - Produces: `patches/@bsv+sdk+2.4.0.patch`, and a `secpBackend()` / `nativeSecp()` /
@@ -243,25 +249,24 @@ The canonical example, in `dist/cjs/src/primitives/ECDSA.js` — after the exist
 message-length guard inside `sign`, before the pure-JS work:
 
 ```js
-const NativeSecp_js_1 = require("./NativeSecp.js");
+const NativeSecp_js_1 = require('./NativeSecp.js')
 // ... inside sign(msg, key, forceLowS = false, customK):
 {
-    const n = (0, NativeSecp_js_1.secpBackend)();
-    if (n != null) {
-        if (customK != null) {
-            (0, NativeSecp_js_1.warnCustomKOnce)();
-        }
-        else if (!forceLowS) {
-            (0, NativeSecp_js_1.warnForceLowSOnce)();
-        }
-        else {
-            try {
-                const der = n.ecdsaSign((0, NativeSecp_js_1.bnToBuf32)(msg), (0, NativeSecp_js_1.bnToBuf32)(key));
-                return Signature_js_1.default.fromDER(Array.from(der));
-            }
-            catch (e) { /* fall through to pure JS */ }
-        }
+  const n = (0, NativeSecp_js_1.secpBackend)()
+  if (n != null) {
+    if (customK != null) {
+      ;(0, NativeSecp_js_1.warnCustomKOnce)()
+    } else if (!forceLowS) {
+      ;(0, NativeSecp_js_1.warnForceLowSOnce)()
+    } else {
+      try {
+        const der = n.ecdsaSign((0, NativeSecp_js_1.bnToBuf32)(msg), (0, NativeSecp_js_1.bnToBuf32)(key))
+        return Signature_js_1.default.fromDER(Array.from(der))
+      } catch (e) {
+        /* fall through to pure JS */
+      }
     }
+  }
 }
 ```
 
@@ -271,6 +276,7 @@ The `esm` variant is identical except `require(...)` becomes a top-level
 files and the app can load either.
 
 Rules while doing this:
+
 - Never change the pure-JS fallback body. It is the reference implementation and the
   thing byte-exactness is measured against.
 - Every native call is wrapped in `try/catch` that falls through to pure JS.
@@ -331,10 +337,12 @@ git commit -m "chore(sdk): rebase native-secp256k1 patch onto @bsv/sdk 2.4.0"
 ### Task 4: Prove byte-exactness against the 2.1.9 baseline
 
 **Files:**
+
 - Test: `__tests__/nobleBackend.test.ts` (existing gate, run unmodified)
 - Create: `/tmp/verify-upgrade.js` (scratch)
 
 **Interfaces:**
+
 - Consumes: `/tmp/sdk-upgrade-baseline.json` from Task 1; the rebased patch from Task 3
 - Produces: proof that signing output is unchanged across the version bump. Nothing may
   depend on 2.4.0 until this passes.
@@ -409,9 +417,11 @@ nobleBackend byte-parity gate green. Full suite green."
 ### Task 5: Lock in the binary-body fix with a regression test
 
 **Files:**
+
 - Create: `__tests__/sdkAuthFetchBinaryBody.test.ts`
 
 **Interfaces:**
+
 - Consumes: `@bsv/sdk` 2.4.0
 - Produces: a guard that fails loudly if a future SDK bump reintroduces the
   `typeof body === 'object'` ordering bug. The backup client's raw-binary upload depends
@@ -434,11 +444,13 @@ nobleBackend byte-parity gate green. Full suite green."
 import { AuthFetch, CompletedProtoWallet, PrivateKey } from '@bsv/sdk'
 
 // normalizeBodyToNumberArray is private; reach it deliberately rather than reimplement.
-function normalize (body: unknown): Promise<number[]> {
+function normalize(body: unknown): Promise<number[]> {
   const client = new AuthFetch(new CompletedProtoWallet(PrivateKey.fromRandom()))
-  return (client as unknown as {
-    normalizeBodyToNumberArray: (b: unknown) => Promise<number[]>
-  }).normalizeBodyToNumberArray(body)
+  return (
+    client as unknown as {
+      normalizeBodyToNumberArray: (b: unknown) => Promise<number[]>
+    }
+  ).normalizeBodyToNumberArray(body)
 }
 
 describe('AuthFetch binary body handling (SDK 2.4.0)', () => {
@@ -493,17 +505,19 @@ git commit -m "test(sdk): guard AuthFetch binary-body handling on 2.4.0"
 ### Task 6: Check whether the wallet-toolbox patch can shed its batch-derivation code
 
 **Files:**
+
 - Read: `patches/@bsv+wallet-toolbox-mobile+2.4.3.patch`
 - Read: `node_modules/@bsv/sdk/dist/types/src/wallet/KeyDeriver.d.ts`
 
 **Interfaces:**
+
 - Consumes: `@bsv/sdk` 2.4.0
 - Produces: either a reduced toolbox patch, or a recorded decision to keep it as is.
 
-2.4.0's `KeyDeriver` gains an optional `derivePrivateKeys?(derivations: readonly
+  2.4.0's `KeyDeriver` gains an optional `derivePrivateKeys?(derivations: readonly
 PrivateKeyDerivation[]): PrivateKey[]` — upstream's version of what the local toolbox
-patch implements by hand via `batchBrc42DeriveChild`. If upstream's hook is sufficient,
-part of a 220-line patch can be retired rather than maintained.
+  patch implements by hand via `batchBrc42DeriveChild`. If upstream's hook is sufficient,
+  part of a 220-line patch can be retired rather than maintained.
 
 - [ ] **Step 1: Read upstream's batch hook**
 
@@ -544,6 +558,7 @@ git commit --allow-empty -m "chore(sdk): record whether KeyDeriver.derivePrivate
 **Files:** none modified
 
 **Interfaces:**
+
 - Consumes: everything above
 - Produces: a merged `master` on 2.4.0, unblocking the backup client plan.
 

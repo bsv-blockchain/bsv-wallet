@@ -1,8 +1,7 @@
 import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
 
-const mockT = (k: string, o?: Record<string, unknown>) =>
-  o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k
+const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
 let mockState: Record<string, unknown> = { phase: 'idle' }
 let mockMeta: unknown = null
 const mockRetry = jest.fn()
@@ -21,7 +20,10 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null, MaterialCommunityIcons: () => null }))
 jest.mock('../../ui/components/ui/Sheet', () => {
   const React = require('react')
-  return { __esModule: true, default: ({ visible, children }: any) => (visible ? React.createElement(React.Fragment, null, children) : null) }
+  return {
+    __esModule: true,
+    default: ({ visible, children }: any) => (visible ? React.createElement(React.Fragment, null, children) : null)
+  }
 })
 jest.mock('../../ui/components/ui/PressableScale', () => {
   const React = require('react')

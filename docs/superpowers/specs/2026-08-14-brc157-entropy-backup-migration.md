@@ -16,20 +16,20 @@ rootKey = HD.fromSeed(Mnemonic.fromEntropy(entropy).toSeed()).derive("m/0'/0'").
 
 which is byte-identical to what `utils/mnemonicWallet.ts:52-53` already computes today. Verified empirically over 200 random 16-byte entropy values: **200/200 match.**
 
-So the app is *already* BRC-157-compliant on the derivation side. Exactly one thing is wrong:
+So the app is _already_ BRC-157-compliant on the derivation side. Exactly one thing is wrong:
 
-| | payload inside the backup shares |
-|---|---|
-| today (`utils/backupShares.ts:20-27`) | the **derived** `m/0'/0'` private key |
-| BRC-157 | the **entropy** that the mnemonic encodes |
+|                                       | payload inside the backup shares          |
+| ------------------------------------- | ----------------------------------------- |
+| today (`utils/backupShares.ts:20-27`) | the **derived** `m/0'/0'` private key     |
+| BRC-157                               | the **entropy** that the mnemonic encodes |
 
-That single difference is why the two artifacts are incompatible today: `m/0'/0'` is a *hardened* derivation, so it is one-way. Shares of the derived key can restore spending authority but can never reconstruct the mnemonic. Shares of the entropy can do both.
+That single difference is why the two artifacts are incompatible today: `m/0'/0'` is a _hardened_ derivation, so it is one-way. Shares of the derived key can restore spending authority but can never reconstruct the mnemonic. Shares of the entropy can do both.
 
 ### What this means for the proposed plan
 
 The plan in the goal was to version the database and tag each output as old-way or new-way. **Output tagging is not needed and should be dropped.** There is no "old way" and "new way" for outputs — the key that locks them is the same key before and after. Nothing on-chain changes, no address changes, no sweep, no dual-derivation period, no per-output metadata.
 
-What *is* needed is a version record — but on the **backup format**, not on outputs. The app needs to know whether a user's printed shares contain entropy or a derived key, in order to prompt for the upgrade and to interpret shares correctly at restore.
+What _is_ needed is a version record — but on the **backup format**, not on outputs. The app needs to know whether a user's printed shares contain entropy or a derived key, in order to prompt for the upgrade and to interpret shares correctly at restore.
 
 ---
 
@@ -40,9 +40,9 @@ What *is* needed is a version record — but on the **backup format**, not on ou
 Migrate in place. No on-chain activity, no risk to funds.
 
 ```ts
-const entropy = Mnemonic.fromString(mnemonic).toEntropy()   // 16 bytes for a 12-word wallet
-assertValidEntropy(entropy)                                  // see gap #1 below
-const padded = [...Array(32 - entropy.length).fill(0), ...entropy]  // BRC-157 left-pad
+const entropy = Mnemonic.fromString(mnemonic).toEntropy() // 16 bytes for a 12-word wallet
+assertValidEntropy(entropy) // see gap #1 below
+const padded = [...Array(32 - entropy.length).fill(0), ...entropy] // BRC-157 left-pad
 const shares = new PrivateKey(padded).toBackupShares(2, 3)
 // print, then record backupFormat = 2 and entropyBytes = entropy.length
 ```
@@ -55,7 +55,7 @@ Cost to the user: one tap and a trip to the printer. Their spend key never moves
 
 Two options, and I recommend the first:
 
-1. **Leave them on legacy, do not nag.** Their existing shares still restore full spending authority; nothing is broken and nothing is at risk. Mark them `backupFormat = 1, migratable = false` and offer an *optional* upgrade rather than a warning. The only thing they lack is the ability to recover a mnemonic they never had.
+1. **Leave them on legacy, do not nag.** Their existing shares still restore full spending authority; nothing is broken and nothing is at risk. Mark them `backupFormat = 1, migratable = false` and offer an _optional_ upgrade rather than a warning. The only thing they lack is the ability to recover a mnemonic they never had.
 2. **Opt-in fresh start:** generate new BRC-157 entropy, build a second wallet, sweep everything across, print new shares. This is the "transfer funds out first" path from the goal. It is the only route to full compliance for this cohort, but it costs a transaction, breaks identity-key continuity, and should never be forced.
 
 Note this cohort already cannot use the vault (`EnrollWizard` hard-gates on `getMnemonic()`), so the constraint is consistent with what already ships.
@@ -79,9 +79,11 @@ Interpret an entropy share that way and you silently get a valid-looking but com
 At restore, compute both candidates and match against the printed identity key:
 
 ```ts
-const asKey     = new PrivateKey(payload).toPublicKey().toString()
+const asKey = new PrivateKey(payload).toPublicKey().toString()
 const asEntropy = HD.fromSeed(Mnemonic.fromEntropy(trim(payload)).toSeed(''))
-                    .derive("m/0'/0'").privKey.toPublicKey().toString()
+  .derive("m/0'/0'")
+  .privKey.toPublicKey()
+  .toString()
 // exactly one matches the identity key printed on the share page
 ```
 
@@ -92,7 +94,7 @@ Verified: for a legacy payload only `asKey` matches; for a BRC-157 payload only 
 Two cheap backstops for when the user cannot supply the identity key:
 
 - **Leading-zero test.** A 12-word wallet's entropy is 16 bytes left-padded to 32, so a BRC-157 payload always has ≥16 leading zero bytes. A legacy payload is a uniformly random scalar. Measured over 2000 trials: legacy never exceeded **1** leading zero byte; BRC-157 never fell below **16**. A `≥12` threshold separates them, with a false-positive probability of `256⁻¹⁶ = 2⁻¹²⁸`.
-  Caveat: this works because existing wallets are 12-word. A 24-word BRC-157 wallet has no padding and is *not* distinguishable this way — which is why cohort C needs the version field.
+  Caveat: this works because existing wallets are 12-word. A 24-word BRC-157 wallet has no padding and is _not_ distinguishable this way — which is why cohort C needs the version field.
 - **Version field on new prints.** Put `backupFormat` and the entropy length in the printed page and the QR payload wrapper, keeping the raw share string intact for manual entry. This covers everything printed from today onward; the identity-key check covers everything printed before.
 
 ---
@@ -101,7 +103,7 @@ Two cheap backstops for when the user cannot supply the identity key:
 
 Found while verifying, both need app-side handling:
 
-1. **Zero entropy is not rejected.** BRC-157 requires entropy in `[1, n−1]` and says zero and values `≥ n` must be rejected at generation, mnemonic decode, and share recovery. `new PrivateKey(Array(32).fill(0))` is accepted by `@bsv/sdk` 2.4.0 without complaint. Add an `assertValidEntropy()` and call it at all three points. (This is not merely theoretical: the well-known `abandon abandon … about` test vector *is* 16 zero bytes, which is how a first draft of my own verification passed degenerately.)
+1. **Zero entropy is not rejected.** BRC-157 requires entropy in `[1, n−1]` and says zero and values `≥ n` must be rejected at generation, mnemonic decode, and share recovery. `new PrivateKey(Array(32).fill(0))` is accepted by `@bsv/sdk` 2.4.0 without complaint. Add an `assertValidEntropy()` and call it at all three points. (This is not merely theoretical: the well-known `abandon abandon … about` test vector _is_ 16 zero bytes, which is how a first draft of my own verification passed degenerately.)
 2. **Record the entropy length explicitly.** BRC-157 offers a fallback heuristic — `max(16, roundUpToMultipleOf4(32 − leadingZeros))` — for recovering the original word count. It happens to be safe for 12-word wallets because of the `max(16, …)` floor (0/200 failures), but it is guesswork. Store `entropyBytes` alongside `backupFormat` and use the heuristic only for legacy paper.
 
 ---
@@ -117,7 +119,7 @@ Found while verifying, both need app-side handling:
 1. Upgrade `@bsv/sdk` to 2.4.0 on its own branch; confirm the suite stays green.
 2. Add `assertValidEntropy()` and a `backupFormat` / `entropyBytes` record to wallet settings (default `1` for existing installs).
 3. Teach the restore path to disambiguate via the printed identity key, with the leading-zero fallback.
-4. Add an "Upgrade your backup" card for cohort A: one tap, derive entropy, reprint, set `backupFormat = 2`. Advise destroying the old set once the new one is stored — otherwise six shares exist for one wallet and any two of *either* set is enough, which doubles the exposure for no benefit.
+4. Add an "Upgrade your backup" card for cohort A: one tap, derive entropy, reprint, set `backupFormat = 2`. Advise destroying the old set once the new one is stored — otherwise six shares exist for one wallet and any two of _either_ set is enough, which doubles the exposure for no benefit.
 5. New wallets: 32 bytes of validated entropy, 24 words, shares over entropy.
 6. Cohort B: offer, never force. Their current backup still works.
 

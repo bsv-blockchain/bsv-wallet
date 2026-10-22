@@ -5,54 +5,63 @@
 Companion to 2026-09-15-mandala-offline-settlement-design.md (§3). Where that spec leaves a choice, THIS file decides it. Both engines must be byte/JSON identical on everything below.
 
 ## 1. Admission digest v2
+
 digest = SHA-256( "mandala-admit:" + txid + ":" + outputsToAdmit.sort(asc).join(",") )
+
 - txid: 64 lowercase hex. outputsToAdmit: the tm_mandala topic's own admitted output indexes (decimal, ascending, comma-joined, e.g. "0,2,3"; single "0"; never empty — no admitted outputs ⇒ no signature).
 - Signature: ECDSA over the digest bytes with the overlay identity key, DER hex, RFC6979 deterministic (as today). Registry-only admissions NEVER yield a token σI.
 - Old digest ("mandala-admit:"+txid) is removed everywhere (no live traffic).
 
 ## 2. POST /submit responses
+
 Success (≥1 tm_mandala output admitted, or already-admitted dupe): HTTP 200, STEAK shape as today; the `tm_mandala` entry carries
-  { outputsToAdmit: number[], admissionSignature: <DER hex>, admissionIdentityKey: <66 hex> }
+{ outputsToAdmit: number[], admissionSignature: <DER hex>, admissionIdentityKey: <66 hex> }
 Errors: body always { status: "error", code, retryable: boolean, description: string, spendTxid?: string }
 | code | HTTP | retryable | when |
 | ERR_CONSERVATION | 400 | false | manager reject: conservation |
-| ERR_LINKAGE      | 400 | false | manager reject: missing/mismatched linkage, un-linked MandalaToken-decodable output (reject-not-skip) |
-| ERR_SHAPE        | 400 | false | manager reject: any other deterministic content reason (malformed payload, bad admin chain, unknown kind, etc.) |
-| ERR_SATOSHIS     | 400 | false | manager reject: 1-satoshi rule |
-| ERR_INPUT_SPENT  | 400 | false | input already marked spent by a different still-admitted tx; spendTxid = competitor |
+| ERR_LINKAGE | 400 | false | manager reject: missing/mismatched linkage, un-linked MandalaToken-decodable output (reject-not-skip) |
+| ERR_SHAPE | 400 | false | manager reject: any other deterministic content reason (malformed payload, bad admin chain, unknown kind, etc.) |
+| ERR_SATOSHIS | 400 | false | manager reject: 1-satoshi rule |
+| ERR_INPUT_SPENT | 400 | false | input already marked spent by a different still-admitted tx; spendTxid = competitor |
 | ERR_PAUSED / ERR_FROZEN / ERR_SANCTIONED / ERR_ACCESS / ERR_MEMBERSHIP | 409 | true | liftable policy refusals (asset paused; frozen input; sanctions/screening; access-mode; registry membership) |
-| ERR_EVICTED      | 410 | false | txid was admitted then evicted (inputs restored) |
-| ERR_UNAVAILABLE  | 503 | true | anything not a manager verdict: SPV/chaintracker, storage, broadcast/Arcade, sanctions-provider fault, unknown internal error |
+| ERR_EVICTED | 410 | false | txid was admitted then evicted (inputs restored) |
+| ERR_UNAVAILABLE | 503 | true | anything not a manager verdict: SPV/chaintracker, storage, broadcast/Arcade, sanctions-provider fault, unknown internal error |
 Mapping rule: a code from the 400/409 rows may ONLY come from the topic manager's own reject(...) reason. Everything else → ERR_UNAVAILABLE. Manager reasons are matched by a shared substring table (document it in code on both stacks, same strings):
-  "conservation" → ERR_CONSERVATION; "linkage" or "no verified linkage" → ERR_LINKAGE; "satoshi" → ERR_SATOSHIS; "paused" → ERR_PAUSED; "frozen" → ERR_FROZEN; "sanction" → ERR_SANCTIONED; "access mode" or "allowlist"/"denylist" → ERR_ACCESS; "not admitted"/"membership"/"sanctioned party" → ERR_MEMBERSHIP (note: TS upstream string for membership is "sanctioned party involved in transfer" — map that to ERR_MEMBERSHIP, not ERR_SANCTIONED); "spent" → ERR_INPUT_SPENT; otherwise → ERR_SHAPE.
+"conservation" → ERR_CONSERVATION; "linkage" or "no verified linkage" → ERR_LINKAGE; "satoshi" → ERR_SATOSHIS; "paused" → ERR_PAUSED; "frozen" → ERR_FROZEN; "sanction" → ERR_SANCTIONED; "access mode" or "allowlist"/"denylist" → ERR_ACCESS; "not admitted"/"membership"/"sanctioned party" → ERR_MEMBERSHIP (note: TS upstream string for membership is "sanctioned party involved in transfer" — map that to ERR_MEMBERSHIP, not ERR_SANCTIONED); "spent" → ERR_INPUT_SPENT; otherwise → ERR_SHAPE.
 "Verdict wins": the first FINAL verdict (400-row or ERR_EVICTED) for a txid is persisted on the admission record and served identically to every later /submit of the same txid and to GET /admin/admission/:txid.
 Idempotent dupe: if the engine's applied-transaction store proves txid went through tm_mandala, re-sign (digest v2 over the persisted/derived outputsToAdmit) and return 200 with no side effects, even when the admission record row is missing (derive outputsToAdmit from the engine's own stored outputs for that txid + topic tm_mandala).
 
 ## 3. GET /admin/admission/:txid
-200 { txid, outputsToAdmit, admissionSignature, admissionIdentityKey, at }   (admitted; re-sign if record missing but applied-store proves admission)
+
+200 { txid, outputsToAdmit, admissionSignature, admissionIdentityKey, at } (admitted; re-sign if record missing but applied-store proves admission)
 410 { status:"error", code:"ERR_EVICTED", retryable:false, description }
-400 { status:"error", code:<final code>, retryable:false, description }      (persisted final refusal)
-404 { status:"error", message:"no admission on record for <txid>" }          (unknown txid) — keep existing TS 404 shape
+400 { status:"error", code:<final code>, retryable:false, description } (persisted final refusal)
+404 { status:"error", message:"no admission on record for <txid>" } (unknown txid) — keep existing TS 404 shape
 CORS/auth: gated like /admin/registry (A13).
 
 ## 4. Admission record (internal, both stores; TS Mongo `mandalaAdmissions`, Go Mongo `mandalaAdmissions`)
+
 { txid, topics: string[], outputsToAdmit: number[], admissionSignature, admissionIdentityKey, at,
-  refusedCode?, refusedAt?, evictedAt?,
-  restore?: { spentOutpoints: string[] /* "txid.vout" inputs marked spent by this tx */, tokenRows: TokenRow[] /* pre-spend snapshot */ } }
+refusedCode?, refusedAt?, evictedAt?,
+restore?: { spentOutpoints: string[] /_ "txid.vout" inputs marked spent by this tx _/, tokenRows: TokenRow[] /_ pre-spend snapshot _/ } }
 Written synchronously BEFORE the /submit response is sent (Go and TS). Unique index on txid.
 
 ## 5. Eviction (FIX E), both engines
+
 On /arc-ingest terminal status (and any other post-hoc eviction trigger): UnmarkSpent for restore.spentOutpoints, restore tokenRows, stamp evictedAt, delete the evicted outputs as today. /arc-ingest MUST NOT be mounted when the callback token is empty (log an error and skip mounting; server still starts).
 
 ## 6. Reject-not-skip (FIX A overlay half), both engines
+
 Any output that decodes as MandalaToken and has no linkage entry at its index, or whose linkage-derived pkh mismatches, rejects the whole submission with reason exactly:
-  "output <idx>: MandalaToken-decodable output with no verified linkage"   → ERR_LINKAGE
+"output <idx>: MandalaToken-decodable output with no verified linkage" → ERR_LINKAGE
 Existing tests that pin the skip (Go TestWrongPKHLinkageSilentlySkipsOutput / TestMissingOutputLinkageBreaksConservation and TS equivalents) flip to expect rejection.
 
 ## 7. Conflicting spend (FIX L), both engines
+
 Mark-spent is compare-and-swap on spent=false with a rows-affected check; the manager consults the live token row and refuses ERR_INPUT_SPENT{spendTxid} when the row is already spent by a different still-admitted tx. A row missing because the spending tx's record carries evictedAt counts as live.
 
 ## 8. Lib (@bsv/mandala) public API additions
+
 - admissionDigestV2(txid, outputsToAdmit): number[] ; verifyAdmission({txid, outputsToAdmit, signature, signerKey}): boolean
 - OverlayAdmitResult gains outputsToAdmit; submitToOverlay throws OverlayRefusedError {code, retryable, spendTxid?, httpStatus} for the error shape above (parse JSON body; non-JSON/network → code 'ERR_UNAVAILABLE', retryable true)
 - AdmissionBundle types + canonicalBundleId() (spec §1.1) + pure COVER(tip, bundle) over an in-memory BEEF map (spec §1.2, FIX K: only MandalaToken-decodable inputs of the bundle's assetId are walked). No SQLite, no network.

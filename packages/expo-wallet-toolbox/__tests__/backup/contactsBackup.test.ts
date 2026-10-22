@@ -27,7 +27,9 @@ async function phone(userId: number) {
   const raw = new DatabaseSync(':memory:')
   await createTables(adapt(raw) as never)
   const now = new Date().toISOString()
-  raw.prepare('INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (?, ?, ?, ?)').run(userId, now, now, 'ff'.repeat(32))
+  raw
+    .prepare('INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (?, ?, ?, ?)')
+    .run(userId, now, now, 'ff'.repeat(32))
   const db = adapt(raw) as unknown as ContactsDb
   return { raw, db, store: createContactsStore(db), userId }
 }
@@ -36,7 +38,13 @@ const tick = () => new Promise(r => setTimeout(r, 5))
 
 it('carries every contact, with its label, star and removal, to a fresh phone', async () => {
   const before = await phone(1)
-  await before.store.createContact({ userId: 1, identityKey: KEY_A, name: 'Ana', cachedHandle: 'ana@bitcoinsv.com', source: 'pay' })
+  await before.store.createContact({
+    userId: 1,
+    identityKey: KEY_A,
+    name: 'Ana',
+    cachedHandle: 'ana@bitcoinsv.com',
+    source: 'pay'
+  })
   await before.store.createContact({ userId: 1, identityKey: KEY_B, name: 'Ben', source: 'manual' })
   await before.store.createContact({ userId: 1, identityKey: KEY_C, name: 'Cat', source: 'search' })
   await before.store.setFavourite(1, KEY_A, true)
@@ -73,7 +81,9 @@ it('never rolls back a newer edit with an older backup', async () => {
   expect(await applyContacts(p.db, 1, old)).toBe(0)
   expect((await p.store.getContact(1, KEY_A))?.name).toBe('Ana Silva')
   // and a newer backup does update
-  const newer = JSON.stringify(parseContacts(old).map(c => ({ ...c, name: 'Ana S.', updatedAt: new Date(Date.now() + 60_000).toISOString() })))
+  const newer = JSON.stringify(
+    parseContacts(old).map(c => ({ ...c, name: 'Ana S.', updatedAt: new Date(Date.now() + 60_000).toISOString() }))
+  )
   expect(await applyContacts(p.db, 1, newer)).toBe(1)
   expect((await p.store.getContact(1, KEY_A))?.name).toBe('Ana S.')
   p.raw.close()
@@ -85,7 +95,16 @@ it('merges two phones’ contacts: everyone, each as last changed', () => {
     { identityKey: KEY_A, name: 'Ana', source: 'manual', favourite: false, createdAt: at(0), updatedAt: at(10) },
     { identityKey: KEY_B, name: 'Ben', source: 'manual', favourite: false, createdAt: at(0), updatedAt: at(5) }
   ])
-  const b = JSON.stringify([{ identityKey: KEY_A.toUpperCase(), name: 'Ana Silva', source: 'manual', favourite: true, createdAt: at(0), updatedAt: at(20) }])
+  const b = JSON.stringify([
+    {
+      identityKey: KEY_A.toUpperCase(),
+      name: 'Ana Silva',
+      source: 'manual',
+      favourite: true,
+      createdAt: at(0),
+      updatedAt: at(20)
+    }
+  ])
   const merged = parseContacts(mergeContacts(a, b))
   expect(merged).toHaveLength(2)
   expect(merged.find(c => c.identityKey.toLowerCase() === KEY_A)).toMatchObject({ name: 'Ana Silva', favourite: true })
@@ -100,6 +119,20 @@ it('leaves out what it can’t read, rather than failing the restore', () => {
 it('rides in appData: not empty with contacts alone, and merged with the rest', () => {
   expect(isEmptyAppData({ contacts: '[]' })).toBe(false)
   expect(isEmptyAppData({})).toBe(true)
-  const merged = mergeAppData({ contacts: JSON.stringify([{ identityKey: KEY_A, name: 'Ana', source: 'manual', favourite: false, createdAt: 'x', updatedAt: '2026-10-01T00:00:00Z' }]) }, undefined)
+  const merged = mergeAppData(
+    {
+      contacts: JSON.stringify([
+        {
+          identityKey: KEY_A,
+          name: 'Ana',
+          source: 'manual',
+          favourite: false,
+          createdAt: 'x',
+          updatedAt: '2026-10-01T00:00:00Z'
+        }
+      ])
+    },
+    undefined
+  )
   expect(parseContacts(merged.contacts)).toHaveLength(1)
 })

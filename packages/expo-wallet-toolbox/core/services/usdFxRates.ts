@@ -87,10 +87,7 @@ export async function loadUsdFxRates(
     const parsed = parseFrankfurterResponse(await res.json())
     if (!parsed) return rates
     const next = { ...rates, ...parsed, USD: 1 }
-    await storage.setItem(
-      FX_CACHE_KEY,
-      JSON.stringify({ rates: parsed, timestamp: new Date(now).toISOString() })
-    )
+    await storage.setItem(FX_CACHE_KEY, JSON.stringify({ rates: parsed, timestamp: new Date(now).toISOString() }))
     return next
   } catch (error) {
     console.error('Error fetching USD FX rates from Frankfurter:', error)

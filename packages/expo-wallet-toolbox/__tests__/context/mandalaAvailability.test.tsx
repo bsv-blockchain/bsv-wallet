@@ -14,12 +14,7 @@
  * checked. That reads as "no endpoints", never as "endpoints with a gap".
  */
 import { PrivateKey } from '@bsv/sdk'
-import {
-  configureToolbox,
-  getMandalaEndpoints,
-  isMandalaAvailable,
-  resetToolboxConfig
-} from '../../core/toolboxConfig'
+import { configureToolbox, getMandalaEndpoints, isMandalaAvailable, resetToolboxConfig } from '../../core/toolboxConfig'
 import { createMandalaRuntime } from '../../core/mandala/createRuntime'
 
 const OVERLAY_KEY = PrivateKey.fromRandom().toPublicKey().toString()
@@ -73,7 +68,9 @@ describe('the per-chain endpoint gate', () => {
   it('normalises trailing slashes, because /submit is appended to the origin', () => {
     configureToolbox({
       backupUrl: null,
-      mandala: { main: { ...MAIN, overlayUrl: 'https://overlay.issuer.example/', messageBoxUrl: 'https://box.example//' } }
+      mandala: {
+        main: { ...MAIN, overlayUrl: 'https://overlay.issuer.example/', messageBoxUrl: 'https://box.example//' }
+      }
     })
     expect(getMandalaEndpoints('main')).toEqual(MAIN)
   })

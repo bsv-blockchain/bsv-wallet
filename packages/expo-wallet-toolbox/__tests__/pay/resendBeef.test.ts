@@ -7,7 +7,11 @@ function localBeef(): { beef: { toBinary(): number[] }; txid: string } {
   const source = new Transaction()
   source.addOutput({ satoshis: 5000, lockingScript: new P2PKH().lock(key.toPublicKey().toHash()) })
   const tx = new Transaction()
-  tx.addInput({ sourceTransaction: source, sourceOutputIndex: 0, unlockingScript: new P2PKH().lock(key.toPublicKey().toHash()) })
+  tx.addInput({
+    sourceTransaction: source,
+    sourceOutputIndex: 0,
+    unlockingScript: new P2PKH().lock(key.toPublicKey().toHash())
+  })
   tx.addOutput({ satoshis: 1000, lockingScript: new P2PKH().lock(key.toPublicKey().toHash()) })
   return { beef: { toBinary: () => tx.toBEEF() }, txid: tx.id('hex') }
 }

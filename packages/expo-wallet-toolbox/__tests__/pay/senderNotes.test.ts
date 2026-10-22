@@ -4,7 +4,10 @@ const token = { customInstructions: { derivationPrefix: 'a', derivationSuffix: '
 
 describe('withSenderNotes', () => {
   it('puts the note from the raw message back on the parsed payment', () => {
-    const list = [{ messageId: '1', sender: 'k', token }, { messageId: '2', sender: 'k', token }] as never
+    const list = [
+      { messageId: '1', sender: 'k', token },
+      { messageId: '2', sender: 'k', token }
+    ] as never
     const raw = [
       { messageId: '1', body: JSON.stringify({ ...token, note: 'Tea' }) },
       { messageId: '2', body: { ...token } }

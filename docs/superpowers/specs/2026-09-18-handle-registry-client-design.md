@@ -35,13 +35,13 @@ value, ≤ 50 bytes per field name, ≤ 16 KB body.
 Routes on the registry host (all unauthenticated; the certificate is the
 authorisation):
 
-| Route | Result |
-|---|---|
+| Route                                     | Result                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PUT /api/handle` body = certificate JSON | `201` registered/reclaimed · `200` updated, released, or replay no-op · `400 ERR_INVALID_CERTIFICATE / ERR_INVALID_HANDLE / ERR_WRONG_DOMAIN` · `409 ERR_HANDLE_TAKEN / ERR_HANDLE_TOO_SIMILAR / ERR_HANDLE_RESERVED / ERR_KEY_HAS_HANDLE / ERR_HANDLE_COOLDOWN / ERR_STALE_CERTIFICATE` · `404 ERR_HANDLE_NOT_FOUND` (tombstone for a handle the key does not hold) · `413` · `429 ERR_RATE_LIMITED` |
-| `GET /api/handle/{query}` | `200` array of certificates, max 10, possibly empty. Query = what the user typed, optional `@domain` (a domain still being typed is accepted). |
-| `GET /api/identityKey/{pubkey}` | `200` one certificate · `404 ERR_HANDLE_NOT_FOUND` |
-| `GET /api/handle/available/{handle}` | `200 {"available":bool,"reason":"taken"\|"too_similar"\|"reserved"\|"invalid"\|"cooldown"\|"stale"}` |
-| `GET /.well-known/bsvalias` | `{"bsvalias":"1.0","capabilities":{"0ace65da5987":"https://host/api/handle/{query}","43dcf83ddc5f":"https://host/api/identityKey/{pubkey}"}}` |
+| `GET /api/handle/{query}`                 | `200` array of certificates, max 10, possibly empty. Query = what the user typed, optional `@domain` (a domain still being typed is accepted).                                                                                                                                                                                                                                                        |
+| `GET /api/identityKey/{pubkey}`           | `200` one certificate · `404 ERR_HANDLE_NOT_FOUND`                                                                                                                                                                                                                                                                                                                                                    |
+| `GET /api/handle/available/{handle}`      | `200 {"available":bool,"reason":"taken"\|"too_similar"\|"reserved"\|"invalid"\|"cooldown"\|"stale"}`                                                                                                                                                                                                                                                                                                  |
+| `GET /.well-known/bsvalias`               | `{"bsvalias":"1.0","capabilities":{"0ace65da5987":"https://host/api/handle/{query}","43dcf83ddc5f":"https://host/api/identityKey/{pubkey}"}}`                                                                                                                                                                                                                                                         |
 
 Handle rule: `^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$` (3–32 chars). One handle per
 key, one key per handle. Look-alikes collide server-side (`paypa1` vs `paypal`).
@@ -58,7 +58,7 @@ server (`201`), and the certificate it served back verified with
 ## Rulings (Deggen, 2026-09-18)
 
 1. **Display name is public when present.** It is a plaintext field of the
-   profile certificate. It is the *default* name when someone adds you as a
+   profile certificate. It is the _default_ name when someone adds you as a
    contact; they can rename you locally and that local name is what they see
    from then on. Pay results always show **both** name and handle. This
    supersedes "display name goes privately to the registry".
@@ -100,12 +100,14 @@ arrives would otherwise leave `json()` pending for ever and wedge the serialised
 registration queue for the life of the process.
 
 ### `rules.ts`
+
 Constants (`PROFILE_CERT_TYPE`, `BRFC_LOOKUP`, `BRFC_REVERSE_LOOKUP`,
 `ZERO_OUTPOINT`, field/size limits) and pure helpers:
 `isValidHandleFormat(handle)`, `parsePaymail(text) → {handle, domain} | null`
 (lowercases, trims), `looksLikeDomain(text)`.
 
 ### `profileCert.ts`
+
 - `ProfileCertJson` — the seven-member wire shape.
 - `ProfileSigner` — the two `WalletInterface` methods `Certificate.sign` needs
   (`getPublicKey({identityKey:true})`, `createSignature`). Callers pass the
@@ -119,6 +121,7 @@ Constants (`PROFILE_CERT_TYPE`, `BRFC_LOOKUP`, `BRFC_REVERSE_LOOKUP`,
 - `RegistryProfile = {identityKey, paymail, handle, domain, displayName?, issuedAt: Date, certificate}`.
 
 ### `resolver.ts`
+
 `createRegistryResolver({pinned?, fetchImpl?, now?, dohEndpoints?})` →
 `resolve(domain) → Promise<RegistryEndpoints | null>` where
 `RegistryEndpoints = {domain, search(query) → url, reverse(pubkey) → url, pinned: boolean}`.
@@ -137,6 +140,7 @@ Constants (`PROFILE_CERT_TYPE`, `BRFC_LOOKUP`, `BRFC_REVERSE_LOOKUP`,
 - In-memory cache per domain: 10 minutes for success, 60 seconds for failure.
 
 ### `client.ts`
+
 `createHandleRegistryClient({pinned, fetchImpl?, now?})` →
 
 - `checkAvailability(handle)` → `{kind:'available'} | {kind:'unavailable', reason} | {kind:'failed'}`.
@@ -156,6 +160,7 @@ Constants (`PROFILE_CERT_TYPE`, `BRFC_LOOKUP`, `BRFC_REVERSE_LOOKUP`,
   (`0` until one is seen). Writes only ever go to the pinned registry.
 
 ### `registration.ts`
+
 Everything that writes. One entry point per intent, all journaled:
 
 - `registerHandle`, `updateProfile` (display-name change on a registered
@@ -171,7 +176,7 @@ Everything that writes. One entry point per intent, all journaled:
 - **An outstanding journal outranks a new intent** (normative). Every entry
   point reads the journal first and, when one is there, runs it and answers
   with its outcome instead of minting anything. Idempotence holds only for
-  *identical* bytes: a freshly minted `release` for a handle an earlier journal
+  _identical_ bytes: a freshly minted `release` for a handle an earlier journal
   already tombstoned finds nothing to release (`404 ERR_HANDLE_NOT_FOUND`)
   while overwriting the signed claim that could still have finished the first
   attempt — which is how a second Claim press after a timeout, or a
@@ -189,6 +194,7 @@ Everything that writes. One entry point per intent, all journaled:
   double tap) share one run.
 
 ### Removed
+
 `HANDLE_CERT_TYPE`, `HandleCertWallet`, the `acquireCertificate` issuance flow,
 `publiclyRevealAttributes(['handle'])`, the overlay-name availability check, and
 `handleCertifier` / `HandleCertifierConfig` / `getHandleCertifierConfig`.
@@ -292,7 +298,7 @@ State machine and layout unchanged. Changes:
   shield reading "only they can change it" and is the line Pay's contacts tier
   offers that person by. `parsePaymail` proves only the shape. So New Contact
   resolves it before storing it — `lookupProfile(identityKey, <the domain it
-  names>)`, stored only on `found` with `profile.paymail` equal to it — and
+names>)`, stored only on `found` with `profile.paymail` equal to it — and
   shows nothing until then. An unproven handle is simply not stored: the
   background refresh below fills the column in later if it is real. (Residual,
   accepted: a domain the attacker owns can self-certify its own key, exactly as
@@ -312,19 +318,19 @@ State machine and layout unchanged. Changes:
 
 ## Stability checklist (every write path)
 
-| Hazard | Behaviour |
-|---|---|
-| Crash / kill between release and claim | Journal replays identical certs on next Profile mount. |
-| Double tap, two mounted Profile screens | Shared in-flight promise; server no-ops on replay. |
-| Timeout after the server applied the write | Replay → `200`; treated as success. |
-| New handle taken between release and claim | Reclaim previous handle, report `rolled_back`. |
-| Device clock ahead / behind | `serverNow()` skew correction + monotonic `issuedAt`. |
+| Hazard                                                | Behaviour                                                                                                                      |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Crash / kill between release and claim                | Journal replays identical certs on next Profile mount.                                                                         |
+| Double tap, two mounted Profile screens               | Shared in-flight promise; server no-ops on replay.                                                                             |
+| Timeout after the server applied the write            | Replay → `200`; treated as success.                                                                                            |
+| New handle taken between release and claim            | Reclaim previous handle, report `rolled_back`.                                                                                 |
+| Device clock ahead / behind                           | `serverNow()` skew correction + monotonic `issuedAt`.                                                                          |
 | Stale local cache (handle released/changed elsewhere) | Reverse lookup on mount wins — unless a registration has written since it was asked, which the epoch guard on Profile detects. |
-| A second intent over an unfinished journal | The journal outranks it: finished and reported, never minted over (Claim is also disabled while `finishing`). |
-| Offline | Availability `failed` with retry; writes report `pending`; Pay shows contacts only. |
-| Registry answers garbage / forged certs | `verifyProfileCertificate` drops them, and at most 10 rows are verified at all. |
-| Response headers arrive, body never does | The 8 s deadline covers the body too, so the write queue cannot wedge. |
-| DoH unavailable / DNSSEC missing | Foreign domain → no results + notice; pinned domain unaffected. |
+| A second intent over an unfinished journal            | The journal outranks it: finished and reported, never minted over (Claim is also disabled while `finishing`).                  |
+| Offline                                               | Availability `failed` with retry; writes report `pending`; Pay shows contacts only.                                            |
+| Registry answers garbage / forged certs               | `verifyProfileCertificate` drops them, and at most 10 rows are verified at all.                                                |
+| Response headers arrive, body never does              | The 8 s deadline covers the body too, so the write queue cannot wedge.                                                         |
+| DoH unavailable / DNSSEC missing                      | Foreign domain → no results + notice; pinned domain unaffected.                                                                |
 
 ## Testing
 

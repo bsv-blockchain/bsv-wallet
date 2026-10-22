@@ -85,27 +85,33 @@ describe('wallet connection parameter boundary', () => {
   })
 
   it('applies the same key/topic/protocol/origin validation to imported connection records', () => {
-    expect(validateStoredConnectionFields({
-      sessionId: validParams().topic,
-      backendIdentityKey: VALID_KEY,
-      mobileIdentityKey: VALID_KEY,
-      protocolID: VALID_PROTOCOL,
-      origin: 'https://app.example'
-    })).toMatchObject({ topic: validParams().topic, backendIdentityKey: VALID_KEY })
-    expect(() => validateStoredConnectionFields({
-      sessionId: 'bad|topic',
-      backendIdentityKey: VALID_KEY,
-      mobileIdentityKey: VALID_KEY,
-      protocolID: VALID_PROTOCOL,
-      origin: 'https://app.example'
-    })).toThrow()
-    expect(() => validateStoredConnectionFields({
-      sessionId: validParams().topic,
-      backendIdentityKey: VALID_KEY,
-      mobileIdentityKey: `02${'1'.repeat(64)}`,
-      protocolID: VALID_PROTOCOL,
-      origin: 'https://app.example'
-    })).toThrow(/mobile identity key/i)
+    expect(
+      validateStoredConnectionFields({
+        sessionId: validParams().topic,
+        backendIdentityKey: VALID_KEY,
+        mobileIdentityKey: VALID_KEY,
+        protocolID: VALID_PROTOCOL,
+        origin: 'https://app.example'
+      })
+    ).toMatchObject({ topic: validParams().topic, backendIdentityKey: VALID_KEY })
+    expect(() =>
+      validateStoredConnectionFields({
+        sessionId: 'bad|topic',
+        backendIdentityKey: VALID_KEY,
+        mobileIdentityKey: VALID_KEY,
+        protocolID: VALID_PROTOCOL,
+        origin: 'https://app.example'
+      })
+    ).toThrow()
+    expect(() =>
+      validateStoredConnectionFields({
+        sessionId: validParams().topic,
+        backendIdentityKey: VALID_KEY,
+        mobileIdentityKey: `02${'1'.repeat(64)}`,
+        protocolID: VALID_PROTOCOL,
+        origin: 'https://app.example'
+      })
+    ).toThrow(/mobile identity key/i)
   })
 
   it('validates the compressed key as a real secp256k1 point', () => {
@@ -123,8 +129,9 @@ describe('wallet connection parameter boundary', () => {
     expect(buildConnectionAuthorityMessage(tuple)).toBe(
       `${CONNECTION_AUTHORITY_SIGNATURE_DOMAIN}|${tuple.origin}|${tuple.topic}|${tuple.protocolID}|${tuple.backendIdentityKey}`
     )
-    expect(buildConnectionAuthorityMessage({ ...tuple, backendIdentityKey: `03${VALID_KEY.slice(2)}` }))
-      .not.toBe(buildConnectionAuthorityMessage(tuple))
+    expect(buildConnectionAuthorityMessage({ ...tuple, backendIdentityKey: `03${VALID_KEY.slice(2)}` })).not.toBe(
+      buildConnectionAuthorityMessage(tuple)
+    )
   })
 
   it('treats a missing stored authority tag as "no tag" and rejects anything malformed', () => {
@@ -197,8 +204,10 @@ describe('encrypted RPC transport boundary', () => {
   const topic = validParams().topic
 
   it('accepts a small canonical envelope for the expected topic', () => {
-    expect(parseBoundedWireEnvelope(JSON.stringify({ topic, ciphertext: 'AAAA' }), topic))
-      .toEqual({ topic, ciphertext: 'AAAA' })
+    expect(parseBoundedWireEnvelope(JSON.stringify({ topic, ciphertext: 'AAAA' }), topic)).toEqual({
+      topic,
+      ciphertext: 'AAAA'
+    })
   })
 
   it('rejects the wrong topic, unknown fields, and malformed base64url', () => {
@@ -206,15 +215,18 @@ describe('encrypted RPC transport boundary', () => {
     expect(() => parseBoundedWireEnvelope(JSON.stringify({ topic, ciphertext: 'AAAA', junk: true }), topic)).toThrow()
     expect(() => parseBoundedWireEnvelope(JSON.stringify({ topic, ciphertext: 'A' }), topic)).toThrow()
     expect(() => parseBoundedWireEnvelope(JSON.stringify({ topic, ciphertext: 'AA+A' }), topic)).toThrow()
-    expect(() => parseBoundedWireEnvelope(
-      JSON.stringify({ topic, ciphertext: 'AAAA', mobileIdentityKey: `02${'1'.repeat(64)}` }), topic
-    )).toThrow(/mobile identity key/i)
+    expect(() =>
+      parseBoundedWireEnvelope(
+        JSON.stringify({ topic, ciphertext: 'AAAA', mobileIdentityKey: `02${'1'.repeat(64)}` }),
+        topic
+      )
+    ).toThrow(/mobile identity key/i)
   })
 
   it('rejects ciphertext and outer messages at their hard bounds before decode/parse', () => {
-    expect(() => parseBoundedWireEnvelope(
-      JSON.stringify({ topic, ciphertext: 'A'.repeat(MAX_RPC_CIPHERTEXT_CHARS + 1) }), topic
-    )).toThrow(/too large|invalid/i)
+    expect(() =>
+      parseBoundedWireEnvelope(JSON.stringify({ topic, ciphertext: 'A'.repeat(MAX_RPC_CIPHERTEXT_CHARS + 1) }), topic)
+    ).toThrow(/too large|invalid/i)
     expect(() => parseBoundedWireEnvelope('x'.repeat(MAX_RPC_WIRE_CHARS + 1), topic)).toThrow(/limit/i)
   })
 

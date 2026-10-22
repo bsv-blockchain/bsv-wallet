@@ -353,7 +353,10 @@ async function reloadAutoApproveLedger(): Promise<void> {
   autoApprovePolicy.loadLedger(Array.isArray(entries) ? entries : [])
 }
 function persistAutoApproveLedger(): void {
-  AsyncStorage.setItem(profileScopedKey(AUTO_APPROVE_LEDGER_STORAGE_KEY), JSON.stringify(autoApprovePolicy.getLedger())).catch(() => {})
+  AsyncStorage.setItem(
+    profileScopedKey(AUTO_APPROVE_LEDGER_STORAGE_KEY),
+    JSON.stringify(autoApprovePolicy.getLedger())
+  ).catch(() => {})
 }
 
 /**
@@ -940,7 +943,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
    * its own; `getBackupPseudonym` also refuses to answer for any OTHER chain, so a stale
    * entry from a network switch can never be misread as the current one's.
    */
-  const backupIdentityRef = useRef<{ chain: BackupChain, pseudonym: string } | null>(null)
+  const backupIdentityRef = useRef<{ chain: BackupChain; pseudonym: string } | null>(null)
   const getBackupPseudonym = useCallback(
     (chain: BackupChain): string | undefined =>
       backupIdentityRef.current?.chain === chain ? backupIdentityRef.current.pseudonym : undefined,
@@ -1418,7 +1421,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           // The network lives on the active profile, not in finalConfig.
           finalizeConfig({ ...config, network: getActiveProfile().network })
         } catch {
-          finalizeConfig({ wabUrl: 'noWAB', method: 'mnemonic', network: getActiveProfile().network, storageUrl: 'local' })
+          finalizeConfig({
+            wabUrl: 'noWAB',
+            method: 'mnemonic',
+            network: getActiveProfile().network,
+            storageUrl: 'local'
+          })
           await setItem(
             'finalConfig',
             JSON.stringify({ wabUrl: 'noWAB', method: 'mnemonic', network: DEFAULT_CHAIN, storageUrl: 'local' })
@@ -1426,7 +1434,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         }
       } else {
         // First launch: auto-configure with defaults
-        finalizeConfig({ wabUrl: 'noWAB', method: 'mnemonic', network: getActiveProfile().network, storageUrl: 'local' })
+        finalizeConfig({
+          wabUrl: 'noWAB',
+          method: 'mnemonic',
+          network: getActiveProfile().network,
+          storageUrl: 'local'
+        })
         await setItem(
           'finalConfig',
           JSON.stringify({ wabUrl: 'noWAB', method: 'mnemonic', network: DEFAULT_CHAIN, storageUrl: 'local' })
@@ -1588,7 +1601,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                   return r
                 }
                 if (!res.ok) {
-                  r.notes.push({ what: 'getMerklePathBadStatus', httpStatus: res.status, when: new Date().toISOString() })
+                  r.notes.push({
+                    what: 'getMerklePathBadStatus',
+                    httpStatus: res.status,
+                    when: new Date().toISOString()
+                  })
                   return r
                 }
                 const bumpHex = (await res.text()).trim()
@@ -2149,7 +2166,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                         // The client calls getPublicKey / createSignature itself;
                         // those must carry the admin originator or the vault guard
                         // refuses them ("Originator is required for permission checks").
-                        walletClient: bindOriginator(newManagers.permissionsManager as object, adminOriginator) as never,
+                        walletClient: bindOriginator(
+                          newManagers.permissionsManager as object,
+                          adminOriginator
+                        ) as never,
                         enableLogging: false
                       }),
                       chain
@@ -2664,8 +2684,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               // Only a server that sends push notifications can take a
               // registration (mainnet's, today): a profile on any other
               // network has no host to register at.
-              readHost: async index =>
-                NETWORKS[networkOfProfile(index)].push ? readMessageBoxHost(index) : undefined,
+              readHost: async index => (NETWORKS[networkOfProfile(index)].push ? readMessageBoxHost(index) : undefined),
               // Still this build's, and not removed: a removal tombstones its profile
               // right after the switch to profile 0, whose build holds the key.
               isCurrent: index => stillWanted() && !isRemoved(index),

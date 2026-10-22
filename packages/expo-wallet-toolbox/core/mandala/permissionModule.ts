@@ -444,7 +444,9 @@ export class MandalaTokenModule implements PermissionsModule {
   /** This originator's unexpired approved transactions; prunes the rest. */
   private liveAuthorizedTransactions(originator: string): { digests: Set<string>; timestamp: number }[] {
     const now = Date.now()
-    const live = (this.authorizedTransactions.get(originator) ?? []).filter(t => now - t.timestamp <= SESSION_TIMEOUT_MS)
+    const live = (this.authorizedTransactions.get(originator) ?? []).filter(
+      t => now - t.timestamp <= SESSION_TIMEOUT_MS
+    )
     if (live.length === 0) this.authorizedTransactions.delete(originator)
     else this.authorizedTransactions.set(originator, live)
     return live
@@ -615,7 +617,6 @@ export class MandalaTokenModule implements PermissionsModule {
       throw new Error('User denied permission to access Mandala tokens')
     }
   }
-
 
   /**
    * createAction with an output in `'p mandala'` — always prompts (mirrors

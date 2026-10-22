@@ -327,8 +327,7 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
         // Start-of-step is not tracked: activeStep is derived from what has
         // settled, which cannot disagree with the ticks beside it.
         () => {},
-        (id: WalletCheckStepId, status: WalletCheckStepStatus) =>
-          setStatuses(prev => ({ ...prev, [id]: status })),
+        (id: WalletCheckStepId, status: WalletCheckStepStatus) => setStatuses(prev => ({ ...prev, [id]: status })),
         skips
       )
       setSummary({

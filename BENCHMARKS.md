@@ -6,10 +6,10 @@ row explicitly says otherwise. Reproduce recipes are at the bottom.
 
 **Devices**
 
-| label | device | chip | iOS |
-|---|---|---|---|
-| A13 (conservative floor) | iPhone 11 Pro Max | A13 | 26.5 |
-| A15 (headline) | iPhone 13 Pro Max | A15 | 26.5.2 |
+| label                    | device            | chip | iOS    |
+| ------------------------ | ----------------- | ---- | ------ |
+| A13 (conservative floor) | iPhone 11 Pro Max | A13  | 26.5   |
+| A15 (headline)           | iPhone 13 Pro Max | A15  | 26.5.2 |
 
 Builds were signed with a throwaway development identity (a scratch bundle id +
 personal development team, empty entitlements) so anyone with any Apple
@@ -26,18 +26,18 @@ per-iteration `performance.now()` percentiles. "Routed" = the same `@bsv/sdk`
 call with the SecpNative Nitro module installed; "pure JS" = identical call
 with the native module removed (the SDK's own EC path).
 
-| op | routed p50 µs | pure-JS p50 µs | speedup (p50) |
-|---|---|---|---|
-| `ECDSA.sign` (forceLowS) | 194.3 | 8,003.7 | **41×** |
-| `ECDSA.verify` | 253.4 | 7,747.9 | **31×** |
-| `PrivateKey.toPublicKey` | 117.3 | 7,184.9 | **61×** |
-| `PrivateKey.deriveChild` (BRC-42) | 182.1 | 7,476.5 | **41×** |
-| `PublicKey.deriveChild` (BRC-42) | 215.0 | 11,270.9 | **52×** |
-| `PrivateKey.deriveSharedSecret` | 208.7 | 7,180.9 | **34×** |
-| `Signature.RecoverPublicKey` | 212.3 | 11,943.8 | **56×** |
-| `Signature.CalculateRecoveryFactor` | 213.6 | 11,847.8 | **55×** (77× by mean) |
-| `Schnorr.generateProof` | 1,539.6 | 11,506.9 | **7.5×** |
-| `Schnorr.verifyProof` | 446.0 | 15,763.2 | **35×** |
+| op                                  | routed p50 µs | pure-JS p50 µs | speedup (p50)         |
+| ----------------------------------- | ------------- | -------------- | --------------------- |
+| `ECDSA.sign` (forceLowS)            | 194.3         | 8,003.7        | **41×**               |
+| `ECDSA.verify`                      | 253.4         | 7,747.9        | **31×**               |
+| `PrivateKey.toPublicKey`            | 117.3         | 7,184.9        | **61×**               |
+| `PrivateKey.deriveChild` (BRC-42)   | 182.1         | 7,476.5        | **41×**               |
+| `PublicKey.deriveChild` (BRC-42)    | 215.0         | 11,270.9       | **52×**               |
+| `PrivateKey.deriveSharedSecret`     | 208.7         | 7,180.9        | **34×**               |
+| `Signature.RecoverPublicKey`        | 212.3         | 11,943.8       | **56×**               |
+| `Signature.CalculateRecoveryFactor` | 213.6         | 11,847.8       | **55×** (77× by mean) |
+| `Schnorr.generateProof`             | 1,539.6       | 11,506.9       | **7.5×**              |
+| `Schnorr.verifyProof`               | 446.0         | 15,763.2       | **35×**               |
 
 A later re-recording on the same phone (plus the A13 floor) showed a uniform
 +6–16 % clock/thermal drift in **both** columns — the ratios hold (44×/32×/62×
@@ -54,12 +54,12 @@ computed once per sighash-scope class, RFC 6979 low-S ECDSA in libsecp256k1);
 JS builds the unsigned skeleton + one 73-byte meta record per input and splices
 the returned unlocking scripts. 16 iterations, Release:
 
-| leg | A13 min/p50/p95 ms | A15 min/p50/p95 ms |
-|---|---|---|
-| **engine-routed (tier 1, one crossing)** | 5.61 / **5.70** / 6.06 | 4.43 / **4.59** / 4.80 |
-| tier-2: SecpNative-batched ECDSA, shared sighash cache, time-sliced | 20.83 / 21.20 / 22.01 | 16.91 / 17.48 / 17.78 |
-| tier-3: pure JS (no natives) | 833.7 / 833.8 / 834.0 | 816.5 / 816.6 / 817.0 |
-| seam only: `batchSignP2pkhInputs` (native cost floor) | 2.19 / 2.20 / — | 1.74 / 1.76 / — |
+| leg                                                                 | A13 min/p50/p95 ms     | A15 min/p50/p95 ms     |
+| ------------------------------------------------------------------- | ---------------------- | ---------------------- |
+| **engine-routed (tier 1, one crossing)**                            | 5.61 / **5.70** / 6.06 | 4.43 / **4.59** / 4.80 |
+| tier-2: SecpNative-batched ECDSA, shared sighash cache, time-sliced | 20.83 / 21.20 / 22.01  | 16.91 / 17.48 / 17.78  |
+| tier-3: pure JS (no natives)                                        | 833.7 / 833.8 / 834.0  | 816.5 / 816.6 / 817.0  |
+| seam only: `batchSignP2pkhInputs` (native cost floor)               | 2.19 / 2.20 / —        | 1.74 / 1.76 / —        |
 
 - The design hard gate — routed 50-input sign **p50 ≤ 10 ms judged on the A13
   floor** — passes at 5.70 ms (43 % headroom).
@@ -71,11 +71,11 @@ the returned unlocking scripts. 16 iterations, Release:
 
 ### 20-key BRC-42 `deriveChild` (one batched crossing)
 
-| leg | A13 p50 ms | A15 p50 ms |
-|---|---|---|
-| batched (one crossing) | 0.12 | 0.09 |
-| routed singles | 3.71 | 3.16 |
-| pure JS | 23.11 | 19.07 |
+| leg                    | A13 p50 ms | A15 p50 ms |
+| ---------------------- | ---------- | ---------- |
+| batched (one crossing) | 0.12       | 0.09       |
+| routed singles         | 3.71       | 3.16       |
+| pure JS                | 23.11      | 19.07      |
 
 20 child keys in one crossing ≈ 3.5–6 µs/key amortized (ECDH computed once per
 counterparty) — ~**250×** the original pure-JS flow in the first A15 recording
@@ -86,9 +86,9 @@ counterparty) — ~**250×** the original pure-JS flow in the first A15 recordin
 The wallet-toolbox `verifyUnlockScripts` P2PKH loop (fresh `Spend` per input,
 O(n²) hashing) vs ONE async `batchVerifyP2pkhInputs` crossing, 12 iterations:
 
-| leg | p50 ms |
-|---|---|
-| JS per-input `Spend` loop | 167.2 |
+| leg                                   | p50 ms              |
+| ------------------------------------- | ------------------- |
+| JS per-input `Spend` loop             | 167.2               |
 | one `batchVerifyP2pkhInputs` crossing | **3.05** (**~55×**) |
 
 Shipped in **shadow mode**: the JS `Spend` loop remains authoritative; the
@@ -101,14 +101,14 @@ rAF heartbeat on the RN JS thread while a createAction-scale workload (20
 BRC-42 derivations + 20-input `Transaction.sign`) runs; a frame counts as
 dropped at ≥1.5× the measured idle rAF budget (both phones ticked at 60 Hz).
 
-| scenario | device | dropped frames | longest stall ms |
-|---|---|---|---|
-| **engine-routed sign** | A13 | **0** | 20.0 |
-| **engine-routed sign** | A15 | **0** | 16.9 |
-| secp-batched (engine off) | A13 | 0 | 24.3 |
-| secp-batched (engine off) | A15 | 0 | 16.7 |
-| pure JS, original unpatched path (first A15 recording) | A15 | **38** | **249.3** |
-| pure JS, shipped sliced fallback | A13 / A15 | 8 / 5 | 84.0 / 55.1 |
+| scenario                                               | device    | dropped frames | longest stall ms |
+| ------------------------------------------------------ | --------- | -------------- | ---------------- |
+| **engine-routed sign**                                 | A13       | **0**          | 20.0             |
+| **engine-routed sign**                                 | A15       | **0**          | 16.9             |
+| secp-batched (engine off)                              | A13       | 0              | 24.3             |
+| secp-batched (engine off)                              | A15       | 0              | 16.7             |
+| pure JS, original unpatched path (first A15 recording) | A15       | **38**         | **249.3**        |
+| pure JS, shipped sliced fallback                       | A13 / A15 | 8 / 5          | 84.0 / 55.1      |
 
 The engine-routed path needs no cooperative time-slicing to stay clean —
 there is nothing left on the JS thread to slice. (The shipped no-native
@@ -158,9 +158,9 @@ for every native path; performance claims above are meaningless without it.
 Real money through each native path — tiny UTXOs, signed on-device, verified
 independently, then internalized back into the wallet:
 
-| path | funding tx | spend (signed on-device) |
-|---|---|---|
-| secp batched path | [`e52943db…1154`](https://whatsonchain.com/tx/e52943db2e404e96b0eb24325d8ccbcb4e809b6c64b0ffde3afcbcf37dc71154) | [`db4b9bbc…d02b`](https://whatsonchain.com/tx/db4b9bbc1e7ce78e34812564caab2567584d30a1459c70c825873723fb13d02b) |
+| path                                 | funding tx                                                                                                      | spend (signed on-device)                                                                                        |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| secp batched path                    | [`e52943db…1154`](https://whatsonchain.com/tx/e52943db2e404e96b0eb24325d8ccbcb4e809b6c64b0ffde3afcbcf37dc71154) | [`db4b9bbc…d02b`](https://whatsonchain.com/tx/db4b9bbc1e7ce78e34812564caab2567584d30a1459c70c825873723fb13d02b) |
 | engine path (`batchSignP2pkhInputs`) | [`fb2c0a18…c776`](https://whatsonchain.com/tx/fb2c0a18cae3107731b02854bc9ac953bd5a68d8df6bb7ecf6cf027fa8d9c776) | [`f1cde7ad…da73`](https://whatsonchain.com/tx/f1cde7ad6f7fc6193a580e4e0ccf6b982ef3e7100fbfad1b0280d815d28eda73) |
 
 Each spend carried counting-proxy evidence that the intended native path (and

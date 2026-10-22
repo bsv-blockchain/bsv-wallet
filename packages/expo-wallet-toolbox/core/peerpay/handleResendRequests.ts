@@ -1,11 +1,6 @@
 import { Beef } from '@bsv/sdk'
 import { PUBKEY_LABEL } from '../pay/counterparty'
-import {
-  ackControlMessages,
-  isDuplicateMessageError,
-  listControlMessages,
-  parseControlMessage
-} from './control'
+import { ackControlMessages, isDuplicateMessageError, listControlMessages, parseControlMessage } from './control'
 import { getOutboxEntries, type OutboxEntry } from './outbox'
 import { instructionsFromOutput, rebuildPeerPayToken } from './rebuildToken'
 
@@ -28,14 +23,13 @@ interface StorageLike {
   setKeyValue: (key: string, value: string) => Promise<void>
   /** Optional, and only used to recover derivation data listActions did not
    * hand back — see `outputsFromStorage`. */
-  findTransactions?: (args: {
-    partial: { txid: string }
-    noRawTx?: boolean
-  }) => Promise<{ transactionId?: number }[]>
+  findTransactions?: (args: { partial: { txid: string }; noRawTx?: boolean }) => Promise<{ transactionId?: number }[]>
   findOutputs?: (args: {
     partial: { transactionId: number }
     noScript?: boolean
-  }) => Promise<{ vout?: number; satoshis?: number | null; customInstructions?: string | null; basketId?: number | null }[]>
+  }) => Promise<
+    { vout?: number; satoshis?: number | null; customInstructions?: string | null; basketId?: number | null }[]
+  >
 }
 
 /**
@@ -126,9 +120,11 @@ export type PeerPayActionLike = {
 export type PendingResend = { txid: string; sender: string }
 
 type ListAckClient = {
-  listMessages(args: { messageBox: string; host?: string; acceptPayments?: boolean }): Promise<
-    { messageId: string; sender: string; body: unknown }[]
-  >
+  listMessages(args: {
+    messageBox: string
+    host?: string
+    acceptPayments?: boolean
+  }): Promise<{ messageId: string; sender: string; body: unknown }[]>
   acknowledgeMessage(args: { messageIds: string[] }): Promise<unknown>
 }
 
@@ -237,10 +233,7 @@ function actionFromOutbox(entry: OutboxEntry, txid: string): PeerPayActionLike {
 export function makeListPeerPayAction(
   wallet:
     | {
-        listActions(
-          args: unknown,
-          originator?: string
-        ): Promise<{ actions: PeerPayActionLike[] }>
+        listActions(args: unknown, originator?: string): Promise<{ actions: PeerPayActionLike[] }>
       }
     | null
     | undefined,

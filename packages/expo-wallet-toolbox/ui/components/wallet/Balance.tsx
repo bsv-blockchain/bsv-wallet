@@ -56,7 +56,10 @@ export default function Balance() {
       setAccountBalance({ key: cacheKey, value: total })
 
       // Cache the new balance
-      await Promise.all([AsyncStorage.setItem(cacheKey, String(total)), AsyncStorage.setItem(timestampKey, String(Date.now()))])
+      await Promise.all([
+        AsyncStorage.setItem(cacheKey, String(total)),
+        AsyncStorage.setItem(timestampKey, String(Date.now()))
+      ])
 
       setBalanceLoading(false)
     } catch (e) {

@@ -103,9 +103,9 @@ describe('capWalletArgs', () => {
     const capped = capWalletArgs(guardVaultAccess(w as any, 'admin.originator'), L)
 
     // Cap applies, guard passes through.
-    await expect(
-      capped.createAction({ outputs: [{ lockingScript: hex(959_632) }] }, 'page.com')
-    ).rejects.toMatchObject({ code: 6 })
+    await expect(capped.createAction({ outputs: [{ lockingScript: hex(959_632) }] }, 'page.com')).rejects.toMatchObject(
+      { code: 6 }
+    )
     expect(w.createAction).not.toHaveBeenCalled()
     await capped.createAction({ outputs: [{ lockingScript: hex(25) }] }, 'page.com')
     expect(w.createAction).toHaveBeenCalled()

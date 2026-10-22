@@ -20,8 +20,7 @@ jest.mock('expo-local-authentication', () => require('../__mocks__/localAuthFake
 jest.mock('expo-secure-store', () => require('../__mocks__/secureStoreFake').fake)
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, unknown>) =>
-      values ? `${key}:${Object.values(values).join('|')}` : key,
+    t: (key: string, values?: Record<string, unknown>) => (values ? `${key}:${Object.values(values).join('|')}` : key),
     i18n: { language: 'en' }
   }),
   initReactI18next: { type: '3rdParty', init: () => {} }
@@ -37,7 +36,7 @@ import { USDX } from '../__mocks__/fakeMandalaRuntime'
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>)
 
 describe('formatTokenAmount', () => {
-  it('keeps the asset\'s decimals fixed — money, not a quantity', () => {
+  it("keeps the asset's decimals fixed — money, not a quantity", () => {
     expect(formatTokenAmount(124000, 2)).toBe('1,240.00')
     expect(formatTokenAmount(100, 2)).toBe('1.00')
     expect(formatTokenAmount(1, 2)).toBe('0.01')

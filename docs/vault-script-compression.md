@@ -26,21 +26,21 @@ from the same chain, not adjusted by hand.
 
 A compressed script is not a script anyone could ever be tricked into broadcasting — but
 the encoding is deliberately chosen so that even if compressed bytes somehow reached the
-network in place of a real locking script, they could never be *spent* — see below for why
+network in place of a real locking script, they could never be _spent_ — see below for why
 that guarantee doesn't extend to mining.
 
 The natural-looking choice would be `OP_NOP7` (`0xb6`): a defined Bitcoin Script opcode
 that evaluates as a no-op. That's exactly the problem. A script left in compressed form —
-`OP_NOP7` followed by version/region/length/payload bytes — is *still a valid script* to
+`OP_NOP7` followed by version/region/length/payload bytes — is _still a valid script_ to
 the interpreter. Depending on what those trailing bytes happened to disassemble to, it
 could pass evaluation and reach the chain as a spendable (or worse, always-true) output.
 
 `0xff` is `OP_INVALIDOPCODE` — not a defined opcode in any context. A script beginning
 with it fails evaluation immediately and unconditionally, so a compressed blob can never be
-*spent*: any attempt to unlock an output whose locking script is compressed bytes fails
+_spent_: any attempt to unlock an output whose locking script is compressed bytes fails
 script evaluation outright.
 
-That does **not** mean a compressed script can never be *mined*. Output scripts are never
+That does **not** mean a compressed script can never be _mined_. Output scripts are never
 executed at creation, only at spend time, so a compressed blob can absolutely be mined into
 a real on-chain output — the only consequence is that the funds it holds become permanently
 unspendable (burnt), not that the network rejects the output. Keeping a compressed blob from
@@ -76,7 +76,7 @@ Version 1 — a format that existed only during this branch's development, was n
 persisted by anything, and has no reader in this codec by design (see below) — had a
 7-byte header: marker/version/region/originalLength, no checksum. It relied entirely on
 `originalLength` and payload-size checks to validate a compressed blob. Neither check can
-see corruption *inside* the payload itself: a single bit flip in a stored or transmitted
+see corruption _inside_ the payload itself: a single bit flip in a stored or transmitted
 40-byte payload still produces the right length, still splices cleanly into the reference
 template, and still passes every v1 check — while reconstructing a **structurally
 perfect but wrong** 959,632-byte script: wrong txid, a merkle proof that no longer
@@ -118,7 +118,7 @@ committed `scriptCode` as `lockingScript.subarray(60)` — the locking script wi
 prefix, so it simply isn't part of the scriptCode's bytes; only `k1PublicKeyHash`, shifted
 down by 60, survives into region 0x02's variable run. There is nothing to recover from a
 payload that was never there in the first place: the commitment is independently
-recoverable at spend time because the *unlocking* script pushes `publicKey` and `salt`
+recoverable at spend time because the _unlocking_ script pushes `publicKey` and `salt`
 verbatim, and `commitment = hash160(publicKey ‖ salt)` can be recomputed from those two
 values directly. One vendored reference template covers both regions — region 0x02 is
 derived by slicing 60 bytes off the front of region 0x01's vendored bytes, never built or
@@ -136,7 +136,7 @@ This replaced an earlier design where `describeVaultTemplate` rebuilt the templa
 the installed `@bsv/templates` on first use and pinned only a SHA-256 of the result.
 `package.json` pins `@bsv/templates` at `^1.10.0`, so a routine `npm i` can move it — and
 the moment the installed library's output drifted from the pinned hash by even one byte,
-*every* previously-compressed record became permanently unexpandable, even though the 40
+_every_ previously-compressed record became permanently unexpandable, even though the 40
 bytes needed to reconstruct any given record were sitting right there in its own
 compressed blob. Re-pinning the hash to match the new library would have "fixed" the
 throw but silently reconstructed old records against the new template — wrong bytes, no
@@ -164,7 +164,7 @@ The inflated reference bytes (~960 KB) are held as a module-level cache, populat
 on first use and reused across calls — `ensureTemplateCache` in `templateCodec.ts`. They're
 held as `Uint8Array`, not `number[]`: a `number[]` of ~960,000 JS numbers costs roughly
 8 bytes per element (~7.5 MB) even though every element fits in a byte, and the previous
-implementation held *two* such arrays (one per region) — 15.5–16.4 MB retained for the
+implementation held _two_ such arrays (one per region) — 15.5–16.4 MB retained for the
 life of the process, more than the 7.2 MB database this feature exists to shrink. The
 region-0x02 reference is a `subarray` **view** over region 0x01's buffer, not a copy, so
 the whole cache costs under 1 MB.
@@ -227,17 +227,17 @@ Measured against a real mined mainnet transaction
 compressed-side numbers below reflect the v2 header (51-byte locking script, 31-byte
 scriptCode); see the design spec for the full derivation chain.
 
-| | verbatim | compressed |
-|---|---|---|
-| deposit `rawTx` | 959,836 B | 255 B |
-| deposit as a backup record (base64) | 1,279,784 B | 340 B |
-| `outputs.lockingScript` | 959,632 B | 51 B |
-| R1 preimage | 959,733 B | 192 B |
-| R1 unlocking script | 959,871 B | 327 B |
-| withdrawal tx, 1 vault input | 960,075 B | 531 B |
-| withdrawal tx, 2 vault inputs | 1,919,946 B | 858 B |
-| DB per vault tx (stored twice) | 1,919,468 B | 306 B |
-| backup per user per year (1 vault tx/month) | 15.4 MB | ~4.0 KB |
+|                                             | verbatim    | compressed |
+| ------------------------------------------- | ----------- | ---------- |
+| deposit `rawTx`                             | 959,836 B   | 255 B      |
+| deposit as a backup record (base64)         | 1,279,784 B | 340 B      |
+| `outputs.lockingScript`                     | 959,632 B   | 51 B       |
+| R1 preimage                                 | 959,733 B   | 192 B      |
+| R1 unlocking script                         | 959,871 B   | 327 B      |
+| withdrawal tx, 1 vault input                | 960,075 B   | 531 B      |
+| withdrawal tx, 2 vault inputs               | 1,919,946 B | 858 B      |
+| DB per vault tx (stored twice)              | 1,919,468 B | 306 B      |
+| backup per user per year (1 vault tx/month) | 15.4 MB     | ~4.0 KB    |
 
 Roughly 3,764x on a deposit and 1,808x on a withdrawal (1 vault input) — down slightly
 from v1's 3,824x/1,822x, the cost of the 4-byte checksum on an otherwise tiny payload.
@@ -251,22 +251,22 @@ from v1's 3,824x/1,822x, the cost of the 4-byte checksum on an otherwise tiny pa
 - **Transient spend-time memory.** Building a withdrawal for a third-party send still
   needs genuine, expanded bytes for BEEF construction, which still materializes roughly
   1.83 MB of `inputBEEF` in memory during that operation. Compression shrinks what's
-  *stored*, not what a spend transiently needs to *build*.
+  _stored_, not what a spend transiently needs to _build_.
 - **Anything other than this known template.** This works because the vault script has an
   exact, pinned shape. It is not a general answer for large records; the client's oversize
   guard remains the backstop for everything else.
 - **Nothing calls this codec yet.** No storage or backup path invokes `compressScript`,
   `compressScriptCode`, or `expandScript` — the read/write wiring that would actually realise
   the savings above is a deliberately separate change, so those numbers are what this codec
-  *makes possible*, not what the app currently achieves.
+  _makes possible_, not what the app currently achieves.
 
 ## Where this lives
 
-| File | Role |
-|------|------|
-| `services/vault/templateCodec.ts` | Template descriptor, exact recognition, compress/expand, checksum, cache/release, drift protection |
-| `services/vault/vaultTemplateArtifact.ts` | The vendored reference template: gzip-compressed, base64-encoded, committed |
-| `services/vault/r1k1.ts` | R1-K1 locking-script construction and the preimage/unlock length constants this codec's regions are checked against |
-| `__tests__/vault/templateCodec.test.ts` | Descriptor, round-trip (including the real mainnet fixture), region 0x02, checksum, cache-release, and vendored-vs-installed-library tests |
-| `__tests__/vault/r1k1MainnetFixture.test.ts`, `__tests__/vault/fixtures/r1k1MainnetFixture.ts` | The pinned real mined mainnet script used as a template-drift fixture |
-| `__tests__/vault/r1k1.test.ts` | R1-K1 template arithmetic, including the `estimateLength` pin against `R1K1_R1_UNLOCK_LEN` that catches an upstream change to the scriptCode offset |
+| File                                                                                           | Role                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `services/vault/templateCodec.ts`                                                              | Template descriptor, exact recognition, compress/expand, checksum, cache/release, drift protection                                                  |
+| `services/vault/vaultTemplateArtifact.ts`                                                      | The vendored reference template: gzip-compressed, base64-encoded, committed                                                                         |
+| `services/vault/r1k1.ts`                                                                       | R1-K1 locking-script construction and the preimage/unlock length constants this codec's regions are checked against                                 |
+| `__tests__/vault/templateCodec.test.ts`                                                        | Descriptor, round-trip (including the real mainnet fixture), region 0x02, checksum, cache-release, and vendored-vs-installed-library tests          |
+| `__tests__/vault/r1k1MainnetFixture.test.ts`, `__tests__/vault/fixtures/r1k1MainnetFixture.ts` | The pinned real mined mainnet script used as a template-drift fixture                                                                               |
+| `__tests__/vault/r1k1.test.ts`                                                                 | R1-K1 template arithmetic, including the `estimateLength` pin against `R1K1_R1_UNLOCK_LEN` that catches an upstream change to the scriptCode offset |

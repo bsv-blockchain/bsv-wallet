@@ -24,9 +24,8 @@ function loadIonicons(): IoniconsComponent {
 }
 function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
   if (!materialCommunityIconsComponent) {
-    materialCommunityIconsComponent = require('@expo/vector-icons')
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      .MaterialCommunityIcons as MaterialCommunityIconsComponent
+    materialCommunityIconsComponent = // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require('@expo/vector-icons').MaterialCommunityIcons as MaterialCommunityIconsComponent
   }
   return materialCommunityIconsComponent
 }
@@ -75,7 +74,12 @@ export const ListRow: React.FC<ListRowProps> = ({
   const MaterialCommunityIcons = loadMaterialCommunityIcons()
 
   const content = (
-    <View style={[styles.container, !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }]}>
+    <View
+      style={[
+        styles.container,
+        !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
+      ]}
+    >
       {icon && (
         <View
           style={[
@@ -101,13 +105,7 @@ export const ListRow: React.FC<ListRowProps> = ({
         </View>
       )}
       <View style={styles.textColumn}>
-        <Text
-          style={[
-            styles.label,
-            { color: destructive ? colors.error : colors.textPrimary }
-          ]}
-          numberOfLines={1}
-        >
+        <Text style={[styles.label, { color: destructive ? colors.error : colors.textPrimary }]} numberOfLines={1}>
           {label}
         </Text>
         {subtitle ? (
@@ -137,11 +135,7 @@ export const ListRow: React.FC<ListRowProps> = ({
 
   if (onPress) {
     return (
-      <PressableScale
-        onPress={onPress}
-        scaleTo={0.98}
-        haptic="tap"
-      >
+      <PressableScale onPress={onPress} scaleTo={0.98} haptic="tap">
         {content}
       </PressableScale>
     )
@@ -156,7 +150,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minHeight: 44,
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.lg
   },
   // A well the glyph sits in, tinted by the row's own colour rather than
   // flooded with it. A grid of saturated tiles reads as decoration and makes
@@ -169,29 +163,29 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.md,
+    marginRight: spacing.md
   },
   textColumn: {
-    flex: 1,
+    flex: 1
   },
   label: {
-    ...typography.body,
+    ...typography.body
   },
   subtitle: {
     ...typography.footnote,
-    marginTop: 1,
+    marginTop: 1
   },
   trailing: {
     flexDirection: 'row',
     alignItems: 'center',
     flexShrink: 0,
-    marginLeft: spacing.sm,
+    marginLeft: spacing.sm
   },
   value: {
     ...typography.body,
-    maxWidth: 200,
+    maxWidth: 200
   },
   chevron: {
-    marginLeft: spacing.xs,
-  },
+    marginLeft: spacing.xs
+  }
 })

@@ -21,12 +21,12 @@ independent adversarial reviews reproduced identically.
 **Live regression noticed while drafting this spec, not caused by it:**
 `L/overlay.ts:109` currently reads `void journalPut({ txid, stage: 'accepted', at })`
 followed immediately by `void broadcastAcceptedTx(...)`. The adjacent comment
-block (`:100-108`) still says *"THE COMMIT POINT. This write is awaited, so the
+block (`:100-108`) still says _"THE COMMIT POINT. This write is awaited, so the
 broadcast provably does not start until the 'accepted' entry has landed in the
-store"* and cites a test that "holds the write open and asserts
+store"_ and cites a test that "holds the write open and asserts
 `createAction({sendWith})` has not been called." As written today the write is
 **not** awaited, so that invariant is false and the crash-safety argument this
-spec's §5 (rule 6, payer's optional submit) leans on for the *lib's own* commit
+spec's §5 (rule 6, payer's optional submit) leans on for the _lib's own_ commit
 point no longer holds. This looks like an accidental regression against the
 file's own documented contract, not a deliberate change — flagging it rather
 than reverting it (see also Open Question 12).
@@ -51,7 +51,7 @@ maps to one or more of these fixes, and every fix is specified in full in
    the same walk-back BEEF already does for Merkle paths. This is what makes
    chained offline transactions work.
 3. **The recipient submits** the transaction to the overlay — not the payer.
-4. Only once the overlay returns *accepted*, with a **new** σ_I over the
+4. Only once the overlay returns _accepted_, with a **new** σ_I over the
    **new** txid, does the recipient broadcast via Arcade, as a normal tx.
 5. The recipient acks the payment back to the sender if reachable (nearby
    while online, else via message box).
@@ -65,40 +65,40 @@ Every finding below is closed by the numbered ROOT FIX (§0.3); "n/a" rows are
 findings that were checked and are **not** regressions this spec introduces —
 each says why.
 
-| # | Design (lens) | Severity | One-line finding | Closed by |
-|---|---|---|---|---|
-| EB-1 | evidence-bundle (theft) | fatal | Un-linked sibling token output silently skipped; conservation summed only over the admitted subset → mint arbitrary value in a genuinely-admitted tx | **FIX A** |
-| EB-1a | evidence-bundle (theft) | secondary | Payer trusts ack `s` by shape only; forged σ stops the payer's own submit forever while the tx still broadcasts | **FIX H** |
-| EB-1b | evidence-bundle (theft) | secondary | `/arc-ingest` has no auth when no callback token is configured → anyone can evict an admitted tx | **FIX E** |
-| EB-2.1 | evidence-bundle (liveness) | fatal | Eviction of an admitted spend never restores the spent input once the spent-input guard exists | **FIX E** |
-| EB-2.2 | evidence-bundle (liveness) | serious | Wallet treats a liftable refusal (pause/freeze/allowlist) as permanent while the overlay's condition later lifts → split-brain | **FIX D** |
-| EB-2.3 | evidence-bundle (liveness) | serious | Coins admitted before the admission-record feature existed can never get σ_I | **FIX C** |
-| EB-3.1 | evidence-bundle (crash) | fatal-in-mechanics | Payer's own optional submit (rule 6) never runs for a nearby token payment: `parked→handed_over` is `INSERT OR IGNORE`, a silent no-op | **FIX F** |
-| EB-3.2 | evidence-bundle (crash) | serious | Admission gate fails open; evidence-before-queue ordering unspecified across two connections | **FIX G** |
-| EB-3.3 | evidence-bundle (crash) | serious | Counterparty-supplied σ written as `settled` with no signature verification | **FIX H** |
-| EB-3.4 | evidence-bundle (crash) | serious | Cancel-by-respend requires exactly what's forbidden and has an unrecoverable branch | **FIX J** |
-| EB-3.5 | evidence-bundle (crash) | serious | `ERR_INPUT_SPENT` classified permanent; a mid-commit storage fault can produce a false permanent failure | **FIX D** |
-| SC-1 | store-centric (theft) | fatal | "mined ⇒ admitted" bottom lets an unlimited unadmitted forgery be credited offline with zero σ_I on the wire | **FIX B** (needs FIX A too) |
-| SC-2.1 | store-centric (liveness) | serious | Both engines broadcast *inside* Submit; a broadcast failure is indistinguishable on the wire from a policy refusal → permanent strand on a transient fault | **FIX D** |
-| SC-2.2 | store-centric (liveness) | serious | σ_I can never be obtained for an already-applied txid whose admission record is missing | **FIX C** |
-| SC-2.3 | store-centric (liveness) | serious | An unconfirmed BSV fee parent is treated as needing σ_I coverage → common-case offline refusal | **FIX K** |
-| SC-2.4 | store-centric (liveness) | smaller | `evicted:true` misread as accepted → infinite rebroadcast of a dead tx | **FIX E** |
-| SC-3.1 | store-centric (crash) | fatal | `admitStep` verdict mapping unsound on both overlays (Go: every error is 400; TS: a real rejection is swallowed into 200-empty) | **FIX D** |
-| SC-3.2 | store-centric (crash) | serious | "One SQLite transaction" cannot be built as cited (two connections) | **FIX G** |
-| SC-3.3 | store-centric (crash) | fatal | An online recipient never enters the drain at all — `attemptToPostReqsToNetwork`'s online branch bypasses the admission gate structurally | **FIX F** |
-| SC-3.4 | store-centric (crash) | serious | No "applied ⇒ admitted" reconciliation for a lost admission record | **FIX C** |
-| SM-1 | state-machine (theft) | fatal | Un-linked *sibling* output riding one real admission → unbounded cross-asset counterfeit, independently confirms EB-1 | **FIX A** |
-| SM-1a | state-machine (theft) | secondary | Overlay doesn't itself refuse a conflicting spend; relies on Arcade's race | **FIX L** |
-| SM-1b | state-machine (theft) | secondary | Drain pseudo-code submits `parked` rows, contradicting its own doctrine | **FIX F** |
-| SM-2.1 | state-machine (liveness) | fatal | Non-monotonic refusal: a transient 400 observed by one party is final locally while the other party gets the same tx admitted later | **FIX D** |
-| SM-2.2 | state-machine (liveness) | serious | `held` has no owner until internalize succeeds; internalize can exhaust its retry ceiling on a retriable header failure | **FIX I** |
-| SM-2.3 | state-machine (liveness) | serious | Evidence-write placed inside a "decline on throw" block turns a persisted hand-over into a wrongful decline | **FIX G** |
-| SM-2.4 | state-machine (liveness) | serious | No named terminal/timeout for a permanently-absent overlay | **FIX M** |
-| SM-3.1 | state-machine (crash) | fatal | An **online** payer broadcasts *before* the overlay ever sees the tx (`finalizeDelivery`→`broadcastPayment`, bypasses every hold) | **FIX F** |
-| SM-3.2 | state-machine (crash) | fatal | `parked→handed_over` is a silent no-op (same as EB-3.1, independently found) | **FIX F** |
-| SM-3.3 | state-machine (crash) | serious | Same verdict-unsoundness as SC-3.1, found independently a third time | **FIX D** |
-| SM-3.4 | state-machine (crash) | serious | Same evidence-write-ordering hazard as EB-3.2/SC-3.2, found independently a third time | **FIX G** |
-| SM-3.5 | state-machine (crash) | minor | Online `cancelParkedPayment` never checks the admission record before aborting | **FIX J** |
+| #      | Design (lens)              | Severity           | One-line finding                                                                                                                                           | Closed by                   |
+| ------ | -------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| EB-1   | evidence-bundle (theft)    | fatal              | Un-linked sibling token output silently skipped; conservation summed only over the admitted subset → mint arbitrary value in a genuinely-admitted tx       | **FIX A**                   |
+| EB-1a  | evidence-bundle (theft)    | secondary          | Payer trusts ack `s` by shape only; forged σ stops the payer's own submit forever while the tx still broadcasts                                            | **FIX H**                   |
+| EB-1b  | evidence-bundle (theft)    | secondary          | `/arc-ingest` has no auth when no callback token is configured → anyone can evict an admitted tx                                                           | **FIX E**                   |
+| EB-2.1 | evidence-bundle (liveness) | fatal              | Eviction of an admitted spend never restores the spent input once the spent-input guard exists                                                             | **FIX E**                   |
+| EB-2.2 | evidence-bundle (liveness) | serious            | Wallet treats a liftable refusal (pause/freeze/allowlist) as permanent while the overlay's condition later lifts → split-brain                             | **FIX D**                   |
+| EB-2.3 | evidence-bundle (liveness) | serious            | Coins admitted before the admission-record feature existed can never get σ_I                                                                               | **FIX C**                   |
+| EB-3.1 | evidence-bundle (crash)    | fatal-in-mechanics | Payer's own optional submit (rule 6) never runs for a nearby token payment: `parked→handed_over` is `INSERT OR IGNORE`, a silent no-op                     | **FIX F**                   |
+| EB-3.2 | evidence-bundle (crash)    | serious            | Admission gate fails open; evidence-before-queue ordering unspecified across two connections                                                               | **FIX G**                   |
+| EB-3.3 | evidence-bundle (crash)    | serious            | Counterparty-supplied σ written as `settled` with no signature verification                                                                                | **FIX H**                   |
+| EB-3.4 | evidence-bundle (crash)    | serious            | Cancel-by-respend requires exactly what's forbidden and has an unrecoverable branch                                                                        | **FIX J**                   |
+| EB-3.5 | evidence-bundle (crash)    | serious            | `ERR_INPUT_SPENT` classified permanent; a mid-commit storage fault can produce a false permanent failure                                                   | **FIX D**                   |
+| SC-1   | store-centric (theft)      | fatal              | "mined ⇒ admitted" bottom lets an unlimited unadmitted forgery be credited offline with zero σ_I on the wire                                               | **FIX B** (needs FIX A too) |
+| SC-2.1 | store-centric (liveness)   | serious            | Both engines broadcast _inside_ Submit; a broadcast failure is indistinguishable on the wire from a policy refusal → permanent strand on a transient fault | **FIX D**                   |
+| SC-2.2 | store-centric (liveness)   | serious            | σ_I can never be obtained for an already-applied txid whose admission record is missing                                                                    | **FIX C**                   |
+| SC-2.3 | store-centric (liveness)   | serious            | An unconfirmed BSV fee parent is treated as needing σ_I coverage → common-case offline refusal                                                             | **FIX K**                   |
+| SC-2.4 | store-centric (liveness)   | smaller            | `evicted:true` misread as accepted → infinite rebroadcast of a dead tx                                                                                     | **FIX E**                   |
+| SC-3.1 | store-centric (crash)      | fatal              | `admitStep` verdict mapping unsound on both overlays (Go: every error is 400; TS: a real rejection is swallowed into 200-empty)                            | **FIX D**                   |
+| SC-3.2 | store-centric (crash)      | serious            | "One SQLite transaction" cannot be built as cited (two connections)                                                                                        | **FIX G**                   |
+| SC-3.3 | store-centric (crash)      | fatal              | An online recipient never enters the drain at all — `attemptToPostReqsToNetwork`'s online branch bypasses the admission gate structurally                  | **FIX F**                   |
+| SC-3.4 | store-centric (crash)      | serious            | No "applied ⇒ admitted" reconciliation for a lost admission record                                                                                         | **FIX C**                   |
+| SM-1   | state-machine (theft)      | fatal              | Un-linked _sibling_ output riding one real admission → unbounded cross-asset counterfeit, independently confirms EB-1                                      | **FIX A**                   |
+| SM-1a  | state-machine (theft)      | secondary          | Overlay doesn't itself refuse a conflicting spend; relies on Arcade's race                                                                                 | **FIX L**                   |
+| SM-1b  | state-machine (theft)      | secondary          | Drain pseudo-code submits `parked` rows, contradicting its own doctrine                                                                                    | **FIX F**                   |
+| SM-2.1 | state-machine (liveness)   | fatal              | Non-monotonic refusal: a transient 400 observed by one party is final locally while the other party gets the same tx admitted later                        | **FIX D**                   |
+| SM-2.2 | state-machine (liveness)   | serious            | `held` has no owner until internalize succeeds; internalize can exhaust its retry ceiling on a retriable header failure                                    | **FIX I**                   |
+| SM-2.3 | state-machine (liveness)   | serious            | Evidence-write placed inside a "decline on throw" block turns a persisted hand-over into a wrongful decline                                                | **FIX G**                   |
+| SM-2.4 | state-machine (liveness)   | serious            | No named terminal/timeout for a permanently-absent overlay                                                                                                 | **FIX M**                   |
+| SM-3.1 | state-machine (crash)      | fatal              | An **online** payer broadcasts _before_ the overlay ever sees the tx (`finalizeDelivery`→`broadcastPayment`, bypasses every hold)                          | **FIX F**                   |
+| SM-3.2 | state-machine (crash)      | fatal              | `parked→handed_over` is a silent no-op (same as EB-3.1, independently found)                                                                               | **FIX F**                   |
+| SM-3.3 | state-machine (crash)      | serious            | Same verdict-unsoundness as SC-3.1, found independently a third time                                                                                       | **FIX D**                   |
+| SM-3.4 | state-machine (crash)      | serious            | Same evidence-write-ordering hazard as EB-3.2/SC-3.2, found independently a third time                                                                     | **FIX G**                   |
+| SM-3.5 | state-machine (crash)      | minor              | Online `cancelParkedPayment` never checks the admission record before aborting                                                                             | **FIX J**                   |
 
 Three of the nine write-ups found the **identical root cause** independently
 (the phantom-coin/sibling-mint hole: EB-1, SM-1, and SC-1's exploit also
@@ -114,7 +114,7 @@ is short even though the finding list is long.
 **FIX A — bind σ_I to the admitted OUTPUT SET, and make the overlay reject
 (never skip) an un-linked or mismatched token-shaped output.** Two-sided;
 neither half alone closes the hole (see §7.1 for why). This is the single
-highest-priority change in this spec — it blocks safely shipping *any*
+highest-priority change in this spec — it blocks safely shipping _any_
 offline credit on σ_I coverage. Spec: §1, §3.
 
 **FIX B — remove "mined ⇒ admitted" as a coverage bottom.** Only a σ_I-covered
@@ -132,17 +132,17 @@ string/shape inference: `ERR_REFUSED` (final, from an allowlist of
 policy-level reasons only, persisted per txid so every submitter converges) vs
 `ERR_UNAVAILABLE` (retryable — broadcast failure, SPV/chaintracker error,
 storage fault, sanctions-provider error) vs `ERR_EVICTED` (permanent, but
-*restores* inputs — FIX E) vs liftable policy codes that the wallet must treat
+_restores_ inputs — FIX E) vs liftable policy codes that the wallet must treat
 as retryable, never as invalidTx. Spec: §3, §4.
 
 **FIX E — eviction is the exact inverse of admission for inputs,** on both
 engines and on every trigger (`/arc-ingest` terminal status, broadcast-failure
 compensation): unmark spent, restore the token row, on both the already-wired
-pre-Submit compensation path *and* the still-unwired post-hoc eviction path.
+pre-Submit compensation path _and_ the still-unwired post-hoc eviction path.
 `/arc-ingest` requires a non-empty callback token whenever eviction is wired.
 Spec: §3.
 
-**FIX F — the recipient's (and payer's) drain is the *only* path that may
+**FIX F — the recipient's (and payer's) drain is the _only_ path that may
 ever call `/submit` and then broadcast a token transaction,** online or
 offline: (i) a positive ack after a parked build must advance the row with an
 explicit state-changing write, never a blind re-insert; (ii) `finalizeDelivery`
@@ -216,9 +216,9 @@ AdmissionEntry {
 ```
 
 `linkage` and `admissions` are keyed by disjoint sets of txids in a
-well-formed bundle: a txid the payer has σ_I for goes in `admissions` and
+well-formed bundle: a txid the payer has σ*I for goes in `admissions` and
 needs no linkage payload forwarded (the recipient will never submit it); a
-txid the payer does *not* have σ_I for goes in `linkage` (so a downstream
+txid the payer does \_not* have σ_I for goes in `linkage` (so a downstream
 submitter can build the /submit body for it) and its own inputs are walked
 further. A bundle MAY legitimately have neither for a purely-issued asset's
 tip (no token ancestor at all — the trivial base case).
@@ -235,6 +235,7 @@ id = SHA256(
                                      ‖ varint(len(sig)) ‖ sig ‖ signerKey for each, sorted by txid asc)
      )
 ```
+
 This is the same canonical, deterministic serialization both a wallet and a
 test harness compute over an in-memory `AdmissionBundle` value — it lets the
 pure verifier below be pinned by test vectors that are independent of the
@@ -294,7 +295,7 @@ function COVER(tip, bundle) -> { ok: true, mustSubmit: [txid...] }        // top
 1. `bundle.beef` is finite — bounded by the sealed-frame ceiling
    (`MAX_MESSAGE_BYTES` = 64 KiB, design-v3 §"Size budget"). There are
    finitely many distinct txids reachable from it.
-2. `walk` only recurses into a `sourceTXID` whose *full transaction bytes*
+2. `walk` only recurses into a `sourceTXID` whose _full transaction bytes_
    must already be present in `bundle.beef` — an `AtomicBEEF`/`Beef` parse
    structurally requires every referenced ancestor to be present or
    txid-only; a txid-only or absent ancestor is treated as a HOLE, never as
@@ -315,28 +316,29 @@ function COVER(tip, bundle) -> { ok: true, mustSubmit: [txid...] }        // top
 
 **Proves:** every token input the recipient is being asked to accept-and-hand-
 over-goods-against, or every ancestor it will be asked to submit, is reachable
-either (a) from a σ_I the recipient can itself verify against the *session's
-own* overlay key, over a message that names the *exact set of outputs the
-overlay actually admitted*, or (b) from transaction bytes the recipient holds
+either (a) from a σ*I the recipient can itself verify against the \_session's
+own* overlay key, over a message that names the _exact set of outputs the
+overlay actually admitted_, or (b) from transaction bytes the recipient holds
 and can walk into further under the same rule. The recipient never has to
 trust an unverifiable assertion.
 
 **Does not prove:**
+
 - That a covered coin has not since been double-spent elsewhere. This is
   Bitcoin's ordinary unconfirmed double-spend window, and §7 keeps it to
   exactly that size — no larger, no smaller — via FIX L at the overlay and
   the existing spent-input guard/idempotent-`/submit` machinery.
 - On its own, that "every `MandalaToken`-decodable output of an admitted
-  transaction was itself one of the admitted outputs." This is *exactly* the
+  transaction was itself one of the admitted outputs." This is _exactly_ the
   phantom-coin/sibling-mint hole three independent reviews found. `Covered`
   is defined above to require `v ∈ admissions[t].outputsToAdmit` — but that
-  check is only as good as (a) σ_I actually committing to `outputsToAdmit`
+  check is only as good as (a) σ*I actually committing to `outputsToAdmit`
   (not just to `t`) and (b) the overlay's own admission decision for `t`
-  never admitting `t` as a whole while silently *not* admitting one of its
+  never admitting `t` as a whole while silently \_not* admitting one of its
   token-shaped outputs. Both halves are FIX A; **omitting either half still
   leaves the hole**, because:
-  - Without the wallet-side vout check, a genuine σ_I(t) is (mis)read as
-    licensing *every* token output of `t`, including one the overlay never
+  - Without the wallet-side vout check, a genuine σ*I(t) is (mis)read as
+    licensing \_every* token output of `t`, including one the overlay never
     examined.
   - Without the overlay-side reject-not-skip fix, `outputsToAdmit` for a
     submitted tx can be **wrong on the overlay's own books** — it silently
@@ -344,10 +346,10 @@ trust an unverifiable assertion.
     worth nothing to the overlay's own conservation check but perfectly
     decodable and spendable by anyone who has the sibling in their BEEF. A
     correct wallet-side `Covered` check would then correctly refuse output
-    `1` — *if* it ever heard about it as a separate coverage query. But the
+    `1` — _if_ it ever heard about it as a separate coverage query. But the
     attack's whole shape is that the ATTACKER is the one submitting `t`
-    online and obtaining σ_I(t) legitimately; the wallet-side fix protects
-    the *next* recipient only if the signed `outputsToAdmit` is trustworthy,
+    online and obtaining σ*I(t) legitimately; the wallet-side fix protects
+    the \_next* recipient only if the signed `outputsToAdmit` is trustworthy,
     which requires the overlay to have computed it correctly in the first
     place.
 
@@ -367,35 +369,35 @@ the existing release engine (`W/core/offline/order.ts` `releaseOrder`,
 `processOfflineActions.ts`'s `postForeign`) already includes such parents in
 the topological release order and posts them via `postBeef`/EF exactly as it
 does for a plain BSV nearby payment today. This closes SC-2.3: the design
-that walked *every* unmined ancestor (token or not) for σ_I coverage refused
+that walked _every_ unmined ancestor (token or not) for σ_I coverage refused
 the ordinary case of "the payer just spent their own unconfirmed BSV change."
 
 ### 1.6 Worked examples
 
 **0-hop — direct, both inputs already admitted.** Alice holds coin `X` from a
-previous *online* transfer; `admissionSignature`/`admissionIdentityKey` for
+previous _online_ transfer; `admissionSignature`/`admissionIdentityKey` for
 `X`'s txid were already returned by that transfer's `/submit` call
 (`L/overlay.ts:29-33`) and cached. Alice pays Bob offline with tip `T`
 spending `X`. Bundle: `beef={X,T}`, `linkage={}` (nothing unadmitted),
 `admissions={X: {outputsToAdmit:[…], sig, key}}`. Bob's `COVER(T)`:
-`tokenInputs(T)=[(X,v)]`; `Covered(X,v)` — true (σ_I verifies, `v` is in the
+`tokenInputs(T)=[(X,v)]`; `Covered(X,v)` — true (σ*I verifies, `v` is in the
 signed set). `walk(T)` returns true with zero recursion. `mustSubmit=[T]`.
 Bob credits, hands over goods, and — per rule 3 — is the one who submits `T`
-whenever *he* reconnects (or Alice does, per rule 6, whichever is first;
+whenever \_he* reconnects (or Alice does, per rule 6, whichever is first;
 idempotent `/submit` makes the order irrelevant).
 
 **1-hop — Alice was herself paid offline and re-spends before reconnecting.**
-Alice received `X` offline (never submitted, no σ_I for it) and now pays Bob
+Alice received `X` offline (never submitted, no σ*I for it) and now pays Bob
 with `T` spending `X`. Bundle: `beef={G,X,T}` (`G` = the genuine
 admitted ancestor `X` itself spends, online, so `G∈admissions`), `linkage=
-{X: payload}` (Alice forwards the linkage bytes for the *not-yet-admitted* `X`
+{X: payload}` (Alice forwards the linkage bytes for the \_not-yet-admitted* `X`
 verbatim — she cannot decrypt them, only carry them), `admissions={G:{…}}`.
 Bob's `COVER(T)`: `tokenInputs(T)=[(X,v)]`; `Covered(X,v)` — false, `X∉
 admissions`. Recurse: `parentTx=X` is present in `beef`; `walk(X)`:
 `tokenInputs(X)=[(G,w)]`; `Covered(G,w)` — true. `walk(X)` returns true;
 `mustSubmit.add(X)`. Back at `T`: `walk(T)` returns true; `mustSubmit=
 {X,T}`. Topological order: `[X, T]`. Bob credits, and per rule 3 Bob's own
-drain — whenever it next runs online — submits `X` first (gets a *new* σ_I(X)
+drain — whenever it next runs online — submits `X` first (gets a _new_ σ_I(X)
 over the new admitted set), then submits `T` (gets σ_I(T)) and only then
 broadcasts `T`. (`X` is also broadcast, in order, by the same drain pass —
 see §4.3.)
@@ -419,18 +421,18 @@ transfer). All four hops below happen **before anyone reconnects**:
    `[T1,T2,T3]`. D credits offline, hands over the final goods.
 
 **Reconnect — whoever is first settles the whole chain.** Because the linkage
-for *every* unadmitted ancestor is forwarded verbatim hop by hop, D's bundle
+for _every_ unadmitted ancestor is forwarded verbatim hop by hop, D's bundle
 already contains everything needed to submit `T1`, `T2`, and `T3` — not just
-D's own tip. Per rule 3 the *recipient* of each hop is nominally responsible
-for submitting that hop, but nothing in the protocol restricts *who* may
+D's own tip. Per rule 3 the _recipient_ of each hop is nominally responsible
+for submitting that hop, but nothing in the protocol restricts _who_ may
 POST a given txid's bytes to `/submit` — admission is a function of content
 (conservation, linkage, screening), not of caller identity (see §7.4). So
 whichever of `{A,B,C,D}` reconnects first can settle the entire chain in one
-drain pass: submit `T1` (idempotent — gets σ_I(T1) whether or not anyone
+drain pass: submit `T1` (idempotent — gets σ*I(T1) whether or not anyone
 already tried), then `T2`, then `T3`, each in order, broadcasting each as
 admitted (rule 4). If instead `B` reconnects first, `B`'s own copy of the
 bundle only extends to `T1` (its own tip) — it submits and broadcasts `T1`
-and acks; `C` and `D` still need `T2`/`T3` submitted, which happens when *any*
+and acks; `C` and `D` still need `T2`/`T3` submitted, which happens when \_any*
 of `C`, `D`, or a reconnecting `A`/`B` next drains (each holds enough of the
 chain to submit at least its own frontier). The chain converges monotonically
 as devices reconnect, never regresses, and the idempotent `/submit` (FIX C)
@@ -454,17 +456,18 @@ compile-time constant (`codec.ts:165`).
 export interface TokenPayment {
   assetId: string
   overlayUrl: string
-  overlayIdentityKey: string          // unchanged
-  certificates: Uint8Array[]          // unchanged, still opaque
-  linkage: Array<{ txid: string; payload: Uint8Array }>   // UNCHANGED shape —
-                                       // still one entry per unbroadcast token
-                                       // tx in the chain the recipient may need
-                                       // to submit; see §1.1
-  admissions: Array<{                 // NEW — replaces `recipientLinkage`
+  overlayIdentityKey: string // unchanged
+  certificates: Uint8Array[] // unchanged, still opaque
+  linkage: Array<{ txid: string; payload: Uint8Array }> // UNCHANGED shape —
+  // still one entry per unbroadcast token
+  // tx in the chain the recipient may need
+  // to submit; see §1.1
+  admissions: Array<{
+    // NEW — replaces `recipientLinkage`
     txid: string
-    outputsToAdmit: number[]          // sorted ascending
-    signature: Uint8Array             // DER ECDSA
-    signerKey: string                 // 66-hex compressed pubkey
+    outputsToAdmit: number[] // sorted ascending
+    signature: Uint8Array // DER ECDSA
+    signerKey: string // 66-hex compressed pubkey
   }>
   // `recipientLinkage: Uint8Array` — REMOVED. A payee-decryptable linkage is
   // impossible under D2 blinding without leaking the payer's real key `A`
@@ -511,16 +514,16 @@ mirrors them. No other field changes.
 reversal in §9 (offline nearby token payments are back in scope) is a
 behavior change in `build.ts`/`NearbyFlow`/the drain, not a wire change.
 `SESSION_VERSION` stays 1, per the already-settled policy in design-v3 §3
-("a future field that changes the meaning of money on a *deployed* format
+("a future field that changes the meaning of money on a _deployed_ format
 must bump `v`" — nothing here changes what `amount` means).
 
 ### 2.3 Size budget, updated
 
-| component | v3 | v4 | delta |
-|---|---|---|---|
-| `recipientLinkage` (JSON `SpecificLinkage`) | ~900 B | 0 (removed) | −900 B |
-| one `admissions` entry (32B txid + ~8B outputsToAdmit + ~72B DER sig + 33B key) | — | ~145 B | +145 B per *covered* ancestor |
-| linkage payload per unadmitted chain tx (unchanged) | ~2,700 B | ~2,700 B | 0 |
+| component                                                                       | v3       | v4          | delta                         |
+| ------------------------------------------------------------------------------- | -------- | ----------- | ----------------------------- |
+| `recipientLinkage` (JSON `SpecificLinkage`)                                     | ~900 B   | 0 (removed) | −900 B                        |
+| one `admissions` entry (32B txid + ~8B outputsToAdmit + ~72B DER sig + 33B key) | —        | ~145 B      | +145 B per _covered_ ancestor |
+| linkage payload per unadmitted chain tx (unchanged)                             | ~2,700 B | ~2,700 B    | 0                             |
 
 Net effect for the common case (0- or 1-hop, one covered ancestor): frame
 shrinks by ~750 B relative to v3. A deep offline chain (§1.6's 3-hop example)
@@ -538,15 +541,15 @@ depends on its exact shape:
 interface AdmissionRecord {
   txid: string
   topics: string[]
-  outputsToAdmit: number[]        // NEW — was missing from O/admission.ts's
-                                   // AdmissionRecord (:85-91); required by FIX A
-  admissionSignature: string      // DER hex, over admissionDigestV2 (§3.1)
+  outputsToAdmit: number[] // NEW — was missing from O/admission.ts's
+  // AdmissionRecord (:85-91); required by FIX A
+  admissionSignature: string // DER hex, over admissionDigestV2 (§3.1)
   admissionIdentityKey: string
-  refusedCode?: string            // NEW — set only for a FIX-D-final refusal;
-  refusedAt?: string              // mutually exclusive with the admission fields
-  evictedAt?: string              // NEW — FIX E; presence means the coin's
-                                   // spent-input marks were restored and this
-                                   // txid's own σ_I is permanently void
+  refusedCode?: string // NEW — set only for a FIX-D-final refusal;
+  refusedAt?: string // mutually exclusive with the admission fields
+  evictedAt?: string // NEW — FIX E; presence means the coin's
+  // spent-input marks were restored and this
+  // txid's own σ_I is permanently void
   at: string
 }
 ```
@@ -579,7 +582,7 @@ highest-priority fix in this spec.
 
 - Go `topic_manager.go:215-224` (currently `if l == nil { continue }` and a
   silent pkh-mismatch `continue`) → `return none, m.reject(fmt.Errorf(
-  "output %d: MandalaToken-decodable output with no verified linkage", idx))`.
+"output %d: MandalaToken-decodable output with no verified linkage", idx))`.
   Verified live today (re-read 2026-09-14): the skip is exactly as every
   review described it (`topic_manager.go:211-224`), and `conservationHolds`
   (`:434-460`) sums `outTotals` only over `admitted` — this is the exact
@@ -592,7 +595,7 @@ highest-priority fix in this spec.
   (`O/index.ts`): decode every output of the submitted tx before delegating
   to the pinned topic manager, and if any `MandalaToken`-decodable output has
   no linkage entry at its index, reject the whole submission at the wrapper
-  layer *before* it ever reaches the pinned manager. This is strictly
+  layer _before_ it ever reaches the pinned manager. This is strictly
   sufficient (a rejection at the wrapper is a rejection) but not as clean as
   fixing the manager itself — **flag for a ts-stack PR** against
   `@bsv/overlay-topics`'s `MandalaTopicManager` to turn the skip into a
@@ -608,7 +611,7 @@ highest-priority fix in this spec.
 
 **Signing change, both engines:** `steakToWire` (Go, `submit.go:152-180`) and
 `attachAdmissionSignaturesSync` (TS, `admission.ts:55-73`) currently sign
-once per submitted tx if *any* topic admitted `>0` outputs, over the bare
+once per submitted tx if _any_ topic admitted `>0` outputs, over the bare
 txid. Change to: sign over `admissionDigestV2(txid, sortedOutputsToAdmit)`,
 where `outputsToAdmit` is specifically the `tm_mandala` topic's own admitted
 set (gate on the `tm_mandala` entry, not "any topic admitted anything" — a
@@ -616,15 +619,15 @@ registry-only admission must never yield a token σ_I).
 
 ### 3.2 `/submit` decision table
 
-| Server-side state of this txid | Response (this call) | Wire shape | Wallet verdict |
-|---|---|---|---|
-| Never seen; topic-manager rules run fresh, admits ≥1 output | Admission signature over `admissionDigestV2(txid, outputsToAdmit)` | `200 {outputsToAdmit, admissionSignature, admissionIdentityKey}` | `admitted` |
-| Never seen; topic-manager rules run fresh, refuses for a **final** policy reason (allowlist below) | Structured, persisted refusal | `4xx {status:'error', code:'ERR_CONSERVATION'\|'ERR_LINKAGE'\|'ERR_SHAPE'\|'ERR_SATOSHIS'\|'ERR_INPUT_SPENT', retryable:false}` | `refused` (terminal) — FIX D |
-| Never seen; refuses for a **liftable** policy reason | Structured, not persisted as final | `4xx {status:'error', code:'ERR_PAUSED'\|'ERR_FROZEN'\|'ERR_SANCTIONED'\|'ERR_ACCESS'\|'ERR_MEMBERSHIP', retryable:true}` | `serviceError`, retry with backoff — FIX D |
-| Never seen; a **dependency/infra** fault (Arcade broadcast failure, SPV/chaintracker error, storage fault, sanctions-provider unreachable) | Never the policy shape | `503 {status:'error', code:'ERR_UNAVAILABLE', retryable:true}` | `serviceError` — FIX D |
-| **Already admitted** (engine's own applied-transaction store proves it, admission record present *or* not — FIX C) | Same `outputsToAdmit`, freshly signed, no side effects re-run | `200 {outputsToAdmit, admissionSignature, admissionIdentityKey}` | `admitted` (idempotent no-op if already broadcast) — closes EB-2.3, SC-2.2, SC-3.4 |
-| **Admitted, then evicted** (`/arc-ingest` terminal status or reorg) | Distinct terminal code; inputs restored (FIX E) as part of the *same* eviction | `410 {status:'error', code:'ERR_EVICTED'}` | permanent for *this* txid, but its **inputs are spendable again** — wallet must build a *new* spend, never retry this one forever (closes SC-2.4) |
-| **Conflicting spend** of an input already marked spent by a *different*, still-admitted txid | Refused by the overlay itself (FIX L), not left to Arcade | `4xx {code:'ERR_INPUT_SPENT', retryable:false, spendTxid:<competing txid>}` naming the competitor | `refused` **only if** `GET /admin/admission/<spendTxid>` independently confirms that record; otherwise `serviceError` (guards against the mid-commit-fault false-permanent case, EB-3.5) |
+| Server-side state of this txid                                                                                                             | Response (this call)                                                           | Wire shape                                                                                                                      | Wallet verdict                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Never seen; topic-manager rules run fresh, admits ≥1 output                                                                                | Admission signature over `admissionDigestV2(txid, outputsToAdmit)`             | `200 {outputsToAdmit, admissionSignature, admissionIdentityKey}`                                                                | `admitted`                                                                                                                                                                               |
+| Never seen; topic-manager rules run fresh, refuses for a **final** policy reason (allowlist below)                                         | Structured, persisted refusal                                                  | `4xx {status:'error', code:'ERR_CONSERVATION'\|'ERR_LINKAGE'\|'ERR_SHAPE'\|'ERR_SATOSHIS'\|'ERR_INPUT_SPENT', retryable:false}` | `refused` (terminal) — FIX D                                                                                                                                                             |
+| Never seen; refuses for a **liftable** policy reason                                                                                       | Structured, not persisted as final                                             | `4xx {status:'error', code:'ERR_PAUSED'\|'ERR_FROZEN'\|'ERR_SANCTIONED'\|'ERR_ACCESS'\|'ERR_MEMBERSHIP', retryable:true}`       | `serviceError`, retry with backoff — FIX D                                                                                                                                               |
+| Never seen; a **dependency/infra** fault (Arcade broadcast failure, SPV/chaintracker error, storage fault, sanctions-provider unreachable) | Never the policy shape                                                         | `503 {status:'error', code:'ERR_UNAVAILABLE', retryable:true}`                                                                  | `serviceError` — FIX D                                                                                                                                                                   |
+| **Already admitted** (engine's own applied-transaction store proves it, admission record present _or_ not — FIX C)                         | Same `outputsToAdmit`, freshly signed, no side effects re-run                  | `200 {outputsToAdmit, admissionSignature, admissionIdentityKey}`                                                                | `admitted` (idempotent no-op if already broadcast) — closes EB-2.3, SC-2.2, SC-3.4                                                                                                       |
+| **Admitted, then evicted** (`/arc-ingest` terminal status or reorg)                                                                        | Distinct terminal code; inputs restored (FIX E) as part of the _same_ eviction | `410 {status:'error', code:'ERR_EVICTED'}`                                                                                      | permanent for _this_ txid, but its **inputs are spendable again** — wallet must build a _new_ spend, never retry this one forever (closes SC-2.4)                                        |
+| **Conflicting spend** of an input already marked spent by a _different_, still-admitted txid                                               | Refused by the overlay itself (FIX L), not left to Arcade                      | `4xx {code:'ERR_INPUT_SPENT', retryable:false, spendTxid:<competing txid>}` naming the competitor                               | `refused` **only if** `GET /admin/admission/<spendTxid>` independently confirms that record; otherwise `serviceError` (guards against the mid-commit-fault false-permanent case, EB-3.5) |
 
 **Allowlist discipline (the actual FIX D mechanism).** `ERR_REFUSED`-class
 codes may be minted **only** from a genuine topic-manager `reject(...)` for
@@ -633,18 +636,18 @@ one of the five listed final reasons. Every other Go `Submit` error —
 errors, `GetAssetState`/`IsSanctioned` provider errors, and
 `arcade.IsBroadcastFailureErr` — is reclassified to `503 ERR_UNAVAILABLE`
 before `submitHandler`'s `errorResponse` call (`submit.go:108-121` currently
-returns `400` for *every* `Submit` error uniformly; this is the exact
+returns `400` for _every_ `Submit` error uniformly; this is the exact
 unsoundness SC-3.1/SM-3.3 found). On the TS side, since a genuine
 topic-manager rejection is today swallowed into a `200` with empty
 `outputsToAdmit` inside the pinned `@bsv/overlay` `Engine.js` (SC-3.1,
 per review), the repo-local wrapper (§3.1) must independently capture the
-manager's *own* rejection reason before it is swallowed — the manager already
+manager's _own_ rejection reason before it is swallowed — the manager already
 computes it (it is the argument to `m.reject(...)`), the wrapper's job is to
 stash it in a side channel the wrapper's own `/submit` handler reads instead
 of trusting the pinned engine's collapsed 200. **Flag for a ts-stack PR** if
 that side channel cannot be built without patching `@bsv/overlay`'s
 `Engine.js` — try the repo-local capture first (the manager function runs
-inside this repo's process either way; only the *engine's* handling of its
+inside this repo's process either way; only the _engine's_ handling of its
 return value is pinned).
 
 **"Verdict wins."** The **first final** verdict per txid (an `ERR_REFUSED.*`
@@ -681,9 +684,9 @@ as final while the other later gets the tx admitted (SM-2.1/EB-2.2).
   `GET /admin/admission/:txid` to `overlay-go/internal/httpapi/admin.go`
   returning the identical JSON shape TS returns (parity obligation below).
 - **`/arc-ingest` auth (FIX E, second half).** `overlay-go/internal/wiring/
-  engine.go`'s `ArcadeCallbackToken` and the Go `WithArcade`
-  (`server.go:91-100`) already gate the route behind the token *when
-  non-empty*, but boot with an empty token is still accepted (per review,
+engine.go`'s `ArcadeCallbackToken` and the Go `WithArcade`
+  (`server.go:91-100`) already gate the route behind the token _when
+  non-empty_, but boot with an empty token is still accepted (per review,
   confirmed by the doc comment at `server.go:91-93` gating "when it's
   non-empty" — i.e. gating is optional today). Change: refuse to mount
   `/arc-ingest` (or refuse to start with Arcade enabled) if
@@ -696,7 +699,7 @@ as final while the other later gets the tx admitted (SM-2.1/EB-2.2).
 (`PrepareSubmitCompensation`, `submit.go:31-42`, wired via
 `overlay-go/internal/wiring/engine.go` around the snapshot/`UnmarkSpentBySpendTxid`/
 `store.RestoreTokens` closure) **already does the right thing** for a
-broadcast failure that happens *during* `Submit` — this closes the narrowest
+broadcast failure that happens _during_ `Submit` — this closes the narrowest
 slice of EB-2.1 for that one trigger. But `evictTx`
 (`overlay-go/internal/wiring/engine.go`, the closure built by the function of
 the same name — re-read live) does **not** call `UnmarkSpentBySpendTxid` or
@@ -707,7 +710,7 @@ remaining fatal gap EB-2.1 names: an `/arc-ingest` terminal status
 rejection, reorg) permanently strands the spent input with no token row and
 no path back, even though the coin is provably unspent on chain.
 
-**Fix:** extend `evictTx` to run the *same* restore the pre-Submit
+**Fix:** extend `evictTx` to run the _same_ restore the pre-Submit
 compensation already performs: `UnmarkSpentBySpendTxid(txid)` then
 `RestoreTokens(snapshot)`. To make the rows restorable at this later point
 (the pre-Submit snapshot closure has long since gone out of scope), persist
@@ -720,7 +723,7 @@ after (never re-admitted for the same bytes) while its inputs show as live
 again on the next `FindOutputs`. Mirror on the TS engine's eviction wrapper.
 
 The spent-input guard (§3.5) must additionally treat "no live row, but the
-spending tx's admission record carries `evictedAt`" as *live* rather than
+spending tx's admission record carries `evictedAt`" as _live_ rather than
 `ERR_INPUT_SPENT`, so a client that races the restore is still safe.
 
 ### 3.5 Overlay itself refuses a conflicting spend (FIX L)
@@ -740,17 +743,17 @@ different, still-admitted transaction.
 
 ### 3.6 TS/Go parity obligations (summary)
 
-| Item | TS today | Go today | Required |
-|---|---|---|---|
-| σ_I message = `admissionDigestV2` | needs change | needs change | both |
-| Reject (not skip) unlinked token output | pinned in `@bsv/overlay-topics` — needs wrapper, **possible ts-stack PR** | live code, direct fix | both |
-| `mandalaAdmissions`/admission collection | exists, needs `outputsToAdmit` + awaited write | **missing entirely** | both (Go: new) |
-| `GET /admin/admission/:txid` | exists | **missing entirely** | both (Go: new) |
-| Sign from applied-store proof on dupe/missing-record | needs change | needs change | both |
-| Structural `ERR_REFUSED`/`ERR_UNAVAILABLE` split | needs change (harder — swallow lives in pinned Engine.js, **possible ts-stack PR**) | needs change, direct fix | both |
-| `evictTx` restores inputs | needs the eviction-wrapper equivalent | needs change, direct fix | both |
-| `/arc-ingest` requires non-empty callback token | needs change | needs change | both |
-| Conditional spend-mark (FIX L) | needs change | needs change | both |
+| Item                                                 | TS today                                                                            | Go today                 | Required       |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------ | -------------- |
+| σ_I message = `admissionDigestV2`                    | needs change                                                                        | needs change             | both           |
+| Reject (not skip) unlinked token output              | pinned in `@bsv/overlay-topics` — needs wrapper, **possible ts-stack PR**           | live code, direct fix    | both           |
+| `mandalaAdmissions`/admission collection             | exists, needs `outputsToAdmit` + awaited write                                      | **missing entirely**     | both (Go: new) |
+| `GET /admin/admission/:txid`                         | exists                                                                              | **missing entirely**     | both (Go: new) |
+| Sign from applied-store proof on dupe/missing-record | needs change                                                                        | needs change             | both           |
+| Structural `ERR_REFUSED`/`ERR_UNAVAILABLE` split     | needs change (harder — swallow lives in pinned Engine.js, **possible ts-stack PR**) | needs change, direct fix | both           |
+| `evictTx` restores inputs                            | needs the eviction-wrapper equivalent                                               | needs change, direct fix | both           |
+| `/arc-ingest` requires non-empty callback token      | needs change                                                                        | needs change             | both           |
+| Conditional spend-mark (FIX L)                       | needs change                                                                        | needs change             | both           |
 
 Everything in this table is a **repo-local** change (`overlay/src`,
 `overlay-go/internal/*`) except the two rows marked "possible ts-stack PR,"
@@ -849,6 +852,7 @@ WITH RECURSIVE frontier(txid) AS (
 )
 SELECT txid FROM frontier;
 ```
+
 run once per `(childTxid,parentVout)` pair the app-level walk needs to check
 membership for (SQLite has no native JSON-array-contains without the JSON1
 extension enabled; the toolbox's SQLite build already enables JSON1 for other
@@ -877,7 +881,7 @@ point of FIX G. Concretely:
   other table. `token_settlements` gets one row, `state` set per §5.
 - **This write does not have to happen before the frame is considered
   durable.** The frame itself, sitting in `localpay_pending`/
-  `offline_actions.framePayload`, already *is* the durable fact. The four
+  `offline_actions.framePayload`, already _is_ the durable fact. The four
   new tables are populated best-effort immediately, and — this is the
   crash-safety guarantee — **re-populated (idempotently, `INSERT OR IGNORE`)
   by the drain on every pass, before it does anything else**, by re-reading
@@ -947,8 +951,8 @@ real broadcast any other way for a token tx:
 1. **`finalizeDelivery` (`W/core/localpay/build.ts:295-391`) must never call
    `broadcastPayment` for `kind:'token'`, online or offline.** Add a check at
    the top of the online branch (`:381-390` today): `if (built.frame.kind ===
-   'token') return { kind: 'sent', broadcast: 'pending', detail: 'awaiting
-   overlay admission' }` — the hold (`deps.hold`, always run first regardless
+'token') return { kind: 'sent', broadcast: 'pending', detail: 'awaiting
+overlay admission' }` — the hold (`deps.hold`, always run first regardless
    of connectivity per the existing code's own comment at `:354-355`) is
    unchanged; only the subsequent `broadcastPayment` call is skipped for
    tokens. This directly closes SM-3.1: an online payer's `finalizeDelivery`
@@ -1015,7 +1019,7 @@ Two call sites carry an unverified signature-shaped value today:
 
 - **Ack `s`** (design-v3's original §3.4/§4.6 sketch, and the equivalent path
   in this repo's `finalizeDelivery`/`Ack` handling): a payee's positive ack
-  must never be trusted to mean "already settled" merely because it *looks*
+  must never be trusted to mean "already settled" merely because it _looks_
   like it carries a signature. Any admission evidence riding on the ack is
   verified with the same `Admitted()` predicate (§1.2) against
   `session.asset.overlayIdentityKey` before it is allowed to skip a submit
@@ -1047,7 +1051,7 @@ Two call sites carry an unverified signature-shaped value today:
 `localpay_pending`'s BSV-shaped retry loop and burns an attempt on **any**
 `internalizeAction` failure, including a transient `Block header not found
 for height` (per review) from a fresh-block BUMP the device hasn't caught up
-on yet. A `held` token row's credit depends on the *same* `internalizeAction`
+on yet. A `held` token row's credit depends on the _same_ `internalizeAction`
 call succeeding, but its state of record is `token_settlements`, not
 `localpay_pending` — so: (a) a header-verification failure on a token
 frame's internalize is classified retriable and does **not** increment any
@@ -1099,29 +1103,29 @@ Non-terminal states are each owned by exactly one process; terminal states
 never revert (mirroring the existing, sound `applyOutcome` cascade
 discipline).
 
-| state | owner | offline_actions mirror | entered from | exits to |
-|---|---|---|---|---|
-| `built` | the build call itself (payer only) | *(no row yet)* | `createAction`+`signAction`, noSend | `parked` (walk away) / `handed_over` (ack) / discarded (`abortAction`) |
-| `parked` | user gesture (payer only) | `status='parked'` | payer left the code screen | `handed_over` (re-show, confirm — §4.4's advancing UPDATE) / discarded (`cancelParkedPayment`, §4.7) |
-| `handed_over` | the drain (payer only) | `status='queued'` | positive ack | `submitting` (own optional submit) |
-| `held` | the drain (receiver, and any intermediate hop forwarding ancestor evidence) | `status='queued'`, `role='received'` | frame received, `COVER` passed, basket-credited | `submitting` |
-| `submitting` | the drain (transient) | `status='posting'` | drain claims the row | `admitted` / `refused` / `orphaned` / back to `handed_over`/`held` on `serviceError` |
-| `admitted` | the drain, about to broadcast | *(between posting and sent)* | `/submit` returns 200 | `broadcast` |
-| `broadcast` | — (terminal) | `status='sent'` | Arcade accepts | — |
-| `refused` | — (terminal) | `status='rejected'` | a FIX-D-final verdict for *this* txid | — |
-| `orphaned` | — (terminal) | `status='rejected'`, `poisonedByTxid` set | an ancestor was `refused`/`evicted`; existing children-first cascade | — |
+| state         | owner                                                                       | offline_actions mirror                    | entered from                                                         | exits to                                                                                             |
+| ------------- | --------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `built`       | the build call itself (payer only)                                          | _(no row yet)_                            | `createAction`+`signAction`, noSend                                  | `parked` (walk away) / `handed_over` (ack) / discarded (`abortAction`)                               |
+| `parked`      | user gesture (payer only)                                                   | `status='parked'`                         | payer left the code screen                                           | `handed_over` (re-show, confirm — §4.4's advancing UPDATE) / discarded (`cancelParkedPayment`, §4.7) |
+| `handed_over` | the drain (payer only)                                                      | `status='queued'`                         | positive ack                                                         | `submitting` (own optional submit)                                                                   |
+| `held`        | the drain (receiver, and any intermediate hop forwarding ancestor evidence) | `status='queued'`, `role='received'`      | frame received, `COVER` passed, basket-credited                      | `submitting`                                                                                         |
+| `submitting`  | the drain (transient)                                                       | `status='posting'`                        | drain claims the row                                                 | `admitted` / `refused` / `orphaned` / back to `handed_over`/`held` on `serviceError`                 |
+| `admitted`    | the drain, about to broadcast                                               | _(between posting and sent)_              | `/submit` returns 200                                                | `broadcast`                                                                                          |
+| `broadcast`   | — (terminal)                                                                | `status='sent'`                           | Arcade accepts                                                       | —                                                                                                    |
+| `refused`     | — (terminal)                                                                | `status='rejected'`                       | a FIX-D-final verdict for _this_ txid                                | —                                                                                                    |
+| `orphaned`    | — (terminal)                                                                | `status='rejected'`, `poisonedByTxid` set | an ancestor was `refused`/`evicted`; existing children-first cascade | —                                                                                                    |
 
 ### 5.1 Crash-resume at every transition
 
-| Interrupted at | On relaunch/reconnect | Why safe |
-|---|---|---|
-| Between sign and the very first `park`/`hold` call | Nothing auto-resumes; inputs sit `nosend`. Same acknowledged gap the BSV nearby rail already has for this exact window (`BuiltPayment.reference`'s own doc comment) — **not** a new risk. | Every call site is required to park-or-hold before returning control to the user; a crash *inside* that tiny window is the same class of gap the existing code already accepts for BSV. |
-| `parked`, any point | Row + `framePayload` persist untouched; `nosend` tx untouched. Nothing auto-drains a `parked` row (SM-1b/FIX F: never in the submit set). | User can re-show or cancel; unchanged from today. |
-| `parked → handed_over` UPDATE (§4.4), mid-write | Retry: the UPDATE is a single SQLite statement; either it landed or it didn't. If it didn't, the row is still `parked` and the next confirm re-attempts the same UPDATE. | Single-statement atomicity; no multi-table ordering to get wrong. |
-| `handed_over`/`held`, evidence-table population (§4.2) | Re-derived idempotently from the persisted frame on the next drain tick, in any order, any subset already done. | FIX G: evidence tables are a cache, never a precondition. |
-| `submitting`, mid-HTTP-call | Drain's next pass re-issues an identical `/submit` for the same bytes. | FIX C: idempotent `/submit`; at-least-once delivery of byte-identical content is always safe. |
-| `admitted`, before broadcast | `token_settlements.admissionSignatureHex` already stored; next drain pass goes straight to broadcast (or safely re-submits first — also idempotent). | Durable admission record, mirroring the lib's own `txJournal` `'accepted'`-stage pattern (`L/txJournal.ts:13-15`) on the wallet side. |
-| `broadcast`/`refused`/`orphaned` | Terminal — nothing to resume. | — |
+| Interrupted at                                         | On relaunch/reconnect                                                                                                                                                                     | Why safe                                                                                                                                                                                |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Between sign and the very first `park`/`hold` call     | Nothing auto-resumes; inputs sit `nosend`. Same acknowledged gap the BSV nearby rail already has for this exact window (`BuiltPayment.reference`'s own doc comment) — **not** a new risk. | Every call site is required to park-or-hold before returning control to the user; a crash _inside_ that tiny window is the same class of gap the existing code already accepts for BSV. |
+| `parked`, any point                                    | Row + `framePayload` persist untouched; `nosend` tx untouched. Nothing auto-drains a `parked` row (SM-1b/FIX F: never in the submit set).                                                 | User can re-show or cancel; unchanged from today.                                                                                                                                       |
+| `parked → handed_over` UPDATE (§4.4), mid-write        | Retry: the UPDATE is a single SQLite statement; either it landed or it didn't. If it didn't, the row is still `parked` and the next confirm re-attempts the same UPDATE.                  | Single-statement atomicity; no multi-table ordering to get wrong.                                                                                                                       |
+| `handed_over`/`held`, evidence-table population (§4.2) | Re-derived idempotently from the persisted frame on the next drain tick, in any order, any subset already done.                                                                           | FIX G: evidence tables are a cache, never a precondition.                                                                                                                               |
+| `submitting`, mid-HTTP-call                            | Drain's next pass re-issues an identical `/submit` for the same bytes.                                                                                                                    | FIX C: idempotent `/submit`; at-least-once delivery of byte-identical content is always safe.                                                                                           |
+| `admitted`, before broadcast                           | `token_settlements.admissionSignatureHex` already stored; next drain pass goes straight to broadcast (or safely re-submits first — also idempotent).                                      | Durable admission record, mirroring the lib's own `txJournal` `'accepted'`-stage pattern (`L/txJournal.ts:13-15`) on the wallet side.                                                   |
+| `broadcast`/`refused`/`orphaned`                       | Terminal — nothing to resume.                                                                                                                                                             | —                                                                                                                                                                                       |
 
 ### 5.2 Both-party view (sender S, recipient R), one hop
 
@@ -1130,6 +1134,7 @@ S: built ──(ack)──▶ handed_over ──(drain: postTokenStep)──▶ 
                                                                  │
 R: (frame recv) ──▶ held ─────────(drain: postTokenStep)────────┘──▶ submitting ──▶ admitted ──▶ broadcast
 ```
+
 Both rows reference the **same txid**; whichever party's drain runs
 `postTokenStep` first wins the race to actually call `/submit` — the loser's
 own attempt is the idempotent no-op (FIX C), and both rows converge to
@@ -1144,20 +1149,20 @@ same txid, because the overlay serves the same first-final-verdict to both.
 
 ## 6. Failure matrix
 
-| # | Mode | System response | User-facing copy |
-|---|---|---|---|
-| 1 | Overlay refuses for a final reason (conservation/shape/linkage/1-sat/confirmed conflicting spend) | `refused`, terminal, children-first cascade, credit reversed if it was `held` | **"Acme Bank refused this transfer. Nothing was sent and your USDX is unchanged."** (sender) / **"This payment could not be confirmed by Acme Bank and has been reversed."** (recipient, if it had shown as credited) |
-| 2 | Overlay refuses for a liftable reason (pause/freeze/allowlist/sanctions/registry) | `serviceError`, retried with backoff, **never** cascaded | **"Acme Bank has paused USDX right now — we'll keep trying."** / no user action needed; row stays "Settling" |
-| 3 | Arcade broadcast failure, SPV/chaintracker error, or other infra fault during `/submit` | `503`, `serviceError`, retried; row stays non-terminal | **"We couldn't reach Acme Bank to confirm this transfer. We'll keep trying."** |
-| 4 | Overlay admits, then Arcade later reports a terminal txStatus and `/arc-ingest` evicts | `orphaned` for the evicted tx; inputs **restored** (FIX E) rather than stranded; a *new* spend of the same coin is possible | **"That payment didn't reach the network in time and has been reversed — your USDX is back in your balance."** |
-| 5 | Two devices (payer + recipient, or two chain hops) both submit the same bytes | Second call is the idempotent no-op; both converge to the same terminal state | no distinct copy — identical to the ordinary success/refusal copy for whichever party sees it |
-| 6 | Payer's optional submit (rule 6) races the recipient's | Whichever lands first wins; the other is a no-op; the payer's change becomes spendable the moment either succeeds | no distinct copy |
-| 7 | Recipient credited offline, never reconnects before `MAX_PENDING_ATTEMPTS` retriable-classification would have mattered | Cannot exhaust on a retriable header failure (FIX I); genuinely stuck only if the underlying BEEF is bad | **"We couldn't read the payment you received — ask the sender to send it again."** (only for a structurally bad frame, not a header lag) |
-| 8 | Payer cancels a `parked` payment the recipient never actually took | `cancelParkedPayment`, offline: local abort as today. Online: overlay-checked first (FIX J) | **"Cancelled — nothing was sent."** or, if the overlay already admitted it, **"This payment already went through and can't be cancelled."** |
-| 9 | Chained offline payment (§1.6): an ancestor two or more hops back is refused | Cascades forward through every descendant hop via the existing children-first `applyOutcome`, regardless of which device currently holds which hop | **"A payment earlier in this chain was refused by Acme Bank, so this one has been reversed too."**, attributing the *sender A′* only (never the intermediate honest hop) |
-| 10 | Overlay permanently unreachable / asset paused indefinitely | No auto-resolution; named terminal after a bound (FIX M) rather than silent retry forever | **"This payment has been waiting to settle for over 3 days. You can keep waiting or contact Acme Bank."** |
-| 11 | A counterparty-supplied σ fails verification (forged or malformed) | Treated as **absent** (FIX H) — never as a decline, never as proof; the drain runs its own `postTokenStep` regardless | no user-facing copy at all — invisible, by design (the wallet never trusted the unverified value in the first place) |
-| 12 | Phantom-coin attempt (an un-linked sibling output) reaches a v4-aware recipient | Rejected at admission time (FIX A, overlay-side) — never reaches the wallet's `COVER` walk as a live possibility; if the overlay is unpatched, `Covered()`'s vout-membership check (FIX A, wallet-side) still refuses it | **"This payment doesn't check out with Acme Bank's records and was not accepted."** |
+| #   | Mode                                                                                                                    | System response                                                                                                                                                                                                          | User-facing copy                                                                                                                                                                                                      |
+| --- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Overlay refuses for a final reason (conservation/shape/linkage/1-sat/confirmed conflicting spend)                       | `refused`, terminal, children-first cascade, credit reversed if it was `held`                                                                                                                                            | **"Acme Bank refused this transfer. Nothing was sent and your USDX is unchanged."** (sender) / **"This payment could not be confirmed by Acme Bank and has been reversed."** (recipient, if it had shown as credited) |
+| 2   | Overlay refuses for a liftable reason (pause/freeze/allowlist/sanctions/registry)                                       | `serviceError`, retried with backoff, **never** cascaded                                                                                                                                                                 | **"Acme Bank has paused USDX right now — we'll keep trying."** / no user action needed; row stays "Settling"                                                                                                          |
+| 3   | Arcade broadcast failure, SPV/chaintracker error, or other infra fault during `/submit`                                 | `503`, `serviceError`, retried; row stays non-terminal                                                                                                                                                                   | **"We couldn't reach Acme Bank to confirm this transfer. We'll keep trying."**                                                                                                                                        |
+| 4   | Overlay admits, then Arcade later reports a terminal txStatus and `/arc-ingest` evicts                                  | `orphaned` for the evicted tx; inputs **restored** (FIX E) rather than stranded; a _new_ spend of the same coin is possible                                                                                              | **"That payment didn't reach the network in time and has been reversed — your USDX is back in your balance."**                                                                                                        |
+| 5   | Two devices (payer + recipient, or two chain hops) both submit the same bytes                                           | Second call is the idempotent no-op; both converge to the same terminal state                                                                                                                                            | no distinct copy — identical to the ordinary success/refusal copy for whichever party sees it                                                                                                                         |
+| 6   | Payer's optional submit (rule 6) races the recipient's                                                                  | Whichever lands first wins; the other is a no-op; the payer's change becomes spendable the moment either succeeds                                                                                                        | no distinct copy                                                                                                                                                                                                      |
+| 7   | Recipient credited offline, never reconnects before `MAX_PENDING_ATTEMPTS` retriable-classification would have mattered | Cannot exhaust on a retriable header failure (FIX I); genuinely stuck only if the underlying BEEF is bad                                                                                                                 | **"We couldn't read the payment you received — ask the sender to send it again."** (only for a structurally bad frame, not a header lag)                                                                              |
+| 8   | Payer cancels a `parked` payment the recipient never actually took                                                      | `cancelParkedPayment`, offline: local abort as today. Online: overlay-checked first (FIX J)                                                                                                                              | **"Cancelled — nothing was sent."** or, if the overlay already admitted it, **"This payment already went through and can't be cancelled."**                                                                           |
+| 9   | Chained offline payment (§1.6): an ancestor two or more hops back is refused                                            | Cascades forward through every descendant hop via the existing children-first `applyOutcome`, regardless of which device currently holds which hop                                                                       | **"A payment earlier in this chain was refused by Acme Bank, so this one has been reversed too."**, attributing the _sender A′_ only (never the intermediate honest hop)                                              |
+| 10  | Overlay permanently unreachable / asset paused indefinitely                                                             | No auto-resolution; named terminal after a bound (FIX M) rather than silent retry forever                                                                                                                                | **"This payment has been waiting to settle for over 3 days. You can keep waiting or contact Acme Bank."**                                                                                                             |
+| 11  | A counterparty-supplied σ fails verification (forged or malformed)                                                      | Treated as **absent** (FIX H) — never as a decline, never as proof; the drain runs its own `postTokenStep` regardless                                                                                                    | no user-facing copy at all — invisible, by design (the wallet never trusted the unverified value in the first place)                                                                                                  |
+| 12  | Phantom-coin attempt (an un-linked sibling output) reaches a v4-aware recipient                                         | Rejected at admission time (FIX A, overlay-side) — never reaches the wallet's `COVER` walk as a live possibility; if the overlay is unpatched, `Covered()`'s vout-membership check (FIX A, wallet-side) still refuses it | **"This payment doesn't check out with Acme Bank's records and was not accepted."**                                                                                                                                   |
 
 ---
 
@@ -1167,9 +1172,9 @@ same txid, because the overlay serves the same first-final-verdict to both.
 
 Bounded by the overlay's own admission rules (conservation, 1-satoshi rule,
 linkage-verified ownership, sanctions/access/registry gates) exactly as an
-online transfer is today — offline credit changes *when* those rules are
-checked (by the recipient's own verified σ_I coverage instead of by a
-same-session network round trip), not *what* they are. **Provably
+online transfer is today — offline credit changes _when_ those rules are
+checked (by the recipient's own verified σ*I coverage instead of by a
+same-session network round trip), not \_what* they are. **Provably
 prevented, once FIX A ships on both overlays:** minting value inside a
 genuinely-admitted transaction via an un-linked sibling output. **Detected
 after the fact, not prevented:** an ordinary double spend of an admitted
@@ -1178,8 +1183,8 @@ reconnects; whichever submits second gets `ERR_INPUT_SPENT` (FIX L makes
 this the overlay's own refusal, not Arcade's race) and that recipient's
 credit reverses. This is Bitcoin's ordinary unconfirmed-double-spend window,
 kept to exactly that size (§7.4) — no larger, because FIX A closes the
-*minting* class entirely, and no smaller, because nothing offline can prove a
-coin has not *also* been shown elsewhere before the network sees a
+_minting_ class entirely, and no smaller, because nothing offline can prove a
+coin has not _also_ been shown elsewhere before the network sees a
 transaction.
 
 ### 7.2 Malicious recipient
@@ -1199,10 +1204,10 @@ Out of scope for a holder-facing spec (D1) beyond noting the trust boundary
 explicitly: the wallet trusts exactly one public key per asset
 (`overlayIdentityKey`) to mean "this issuer's overlay attests to this
 admission." A compromised or dishonest overlay operator can sign anything —
-this is the same trust boundary the *online* path already has (a dishonest
+this is the same trust boundary the _online_ path already has (a dishonest
 overlay could always admit whatever it wants for an online transfer too).
 Offline settlement adds no new trust the online path did not already require;
-it only lets the recipient *verify* the overlay's own claim without a live
+it only lets the recipient _verify_ the overlay's own claim without a live
 round trip, which is strictly less trust than "the overlay said so and I
 have no way to check."
 
@@ -1224,8 +1229,8 @@ ordinary unconfirmed Bitcoin double spend, and no worse. Submission itself is
 `/submit` them — which is a deliberate liveness choice (any reconnecting
 party in a chain can settle the whole chain) with one honest trade-off: an
 intermediary who intercepted a bundle in transit could race to submit
-someone else's transaction first, but this changes only *who* triggered the
-broadcast, never *who owns the money* — the transaction's own locking
+someone else's transaction first, but this changes only _who_ triggered the
+broadcast, never _who owns the money_ — the transaction's own locking
 scripts already fix that.
 
 ---
@@ -1240,7 +1245,7 @@ scripts already fix that.
 external app calling through `WalletPermissionsManager` with its own
 originator can `listOutputs`/`createAction`(basket output)/
 `internalizeAction`(basket insertion)/`relinquishOutput` against it **with no
-prompt at all** — the manager's basket-access checks are the *only* gate for
+prompt at all** — the manager's basket-access checks are the _only_ gate for
 a non-`'p '` basket, and every one of them is configured off for this basket.
 
 ### 8.2 The mechanism that already exists (BTMS's, reused verbatim)
@@ -1281,9 +1286,9 @@ is noted as a defense-in-depth option for a later revision (§11).
   persisted per-output in the toolbox's own `output_baskets`/`outputs`
   tables, which this repo does not own the schema of): on first boot after
   this change, run `UPDATE outputs SET basketId = (SELECT basketId FROM
-  output_baskets WHERE name = 'p mandala' AND userId = outputs.userId) WHERE
-  basketId IN (SELECT basketId FROM output_baskets WHERE name =
-  'mandala-tokens' AND userId = outputs.userId)`-shaped logic, guarded to run
+output_baskets WHERE name = 'p mandala' AND userId = outputs.userId) WHERE
+basketId IN (SELECT basketId FROM output_baskets WHERE name =
+'mandala-tokens' AND userId = outputs.userId)`-shaped logic, guarded to run
   once (a schema-version marker in `key_value_store`, matching the app's
   existing migration doctrine). Since "no live builds exist" today
   (design-v3's Compatibility section), this migration has zero live rows to
@@ -1293,7 +1298,7 @@ is noted as a defense-in-depth option for a later revision (§11).
 - **New module**, `W/core/mandala/permissionModule.ts` (mirrors
   `@bsv/btms-permission-module`'s `BasicTokenModule` shape and file
   organization exactly, but decodes Mandala's own script layout — `<36B
-  assetId><scriptnum amount> OP_2DROP <P2PKH tail>` via `MandalaToken.decode`
+assetId><scriptnum amount> OP_2DROP <P2PKH tail>` via `MandalaToken.decode`
   from `@bsv/templates`, **not** BTMS's `PushDrop.decode`, since the two
   token formats are unrelated):
 
@@ -1326,16 +1331,16 @@ export class MandalaTokenModule implements PermissionsModule {
         await this.promptForSpendOrCredit(req.args as CreateActionArgs, req.originator)
         break
       case 'internalizeAction':
-        await this.promptForCredit(req.args, req.originator)   // an app crediting ITSELF
-        break                                                   // via basket insertion
+        await this.promptForCredit(req.args, req.originator) // an app crediting ITSELF
+        break // via basket insertion
     }
     return { args: req.args }
   }
 
   async onResponse(res: unknown, ctx: { method: string; originator: string }): Promise<unknown> {
-    return res   // Mandala tokens carry no post-hoc metadata to redact; unlike BTMS
-                 // there is no captureAuthorizedTransaction/preimage-binding layer
-                 // here (createSignature is not P-routed for this protocol — see §8.2)
+    return res // Mandala tokens carry no post-hoc metadata to redact; unlike BTMS
+    // there is no captureAuthorizedTransaction/preimage-binding layer
+    // here (createSignature is not P-routed for this protocol — see §8.2)
   }
   // ...promptOnceForAccess / promptForSpendOrCredit / promptForCredit mirror
   // BasicTokenModule's promptForBTMSAccess/promptForTokenSpend shape exactly,
@@ -1354,12 +1359,12 @@ Identical pattern to BTMS, in `WalletContext.tsx` beside the existing block
 ```ts
 const mandalaModule = new MandalaTokenModule({
   adminOriginator,
-  requestTokenAccess: mandalaPromptHandler,   // same usePermissionQueue pattern as btmsPromptHandler
-  resolveAssetMetadata,
+  requestTokenAccess: mandalaPromptHandler, // same usePermissionQueue pattern as btmsPromptHandler
+  resolveAssetMetadata
 })
 const permissionsManager = new WalletPermissionsManager(wallet, adminOriginator, {
   ...existingConfig,
-  permissionModules: { btms: btmsModule, mandala: mandalaModule },
+  permissionModules: { btms: btmsModule, mandala: mandalaModule }
 })
 ```
 
@@ -1371,16 +1376,16 @@ those calls through untouched.
 
 ### 8.5 What it prompts for
 
-| Trigger | Originator | Prompt |
-|---|---|---|
-| `listOutputs({basket:'p mandala',...})` | this app (admin) | none |
-| `listOutputs({basket:'p mandala',...})` | paired app | **"App wants to see your Acme Dollar balance"** — once per 60s session |
-| `createAction` with an output in `'p mandala'` (spend or insert) | this app (admin) | none — the Pay screen's own CTA is the confirmation (ux §4.1 step 6) |
-| `createAction` with an output in `'p mandala'` | paired app | **"App wants to spend 25.00 USDX"** with recipient/amount/asset, same shape as BTMS's `promptForTokenSpend` |
-| `internalizeAction` inserting into `'p mandala'` | this app (admin) | none |
-| `internalizeAction` inserting into `'p mandala'` | paired app | **"App wants to credit 40.00 USDX to your wallet"** |
-| `relinquishOutput({basket:'p mandala'})` | this app (admin) | none — `reconcileBans`'s eviction path (ux §6.3) already shows its own alert |
-| `relinquishOutput({basket:'p mandala'})` | paired app | **"App wants to remove a USDX holding from your wallet"** |
+| Trigger                                                          | Originator       | Prompt                                                                                                      |
+| ---------------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| `listOutputs({basket:'p mandala',...})`                          | this app (admin) | none                                                                                                        |
+| `listOutputs({basket:'p mandala',...})`                          | paired app       | **"App wants to see your Acme Dollar balance"** — once per 60s session                                      |
+| `createAction` with an output in `'p mandala'` (spend or insert) | this app (admin) | none — the Pay screen's own CTA is the confirmation (ux §4.1 step 6)                                        |
+| `createAction` with an output in `'p mandala'`                   | paired app       | **"App wants to spend 25.00 USDX"** with recipient/amount/asset, same shape as BTMS's `promptForTokenSpend` |
+| `internalizeAction` inserting into `'p mandala'`                 | this app (admin) | none                                                                                                        |
+| `internalizeAction` inserting into `'p mandala'`                 | paired app       | **"App wants to credit 40.00 USDX to your wallet"**                                                         |
+| `relinquishOutput({basket:'p mandala'})`                         | this app (admin) | none — `reconcileBans`'s eviction path (ux §6.3) already shows its own alert                                |
+| `relinquishOutput({basket:'p mandala'})`                         | paired app       | **"App wants to remove a USDX holding from your wallet"**                                                   |
 
 ### 8.6 Tests
 
@@ -1416,9 +1421,9 @@ online is removed (see §4.3 replacement below); the mockup itself
 (`Pay 25.00 USDX to ◈alice`) is unchanged.
 
 **§4.3 "Nearby rail — the numbered sequence" — REPLACED IN FULL.** The
-opening line *"v1 requires the payer to be online... This removes the
+opening line _"v1 requires the payer to be online... This removes the
 `offline_linkage` store and the payee-driven overlay-gated drain from v1
-entirely (§10)"* is **false under the settled model** and is deleted. New
+entirely (§10)"_ is **false under the settled model** and is deleted. New
 text:
 
 > **v1 supports fully offline nearby token payments, per the maintainer's
@@ -1431,13 +1436,14 @@ text:
 > base units, picks "Someone nearby", `mintSession({asset})`.
 >
 > **Payer:**
+>
 > 1. Scan → `classifyScan` (unchanged).
 > 2. Overlay-mismatch refusal (unchanged — v1 is single-overlay).
 > 3. `send_confirm` shows "Pay 25.00 USDX to ◈alice" (unchanged).
 > 4. `buildPaymentFrame` token path: select from `mandala-tokens`
 >    [renamed `p mandala`, §8] with `include:'entire transactions'`; lock via
 >    `prepareBlindedPayment`; two-step `createAction`/`signAction({noSend:
->    true})`; **assemble the AdmissionBundle** (§1.1 of the offline-settlement-
+true})`; **assemble the AdmissionBundle** (§1.1 of the offline-settlement-
 >    final spec) from the wallet's own `token_admissions`/`token_admission_edges`/
 >    `token_linkage_payloads` tables for every ancestor in the transfer's own
 >    BEEF.
@@ -1482,16 +1488,16 @@ throughout (mechanical, per §8.4). No other change: a `held`-but-not-yet-
 (unchanged — this is what makes chained offline re-spend work at all, per
 §1.6), so the balance figure is unaffected.
 
-**§10 "Explicitly out of scope", item 3 — REPLACED.** Old text: *"No
+**§10 "Explicitly out of scope", item 3 — REPLACED.** Old text: _"No
 offline nearby token payments in v1. The `offline_linkage` store and the
 payee-driven overlay-gated drain (committed spec §6) are deferred... Deferring
 the offline path is the single biggest scope decision here and it is named as
-one."* New text:
+one."_ New text:
 
 > **3. ~~No offline nearby token payments in v1~~ — reversed.** The
-> maintainer's settlement model (recipient submits, recursive σ_I walk-back,
+> maintainer's settlement model (recipient submits, recursive σ*I walk-back,
 > idempotent `/submit`, payer's own optional submit) makes offline nearby
-> token payments the *design center*, not a deferred feature — see the
+> token payments the \_design center*, not a deferred feature — see the
 > offline-settlement-final spec in full. What remains genuinely out of scope
 > for v1 is unchanged from the rest of this document: multi-issuer nearby
 > sessions (item 4, unchanged) and any dApp-facing story beyond the
@@ -1505,7 +1511,7 @@ happens **before** any submit, unconditionally. Item 3 is struck.
 
 **§11, item 7 — RESOLVED.** *"'mandala-tokens' is a non-admin basket with
 every seekBasket*Permission set false... Is that a v1 disclosure gap to
-close, or an accepted exposure?"* Answer: closed, not accepted — §8 of the
+close, or an accepted exposure?"\* Answer: closed, not accepted — §8 of the
 offline-settlement-final spec (rename to `'p mandala'`, add
 `MandalaTokenModule`).
 
@@ -1527,6 +1533,7 @@ before confirming the repo-local wrapper genuinely cannot work.
 
 **Phase 0 — overlay, both engines (blocks everything else; this is FIX A/B/L,
 the theft-lens fatals).**
+
 1. Go: reject-not-skip unlinked/mismatched token outputs (`topic_manager.go`).
    Update `TestWrongPKHLinkageSilentlySkipsOutput`/
    `TestMissingOutputLinkageBreaksConservation`.
@@ -1542,48 +1549,29 @@ the theft-lens fatals).**
    where the overlay-side precondition it depends on — real σ_I meaning
    something — lands).
 
-**Phase 1 — overlay persistence and verdict taxonomy (FIX C, D, E).**
-6. Go: add the `mandalaAdmissions` collection + `GET /admin/admission/:txid`
-   (new work — currently absent entirely).
-7. TS: add `outputsToAdmit` to the existing `AdmissionRecord`; make the
-   persistence write awaited, not fire-and-forget.
-8. Both: sign from applied-transaction-store proof on the dupe path / a
-   missing record (FIX C).
-9. Go: reclassify every non-policy `Submit` error to `503 ERR_UNAVAILABLE`
-   before `errorResponse` (`submit.go`).
-10. TS: capture the topic manager's own rejection reason before the pinned
-    engine's dupe-path swallow (repo-local capture). **[ts-stack PR, try
-    repo-local first]** if impossible without patching `Engine.js`.
-11. Both: `evictTx`/its TS equivalent restores inputs (FIX E), persisting the
-    pre-spend snapshot on the admission record; require a non-empty Arcade
-    callback token whenever eviction is wired.
+**Phase 1 — overlay persistence and verdict taxonomy (FIX C, D, E).** 6. Go: add the `mandalaAdmissions` collection + `GET /admin/admission/:txid`
+(new work — currently absent entirely). 7. TS: add `outputsToAdmit` to the existing `AdmissionRecord`; make the
+persistence write awaited, not fire-and-forget. 8. Both: sign from applied-transaction-store proof on the dupe path / a
+missing record (FIX C). 9. Go: reclassify every non-policy `Submit` error to `503 ERR_UNAVAILABLE`
+before `errorResponse` (`submit.go`). 10. TS: capture the topic manager's own rejection reason before the pinned
+engine's dupe-path swallow (repo-local capture). **[ts-stack PR, try
+repo-local first]** if impossible without patching `Engine.js`. 11. Both: `evictTx`/its TS equivalent restores inputs (FIX E), persisting the
+pre-spend snapshot on the admission record; require a non-empty Arcade
+callback token whenever eviction is wired.
 
 **Phase 2 — wallet stores and drain (FIX F, G, I; depends on Phase 0–1 for
-anything it submits to actually be trustworthy).**
-12. Migration: four new tables (§4.1).
-13. `PaymentFrame` v4 codec change (§2.1) — additive to the existing v3
-    codec module, version-fenced.
-14. `postTokenStep` + `processOfflineActions` branch (§4.3).
-15. `finalizeDelivery` never broadcasts a token frame (§4.3, guard #1).
-16. `attemptToPostReqsToNetwork` holds token reqs regardless of online (§4.3,
-    guard #2). Wiring test for guard #3 (`TaskSendWaiting` never sees a
-    token req at `unsent`/`sending`).
-17. `holdSentPaymentOffline`'s `parked→handed_over` advancing UPDATE (§4.4).
-18. `token_settlements` independent retry ownership (FIX I, §4.6).
+anything it submits to actually be trustworthy).** 12. Migration: four new tables (§4.1). 13. `PaymentFrame` v4 codec change (§2.1) — additive to the existing v3
+codec module, version-fenced. 14. `postTokenStep` + `processOfflineActions` branch (§4.3). 15. `finalizeDelivery` never broadcasts a token frame (§4.3, guard #1). 16. `attemptToPostReqsToNetwork` holds token reqs regardless of online (§4.3,
+guard #2). Wiring test for guard #3 (`TaskSendWaiting` never sees a
+token req at `unsent`/`sending`). 17. `holdSentPaymentOffline`'s `parked→handed_over` advancing UPDATE (§4.4). 18. `token_settlements` independent retry ownership (FIX I, §4.6).
 
-**Phase 3 — verification and UX (depends on Phase 2).**
-19. `COVER`/`Admitted` verifier (§1.2), with the SQL recursive-CTE
-    implementation (§4.1) and a pure, storage-independent unit-testable core
-    (per evidence-bundle's own "one pure verifier... test vectors" goal —
-    keep the `walk()` logic in a module with no SQLite dependency; the CTE is
-    an optimization over the same logic, not a second implementation to keep
-    in sync).
-20. FIX H verification of counterparty-supplied σ everywhere it's consumed.
-21. FIX J overlay-checked cancel.
-22. §9's edits to `design-final-ux.md` land as an actual diff to that file.
-23. §8's `MandalaTokenModule` + basket rename + one-time migration.
-24. Failure-matrix copy (§6) wired into `classifyTokenSendError`/
-    `ConsequenceNote`/`ResultBanner` per the existing i18n-key discipline.
+**Phase 3 — verification and UX (depends on Phase 2).** 19. `COVER`/`Admitted` verifier (§1.2), with the SQL recursive-CTE
+implementation (§4.1) and a pure, storage-independent unit-testable core
+(per evidence-bundle's own "one pure verifier... test vectors" goal —
+keep the `walk()` logic in a module with no SQLite dependency; the CTE is
+an optimization over the same logic, not a second implementation to keep
+in sync). 20. FIX H verification of counterparty-supplied σ everywhere it's consumed. 21. FIX J overlay-checked cancel. 22. §9's edits to `design-final-ux.md` land as an actual diff to that file. 23. §8's `MandalaTokenModule` + basket rename + one-time migration. 24. Failure-matrix copy (§6) wired into `classifyTokenSendError`/
+`ConsequenceNote`/`ResultBanner` per the existing i18n-key discipline.
 
 Nothing in Phases 2–3 requires a ts-stack PR — every wallet-side and
 repo-local-overlay change is additive to code this repo owns outright.
@@ -1593,7 +1581,7 @@ repo-local-overlay change is additive to code this repo owns outright.
 ## 11. Open questions for the maintainer
 
 1. **σ_I message-format break (§3.1) has no live traffic to migrate, but
-   confirm the timing:** should the digest change land in the *same* PR as
+   confirm the timing:** should the digest change land in the _same_ PR as
    the reject-not-skip fix (Phase 0), or is there a reason to sequence them
    separately? This spec assumes they ship together since FIX A is two
    halves of one fix.
@@ -1620,7 +1608,7 @@ repo-local-overlay change is additive to code this repo owns outright.
    both say it must be awaited) — is this an in-flight edit from unrelated
    work in this session, or a real defect to fix before Phase 0 ships? It
    directly undermines the payer's-optional-submit crash-safety argument
-   this spec's §5 leans on for the *online lib* path (as opposed to the
+   this spec's §5 leans on for the _online lib_ path (as opposed to the
    nearby-rail path, which uses the wallet's own `token_settlements` durable
    state and is unaffected either way).
 7. **`token_admission_edges`/`token_admissions` retention** — store-centric's
@@ -1641,7 +1629,7 @@ repo-local-overlay change is additive to code this repo owns outright.
 
 Answers to §11, in order. All eight questions are resolved; none remain open.
 
-1. **Digest timing (§11.1).** The σ_I digest change ships in the *same*
+1. **Digest timing (§11.1).** The σ*I digest change ships in the \_same*
    change as the reject-not-skip fix. FIX A is two halves of one fix and is
    not sequenced apart.
 2. **ts-stack escalation policy (§11.2).** Repo-local wrapper first, in both
@@ -1736,7 +1724,7 @@ Root causes and the rules that now hold:
    storage hold. `holdTokenReqsForDrain()` + the `processUnsent` patch hold every
    request with a `token_settlements` row.
 4. **The lib never broadcasts in this host.** `reconcileWallet(wallet, { sweep: false,
-   broadcast: false })`: the lib may re-submit its journaled bytes (idempotent) but the
+broadcast: false })`: the lib may re-submit its journaled bytes (idempotent) but the
    drain's `postTokenStep` is the only broadcaster and clears the journal entry.
 5. Silent stalls (`cover` incomplete, `/submit` unavailable, a step that did not move
    the row) are logged with their reason.

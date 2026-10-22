@@ -29,7 +29,9 @@ beforeEach(async () => {
   await createTables(adapt(raw) as never)
   store = createContactsStore(adapt(raw) as unknown as ContactsDb)
   const now = new Date().toISOString()
-  raw.prepare('INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (?, ?, ?, ?)').run(USER, now, now, 'ff'.repeat(32))
+  raw
+    .prepare('INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (?, ?, ?, ?)')
+    .run(USER, now, now, 'ff'.repeat(32))
   await store.createContact({ userId: USER, identityKey: KEY_A, name: 'Ana', source: 'manual' })
   await store.createContact({ userId: USER, identityKey: KEY_B, name: 'Ben', source: 'manual' })
 })
@@ -73,7 +75,9 @@ it('adds the columns to a table that predates them, keeping its rows as before',
   old.exec(`CREATE TABLE contacts (contactId INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
     userId INTEGER NOT NULL, identityKey TEXT NOT NULL, name TEXT NOT NULL, cachedHandle TEXT, cachedAvatarUrl TEXT,
     cachedCertifier TEXT, source TEXT NOT NULL DEFAULT 'manual')`)
-  old.prepare('INSERT INTO contacts (created_at, updated_at, userId, identityKey, name) VALUES (?, ?, ?, ?, ?)').run('t', 't', USER, KEY_A, 'Old')
+  old
+    .prepare('INSERT INTO contacts (created_at, updated_at, userId, identityKey, name) VALUES (?, ?, ?, ?, ?)')
+    .run('t', 't', USER, KEY_A, 'Old')
   await ensureContactsColumns(adapt(old) as never)
   await ensureContactsColumns(adapt(old) as never) // idempotent
   const s = createContactsStore(adapt(old) as unknown as ContactsDb)

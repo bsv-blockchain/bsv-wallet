@@ -66,7 +66,7 @@ describe('XQ-008: purgeRegisteredDbFiles deletes every registered wallet db and 
     expect(deleted).toEqual([CURRENT_DB])
   })
 
-  it('does not touch a different identity/chain\'s registry', async () => {
+  it("does not touch a different identity/chain's registry", async () => {
     const otherDb = `wallet-cafebabe-${CHAIN}net-1700000000.db`
     await registerDb('cafebabe', CHAIN, otherDb)
 
@@ -100,7 +100,7 @@ describe('XQ-008: purgeRegisteredDbFiles deletes every registered wallet db and 
 })
 
 describe('purgeIdentityDbFiles: Delete Wallet reaches every profile on every network', () => {
-  it('deletes and unregisters every chain\'s files for that identity only', async () => {
+  it("deletes and unregisters every chain's files for that identity only", async () => {
     const files = {
       main: `wallet-${KEY_SUFFIX}-mainnet-1700000000.db`,
       test: `wallet-${KEY_SUFFIX}-testnet-1700000000.db`,
@@ -167,7 +167,7 @@ describe('purgeIdentityDbFiles for a removed profile', () => {
   })
 
   it.each([
-    ["Android", "Database 'a.db' not found"],
+    ['Android', "Database 'a.db' not found"],
     ['iOS', 'Database /var/mobile/Containers/Data/SQLite/a.db not found']
   ])('a file that is already gone (%s) counts as deleted, and its entry goes', async (_platform, message) => {
     await registerDb(KEY_SUFFIX, 'main', 'a.db')

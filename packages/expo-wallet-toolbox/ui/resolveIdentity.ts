@@ -52,9 +52,7 @@ export async function resolveAvatarURL(urls: (string | undefined)[]): Promise<st
 }
 
 /** Folds several certificates into one record, first non-empty value winning. */
-export async function mergeIdentityRecords(
-  records: DisplayableIdentity[]
-): Promise<DisplayableIdentity | null> {
+export async function mergeIdentityRecords(records: DisplayableIdentity[]): Promise<DisplayableIdentity | null> {
   const merged = records.reduce<DisplayableIdentity | null>((acc, cur) => {
     if (!acc) return cur
     return {
@@ -99,10 +97,7 @@ export async function resolveIdentity(
  * without going through `resolveAvatarURL` first — gate it the same way here
  * (XR-073 / SEC2-057, SEC2-076).
  */
-export async function searchIdentities(
-  idClient: IdentityClient,
-  text: string
-): Promise<DisplayableIdentity[]> {
+export async function searchIdentities(idClient: IdentityClient, text: string): Promise<DisplayableIdentity[]> {
   const results = await idClient.resolveByAttributes({
     attributes: { any: text.trim() },
     limit: 5,

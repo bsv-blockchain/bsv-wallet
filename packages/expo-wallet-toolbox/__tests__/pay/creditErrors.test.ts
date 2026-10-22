@@ -29,9 +29,9 @@ describe('classifyCreditError', () => {
     )
   })
   it('classifies AtomicBEEF while headers missed as environmental', () => {
-    expect(classifyCreditError(new Error('The tx parameter must be valid AtomicBEEF'), { lastMissHeight: 900000 })).toBe(
-      'environmental'
-    )
+    expect(
+      classifyCreditError(new Error('The tx parameter must be valid AtomicBEEF'), { lastMissHeight: 900000 })
+    ).toBe('environmental')
   })
   it('classifies a missing derivation as structural', () => {
     expect(classifyCreditError(new Error("Cannot read property 'derivationPrefix' of undefined"))).toBe('structural')
@@ -65,12 +65,9 @@ describe('classifyCreditError', () => {
     'database-locked',
     'failed to retrieve messages',
     'Payment not found on refresh'
-  ])(
-    'classifies %s as environmental',
-    msg => {
-      expect(classifyCreditError(new Error(msg))).toBe('environmental')
-    }
-  )
+  ])('classifies %s as environmental', msg => {
+    expect(classifyCreditError(new Error(msg))).toBe('environmental')
+  })
 })
 
 describe('failedPostReason', () => {

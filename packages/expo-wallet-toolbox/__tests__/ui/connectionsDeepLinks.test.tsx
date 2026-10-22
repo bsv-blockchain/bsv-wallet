@@ -59,7 +59,9 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
     return { origin: u.origin, originator: u.host }
   },
   connectionStore: {
-    get connections() { return mockConnections },
+    get connections() {
+      return mockConnections
+    },
     setStatus: (...args: unknown[]) => mockSetConnectionStatus(...args),
     stageAuthorityTag: (...args: unknown[]) => mockStageAuthorityTag(...args),
     discardStagedAuthorityTag: (...args: unknown[]) => mockDiscardStagedAuthorityTag(...args),
@@ -158,7 +160,11 @@ it.each(['https', 'unrelated-app'])('rejects a pasted pairing URI from the %s sc
 
   fireEvent.press(screen.getByText('paste_uri'))
 
-  await waitFor(() => expect(mockToast).toHaveBeenCalledWith(expect.stringContaining('Not a bsv-wallet:// or bsv-browser:// URI'), { type: 'error' }))
+  await waitFor(() =>
+    expect(mockToast).toHaveBeenCalledWith(expect.stringContaining('Not a bsv-wallet:// or bsv-browser:// URI'), {
+      type: 'error'
+    })
+  )
   expect(mockConnect).not.toHaveBeenCalled()
 })
 
@@ -169,7 +175,9 @@ it.each(['bsv-wallet', 'bsv-browser'])('retains required-field validation for %s
 
   fireEvent.press(screen.getByText('paste_uri'))
 
-  await waitFor(() => expect(mockToast).toHaveBeenCalledWith(expect.stringContaining('missing required fields'), { type: 'error' }))
+  await waitFor(() =>
+    expect(mockToast).toHaveBeenCalledWith(expect.stringContaining('missing required fields'), { type: 'error' })
+  )
   expect(mockConnect).not.toHaveBeenCalled()
 })
 
@@ -191,17 +199,21 @@ it('validates a stored revocation session before opening its canonical relay soc
 
   fireEvent.press(screen.getByText('disconnect'))
 
-  await waitFor(() => expect(mockWebSocketConstructor).toHaveBeenCalledWith(
-    'wss://relay.example/ws?topic=stored-session&role=mobile'
-  ))
+  await waitFor(() =>
+    expect(mockWebSocketConstructor).toHaveBeenCalledWith('wss://relay.example/ws?topic=stored-session&role=mobile')
+  )
   expect(mockGetIdentityKey).toHaveBeenCalledWith({ identityKey: true })
   const ws = mockWebSockets[0]
-  await act(async () => { await ws.onopen() })
-  expect(mockEncrypt).toHaveBeenCalledWith(expect.objectContaining({
-    protocolID: [0, 'mobile wallet session'],
-    keyID: 'stored-session',
-    counterparty: '02' + GENERATOR_X
-  }))
+  await act(async () => {
+    await ws.onopen()
+  })
+  expect(mockEncrypt).toHaveBeenCalledWith(
+    expect.objectContaining({
+      protocolID: [0, 'mobile wallet session'],
+      keyID: 'stored-session',
+      counterparty: '02' + GENERATOR_X
+    })
+  )
   expect(ws.send).toHaveBeenCalledTimes(1)
 })
 
@@ -349,24 +361,24 @@ it('XR-027: verifies the authority tag with the reserved namespace, keyed by the
  * ever called -- using the reserved namespace and the admin originator, not
  * the site-scoped wallet handed to connect().
  */
-it.each(['bsv-wallet', 'bsv-browser'])('XR-027: stages an authority tag before connecting a pasted %s URI', async scheme => {
-  const params = pairingParams()
-  mockClipboard.mockResolvedValue(`${scheme}://pair?${new URLSearchParams(params)}`)
-  const screen = render(<ConnectionsScreen />)
+it.each(['bsv-wallet', 'bsv-browser'])(
+  'XR-027: stages an authority tag before connecting a pasted %s URI',
+  async scheme => {
+    const params = pairingParams()
+    mockClipboard.mockResolvedValue(`${scheme}://pair?${new URLSearchParams(params)}`)
+    const screen = render(<ConnectionsScreen />)
 
-  fireEvent.press(screen.getByText('paste_uri'))
+    fireEvent.press(screen.getByText('paste_uri'))
 
-  await waitFor(() => expect(mockStageAuthorityTag).toHaveBeenCalledTimes(1))
-  expect(mockCreateHmac).toHaveBeenCalledWith(
-    expect.objectContaining({ protocolID: [2, 'connection authority'], keyID: params.topic, counterparty: 'self' }),
-    'admin.test'
-  )
-  expect(mockStageAuthorityTag).toHaveBeenCalledWith(
-    params.topic,
-    Buffer.from([9, 9, 9]).toString('base64url')
-  )
-  // Staged strictly BEFORE connect() is invoked, from the mock call order.
-  const stageOrder = mockStageAuthorityTag.mock.invocationCallOrder[0]
-  const connectOrder = mockConnect.mock.invocationCallOrder[0]
-  expect(stageOrder).toBeLessThan(connectOrder)
-})
+    await waitFor(() => expect(mockStageAuthorityTag).toHaveBeenCalledTimes(1))
+    expect(mockCreateHmac).toHaveBeenCalledWith(
+      expect.objectContaining({ protocolID: [2, 'connection authority'], keyID: params.topic, counterparty: 'self' }),
+      'admin.test'
+    )
+    expect(mockStageAuthorityTag).toHaveBeenCalledWith(params.topic, Buffer.from([9, 9, 9]).toString('base64url'))
+    // Staged strictly BEFORE connect() is invoked, from the mock call order.
+    const stageOrder = mockStageAuthorityTag.mock.invocationCallOrder[0]
+    const connectOrder = mockConnect.mock.invocationCallOrder[0]
+    expect(stageOrder).toBeLessThan(connectOrder)
+  }
+)

@@ -19,7 +19,7 @@ metadata that exists only in the local SQLite database:
   suffix persisted only in the DB
   (`@bsv/wallet-toolbox-mobile/out/src/storage/methods/createAction.js`).
 - Received BRC-29 outputs carry `senderIdentityKey`, `derivationPrefix` and
-  `derivationSuffix` chosen by the *sender*
+  `derivationSuffix` chosen by the _sender_
   (`.../storage/schema/tables/TableOutput.d.ts:21-23`).
 - No rescan or reconstruct-from-chain path exists anywhere in `StorageProvider`.
 
@@ -58,7 +58,7 @@ silence:
   deletes the whole log (`DELETE /v1/account`).
 - Do not present this as a substitute for the mnemonic. The log is useless without the
   seed or shares, and the UI must not imply otherwise — that misconception would make
-  users *less* likely to keep their paper backup, actively worsening the situation.
+  users _less_ likely to keep their paper backup, actively worsening the situation.
 
 If the preference is opt-in instead, everything else in this design is unchanged; only the
 default flips and the expected coverage drops sharply.
@@ -67,18 +67,18 @@ default flips and the expected coverage drops sharply.
 
 ## Decisions
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| Transport of DB state | Toolbox `SyncChunk` deltas | Incremental and chunked by construction |
-| Server role | Opaque append-only blob log | Not a storage provider; cannot read anything |
-| Encryption | `wallet.encrypt`, `counterparty: 'self'` | Verified: server decrypt fails |
-| Server identity of a user | The authenticated AuthFetch key, which is a derived pseudonym | No user-supplied identity field anywhere |
-| Server language/stack | Go, `go-sdk` + `go-bsv-middleware`, chi | House convention |
-| Blob persistence | Postgres `bytea` behind a `BlobStore` interface | Transactional generation swaps; S3 seam preserved |
-| Retention | Keep 2 generations, never idle-expire | Deleting an idle backup destroys exactly the user who lost their phone |
-| Deployment | Single instance, `SessionManager` seam for later | Backup traffic is tiny and latency-insensitive |
-| Client SDK | `@bsv/sdk` 2.4.0 only, no 2.1.9 path | Raw binary upload; 2.1.9's AuthFetch cannot send it |
-| Payments | Free for v1; paid variant under review | See open questions |
+| Decision                  | Choice                                                        | Rationale                                                              |
+| ------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Transport of DB state     | Toolbox `SyncChunk` deltas                                    | Incremental and chunked by construction                                |
+| Server role               | Opaque append-only blob log                                   | Not a storage provider; cannot read anything                           |
+| Encryption                | `wallet.encrypt`, `counterparty: 'self'`                      | Verified: server decrypt fails                                         |
+| Server identity of a user | The authenticated AuthFetch key, which is a derived pseudonym | No user-supplied identity field anywhere                               |
+| Server language/stack     | Go, `go-sdk` + `go-bsv-middleware`, chi                       | House convention                                                       |
+| Blob persistence          | Postgres `bytea` behind a `BlobStore` interface               | Transactional generation swaps; S3 seam preserved                      |
+| Retention                 | Keep 2 generations, never idle-expire                         | Deleting an idle backup destroys exactly the user who lost their phone |
+| Deployment                | Single instance, `SessionManager` seam for later              | Backup traffic is tiny and latency-insensitive                         |
+| Client SDK                | `@bsv/sdk` 2.4.0 only, no 2.1.9 path                          | Raw binary upload; 2.1.9's AuthFetch cannot send it                    |
+| Payments                  | Free for v1; paid variant under review                        | See open questions                                                     |
 
 ---
 
@@ -165,7 +165,7 @@ protocol-permission prompts or spending-authorization gates.
 Verified empirically against `go-sdk`: a client encrypting with `CounterpartyTypeSelf`
 produces ciphertext the server cannot decrypt even while holding the client's public key
 (`cipher: message authentication failed`). With `CounterpartyTypeOther{serverKey}` the
-server *can* decrypt via ECDH.
+server _can_ decrypt via ECDH.
 
 The blindness is a property of one enum value chosen by the client. The server's job is
 to be structurally unable to help: no identity field in any request, no decrypt path, no
@@ -198,7 +198,7 @@ Call `getSyncChunk` **directly on the local provider**, not through
 `WalletStorageManager`. Reasons:
 
 - `updateBackups`/`syncToWriter` take the manager's sync lock via `runAsSync`, blocking
-  all reads *and* writes to active storage for the duration — against the standing
+  all reads _and_ writes to active storage for the duration — against the standing
   no->100ms-JS-block goal.
 - Registering a remote as a backup store hits the `_conflictingActives` trap: a fresh
   remote user gets `activeStorage = <remote's own key>`, so `isActiveEnabled` goes false
@@ -236,7 +236,7 @@ all-bytes case and a non-byte numeric array.
 Because the server stores opaque bytes and never parses payloads, the serialization
 format is a purely client-internal choice with no interop constraint.
 
-**Compression is optional and deferred.** If used it must happen *before* encryption,
+**Compression is optional and deferred.** If used it must happen _before_ encryption,
 since ciphertext is incompressible. But no compression library is currently a dependency
 (`pako` and `fflate` are both absent), and the gain is modest: the payload is dominated by
 transaction bytes — hashes, keys and signatures — which are high-entropy and barely
@@ -260,7 +260,7 @@ prerequisite (see below), not a nice-to-have.
 The reason it is version-gated is worth recording, because it is not obvious and someone
 will otherwise try to backport. On `2.1.9`, `AuthFetch.normalizeBodyToNumberArray`
 (`dist/cjs/src/auth/clients/AuthFetch.js:724-745`) tests `typeof body === 'object'` as its
-*first* branch and returns `Utils.toArray(JSON.stringify(body))`. Arrays, `Uint8Array`,
+_first_ branch and returns `Utils.toArray(JSON.stringify(body))`. Arrays, `Uint8Array`,
 `ArrayBuffer`, `Blob`, `FormData` and `URLSearchParams` are all `typeof 'object'`, so every
 subsequent binary branch is dead code and a `Uint8Array` body is serialized as
 `{"0":12,"1":255,…}`.
@@ -292,9 +292,11 @@ chunks), or cumulative bytes exceed a multiple of the last full snapshot.
 
 ```ts
 class EncryptedRemoteSyncReader implements WalletStorageSyncReader {
-  async makeAvailable(): Promise<TableSettings> { /* from the manifest */ }
+  async makeAvailable(): Promise<TableSettings> {
+    /* from the manifest */
+  }
   async getSyncChunk(args: RequestSyncChunkArgs): Promise<SyncChunk> {
-    const blob = await this.fetchNext()          // GET /v1/log/{device}/{seq}
+    const blob = await this.fetchNext() // GET /v1/log/{device}/{seq}
     const plain = inflate(await this.wallet.decrypt({ ciphertext: blob, ...proto }))
     return parseJsonRpc(plain, /* binary */ true)
   }
@@ -438,13 +440,13 @@ The pseudonymous `CompletedProtoWallet` cannot fund anything — `createAction` 
 `not implemented` — so the user's real wallet must pay. What that hands the server:
 
 - **The BEEF is the leak, not the sender key.** `x-bsv-beef` carries each input's ancestry
-  back to a proof, which means one or more *complete prior transactions of the user's
-  wallet* — the bytes, not references. Delivered inside a request BRC-104 has
+  back to a proof, which means one or more _complete prior transactions of the user's
+  wallet_ — the bytes, not references. Delivered inside a request BRC-104 has
   cryptographically bound to the pseudonym, it is a signed assertion that this pseudonym
   controls these outpoints. BRC-228 does not touch this.
-- **Change chaining collapses the pseudonym.** Payment *n*'s change funds payment *n+1*,
+- **Change chaining collapses the pseudonym.** Payment _n_'s change funds payment _n+1_,
   so after two payments the operator can walk the wallet forward indefinitely with any
-  public indexer. Change *amounts* additionally disclose balance and balance trajectory,
+  public indexer. Change _amounts_ additionally disclose balance and balance trajectory,
   which is close to a unique fingerprint at this user-base size.
 - **A cross-service join needs no chain analysis at all.** This app already sends the real
   identity key in cleartext as `x-bsv-sender` to ordinary BRC-121 merchants
@@ -489,7 +491,7 @@ to one person.
 
 IP is the real residual and it is not small: a phone's IP is geolocatable,
 ISP-attributable, and often stable enough within a session to individuate. Any claim that
-this design achieves unlinkability against *this* operator is overselling it. What it does
+this design achieves unlinkability against _this_ operator is overselling it. What it does
 buy is that the correlation is a policy failure rather than an architectural fact.
 
 ### The pseudonym, honestly
@@ -498,7 +500,7 @@ BRC-103 is transport-level mutual auth: the server necessarily learns the public
 authenticated. There is no configuration that authenticates a caller without revealing
 their key.
 
-Therefore any scheme where the server computes a pseudonym *from* the user's real identity
+Therefore any scheme where the server computes a pseudonym _from_ the user's real identity
 key is theatre — the server holds both on every request. The only construction that works
 is the one above: **the AuthFetch identity itself is a derived key**, so the real identity
 key never touches the wire. The server writes `pseudonym := identityKey.ToDERHex()` and
@@ -525,15 +527,15 @@ Base path `/v1`. Everything except `/health` and `/.well-known/auth` sits inside
 group. `{deviceId}` is a client-generated opaque `[a-f0-9]{32}`. `seq` is 1-based and
 contiguous per `(pseudonym, deviceId, generation)`.
 
-| Method | Path | Success | Errors |
-|---|---|---|---|
-| `GET` | `/health` | `200 {"status":"ok"}` | `503` |
-| `GET` | `/v1/manifest` | `200` device + generation list | `401` |
-| `POST` | `/v1/log/{deviceId}` | `201 {"seq":N,"sha256":"…"}` | `400 ERR_INVALID_JSON`, `401 ERR_AUTH_REQUIRED`, `409 ERR_SEQ_CONFLICT`, `413 ERR_BLOB_TOO_LARGE`, `429 ERR_RATE_LIMITED`, `507 ERR_QUOTA_EXCEEDED` |
-| `GET` | `/v1/log/{deviceId}` | `200` index (`from`, `limit`) | `401`, `404 ERR_DEVICE_NOT_FOUND` |
-| `GET` | `/v1/log/{deviceId}/{seq}` | `200 application/octet-stream` | `401`, `404 ERR_BLOB_NOT_FOUND` |
-| `DELETE` | `/v1/generation/{deviceId}/{generation}` | `204` | `401`, `404`, `409` |
-| `DELETE` | `/v1/account` | `200 {"deleted":N}` | `401`, `500` |
+| Method   | Path                                     | Success                        | Errors                                                                                                                                              |
+| -------- | ---------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/health`                                | `200 {"status":"ok"}`          | `503`                                                                                                                                               |
+| `GET`    | `/v1/manifest`                           | `200` device + generation list | `401`                                                                                                                                               |
+| `POST`   | `/v1/log/{deviceId}`                     | `201 {"seq":N,"sha256":"…"}`   | `400 ERR_INVALID_JSON`, `401 ERR_AUTH_REQUIRED`, `409 ERR_SEQ_CONFLICT`, `413 ERR_BLOB_TOO_LARGE`, `429 ERR_RATE_LIMITED`, `507 ERR_QUOTA_EXCEEDED` |
+| `GET`    | `/v1/log/{deviceId}`                     | `200` index (`from`, `limit`)  | `401`, `404 ERR_DEVICE_NOT_FOUND`                                                                                                                   |
+| `GET`    | `/v1/log/{deviceId}/{seq}`               | `200 application/octet-stream` | `401`, `404 ERR_BLOB_NOT_FOUND`                                                                                                                     |
+| `DELETE` | `/v1/generation/{deviceId}/{generation}` | `204`                          | `401`, `404`, `409`                                                                                                                                 |
+| `DELETE` | `/v1/account`                            | `200 {"deleted":N}`            | `401`, `500`                                                                                                                                        |
 
 `DELETE /v1/account` is erasure on request (GDPR Art. 17): every generation for the
 authenticated pseudonym, across every device, ignoring the retained window that
@@ -643,14 +645,14 @@ so a Postgres-backed implementation is a drop-in when a second replica is needed
 
 ## Risks
 
-| Risk | Mitigation |
-|---|---|
-| Sync path has never executed in this app | Build restore test-first; treat as greenfield |
-| Derivation constants change | Freeze in a versioned constants file with a test |
-| Monitor task blocks the JS thread | `InteractionManager` + rate limit; small chunks |
-| First full snapshot is large on cellular | 512 KB chunks; resumable via `seq`; defer to unmetered where detectable |
-| Blob log forked across two devices | `prevSha256` chain + per-device logs; restore picks one device |
-| Someone adds 402 later | Documented as a privacy invariant, not a preference |
+| Risk                                                 | Mitigation                                                                                              |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Sync path has never executed in this app             | Build restore test-first; treat as greenfield                                                           |
+| Derivation constants change                          | Freeze in a versioned constants file with a test                                                        |
+| Monitor task blocks the JS thread                    | `InteractionManager` + rate limit; small chunks                                                         |
+| First full snapshot is large on cellular             | 512 KB chunks; resumable via `seq`; defer to unmetered where detectable                                 |
+| Blob log forked across two devices                   | `prevSha256` chain + per-device logs; restore picks one device                                          |
+| Someone adds 402 later                               | Documented as a privacy invariant, not a preference                                                     |
 | SDK 2.4.0 upgrade destabilises the native-secp patch | Own branch, own verification pass, existing suite as the net. Blocking: there is no 2.1.9 fallback path |
 
 ---

@@ -37,7 +37,7 @@ export const u8ToHex = (u: Uint8Array): string => {
   return s
 }
 
-export function readVarint (u: Uint8Array, off: number): [number, number] {
+export function readVarint(u: Uint8Array, off: number): [number, number] {
   const first = u[off]
   if (first < 0xfd) return [first, off + 1]
   if (first === 0xfd) return [u[off + 1] | (u[off + 2] << 8), off + 3]
@@ -47,7 +47,7 @@ export function readVarint (u: Uint8Array, off: number): [number, number] {
   throw new Error('varint 0xff input count not expected in fixtures')
 }
 
-export function writeVarint (v: number, out: number[]): void {
+export function writeVarint(v: number, out: number[]): void {
   if (v < 0xfd) {
     out.push(v)
   } else if (v <= 0xffff) {
@@ -58,23 +58,36 @@ export function writeVarint (v: number, out: number[]): void {
 }
 
 /** Read 8 raw LE bytes as a BigInt (never loses precision, unlike the u64→Number decode below). */
-function readU64LEBig (u: Uint8Array, off: number): bigint {
+function readU64LEBig(u: Uint8Array, off: number): bigint {
   let v = 0n
   for (let k = 7; k >= 0; k--) v = (v << 8n) | BigInt(u[off + k])
   return v
 }
 
-function writeU64LE (dv: DataView, off: number, v: number): void {
+function writeU64LE(dv: DataView, off: number, v: number): void {
   dv.setUint32(off, v % 0x100000000, true)
   dv.setUint32(off + 4, Math.floor(v / 0x100000000), true)
 }
 
 // ── fixture parsing ───────────────────────────────────────────────────────
 
-export interface FixtureMetaRec { priv: number[]; sats: number; scope: number; lock: number[] }
+export interface FixtureMetaRec {
+  priv: number[]
+  sats: number
+  scope: number
+  lock: number[]
+}
 
-interface FixtureSkeletonInput { txidHex: string; vout: number; seq: number }
-interface FixtureSkeletonOutput { sats: number; script: number[]; satsOffset: number }
+interface FixtureSkeletonInput {
+  txidHex: string
+  vout: number
+  seq: number
+}
+interface FixtureSkeletonOutput {
+  sats: number
+  script: number[]
+  satsOffset: number
+}
 interface FixtureSkeleton {
   version: number
   lockTime: number
@@ -88,7 +101,7 @@ interface FixtureSkeleton {
  * output's 8-byte LE satoshis field within the skeleton, used by
  * `rescaleFixtureInRange` to rewrite amounts in place.
  */
-function parseSkeleton (unsignedHex: string): FixtureSkeleton {
+function parseSkeleton(unsignedHex: string): FixtureSkeleton {
   const raw = hexToU8(unsignedHex)
   const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
   const version = dv.getUint32(0, true)
@@ -124,10 +137,12 @@ function parseSkeleton (unsignedHex: string): FixtureSkeleton {
   return { version, lockTime, ins, outs }
 }
 
-interface RawMetaRecord extends FixtureMetaRec { satsOffset: number }
+interface RawMetaRecord extends FixtureMetaRec {
+  satsOffset: number
+}
 
 /** Parse a fixture's 73B-record inputsMeta hex into input index → record. */
-function parseMetaRecords (metaHex: string): Map<number, RawMetaRecord> {
+function parseMetaRecords(metaHex: string): Map<number, RawMetaRecord> {
   const metaBytes = hexToU8(metaHex)
   if (metaBytes.length % 73 !== 0) throw new Error('fixture meta not 73B records')
   const metas = new Map<number, RawMetaRecord>()
@@ -160,7 +175,7 @@ function parseMetaRecords (metaHex: string): Map<number, RawMetaRecord> {
  * constructor call earlier. `addInput` performs no satoshi validation, so it
  * is used normally.
  */
-export function txFromFixture (unsignedHex: string, metaHex: string): Transaction {
+export function txFromFixture(unsignedHex: string, metaHex: string): Transaction {
   const { version, lockTime, ins, outs } = parseSkeleton(unsignedHex)
   const metas = parseMetaRecords(metaHex)
 
@@ -180,7 +195,11 @@ export function txFromFixture (unsignedHex: string, metaHex: string): Transactio
       sourceOutputIndex: ins[i].vout,
       sequence: ins[i].seq,
       unlockingScriptTemplate: p2pkh.unlock(
-        new PrivateKey(m.priv), signOutputs, anyoneCanPay, m.sats, LockingScript.fromBinary(m.lock)
+        new PrivateKey(m.priv),
+        signOutputs,
+        anyoneCanPay,
+        m.sats,
+        LockingScript.fromBinary(m.lock)
       )
     })
   }
@@ -199,14 +218,17 @@ export function txFromFixture (unsignedHex: string, metaHex: string): Transactio
 export const MAX_SATOSHIS = 2_100_000_000_000_000
 
 /** Mirrors `requireSatoshiAmount` / `requireSatoshis`: safe integer in [0, MAX_SATOSHIS]. */
-function amountInRange (v: number): boolean {
+function amountInRange(v: number): boolean {
   return Number.isSafeInteger(v) && v >= 0 && v <= MAX_SATOSHIS
 }
 
-export interface FixtureAmounts { inputSats: number[], outputSats: number[] }
+export interface FixtureAmounts {
+  inputSats: number[]
+  outputSats: number[]
+}
 
 /** The exact numbers `txFromFixture` places on inputs' unlock templates and on outputs. */
-export function decodeFixtureAmounts (unsignedHex: string, metaHex: string): FixtureAmounts {
+export function decodeFixtureAmounts(unsignedHex: string, metaHex: string): FixtureAmounts {
   const { ins, outs } = parseSkeleton(unsignedHex)
   const metas = parseMetaRecords(metaHex)
   const inputSats = ins.map((_, i) => {
@@ -214,7 +236,7 @@ export function decodeFixtureAmounts (unsignedHex: string, metaHex: string): Fix
     if (m == null) throw new Error(`fixture meta missing input ${i}`)
     return m.sats
   })
-  return { inputSats, outputSats: outs.map((o) => o.sats) }
+  return { inputSats, outputSats: outs.map(o => o.sats) }
 }
 
 /**
@@ -231,7 +253,7 @@ export function decodeFixtureAmounts (unsignedHex: string, metaHex: string): Fix
  * A fixture failing any of these is exactly a fixture `tx.sign()` will
  * reject under sdk 2.8.
  */
-export function isFixtureInRange (unsignedHex: string, metaHex: string): boolean {
+export function isFixtureInRange(unsignedHex: string, metaHex: string): boolean {
   const { inputSats, outputSats } = decodeFixtureAmounts(unsignedHex, metaHex)
   if (!inputSats.every(amountInRange)) return false
   if (!outputSats.every(amountInRange)) return false
@@ -257,7 +279,10 @@ export function isFixtureInRange (unsignedHex: string, metaHex: string): boolean
  * range too; inputs' source sats are capped individually since sdk 2.8
  * never sums input amounts in `sign()`.
  */
-export function rescaleFixtureInRange (unsignedHex: string, metaHex: string): { unsignedTx: string, inputsMeta: string } {
+export function rescaleFixtureInRange(
+  unsignedHex: string,
+  metaHex: string
+): { unsignedTx: string; inputsMeta: string } {
   const { outs } = parseSkeleton(unsignedHex)
   const metas = parseMetaRecords(metaHex)
 

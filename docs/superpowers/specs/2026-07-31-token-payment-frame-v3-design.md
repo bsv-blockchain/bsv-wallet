@@ -51,7 +51,7 @@ From `@bsv/mandala` 0.1.0 (source `~/git/demos/mandala/lib`, npm-identical),
   `X-Topics: tm_mandala`, `x-includes-off-chain-values: true`, body =
   `varint(beef.length) || beef || offChainValues`. `offChainValues` is the
   UTF-8 JSON of `MandalaLinkagePayload { inputs: [{index, linkage}],
-  outputs: [{index, linkage}] }` — **one `SpecificLinkage` per FT input and
+outputs: [{index, linkage}] }` — **one `SpecificLinkage` per FT input and
   per FT output, verifier = the overlay's identity key**. Acceptance is
   synchronous in the response (`STEAK['tm_mandala'].outputsToAdmit`).
   Gate pattern: `submitAndBroadcast` (reject → `abortAction`; accept →
@@ -69,9 +69,9 @@ From `@bsv/mandala` 0.1.0 (source `~/git/demos/mandala/lib`, npm-identical),
   overlay URL and the overlay identity key (a re-spender needs the verifier
   key offline to mint its own blobs).
 - **Linkage blobs.** `wallet.revealSpecificKeyLinkage({ counterparty,
-  verifier, protocolID: [2, 'mandala token'], keyID })` →
+verifier, protocolID: [2, 'mandala token'], keyID })` →
   `{ encryptedLinkage (80 B), encryptedLinkageProof (49 B), prover,
-  verifier, counterparty, protocolID, keyID, proofType: 0 }`. BRC-72
+verifier, counterparty, protocolID, keyID, proofType: 0 }`. BRC-72
   encryption: only prover and named verifier can decrypt. ~0.9 KB per blob
   as JSON; a 1-input/2-output transfer ≈ 2.7 KB of payload. Consume side:
   `verifyKeyLinkage(linkage, verifierWallet)` in `@bsv/overlay-topics`.
@@ -84,7 +84,7 @@ From `@bsv/mandala` 0.1.0 (source `~/git/demos/mandala/lib`, npm-identical),
   **Pin `@bsv/templates` ≥ 1.8.0** (assetId byte-order break in 1.8.0).
 - **Receiver internalize.** `internalizeAction` with
   `protocol: 'basket insertion'`, `insertionRemittance: { basket,
-  customInstructions, tags }`. The toolbox never inspects the script,
+customInstructions, tags }`. The toolbox never inspects the script,
   credits no satoshis, writes the output `spendable: true, change: false`
   immediately, and the offline hold parity is exact — the same
   `attemptToPostReqsToNetwork` override (`StorageExpoSQLite.ts:1441-1479`)
@@ -164,7 +164,7 @@ Rules:
 
 - `kind` is a discriminator, not optional trailing fields: an unknown kind
   throws `CodecError('unsupported frame kind')`. The `trailing bytes after
-  frame` check is preserved. Frames stay never-forward-compatible.
+frame` check is preserved. Frames stay never-forward-compatible.
 - **The linkage map covers the whole chain.** One entry per unbroadcast
   token transaction in the carried BEEF — the payer's new transfer plus
   every ancestor payload it received in earlier frames. Payloads are the
@@ -209,7 +209,7 @@ would otherwise read a token request's `amount` as satoshis — was
 considered and dropped: the app is not live, no older build exists in the
 field. The general policy still goes in the docs pass: frames are
 strictly versioned; the session JSON is extensible, except a future field
-that changes the meaning of money on a *deployed* format must bump `v`.)
+that changes the meaning of money on a _deployed_ format must bump `v`.)
 
 Capability bits (`session.ts:5-6`): add `CAP_BLE = 0x04`. Wire format
 already accommodates it (caps is a plain number; `selectTransport` masks
@@ -230,8 +230,8 @@ selected by `session.asset`:
 2. Outputs: payee output via
    `MandalaToken.lock(assetId, amount, hash160(derivedKey))` where the
    derivation is `getPublicKey({ protocolID: [2, 'mandala token'],
-   keyID: `${session.derivationPrefix} ${session.derivationSuffix}`,
-   counterparty: session.identityKey })` — mandala's FT protocol with
+keyID: `${session.derivationPrefix} ${session.derivationSuffix}`,
+counterparty: session.identityKey })` — mandala's FT protocol with
    **our payee-minted nonces as the keyID**, preserving the
    frame-to-session binding unchanged. Token change (if any) back to self
    under a self-derived key. 1 satoshi per token output.
@@ -266,7 +266,7 @@ per-frame values; call the facilitator with the explicit URL.
    `session.asset.id` at the settle call site.
 3. Ownership: `decoded.pubKeyHash` equals
    `hash160(getPublicKey({ protocolID: [2, 'mandala token'], keyID:
-   nonces, counterparty: frame.senderIdentityKey, forSelf: true }))` —
+nonces, counterparty: frame.senderIdentityKey, forSelf: true }))` —
    the mirror of the payer derivation, same pattern as the BSV branch.
 4. Return `{ kind: 'token', assetId, amount }`; the settle path binds
    `amount` against `session.amount` (base units) exactly like satoshis
@@ -280,18 +280,23 @@ Credit via the pending queue as today, with the internalize call switched
 per kind (`utils/localpay/pending.ts:138-156`):
 
 ```ts
-outputs: [{
-  outputIndex,
-  protocol: 'basket insertion',
-  insertionRemittance: {
-    basket: 'mandala-tokens',
-    customInstructions: JSON.stringify({
-      protocolID: [2, 'mandala token'], keyID, counterparty: sender,
-      assetId, amount,
-    }),
-    tags: [`mandala_assetid_${assetId}`, `mandala_sender_${sender}`],
-  },
-}]
+outputs: [
+  {
+    outputIndex,
+    protocol: 'basket insertion',
+    insertionRemittance: {
+      basket: 'mandala-tokens',
+      customInstructions: JSON.stringify({
+        protocolID: [2, 'mandala token'],
+        keyID,
+        counterparty: sender,
+        assetId,
+        amount
+      }),
+      tags: [`mandala_assetid_${assetId}`, `mandala_sender_${sender}`]
+    }
+  }
+]
 ```
 
 Offline behavior is identical to the BSV path by construction (same
@@ -360,14 +365,14 @@ trigger in `WalletContext.tsx:1000-1031` is unchanged.)
 
 ## Size budget
 
-| component | bytes |
-|---|---|
-| seal overhead | 49 |
-| v3 header (token, no certs) | ~120 + URL |
-| linkage payload, 1-in/2-out transfer, JSON | ~2,700 per chain tx |
-| recipientLinkage | ~900 |
-| AtomicBEEF | 2–8 KB (BSV, measured by Blitz); grows with unproven ancestry |
-| hard cap (air-gap `MAX_MESSAGE_BYTES`) | 65,536 |
+| component                                  | bytes                                                         |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| seal overhead                              | 49                                                            |
+| v3 header (token, no certs)                | ~120 + URL                                                    |
+| linkage payload, 1-in/2-out transfer, JSON | ~2,700 per chain tx                                           |
+| recipientLinkage                           | ~900                                                          |
+| AtomicBEEF                                 | 2–8 KB (BSV, measured by Blitz); grows with unproven ancestry |
+| hard cap (air-gap `MAX_MESSAGE_BYTES`)     | 65,536                                                        |
 
 A 5-link token chain ≈ BEEF 19 KB + 5×2.7 KB linkage ≈ 33 KB: over the
 Nearby 32 KiB protocol ceiling (falls back to fountain QR by design),
@@ -381,10 +386,10 @@ No live builds exist; there is no migration story to preserve. Dev builds
 refuse each other's formats cleanly by construction (version guards on
 seal, frame, and nothing else needed). Interop rows that matter:
 
-| scenario | behavior |
-|---|---|
-| v3 build, BSV payment | kind 0x01; flow identical to v2 semantics |
-| Blitz BLE session | `CAP_BLE` bit ignored by us, QR floor still common |
+| scenario              | behavior                                           |
+| --------------------- | -------------------------------------------------- |
+| v3 build, BSV payment | kind 0x01; flow identical to v2 semantics          |
+| Blitz BLE session     | `CAP_BLE` bit ignored by us, QR floor still common |
 
 ## Resolved questions (from the mandala reference wallet)
 
@@ -393,7 +398,7 @@ seal, frame, and nothing else needed). Interop rows that matter:
    `lib/src/unlock.ts:42-72`) builds the unlocking script with zero raw
    keys: sighash preimage via `TransactionSignature.format`, then
    `wallet.createSignature({ hashToDirectlySign: hash256(preimage),
-   protocolID: [2, 'mandala token'], keyID, counterparty })`, and the
+protocolID: [2, 'mandala token'], keyID, counterparty })`, and the
    matching pubkey from `getPublicKey({ ..., forSelf: true })` (BRC-42
    symmetry: for tokens locked to us by another party, `counterparty` =
    sender and only the forSelf derivation matches the pkh).
@@ -434,7 +439,7 @@ flow stays BSV-kind until a product decision says otherwise.
    this format only guarantees the slot (opaque `certCount` +
    per-certificate bytes in §2), and the codec never parses them.
 2. **`@bsv/mandala` under Metro/Hermes.** The only `import.meta` use is
-   `constants.ts` (guarded, but Metro can reject the *syntax* at
+   `constants.ts` (guarded, but Metro can reject the _syntax_ at
    transform time). Options, in preference order: (a) depend on the
    package and patch-package the one line if Metro chokes; (b) vendor the
    small pure pieces the frame path needs — `unlock.ts` (72 lines),

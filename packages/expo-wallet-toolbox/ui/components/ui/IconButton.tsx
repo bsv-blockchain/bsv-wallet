@@ -55,10 +55,7 @@ export const IconButton: React.FC<IconButtonProps> = ({
       onLongPress={onLongPress}
       disabled={disabled}
       scaleTo={0.92}
-      style={[
-        styles.container,
-        disabled && styles.disabled
-      ]}
+      style={[styles.container, disabled && styles.disabled]}
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       hitSlop={4}
@@ -82,10 +79,10 @@ const styles = StyleSheet.create({
     width: hitTargets.minimum,
     height: hitTargets.minimum,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'center'
   },
   disabled: {
-    opacity: 0.3,
+    opacity: 0.3
   },
   badge: {
     position: 'absolute',
@@ -96,10 +93,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 4
   },
   badgeText: {
     fontSize: 10,
-    fontWeight: '700',
-  },
+    fontWeight: '700'
+  }
 })

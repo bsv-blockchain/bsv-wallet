@@ -69,7 +69,7 @@ export interface RestoreResult {
 }
 
 /** What the user can choose between when more than one device has a backup. */
-export async function listBackups (deps: {
+export async function listBackups(deps: {
   primaryKey: number[]
   chain: BackupChain
   baseUrl?: string
@@ -89,11 +89,11 @@ export async function listBackups (deps: {
  * result says which way this restore was chosen; the chunk-count check below still runs
  * either way as the last line of defence.
  */
-export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResult> {
+export async function restoreFromBackup(deps: RestoreDeps): Promise<RestoreResult> {
   const client = resolveClient(deps)
   const wallet = deriveBackupWallet(deps.primaryKey, deps.chain)
 
-  const devices = deps.manifest ?? await client.manifest()
+  const devices = deps.manifest ?? (await client.manifest())
   if (devices.length === 0) {
     throw new Error('No backup found for this wallet')
   }
@@ -140,14 +140,17 @@ export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResu
       offsets: []
     })
 
-    const result = await deps.storage.processSyncChunk({
-      identityKey: deps.identityKey,
-      fromStorageIdentityKey: chosen.deviceId,
-      toStorageIdentityKey: settings.storageIdentityKey,
-      maxRoughSize: 0,
-      maxItems: 0,
-      offsets: []
-    }, chunk)
+    const result = await deps.storage.processSyncChunk(
+      {
+        identityKey: deps.identityKey,
+        fromStorageIdentityKey: chosen.deviceId,
+        toStorageIdentityKey: settings.storageIdentityKey,
+        maxRoughSize: 0,
+        maxItems: 0,
+        offsets: []
+      },
+      chunk
+    )
 
     if (result.done) {
       if (chunks < reader.length) throw new Error('Backup replay completed before all indexed chunks were applied')
@@ -179,7 +182,7 @@ export async function restoreFromBackup (deps: RestoreDeps): Promise<RestoreResu
  * which also reconciles notification IDs and preserves completed transactions.
  * Run only after the entire log lands, before the wallet/monitor is published.
  */
-async function reconcileRestoredProofs (storage: StorageExpoSQLite, onActivity?: () => void): Promise<void> {
+async function reconcileRestoredProofs(storage: StorageExpoSQLite, onActivity?: () => void): Promise<void> {
   const limit = 1
   for (let offset = 0; ; offset += limit) {
     if (offset > 0) onActivity?.()
@@ -240,7 +243,7 @@ export interface PickedTarget {
  * newest generation" heuristic, with `verified: false` so the caller can warn rather than
  * silently claim a verified restore.
  */
-export async function pickTarget (
+export async function pickTarget(
   devices: DeviceSummary[],
   client: BackupClient,
   wallet: CompletedProtoWallet,
@@ -303,7 +306,12 @@ export async function pickTarget (
   }
 }
 
-function resolveClient (deps: { primaryKey: number[], chain: BackupChain, baseUrl?: string, client?: BackupClient }): BackupClient {
+function resolveClient(deps: {
+  primaryKey: number[]
+  chain: BackupChain
+  baseUrl?: string
+  client?: BackupClient
+}): BackupClient {
   if (deps.client != null) return deps.client
   if (deps.baseUrl == null || deps.baseUrl === '') {
     throw new Error('restore requires either a client or a baseUrl')

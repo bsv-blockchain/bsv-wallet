@@ -145,8 +145,7 @@ const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
  * OP_INVALIDOPCODE makes the output provably unspendable, so no legitimate
  * caller wants one. Cheap to refuse, and nothing is lost.
  */
-const startsWithInvalidOpcode = (script: unknown): boolean =>
-  typeof script === 'string' && /^ff/i.test(script.trim())
+const startsWithInvalidOpcode = (script: unknown): boolean => typeof script === 'string' && /^ff/i.test(script.trim())
 
 /**
  * Check one call's arguments against the limits.

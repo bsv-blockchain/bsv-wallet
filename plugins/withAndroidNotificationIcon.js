@@ -20,10 +20,10 @@ const DENSITIES = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']
 const SOURCE_DIR = 'assets/images/notification-icon'
 const COLOR_NAME = 'notification_icon_color'
 
-const withIconDrawables = (config) =>
+const withIconDrawables = config =>
   withDangerousMod(config, [
     'android',
-    async (mod) => {
+    async mod => {
       const resDir = path.join(mod.modRequest.platformProjectRoot, 'app/src/main/res')
       for (const density of DENSITIES) {
         const from = path.join(mod.modRequest.projectRoot, SOURCE_DIR, `notification_icon-${density}.png`)
@@ -36,7 +36,7 @@ const withIconDrawables = (config) =>
   ])
 
 const withIconColor = (config, color) =>
-  withAndroidColors(config, (mod) => {
+  withAndroidColors(config, mod => {
     mod.modResults = AndroidConfig.Colors.assignColorValue(mod.modResults, { name: COLOR_NAME, value: color })
     return mod
   })

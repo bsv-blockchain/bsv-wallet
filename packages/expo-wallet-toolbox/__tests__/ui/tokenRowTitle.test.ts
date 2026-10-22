@@ -21,7 +21,13 @@ describe('tokenRowTitle — nearby rail (label localpay)', () => {
       tokenRowTitle({ role: 'sent', ticker: 'USDX', labels: ['localpay', 'mandala'], description: 'Sent token', t })
     ).toBe('token_row_sent:USDX')
     expect(
-      tokenRowTitle({ role: 'received', ticker: 'USDX', labels: ['localpay', 'mandala'], description: 'Received token', t })
+      tokenRowTitle({
+        role: 'received',
+        ticker: 'USDX',
+        labels: ['localpay', 'mandala'],
+        description: 'Received token',
+        t
+      })
     ).toBe('token_row_received:USDX')
   })
 

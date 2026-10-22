@@ -58,8 +58,7 @@ export function tokenRefusalCopy(code: string, ctx: TokenSendContext): TokenSend
   if (has(c, 'recipient', 'allowlist', 'not_allowed', 'blocked', 'registry', 'membership', 'sanction'))
     return { key: 'token_err_refused_recipient', values }
   if (has(c, 'insufficient')) return { key: 'token_err_balance_changed', values }
-  if (has(c, 'busy', 'already in flight', 'in flight'))
-    return { key: 'token_err_busy', values }
+  if (has(c, 'busy', 'already in flight', 'in flight')) return { key: 'token_err_busy', values }
   if (has(c, 'fund', 'insufficient funds', 'not enough satoshis'))
     return { key: 'pay_asset_needs_bsv', values, action: 'get-bsv' }
   return { key: 'token_err_refused', values }

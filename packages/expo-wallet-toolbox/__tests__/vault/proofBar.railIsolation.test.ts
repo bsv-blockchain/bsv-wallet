@@ -175,7 +175,9 @@ function memoryKvStorage(): KVStorage {
   }
 }
 
-async function makeWallet(seed: number): Promise<{ wallet: Wallet; storage: StorageExpoSQLite; keyDeriver: KeyDeriver }> {
+async function makeWallet(
+  seed: number
+): Promise<{ wallet: Wallet; storage: StorageExpoSQLite; keyDeriver: KeyDeriver }> {
   const keyDeriver = new KeyDeriver(new PrivateKey(seed))
   const identityKey = keyDeriver.identityKey
   const storage = new StorageExpoSQLite({
@@ -307,7 +309,8 @@ async function fundGeneralBasket(
     } as never,
     ADMIN
   )
-  if ((result as { accepted?: boolean }).accepted !== true) throw new Error('general-basket funding did not internalize')
+  if ((result as { accepted?: boolean }).accepted !== true)
+    throw new Error('general-basket funding did not internalize')
   return { outpoint: `${txid}.0`, inputBEEF: beef.toBinary() }
 }
 
@@ -358,10 +361,9 @@ async function fundMandalaToken(wallet: Wallet, assetId: string, amount: number)
  * coin or not.
  */
 async function isSpendable(wallet: Wallet, basket: string, outpoint: string): Promise<boolean> {
-  const { outputs } = (await wallet.listOutputs(
-    { basket, limit: 100, offset: 0 } as never,
-    ADMIN
-  )) as { outputs: { outpoint: string; spendable?: boolean }[] }
+  const { outputs } = (await wallet.listOutputs({ basket, limit: 100, offset: 0 } as never, ADMIN)) as {
+    outputs: { outpoint: string; spendable?: boolean }[]
+  }
   const found = outputs.find(o => o.outpoint === outpoint)
   return !!found?.spendable
 }
@@ -491,7 +493,13 @@ describe("I3: the Mandala/token spend path's input-selection never touches the V
     // buildTokenPaymentFrame's coin selection) issues, scoped to the real
     // Mandala basket.
     const listed = (await wallet.listOutputs(
-      { basket: MANDALA_BASKET, include: 'entire transactions', includeCustomInstructions: true, limit: 10, offset: 0 } as never,
+      {
+        basket: MANDALA_BASKET,
+        include: 'entire transactions',
+        includeCustomInstructions: true,
+        limit: 10,
+        offset: 0
+      } as never,
       ADMIN
     )) as { outputs: { outpoint: string }[] }
     const outpoints = listed.outputs.map(o => o.outpoint)
@@ -556,16 +564,14 @@ describe('I3: the offline pending-payment queue never credits into the Vault bas
     const results = await processPending(wallet as never, kv, ADMIN)
     expect(results).toEqual([{ id: expect.any(String), success: true }])
 
-    const mandala = (await wallet.listOutputs(
-      { basket: MANDALA_BASKET, limit: 10, offset: 0 } as never,
-      ADMIN
-    )) as { outputs: { outpoint: string }[] }
+    const mandala = (await wallet.listOutputs({ basket: MANDALA_BASKET, limit: 10, offset: 0 } as never, ADMIN)) as {
+      outputs: { outpoint: string }[]
+    }
     expect(mandala.outputs.length).toBeGreaterThan(0) // positive control: the queue mechanism does credit real coins
 
-    const vaultAfter = (await wallet.listOutputs(
-      { basket: VAULT_BASKET, limit: 10, offset: 0 } as never,
-      ADMIN
-    )) as { outputs: { outpoint: string }[] }
+    const vaultAfter = (await wallet.listOutputs({ basket: VAULT_BASKET, limit: 10, offset: 0 } as never, ADMIN)) as {
+      outputs: { outpoint: string }[]
+    }
     expect(vaultAfter.outputs.map(o => o.outpoint)).toEqual([vault.outpoint]) // negative: still just the pre-seeded coin, nothing new
   })
 })
@@ -578,7 +584,14 @@ describe('I3: guardVaultAccess and the storage backstop deny external discovery 
 
     const guarded = guardVaultAccess(wallet as unknown as WalletInterface, ADMIN)
     const ext = (await guarded.listActions(
-      { labels: [], includeOutputs: true, includeInputs: true, includeInputSourceLockingScripts: true, limit: 50, offset: 0 } as never,
+      {
+        labels: [],
+        includeOutputs: true,
+        includeInputs: true,
+        includeInputSourceLockingScripts: true,
+        limit: 50,
+        offset: 0
+      } as never,
       'evil.com'
     )) as { actions: { txid?: string }[] }
     const txids = ext.actions.map(a => a.txid)
@@ -601,7 +614,9 @@ describe('I3: guardVaultAccess and the storage backstop deny external discovery 
       guarded.createAction(
         {
           description: 'attempt',
-          inputs: [{ outpoint: vault.outpoint, inputDescription: 'vault input', unlockingScriptLength: R1C_UNLOCK_LEN }],
+          inputs: [
+            { outpoint: vault.outpoint, inputDescription: 'vault input', unlockingScriptLength: R1C_UNLOCK_LEN }
+          ],
           outputs: [],
           options: { noSend: true, signAndProcess: false }
         } as never,
@@ -778,7 +793,9 @@ describe('I3: guardVaultAccess and the storage backstop deny external discovery 
       wallet.createAction(
         {
           description: 'attempt',
-          inputs: [{ outpoint: vault.outpoint, inputDescription: 'vault input', unlockingScriptLength: R1C_UNLOCK_LEN }],
+          inputs: [
+            { outpoint: vault.outpoint, inputDescription: 'vault input', unlockingScriptLength: R1C_UNLOCK_LEN }
+          ],
           outputs: [],
           options: { noSend: true, signAndProcess: false }
         } as never,

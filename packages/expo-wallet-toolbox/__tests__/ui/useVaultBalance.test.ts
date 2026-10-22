@@ -326,4 +326,3 @@ describe('settling an expected balance', () => {
     }
   })
 })
-

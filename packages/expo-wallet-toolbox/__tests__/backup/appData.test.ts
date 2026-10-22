@@ -1,9 +1,4 @@
-import {
-  applyAppData,
-  captureAppDataSnapshot,
-  isEmptyAppData,
-  mergeAppData
-} from '../../core/backup/appData'
+import { applyAppData, captureAppDataSnapshot, isEmptyAppData, mergeAppData } from '../../core/backup/appData'
 import { PENDING_KEY } from '../../core/localpay/pending'
 import { OUTBOX_KEY } from '../../core/peerpay/outbox'
 import { RECEIVE_HISTORY_KEY } from '../../core/pay/receiveHistory'

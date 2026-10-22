@@ -19,11 +19,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -33,9 +41,15 @@ jest.mock('expo-secure-store', () => ({
     return {
       WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wutdo',
       getItemAsync: jest.fn(async (k: string) => store[k] ?? null),
-      setItemAsync: jest.fn(async (k: string, v: string) => { store[k] = v }),
-      deleteItemAsync: jest.fn(async (k: string) => { delete store[k] }),
-      __clear: () => { for (const k of Object.keys(store)) delete store[k] }
+      setItemAsync: jest.fn(async (k: string, v: string) => {
+        store[k] = v
+      }),
+      deleteItemAsync: jest.fn(async (k: string) => {
+        delete store[k]
+      }),
+      __clear: () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   })()
 }))
@@ -103,10 +117,22 @@ async function publishVaultTx(
   opts: { confirmed?: boolean; vaultId?: string; createdAt?: number } = {}
 ): Promise<{ txid: string; vaultOutputIndex: number }> {
   const saltKeyId = String(k)
-  const salt = await deriveVaultSalt(wallet, ADMIN, saltKeyId, keys.map(key => key.serial))
+  const salt = await deriveVaultSalt(
+    wallet,
+    ADMIN,
+    saltKeyId,
+    keys.map(key => key.serial)
+  )
   const lockingScript = buildLock({ commitments: keys.map(key => commitment(key.pubkey, salt)), saltHex64: salt })
   const v7: VaultInstructionsV7 = {
-    v: 7, type: 'R1C', saltKeyId, chain: CHAIN, vaultId: opts.vaultId ?? VAULT_ID, revision: 1, createdAt: opts.createdAt ?? 1, keys
+    v: 7,
+    type: 'R1C',
+    saltKeyId,
+    chain: CHAIN,
+    vaultId: opts.vaultId ?? VAULT_ID,
+    revision: 1,
+    createdAt: opts.createdAt ?? 1,
+    keys
   }
   const customInstructions = encodeVaultInstructionsV7(v7)
   const markerScript = await deriveVaultMarkerScript(wallet, ADMIN, CHAIN, saltKeyId)
@@ -114,9 +140,17 @@ async function publishVaultTx(
   const descriptorScript = buildVaultDescriptorScript(ciphertext)
 
   const fund = new Transaction()
-  fund.addOutput({ satoshis: satoshis + 10_000, lockingScript: new P2PKH().lock(Utils.toArray('e2'.repeat(20), 'hex')) })
+  fund.addOutput({
+    satoshis: satoshis + 10_000,
+    lockingScript: new P2PKH().lock(Utils.toArray('e2'.repeat(20), 'hex'))
+  })
   const tx = new Transaction(1)
-  tx.addInput({ sourceTransaction: fund, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
+  tx.addInput({
+    sourceTransaction: fund,
+    sourceOutputIndex: 0,
+    sequence: 0xffffffff,
+    unlockingScript: new UnlockingScript([])
+  })
   tx.addOutput({ satoshis, lockingScript })
   tx.addOutput({ satoshis: 1, lockingScript: markerScript })
   tx.addOutput({ satoshis: 0, lockingScript: descriptorScript })
@@ -177,14 +211,30 @@ describe('recoverVaultFromChain', () => {
     // k=1: a marker with a descriptor that decrypts to garbage (wrong tag/plaintext).
     const saltKeyId = '1'
     const markerScript = await deriveVaultMarkerScript(wallet, ADMIN, CHAIN, saltKeyId)
-    const garbageCiphertext = await encryptVaultDescriptorPlaintext(wallet, ADMIN, CHAIN, saltKeyId, 'not a v7 json record at all')
+    const garbageCiphertext = await encryptVaultDescriptorPlaintext(
+      wallet,
+      ADMIN,
+      CHAIN,
+      saltKeyId,
+      'not a v7 json record at all'
+    )
     const descriptorScript = buildVaultDescriptorScript(garbageCiphertext)
-    const salt = await deriveVaultSalt(wallet, ADMIN, saltKeyId, KEYS.map(k => k.serial))
+    const salt = await deriveVaultSalt(
+      wallet,
+      ADMIN,
+      saltKeyId,
+      KEYS.map(k => k.serial)
+    )
     const lockingScript = buildLock({ commitments: KEYS.map(k => commitment(k.pubkey, salt)), saltHex64: salt })
     const fund = new Transaction()
     fund.addOutput({ satoshis: 310_000, lockingScript: new P2PKH().lock(Utils.toArray('e4'.repeat(20), 'hex')) })
     const badTx = new Transaction(1)
-    badTx.addInput({ sourceTransaction: fund, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
+    badTx.addInput({
+      sourceTransaction: fund,
+      sourceOutputIndex: 0,
+      sequence: 0xffffffff,
+      unlockingScript: new UnlockingScript([])
+    })
     badTx.addOutput({ satoshis: 300_000, lockingScript })
     badTx.addOutput({ satoshis: 1, lockingScript: markerScript })
     badTx.addOutput({ satoshis: 0, lockingScript: descriptorScript })
@@ -205,17 +255,40 @@ describe('recoverVaultFromChain', () => {
     // claims saltKeyId '2' — simulates a replayed/mismatched record.
     const saltKeyId = '1'
     const markerScript = await deriveVaultMarkerScript(wallet, ADMIN, CHAIN, saltKeyId)
-    const salt = await deriveVaultSalt(wallet, ADMIN, saltKeyId, KEYS.map(k => k.serial))
+    const salt = await deriveVaultSalt(
+      wallet,
+      ADMIN,
+      saltKeyId,
+      KEYS.map(k => k.serial)
+    )
     const lockingScript = buildLock({ commitments: KEYS.map(k => commitment(k.pubkey, salt)), saltHex64: salt })
     const mismatched: VaultInstructionsV7 = {
-      v: 7, type: 'R1C', saltKeyId: '2', chain: CHAIN, vaultId: VAULT_ID, revision: 1, createdAt: 1, keys: KEYS
+      v: 7,
+      type: 'R1C',
+      saltKeyId: '2',
+      chain: CHAIN,
+      vaultId: VAULT_ID,
+      revision: 1,
+      createdAt: 1,
+      keys: KEYS
     }
-    const ciphertext = await encryptVaultDescriptorPlaintext(wallet, ADMIN, CHAIN, saltKeyId, encodeVaultInstructionsV7(mismatched))
+    const ciphertext = await encryptVaultDescriptorPlaintext(
+      wallet,
+      ADMIN,
+      CHAIN,
+      saltKeyId,
+      encodeVaultInstructionsV7(mismatched)
+    )
     const descriptorScript = buildVaultDescriptorScript(ciphertext)
     const fund = new Transaction()
     fund.addOutput({ satoshis: 310_000, lockingScript: new P2PKH().lock(Utils.toArray('e5'.repeat(20), 'hex')) })
     const tx = new Transaction(1)
-    tx.addInput({ sourceTransaction: fund, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
+    tx.addInput({
+      sourceTransaction: fund,
+      sourceOutputIndex: 0,
+      sequence: 0xffffffff,
+      unlockingScript: new UnlockingScript([])
+    })
     tx.addOutput({ satoshis: 300_000, lockingScript })
     tx.addOutput({ satoshis: 1, lockingScript: markerScript })
     tx.addOutput({ satoshis: 0, lockingScript: descriptorScript })
@@ -246,7 +319,12 @@ describe('recoverVaultFromChain', () => {
     // a spending transaction consuming outpoint txid.0.
     const spendFundingStub = chain.tx(txid)!
     const spend = new Transaction(1)
-    spend.addInput({ sourceTransaction: spendFundingStub, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
+    spend.addInput({
+      sourceTransaction: spendFundingStub,
+      sourceOutputIndex: 0,
+      sequence: 0xffffffff,
+      unlockingScript: new UnlockingScript([])
+    })
     spend.addOutput({ satoshis: 1_000, lockingScript: new P2PKH().lock(Utils.toArray('e6'.repeat(20), 'hex')) })
     chain.publish(spend)
 
@@ -265,10 +343,8 @@ describe('recoverVaultFromChain', () => {
 
     async function seedCurrentMeta(): Promise<void> {
       const scope = vaultStore.getScope()!
-      await vaultStore.setMeta(
-        { v: 6, vaultId: VAULT_ID, revision: 1, createdAt: 5, keys: KEYS },
-        undefined,
-        next => computeVaultMetaAuthorityTag(wallet, ADMIN, next, scope)
+      await vaultStore.setMeta({ v: 6, vaultId: VAULT_ID, revision: 1, createdAt: 5, keys: KEYS }, undefined, next =>
+        computeVaultMetaAuthorityTag(wallet, ADMIN, next, scope)
       )
     }
 
@@ -292,7 +368,7 @@ describe('recoverVaultFromChain', () => {
       expect((await vaultStore.getMeta())?.vaultId).toBe(VAULT_ID)
     })
 
-    it('never reports an earlier setup\'s unconfirmed deposit as pending', async () => {
+    it("never reports an earlier setup's unconfirmed deposit as pending", async () => {
       await publishVaultTx(wallet, chain, 1, OLD_KEYS, 300_000, { vaultId: OLD_VAULT, createdAt: 1, confirmed: false })
       await seedCurrentMeta()
 
@@ -332,7 +408,12 @@ describe('recoverVaultFromChain', () => {
       mock.insertKey('YK-1')
 
       const result = await recoverVaultWithKey(wallet, ADMIN, fakeChainLookup(chain), CHAIN, prove)
-      expect(result).toMatchObject({ found: 1, unreachable: 1, problems: [], key: { serial: 'YK-1', pubkey: held.pubkey } })
+      expect(result).toMatchObject({
+        found: 1,
+        unreachable: 1,
+        problems: [],
+        key: { serial: 'YK-1', pubkey: held.pubkey }
+      })
       expect(wallet.localVaultOutpoints()).toEqual([`${mine.txid}.0`])
       const meta = await vaultStore.getMeta()
       expect(meta?.vaultId).toBe(OLD_VAULT)

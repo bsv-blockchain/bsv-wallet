@@ -46,7 +46,7 @@ describe('withKeySession', () => {
     await expect(run).resolves.toBe('ok')
   })
 
-  test('XR-004: a superseded session\'s guard refuses once a newer session has been acquired', async () => {
+  test("XR-004: a superseded session's guard refuses once a newer session has been acquired", async () => {
     // The timeout above frees the lease immediately (a deliberate choice,
     // confirmed by the previous test) even though the native call it wraps
     // cannot actually be cancelled and may still be running. work() receives

@@ -118,9 +118,10 @@ export interface ContactsStore {
 export function createContactsStore(db: ContactsDb): ContactsStore {
   return {
     async listContacts(userId) {
-      const rows = (await db.getAllAsync('SELECT * FROM contacts WHERE userId = ? AND removedAt IS NULL ORDER BY name COLLATE NOCASE ASC', [
-        userId
-      ])) as ContactDbRow[]
+      const rows = (await db.getAllAsync(
+        'SELECT * FROM contacts WHERE userId = ? AND removedAt IS NULL ORDER BY name COLLATE NOCASE ASC',
+        [userId]
+      )) as ContactDbRow[]
       return rows.map(toContact)
     },
 

@@ -12,7 +12,7 @@ import { DEVICE_ID_KEY } from './constants'
 let cached: string | null = null
 
 /** 32 lowercase hex characters, matching the server's device-id pattern. */
-export async function getDeviceId (): Promise<string> {
+export async function getDeviceId(): Promise<string> {
   if (cached != null) return cached
 
   const existing = await AsyncStorage.getItem(DEVICE_ID_KEY)
@@ -28,6 +28,6 @@ export async function getDeviceId (): Promise<string> {
 }
 
 /** Test seam. */
-export function resetDeviceIdCache (): void {
+export function resetDeviceIdCache(): void {
   cached = null
 }

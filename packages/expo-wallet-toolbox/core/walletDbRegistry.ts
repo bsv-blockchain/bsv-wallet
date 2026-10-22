@@ -87,7 +87,7 @@ export function selectLatestDb(filenames: string[]): string {
 // the barrel, which breaks a plain `jest` host that never touches the
 // registry (no native module to resolve). Same class of issue documented on
 // useHaptics.ts and services/vault/driver.ts/random.ts's lazy requires.
-type AsyncStorageModule = typeof import('@react-native-async-storage/async-storage')['default']
+type AsyncStorageModule = (typeof import('@react-native-async-storage/async-storage'))['default']
 let asyncStorage: AsyncStorageModule | undefined
 function getAsyncStorage(): AsyncStorageModule {
   if (!asyncStorage) {

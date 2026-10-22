@@ -49,7 +49,7 @@ export interface EraseResult {
   deleted: number
 }
 
-export async function eraseRemoteBackup (deps: EraseDeps): Promise<EraseResult> {
+export async function eraseRemoteBackup(deps: EraseDeps): Promise<EraseResult> {
   const client = resolveClient(deps)
 
   // Step 1 — before anything is deleted. See the module doc.
@@ -64,7 +64,7 @@ export async function eraseRemoteBackup (deps: EraseDeps): Promise<EraseResult> 
   return { deleted }
 }
 
-function resolveClient (deps: EraseDeps): BackupClient {
+function resolveClient(deps: EraseDeps): BackupClient {
   if (deps.client != null) return deps.client
   if (deps.baseUrl == null || deps.baseUrl === '') {
     throw new Error('eraseRemoteBackup requires either a client or a baseUrl')

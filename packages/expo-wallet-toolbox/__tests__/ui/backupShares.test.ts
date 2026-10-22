@@ -39,7 +39,11 @@ describe('payload framing', () => {
     // PrivateKey is a BigNumber: a payload starting 0x00 comes back short.
     expect(padPayload([1, 2, 3])).toHaveLength(PAYLOAD_BYTES)
     expect(padPayload([1, 2, 3]).slice(-3)).toEqual([1, 2, 3])
-    expect(padPayload([1, 2, 3]).slice(0, 29).every(b => b === 0)).toBe(true)
+    expect(
+      padPayload([1, 2, 3])
+        .slice(0, 29)
+        .every(b => b === 0)
+    ).toBe(true)
   })
 
   test('rejects an over-wide payload rather than silently truncating', () => {
@@ -99,16 +103,18 @@ describe('share round-trip', () => {
     const result = recoverSecretFromShares(shares.slice(0, 2))
     expect(result.kind).toBe('entropy')
     expect(result.kind === 'entropy' && result.entropy).toEqual(entropy)
-    expect(
-      result.kind === 'entropy' && Mnemonic.fromEntropy(result.entropy).toString()
-    ).toBe(mnemonic.toString())
+    expect(result.kind === 'entropy' && Mnemonic.fromEntropy(result.entropy).toString()).toBe(mnemonic.toString())
   })
 
   test('any two of three shares recover the same secret', () => {
     const entropy = entropyOf(Mnemonic.fromRandom(128))
     const shares = generateEntropyShares(entropy)
 
-    for (const pair of [[0, 1], [0, 2], [1, 2]]) {
+    for (const pair of [
+      [0, 1],
+      [0, 2],
+      [1, 2]
+    ]) {
       const r = recoverSecretFromShares([shares[pair[0]], shares[pair[1]]])
       expect(r.kind === 'entropy' && r.entropy).toEqual(entropy)
     }

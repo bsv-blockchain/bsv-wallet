@@ -25,10 +25,15 @@ function makeManager() {
 describe('WalletPermissionsManager.abortAction', () => {
   it('lets the admin originator abort a reference this manager instance never issued (a signed or pre-restart action)', async () => {
     const { underlying, manager } = makeManager()
-    await expect(manager.abortAction({ reference: 'cmVmLWZyb20tYW4tZWFybGllci1zZXNzaW9u' } as never, ADMIN_ORIGINATOR)).resolves.toEqual({
+    await expect(
+      manager.abortAction({ reference: 'cmVmLWZyb20tYW4tZWFybGllci1zZXNzaW9u' } as never, ADMIN_ORIGINATOR)
+    ).resolves.toEqual({
       aborted: true
     })
-    expect(underlying.abortAction).toHaveBeenCalledWith({ reference: 'cmVmLWZyb20tYW4tZWFybGllci1zZXNzaW9u' }, ADMIN_ORIGINATOR)
+    expect(underlying.abortAction).toHaveBeenCalledWith(
+      { reference: 'cmVmLWZyb20tYW4tZWFybGllci1zZXNzaW9u' },
+      ADMIN_ORIGINATOR
+    )
   })
 
   it('still refuses a paired app aborting a reference it was not issued, without reaching the wallet', async () => {

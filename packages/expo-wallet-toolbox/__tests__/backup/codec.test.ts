@@ -16,17 +16,19 @@ const KEY = new PrivateKey(7).toArray('be', 32)
 /** Every byte value, so a lossy encoding cannot slip through. */
 const ALL_BYTES = Array.from({ length: 256 }, (_, i) => i)
 
-function chunkWithBinary (): SyncChunk {
+function chunkWithBinary(): SyncChunk {
   const base = emptyChunk('from', 'to', 'user') as unknown as Record<string, unknown>
-  base.provenTxs = [{
-    provenTxId: 1,
-    txid: 'deadbeefcafe',
-    height: 800000,
-    index: 0,
-    merklePath: ALL_BYTES,
-    rawTx: ALL_BYTES,
-    blockHash: 'abc'
-  }]
+  base.provenTxs = [
+    {
+      provenTxId: 1,
+      txid: 'deadbeefcafe',
+      height: 800000,
+      index: 0,
+      merklePath: ALL_BYTES,
+      rawTx: ALL_BYTES,
+      blockHash: 'abc'
+    }
+  ]
   return base as unknown as SyncChunk
 }
 
@@ -56,18 +58,20 @@ describe('backup chunk codec', () => {
     // them. Other string fields must stay strings.
     const w = deriveBackupWallet(KEY, 'main')
     const base = emptyChunk('from', 'to', 'user') as unknown as Record<string, unknown>
-    base.provenTxReqs = [{
-      provenTxReqId: 1,
-      created_at: new Date('2026-01-02T03:04:05.000Z'),
-      updated_at: new Date('2026-02-03T04:05:06.000Z'),
-      txid: 'aa',
-      status: 'completed',
-      attempts: 0,
-      notified: false,
-      history: '{}',
-      notify: '{}',
-      rawTx: ALL_BYTES
-    }]
+    base.provenTxReqs = [
+      {
+        provenTxReqId: 1,
+        created_at: new Date('2026-01-02T03:04:05.000Z'),
+        updated_at: new Date('2026-02-03T04:05:06.000Z'),
+        txid: 'aa',
+        status: 'completed',
+        attempts: 0,
+        notified: false,
+        history: '{}',
+        notify: '{}',
+        rawTx: ALL_BYTES
+      }
+    ]
     const decoded = await decodeChunk(w, await encodeChunk(w, base as unknown as SyncChunk, 'main'), 'main')
     const req = decoded.provenTxReqs?.[0] as any
     expect(req.created_at).toBeInstanceOf(Date)
@@ -98,7 +102,11 @@ describe('backup chunk codec', () => {
     // The toolbox's consumer loops forever on an undefined entity array rather than
     // treating it as empty, so every one must survive the round trip.
     const w = deriveBackupWallet(KEY, 'main')
-    const decoded = await decodeChunk(w, await encodeChunk(w, chunkWithBinary(), 'main'), 'main') as unknown as Record<string, unknown>
+    const decoded = (await decodeChunk(
+      w,
+      await encodeChunk(w, chunkWithBinary(), 'main'),
+      'main'
+    )) as unknown as Record<string, unknown>
 
     for (const name of CHUNK_ENTITIES) {
       expect(Array.isArray(decoded[name])).toBe(true)
@@ -110,7 +118,11 @@ describe('backup chunk codec', () => {
     const chunk = emptyChunk('a', 'b', 'c') as unknown as Record<string, unknown>
     chunk.outputs = [{ outputId: 1, tags: [1, 2, 3], vout: 0 }]
 
-    const decoded = await decodeChunk(w, await encodeChunk(w, chunk as unknown as SyncChunk, 'main'), 'main') as unknown as Record<string, any>
+    const decoded = (await decodeChunk(
+      w,
+      await encodeChunk(w, chunk as unknown as SyncChunk, 'main'),
+      'main'
+    )) as unknown as Record<string, any>
     expect(decoded.outputs[0].tags).toEqual([1, 2, 3])
   })
 
@@ -121,7 +133,11 @@ describe('backup chunk codec', () => {
     const chunk = emptyChunk('a', 'b', 'c') as unknown as Record<string, unknown>
     chunk.outputs = [{ heights: big }]
 
-    const decoded = await decodeChunk(w, await encodeChunk(w, chunk as unknown as SyncChunk, 'main'), 'main') as unknown as Record<string, any>
+    const decoded = (await decodeChunk(
+      w,
+      await encodeChunk(w, chunk as unknown as SyncChunk, 'main'),
+      'main'
+    )) as unknown as Record<string, any>
     expect(decoded.outputs[0].heights).toEqual(big)
   })
 
@@ -132,7 +148,11 @@ describe('backup chunk codec', () => {
     const chunk = emptyChunk('a', 'b', 'c') as unknown as Record<string, unknown>
     chunk.outputs = [{ ids }]
 
-    const decoded = await decodeChunk(w, await encodeChunk(w, chunk as unknown as SyncChunk, 'main'), 'main') as unknown as Record<string, any>
+    const decoded = (await decodeChunk(
+      w,
+      await encodeChunk(w, chunk as unknown as SyncChunk, 'main'),
+      'main'
+    )) as unknown as Record<string, any>
     expect(decoded.outputs[0].ids).toEqual(ids)
   })
 
@@ -247,7 +267,11 @@ describe('XR-011: backup chunk appData', () => {
 
   it('round-trips the contacts in appData, encrypted with the rest', async () => {
     const w = deriveBackupWallet(KEY, 'main')
-    const withContacts = { ...appData, contacts: '[{"identityKey":"02aa","name":"Ana","source":"pay","favourite":true,"createdAt":"2026-10-01T00:00:00Z","updatedAt":"2026-10-02T00:00:00Z"}]' }
+    const withContacts = {
+      ...appData,
+      contacts:
+        '[{"identityKey":"02aa","name":"Ana","source":"pay","favourite":true,"createdAt":"2026-10-01T00:00:00Z","updatedAt":"2026-10-02T00:00:00Z"}]'
+    }
     const ciphertext = await encodeChunk(w, chunkWithBinary(), 'main', undefined, withContacts)
     const decoded = await decodeEntry(w, ciphertext, 'main')
     expect(decoded.appData).toEqual(withContacts)

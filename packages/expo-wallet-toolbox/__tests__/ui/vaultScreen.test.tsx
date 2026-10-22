@@ -440,9 +440,15 @@ describe('not enrolled', () => {
       expect(screen.queryByText('vault_balance_label')).toBeNull()
     })
 
-    test('an earlier setup\'s skipped deposits are named, not reported as none found', async () => {
+    test("an earlier setup's skipped deposits are named, not reported as none found", async () => {
       mockGetMeta.mockResolvedValue(null)
-      mockRecoverFromChain.mockResolvedValueOnce({ found: 0, pendingConfirmation: 0, unreachable: 2, problems: [], scanned: 20 })
+      mockRecoverFromChain.mockResolvedValueOnce({
+        found: 0,
+        pendingConfirmation: 0,
+        unreachable: 2,
+        problems: [],
+        scanned: 20
+      })
       const screen = await renderVault()
       await act(async () => fireEvent.press(screen.getByText('vault_restore_from_chain')))
       expect(screen.getByText('vault_restore_unreachable:{"count":2}')).toBeTruthy()
@@ -820,12 +826,7 @@ describe('enrolled', () => {
     fireEvent.changeText(field, 'Office safe')
     await act(async () => fireEvent.press(screen.getByText('vault_rename_save')))
     await settle()
-    expect(mockRenameKey).toHaveBeenCalledWith(
-      '12340002',
-      'Office safe',
-      expect.anything(),
-      expect.any(Function)
-    )
+    expect(mockRenameKey).toHaveBeenCalledWith('12340002', 'Office safe', expect.anything(), expect.any(Function))
     // XR-002: the current meta was re-verified before renameKey ever ran.
     expect(mockRequireAuthenticatedMeta).toHaveBeenCalled()
   })

@@ -9,14 +9,14 @@ Two store artifacts, built from `claude/vault-expansion-boundary` (which contain
 
 Both were verified after building, not just reported as "successful", because on this project a build has succeeded before while silently missing a whole native module:
 
-| Check | iOS | Android |
-|---|---|---|
-| YubiKey native module linked | `HybridYubiKeyPiv` + `YubiKitManager` present in the binary; pods `YubiKeyPiv`, `YubiKit` | `libYubiKeyPiv.so` in all four ABIs |
-| Localpay transport linked | `HybridLocalPayTransport` present | `libLocalPayTransport.so` in all four ABIs |
-| Bluetooth usage key | build 165: no `NSBluetooth*` key at all (correct at the time). **Superseded 2026-09-02:** `NSBluetoothAlwaysUsageDescription` is now REQUIRED and expected in every build — `LocalPayTransport.podspec` links `CoreBluetooth`; check the key is **present** | n/a |
-| NFC kept | `com.apple.developer.nfc.readersession.formats` entitlement + `NFCReaderUsageDescription` present | n/a |
-| Release signing | `get-task-allow = false`, distribution-signed | n/a |
-| 16 KB page alignment | n/a | first LOAD segment `2**14` on every lib |
+| Check                        | iOS                                                                                                                                                                                                                                                         | Android                                    |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| YubiKey native module linked | `HybridYubiKeyPiv` + `YubiKitManager` present in the binary; pods `YubiKeyPiv`, `YubiKit`                                                                                                                                                                   | `libYubiKeyPiv.so` in all four ABIs        |
+| Localpay transport linked    | `HybridLocalPayTransport` present                                                                                                                                                                                                                           | `libLocalPayTransport.so` in all four ABIs |
+| Bluetooth usage key          | build 165: no `NSBluetooth*` key at all (correct at the time). **Superseded 2026-09-02:** `NSBluetoothAlwaysUsageDescription` is now REQUIRED and expected in every build — `LocalPayTransport.podspec` links `CoreBluetooth`; check the key is **present** | n/a                                        |
+| NFC kept                     | `com.apple.developer.nfc.readersession.formats` entitlement + `NFCReaderUsageDescription` present                                                                                                                                                           | n/a                                        |
+| Release signing              | `get-task-allow = false`, distribution-signed                                                                                                                                                                                                               | n/a                                        |
+| 16 KB page alignment         | n/a                                                                                                                                                                                                                                                         | first LOAD segment `2**14` on every lib    |
 
 **Transporter, not Deliver.** ~~Past experience on this project: `ITMS-90683` appears at Deliver and demands a `NSBluetoothAlwaysUsageDescription` key that must NOT be added, and Transporter's own Verify step does not catch it. If it appears again, the answer is still not to add the key.~~ **Superseded 2026-09-02.** `ITMS-90683` fires at Deliver (not at Transporter's Verify) whenever CoreBluetooth is linked without `NSBluetoothAlwaysUsageDescription`. The key could not be added while the app carried `com.apple.developer.web-browser`; that entitlement was removed on 2026-08-26, and the key is now set in `app.json` `ios.infoPlist` and REQUIRED — `packages/react-native-localpay-transport` links `CoreBluetooth` for the BLE rung. If `ITMS-90683` appears again, the key has gone missing from the built `Info.plist`: re-run `npx expo prebuild --clean --platform ios`, confirm the key with `plutil -p ios/*/Info.plist | grep NSBluetooth`, and rebuild. See `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` §"Why now" and §8.
 
@@ -28,7 +28,7 @@ Physical verification of four programmes that are complete in code and unverifie
 
 The original report. Your Android phone plus the iPhone that already holds the vault key.
 
-- Vault → enrol on the Android phone with the same YubiKey. Expect **"This YubiKey is already set up"** with *Use the key already on this YubiKey* — not the old dead-end error.
+- Vault → enrol on the Android phone with the same YubiKey. Expect **"This YubiKey is already set up"** with _Use the key already on this YubiKey_ — not the old dead-end error.
 - Adopt, then confirm the vault opens and shows the same balance the iPhone sees **once storage has synced** — the two devices have separate local SQLite, so an unsynced Android install can legitimately show an empty vault with a correctly adopted key.
 - Deposit indices start high on the adopted device by design (random, ≥ 2^20), so the two phones cannot hand out the same address.
 
@@ -63,23 +63,23 @@ This is the acceptance criterion for the whole compression programme, and it is 
 
 ## PR state
 
-| PR | What | Status |
-|---|---|---|
-| [#136](https://github.com/bsv-blockchain/bsv-browser/pull/136) | Template registry, cross-checked against `@bsv/templates` | open, review required |
-| [#137](https://github.com/bsv-blockchain/bsv-browser/pull/137) | `Uint8Array` codec core | open, stacked on #136 |
-| [#138](https://github.com/bsv-blockchain/bsv-browser/pull/138) | Expansion boundary, compress-on-write, BEEF containers, sync form | open, stacked on #137 |
-| [go-private-backup-cache#3](https://github.com/bsv-blockchain/go-private-backup-cache/pull/3) | 413 before auth, `GET /v1/limits` | open, rationale corrected |
+| PR                                                                                            | What                                                              | Status                    |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------- |
+| [#136](https://github.com/bsv-blockchain/bsv-browser/pull/136)                                | Template registry, cross-checked against `@bsv/templates`         | open, review required     |
+| [#137](https://github.com/bsv-blockchain/bsv-browser/pull/137)                                | `Uint8Array` codec core                                           | open, stacked on #136     |
+| [#138](https://github.com/bsv-blockchain/bsv-browser/pull/138)                                | Expansion boundary, compress-on-write, BEEF containers, sync form | open, stacked on #137     |
+| [go-private-backup-cache#3](https://github.com/bsv-blockchain/go-private-backup-cache/pull/3) | 413 before auth, `GET /v1/limits`                                 | open, rationale corrected |
 
 The org ruleset requires a review on each, which I cannot satisfy. #132, #133, #134, #135 and server #4 are merged.
 
 ## Numbers worth knowing
 
-| | |
-|---|---|
-| Vault locking script | 959,632 bytes → **51** compressed |
-| Preimage scriptCode | 959,572 → **31** |
-| A deposit's rawTx | ~960 KB → **under 1 KB** |
-| A withdrawal-shaped BEEF, 2 vault inputs | 2.8 MB → **under 2 KB** |
-| `inputBEEF` per vault input | ~1.83 MB — why containers mattered more than rawTx |
-| Backup server blob cap | 1 MiB, published at `GET /v1/limits` |
-| Peak RSS per payload byte | ~20× central, 30× planning (Hermes v0.14.1) |
+|                                          |                                                    |
+| ---------------------------------------- | -------------------------------------------------- |
+| Vault locking script                     | 959,632 bytes → **51** compressed                  |
+| Preimage scriptCode                      | 959,572 → **31**                                   |
+| A deposit's rawTx                        | ~960 KB → **under 1 KB**                           |
+| A withdrawal-shaped BEEF, 2 vault inputs | 2.8 MB → **under 2 KB**                            |
+| `inputBEEF` per vault input              | ~1.83 MB — why containers mattered more than rawTx |
+| Backup server blob cap                   | 1 MiB, published at `GET /v1/limits`               |
+| Peak RSS per payload byte                | ~20× central, 30× planning (Hermes v0.14.1)        |

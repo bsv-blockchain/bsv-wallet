@@ -109,9 +109,7 @@ export default function WalletLockNotice() {
         onPress={lost ? onRestore : unlock}
         style={[styles.primary, { backgroundColor: colors.accent }]}
       >
-        <Text style={styles.primaryText}>
-          {lost ? t('wallet_lost_restore') : t('wallet_unlock_retry')}
-        </Text>
+        <Text style={styles.primaryText}>{lost ? t('wallet_lost_restore') : t('wallet_unlock_retry')}</Text>
       </PressableScale>
     </View>
   )

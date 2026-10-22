@@ -181,7 +181,9 @@ describe('validatePeerPayURI — asset and amount', () => {
 
 describe('the note extension', () => {
   it('round-trips what the payee wrote, beside an amount', () => {
-    const { peerPayLinkFor } = jest.requireActual('../../core/pay/rails/handle') as typeof import('../../core/pay/rails/handle')
+    const { peerPayLinkFor } = jest.requireActual(
+      '../../core/pay/rails/handle'
+    ) as typeof import('../../core/pay/rails/handle')
     const link = peerPayLinkFor(KEY, 1500, undefined, undefined, 'Lunch & a coffee? ☕')
     expect(link).toBe(`peerpay:${KEY}?sats=1500&note=${encodeURIComponent('Lunch & a coffee? ☕')}`)
     expect(parsePeerPayURI(link)).toEqual({ identityKey: KEY, sats: 1500, note: 'Lunch & a coffee? ☕' })

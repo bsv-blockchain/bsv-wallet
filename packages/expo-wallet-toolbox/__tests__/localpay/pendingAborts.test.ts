@@ -40,13 +40,21 @@ describe('pending_aborts', () => {
   it('queues a failed abort and replays it on wallet build', async () => {
     const storage = fakeStorage()
     const wallet = authorityWallet()
-    await queuePendingAbort(storage, { reference: 'ref-1', originator: 'admin.com' }, { wallet, originator: ADMIN_ORIGINATOR })
+    await queuePendingAbort(
+      storage,
+      { reference: 'ref-1', originator: 'admin.com' },
+      { wallet, originator: ADMIN_ORIGINATOR }
+    )
     expect(storage.map.has(PENDING_ABORTS_KEY)).toBe(true)
     const loaded = await loadPendingAborts(storage)
     expect(loaded).toEqual([{ reference: 'ref-1', originator: 'admin.com', tag: expect.any(String) }])
 
     const abortAction = jest.fn().mockResolvedValue({ aborted: true })
-    const replayWallet = { abortAction, createHmac: wallet.createHmac.bind(wallet), verifyHmac: wallet.verifyHmac.bind(wallet) }
+    const replayWallet = {
+      abortAction,
+      createHmac: wallet.createHmac.bind(wallet),
+      verifyHmac: wallet.verifyHmac.bind(wallet)
+    }
     await replayPendingAborts({ wallet: replayWallet, storage })
     // XR-102: the persisted `originator` is NEVER trusted, even a genuine-
     // looking one — replay always calls with the real, imported
@@ -62,13 +70,14 @@ describe('pending_aborts', () => {
   // replayed, however plausible its reference/originator look.
   it('XR-102: drops (never replays) an untagged pending-abort entry', async () => {
     const storage = fakeStorage()
-    storage.map.set(
-      PENDING_ABORTS_KEY,
-      JSON.stringify([{ reference: 'forged-ref-1', originator: ADMIN_ORIGINATOR }])
-    )
+    storage.map.set(PENDING_ABORTS_KEY, JSON.stringify([{ reference: 'forged-ref-1', originator: ADMIN_ORIGINATOR }]))
     const wallet = authorityWallet()
     const abortAction = jest.fn().mockResolvedValue({ aborted: true })
-    const replayWallet = { abortAction, createHmac: wallet.createHmac.bind(wallet), verifyHmac: wallet.verifyHmac.bind(wallet) }
+    const replayWallet = {
+      abortAction,
+      createHmac: wallet.createHmac.bind(wallet),
+      verifyHmac: wallet.verifyHmac.bind(wallet)
+    }
 
     const result = await replayPendingAborts({ wallet: replayWallet, storage })
 
@@ -88,7 +97,11 @@ describe('pending_aborts', () => {
     // Tag is authentic for 'ref-A', but the entry claims 'ref-B'.
     storage.map.set(PENDING_ABORTS_KEY, JSON.stringify([{ reference: 'ref-B', originator: ADMIN_ORIGINATOR, tag }]))
     const abortAction = jest.fn().mockResolvedValue({ aborted: true })
-    const replayWallet = { abortAction, createHmac: wallet.createHmac.bind(wallet), verifyHmac: wallet.verifyHmac.bind(wallet) }
+    const replayWallet = {
+      abortAction,
+      createHmac: wallet.createHmac.bind(wallet),
+      verifyHmac: wallet.verifyHmac.bind(wallet)
+    }
 
     const result = await replayPendingAborts({ wallet: replayWallet, storage })
 
@@ -100,7 +113,11 @@ describe('pending_aborts', () => {
   it('XR-102: replays a genuinely-tagged entry normally, alongside a dropped untagged one', async () => {
     const storage = fakeStorage()
     const wallet = authorityWallet()
-    await queuePendingAbort(storage, { reference: 'ref-good', originator: ADMIN_ORIGINATOR }, { wallet, originator: ADMIN_ORIGINATOR })
+    await queuePendingAbort(
+      storage,
+      { reference: 'ref-good', originator: ADMIN_ORIGINATOR },
+      { wallet, originator: ADMIN_ORIGINATOR }
+    )
     // Simulate a forged second entry appended by a local-storage attacker.
     const existing = JSON.parse(storage.map.get(PENDING_ABORTS_KEY)!)
     storage.map.set(
@@ -108,7 +125,11 @@ describe('pending_aborts', () => {
       JSON.stringify([...existing, { reference: 'ref-forged', originator: ADMIN_ORIGINATOR }])
     )
     const abortAction = jest.fn().mockResolvedValue({ aborted: true })
-    const replayWallet = { abortAction, createHmac: wallet.createHmac.bind(wallet), verifyHmac: wallet.verifyHmac.bind(wallet) }
+    const replayWallet = {
+      abortAction,
+      createHmac: wallet.createHmac.bind(wallet),
+      verifyHmac: wallet.verifyHmac.bind(wallet)
+    }
 
     const result = await replayPendingAborts({ wallet: replayWallet, storage })
 
@@ -184,9 +205,17 @@ describe('pending_aborts', () => {
   it('keeps an abort that still fails', async () => {
     const storage = fakeStorage()
     const wallet = authorityWallet()
-    await queuePendingAbort(storage, { reference: 'ref-stuck', originator: 'admin.com' }, { wallet, originator: ADMIN_ORIGINATOR })
+    await queuePendingAbort(
+      storage,
+      { reference: 'ref-stuck', originator: 'admin.com' },
+      { wallet, originator: ADMIN_ORIGINATOR }
+    )
     const abortAction = jest.fn().mockResolvedValue({ aborted: false })
-    const replayWallet = { abortAction, createHmac: wallet.createHmac.bind(wallet), verifyHmac: wallet.verifyHmac.bind(wallet) }
+    const replayWallet = {
+      abortAction,
+      createHmac: wallet.createHmac.bind(wallet),
+      verifyHmac: wallet.verifyHmac.bind(wallet)
+    }
     await replayPendingAborts({ wallet: replayWallet, storage })
     const loaded = await loadPendingAborts(storage)
     expect(loaded).toEqual([{ reference: 'ref-stuck', originator: 'admin.com', tag: expect.any(String) }])
@@ -240,7 +269,11 @@ describe('pending_aborts', () => {
     }
 
     const abortAction = jest.fn().mockResolvedValue({ aborted: true })
-    const replayWallet = { abortAction, createHmac: wallet.createHmac.bind(wallet), verifyHmac: wallet.verifyHmac.bind(wallet) }
+    const replayWallet = {
+      abortAction,
+      createHmac: wallet.createHmac.bind(wallet),
+      verifyHmac: wallet.verifyHmac.bind(wallet)
+    }
 
     const replay = replayPendingAborts({ wallet: replayWallet, storage })
     await replayAtWrite

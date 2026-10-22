@@ -22,7 +22,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  useReducedMotion,
+  useReducedMotion
 } from 'react-native-reanimated'
 import { useTheme, spacing, radii, typography, springs, durations, haptics } from '@bsv/expo-wallet-toolbox'
 
@@ -95,16 +95,11 @@ export function AlertHost() {
       // Reset progress to 0 before animating in to avoid stale values.
       progress.value = 0
       // Fire warning haptic at most once per distinct alert object.
-      if (
-        current.buttons?.some(b => b.style === 'destructive') &&
-        lastHapticAlert.current !== current
-      ) {
+      if (current.buttons?.some(b => b.style === 'destructive') && lastHapticAlert.current !== current) {
         lastHapticAlert.current = current
         haptics.warning()
       }
-      progress.value = reducedMotion
-        ? withTiming(1, { duration: durations.instant })
-        : withSpring(1, springs.snappy)
+      progress.value = reducedMotion ? withTiming(1, { duration: durations.instant }) : withSpring(1, springs.snappy)
     }
   }, [current, progress, reducedMotion])
 
@@ -120,28 +115,34 @@ export function AlertHost() {
     done.alert.resolve(done.key)
   }, [])
 
-  const dismiss = useCallback((key: string) => {
-    if (!current || exiting.current) return
-    exiting.current = true
-    pending.current = { alert: current, key, fallback: setTimeout(finish, durations.instant + DISMISS_FALLBACK_MS) }
-    progress.value = withTiming(0, { duration: durations.instant })
-    // After the exit fade, hide the modal. iOS reports the native dismissal
-    // through onDismiss; Android has no such event and nothing presented over
-    // it to protect, so it finishes here.
-    setTimeout(() => {
-      if (Platform.OS === 'ios') setHiding(true)
-      else finish()
-    }, durations.instant)
-  }, [current, progress, finish])
+  const dismiss = useCallback(
+    (key: string) => {
+      if (!current || exiting.current) return
+      exiting.current = true
+      pending.current = { alert: current, key, fallback: setTimeout(finish, durations.instant + DISMISS_FALLBACK_MS) }
+      progress.value = withTiming(0, { duration: durations.instant })
+      // After the exit fade, hide the modal. iOS reports the native dismissal
+      // through onDismiss; Android has no such event and nothing presented over
+      // it to protect, so it finishes here.
+      setTimeout(() => {
+        if (Platform.OS === 'ios') setHiding(true)
+        else finish()
+      }, durations.instant)
+    },
+    [current, progress, finish]
+  )
 
-  useEffect(() => () => {
-    if (pending.current) clearTimeout(pending.current.fallback)
-  }, [])
+  useEffect(
+    () => () => {
+      if (pending.current) clearTimeout(pending.current.fallback)
+    },
+    []
+  )
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: progress.value }))
   const cardStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ scale: 0.95 + 0.05 * progress.value }],
+    transform: [{ scale: 0.95 + 0.05 * progress.value }]
   }))
 
   if (!current) return null
@@ -149,9 +150,7 @@ export function AlertHost() {
   const sideBySide = buttons.length === 2
 
   const buttonColor = (b: AlertButton) =>
-    b.style === 'destructive' ? colors.error
-    : b.style === 'cancel' ? colors.textSecondary
-    : colors.info
+    b.style === 'destructive' ? colors.error : b.style === 'cancel' ? colors.textSecondary : colors.info
 
   return (
     <Modal
@@ -166,17 +165,15 @@ export function AlertHost() {
       <Animated.View style={[styles.backdrop, { backgroundColor: colors.scrim }, backdropStyle]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => dismiss('cancel')} />
         <Animated.View
-          style={[
-            styles.card,
-            { backgroundColor: colors.sheetBackground, borderColor: colors.separator },
-            cardStyle,
-          ]}
+          style={[styles.card, { backgroundColor: colors.sheetBackground, borderColor: colors.separator }, cardStyle]}
         >
           <Text style={[styles.title, { color: colors.textPrimary }]}>{current.title}</Text>
           {!!current.message && (
             <Text style={[styles.message, { color: colors.textSecondary }]}>{current.message}</Text>
           )}
-          <View style={[styles.buttonGroup, { borderTopColor: colors.separator }, !sideBySide && styles.buttonGroupStacked]}>
+          <View
+            style={[styles.buttonGroup, { borderTopColor: colors.separator }, !sideBySide && styles.buttonGroupStacked]}
+          >
             {buttons.map((b, i) => (
               <Pressable
                 key={b.key ?? b.text}
@@ -187,9 +184,11 @@ export function AlertHost() {
                   // resolves to a zero flex-basis and clips the label against
                   // minHeight, so stacked buttons size to their content instead.
                   sideBySide && styles.buttonRowItem,
-                  sideBySide && i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.separator },
-                  !sideBySide && i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },
-                  pressed && { backgroundColor: colors.fillTertiary },
+                  sideBySide &&
+                    i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.separator },
+                  !sideBySide &&
+                    i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },
+                  pressed && { backgroundColor: colors.fillTertiary }
                 ]}
                 accessibilityRole="button"
               >
@@ -197,7 +196,7 @@ export function AlertHost() {
                   style={[
                     styles.buttonText,
                     { color: buttonColor(b) },
-                    (b.style === 'destructive' || b.style === 'cancel') && styles.buttonTextBold,
+                    (b.style === 'destructive' || b.style === 'cancel') && styles.buttonTextBold
                   ]}
                 >
                   {b.text}
@@ -215,30 +214,30 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'center'
   },
   card: {
     width: 280,
     borderRadius: radii.xl,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
-    paddingTop: spacing.xl,
+    paddingTop: spacing.xl
   },
   title: {
     ...typography.headline,
     textAlign: 'center',
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.xl
   },
   message: {
     ...typography.footnote,
     textAlign: 'center',
     paddingHorizontal: spacing.xl,
-    marginTop: spacing.xs,
+    marginTop: spacing.xs
   },
   buttonGroup: {
     flexDirection: 'row',
     marginTop: spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: StyleSheet.hairlineWidth
   },
   buttonGroupStacked: { flexDirection: 'column' },
   button: {
@@ -248,9 +247,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     // Keep long labels off the card edge / hairline divider so they wrap
     // inside the button instead of touching (or escaping) the border.
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.sm
   },
   buttonRowItem: { flex: 1 },
   buttonText: { ...typography.body, textAlign: 'center' },
-  buttonTextBold: { fontWeight: '600' },
+  buttonTextBold: { fontWeight: '600' }
 })

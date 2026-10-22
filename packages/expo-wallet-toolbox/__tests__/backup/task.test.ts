@@ -5,14 +5,20 @@ import type { PushResult } from '../../core/backup/push'
 const monitor = {} as any
 
 const ok = (over: Partial<PushResult> = {}): PushResult => ({
-  pushed: 0, bytes: 0, windowClosed: true, rotated: false, ...over
+  pushed: 0,
+  bytes: 0,
+  windowClosed: true,
+  rotated: false,
+  ...over
 })
 
-function task (push: () => Promise<PushResult> = async () => ok()): TaskBackupPush {
+function task(push: () => Promise<PushResult> = async () => ok()): TaskBackupPush {
   return new TaskBackupPush(monitor, push)
 }
 
-beforeEach(() => { TaskBackupPush.reset() })
+beforeEach(() => {
+  TaskBackupPush.reset()
+})
 
 describe('TaskBackupPush trigger', () => {
   it('never runs while offline', () => {
@@ -137,7 +143,9 @@ describe('TaskBackupPush runTask', () => {
   })
 
   it('backs off exponentially on failure and records why', async () => {
-    const failing = task(async () => { throw new Error('server unreachable') })
+    const failing = task(async () => {
+      throw new Error('server unreachable')
+    })
 
     await failing.runTask()
     const first = TaskBackupPush.backoffMs
@@ -148,7 +156,9 @@ describe('TaskBackupPush runTask', () => {
   })
 
   it('caps the backoff', async () => {
-    const failing = task(async () => { throw new Error('down') })
+    const failing = task(async () => {
+      throw new Error('down')
+    })
     for (let i = 0; i < 20; i++) await failing.runTask()
 
     expect(TaskBackupPush.backoffMs).toBeLessThanOrEqual(TaskBackupPush.MAX_BACKOFF_MS)
@@ -156,7 +166,11 @@ describe('TaskBackupPush runTask', () => {
 
   it('does not throw out of runTask', async () => {
     // The monitor runs tasks consecutively; throwing would take out the tasks after it.
-    await expect(task(async () => { throw new Error('boom') }).runTask()).resolves.toContain('failed')
+    await expect(
+      task(async () => {
+        throw new Error('boom')
+      }).runTask()
+    ).resolves.toContain('failed')
   })
 
   it('resets the backoff after a success', async () => {

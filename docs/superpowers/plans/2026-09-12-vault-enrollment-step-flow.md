@@ -32,19 +32,19 @@
 
 ## File Structure
 
-| File | Responsibility |
-|---|---|
-| `packages/react-native-yubikey/src/specs/YubiKeyPiv.nitro.ts` | Cross-language contract. Gains `resetPivApplication`. |
-| `packages/react-native-yubikey/nitrogen/generated/**` | Generated glue. Regenerated, never hand-edited. |
-| `packages/react-native-yubikey/ios/HybridYubiKeyPiv.swift` | iOS impl. Gains `resetPivApplication` with a watchdog. |
-| `packages/react-native-yubikey/android/.../HybridYubiKeyPiv.kt` | Android impl. Gains `resetPivApplication` with bio-key mapping. |
-| `packages/expo-wallet-toolbox/core/services/vault/driver.ts` | The single hardware seam. Gains the interface member and the native adapter line. |
-| `packages/expo-wallet-toolbox/core/services/vault/mockYubiKey.ts` | Software driver for tests. Gains `resetPivApplication` + test controls. |
-| `packages/expo-wallet-toolbox/core/services/vault/pivReset.ts` | **New.** One exported function, all reset guards. Kept out of `VaultKeyService.ts` (864 lines, owns the enrollment state machine). |
-| `packages/expo-wallet-toolbox/core/services/vault/VaultKeyService.ts` | Preflight hoist + `details.serial` on four error codes. |
-| `packages/expo-wallet-toolbox/core/index.ts` | Re-export the new module. |
-| `packages/expo-wallet-toolbox/ui/components/vault/EnrollWizard.tsx` | The page split, the progress bar, the generated PUK, the reset page. |
-| `packages/expo-wallet-toolbox/core/i18n/translations.tsx` | 19 new keys + 2 backfills × 12 languages. |
+| File                                                                  | Responsibility                                                                                                                     |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/react-native-yubikey/src/specs/YubiKeyPiv.nitro.ts`         | Cross-language contract. Gains `resetPivApplication`.                                                                              |
+| `packages/react-native-yubikey/nitrogen/generated/**`                 | Generated glue. Regenerated, never hand-edited.                                                                                    |
+| `packages/react-native-yubikey/ios/HybridYubiKeyPiv.swift`            | iOS impl. Gains `resetPivApplication` with a watchdog.                                                                             |
+| `packages/react-native-yubikey/android/.../HybridYubiKeyPiv.kt`       | Android impl. Gains `resetPivApplication` with bio-key mapping.                                                                    |
+| `packages/expo-wallet-toolbox/core/services/vault/driver.ts`          | The single hardware seam. Gains the interface member and the native adapter line.                                                  |
+| `packages/expo-wallet-toolbox/core/services/vault/mockYubiKey.ts`     | Software driver for tests. Gains `resetPivApplication` + test controls.                                                            |
+| `packages/expo-wallet-toolbox/core/services/vault/pivReset.ts`        | **New.** One exported function, all reset guards. Kept out of `VaultKeyService.ts` (864 lines, owns the enrollment state machine). |
+| `packages/expo-wallet-toolbox/core/services/vault/VaultKeyService.ts` | Preflight hoist + `details.serial` on four error codes.                                                                            |
+| `packages/expo-wallet-toolbox/core/index.ts`                          | Re-export the new module.                                                                                                          |
+| `packages/expo-wallet-toolbox/ui/components/vault/EnrollWizard.tsx`   | The page split, the progress bar, the generated PUK, the reset page.                                                               |
+| `packages/expo-wallet-toolbox/core/i18n/translations.tsx`             | 19 new keys + 2 backfills × 12 languages.                                                                                          |
 
 ---
 
@@ -53,10 +53,12 @@
 Two keys exist only in `en`, which fails the parity suite's first assertion for all 11 other languages. Nothing else can be verified until this is fixed.
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/i18n/translations.tsx`
 - Test: `packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts` (existing, unchanged)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: a green parity suite, which every later i18n task depends on.
 
@@ -148,10 +150,12 @@ npm run fix && git add packages/expo-wallet-toolbox/core/i18n/translations.tsx &
 `EnrollPhase` emits `checking-slot` and `personalizing`; `EnrollWizard` renders `t('vault_enroll_phase_' + phase.replace(/-/g,'_'))`. Neither key exists, so the tap screen currently displays the literal strings `vault_enroll_phase_checking_slot` and `vault_enroll_phase_personalizing`. The progress work in Task 6 makes this screen more prominent, so fix it first.
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/i18n/translations.tsx`
 - Test: `packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 1's green baseline.
 - Produces: `vault_enroll_phase_checking_slot`, `vault_enroll_phase_personalizing`.
 
@@ -227,12 +231,14 @@ npm run fix && git add packages/expo-wallet-toolbox/core/i18n/translations.tsx &
 Adding a method to the nitro spec makes the generated Kotlin `HybridYubiKeyPivSpec` declare a new `abstract fun`, which breaks the Android build until implemented. Spec, codegen and both implementations therefore land together.
 
 **Files:**
+
 - Modify: `packages/react-native-yubikey/src/specs/YubiKeyPiv.nitro.ts:36` (after `signEcdsa`)
 - Modify: `packages/react-native-yubikey/ios/HybridYubiKeyPiv.swift` (after `signEcdsa`, before the `// MARK:` helpers)
 - Modify: `packages/react-native-yubikey/android/src/main/java/com/margelo/nitro/yubikeypiv/HybridYubiKeyPiv.kt` (after `signEcdsa`, before `withPiv`)
 - Modify (generated): `packages/react-native-yubikey/nitrogen/generated/**`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `resetPivApplication(expectedSerial: string): Promise<string>` resolving `{"ok":true}`, consumed by Task 4.
 
@@ -349,11 +355,13 @@ npm run fix && git add packages/react-native-yubikey/src/specs/YubiKeyPiv.nitro.
 ## Task 4: Driver seam and mock
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/services/vault/driver.ts` (interface ~line 69, native shape ~line 89, adapter ~line 192)
 - Modify: `packages/expo-wallet-toolbox/core/services/vault/mockYubiKey.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/vault/mockYubiKey.test.ts`
 
 **Interfaces:**
+
 - Consumes: the native `resetPivApplication` from Task 3.
 - Produces: `VaultDriver.resetPivApplication(expectedSerial: string): Promise<{ ok: true }>`, and the mock controls `MockYubiKey.personalise(pin: string, puk: string)` and `MockYubiKey.isFactory(serial?: string)` used by Tasks 5 and 9.
 
@@ -486,11 +494,13 @@ npm run fix && git add packages/expo-wallet-toolbox/core/services/vault/driver.t
 ## Task 5: `pivReset.ts` — the guarded reset service
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/core/services/vault/pivReset.ts`
 - Modify: `packages/expo-wallet-toolbox/core/index.ts:280` (add the re-export beside `VaultKeyService`)
 - Test: `packages/expo-wallet-toolbox/__tests__/vault/pivReset.test.ts` (new)
 
 **Interfaces:**
+
 - Consumes: `VaultDriver.resetPivApplication` (Task 4), `withKeySession` from `./session`, `vaultStore.getMeta / discardEnrollmentDraft / discardEnrollmentQuarantine / assertScopeToken`.
 - Produces:
 
@@ -565,9 +575,9 @@ test('refuses a serial that is already an enrolled vault key, before touching th
   jest.spyOn(vaultStore, 'getMeta').mockResolvedValue({ v: 5, createdAt: 1, keys: [record(SERIAL)] } as never)
   const spy = jest.spyOn(key, 'resetPivApplication')
 
-  await expect(
-    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })
-  ).rejects.toMatchObject({ code: 'key-already-enrolled' })
+  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+    code: 'key-already-enrolled'
+  })
 
   expect(spy).not.toHaveBeenCalled()
   expect(key.isFactory(SERIAL)).toBe(true)
@@ -591,17 +601,17 @@ test('refuses when a different card is presented for the reset tap', async () =>
   key.removeKey()
   key.insertKey('MOCK-OTHER')
 
-  await expect(
-    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })
-  ).rejects.toMatchObject({ code: 'serial-mismatch' })
+  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+    code: 'serial-mismatch'
+  })
 
   expect(key.isFactory('MOCK-OTHER')).toBe(true)
 })
 
 test('refuses a structurally invalid serial', async () => {
-  await expect(
-    resetPivApplication({ serial: '', acknowledgeDestroysAllCredentials: true })
-  ).rejects.toMatchObject({ code: 'template-invalid' })
+  await expect(resetPivApplication({ serial: '', acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+    code: 'template-invalid'
+  })
 })
 
 test('re-checks the meta inside the session and refuses a key enrolled meanwhile', async () => {
@@ -610,9 +620,9 @@ test('re-checks the meta inside the session and refuses a key enrolled meanwhile
   getMeta.mockResolvedValueOnce({ v: 5, createdAt: 1, keys: [record(SERIAL)] } as never)
   const spy = jest.spyOn(key, 'resetPivApplication')
 
-  await expect(
-    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })
-  ).rejects.toMatchObject({ code: 'key-already-enrolled' })
+  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+    code: 'key-already-enrolled'
+  })
 
   expect(spy).not.toHaveBeenCalled()
   expect(getMeta).toHaveBeenCalledTimes(2)
@@ -691,10 +701,7 @@ export async function resetPivApplication(args: {
 
   const refuse = async () => {
     const meta = await vaultStore.getMeta(scopeToken)
-    const enrolled = new Set<string>([
-      ...(meta?.keys.map(k => k.serial) ?? []),
-      ...(args.refuseSerials ?? [])
-    ])
+    const enrolled = new Set<string>([...(meta?.keys.map(k => k.serial) ?? []), ...(args.refuseSerials ?? [])])
     if (enrolled.has(args.serial)) {
       // The message IS the serial, matching enrollKey's convention.
       throw new VaultError('key-already-enrolled', args.serial, undefined, { serial: args.serial })
@@ -765,15 +772,17 @@ npm run fix && git add packages/expo-wallet-toolbox/core/services/vault/pivReset
 
 Two changes to `enrollKey`, both prerequisites for the wizard work.
 
-**Preflight hoist.** `preflightDedicatedPiv` currently runs *after* `driver.verifyPin` (`VaultKeyService.ts:305` vs `:315`). Once the wizard sends the factory PIN on the user's behalf, a personalised key would burn a PIN retry on a code the user never chose. Preflight rejects every personalised PIV application and issues no `verifyPin` on either platform — verified by tracing its whole call graph (iOS: `getCertificateIn(0xf9)`, `authenticate(withManagementKey:)`, `attestKey(in:)`; Android: `getCertificate(Slot.ATTESTATION)`, `authenticate(DEFAULT_MANAGEMENT_KEY)`, `getSlotMetadata`/`attestKey`) — so it is safe above `verifyPin`.
+**Preflight hoist.** `preflightDedicatedPiv` currently runs _after_ `driver.verifyPin` (`VaultKeyService.ts:305` vs `:315`). Once the wizard sends the factory PIN on the user's behalf, a personalised key would burn a PIN retry on a code the user never chose. Preflight rejects every personalised PIV application and issues no `verifyPin` on either platform — verified by tracing its whole call graph (iOS: `getCertificateIn(0xf9)`, `authenticate(withManagementKey:)`, `attestKey(in:)`; Android: `getCertificate(Slot.ATTESTATION)`, `authenticate(DEFAULT_MANAGEMENT_KEY)`, `getSlotMetadata`/`attestKey`) — so it is safe above `verifyPin`.
 
 **Serial on errors.** The reset offer must bind to the key that failed. `vaultErrorFromNative` (`types.ts:119-134`) parses only the code, message and `retries=`, and never populates `details` — so a native-origin error cannot carry a serial. It must be attached in JS, where `info.serial` is already in scope.
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/services/vault/VaultKeyService.ts:301-320`
 - Test: `packages/expo-wallet-toolbox/__tests__/vault/vaultKeyService.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: `pin-invalid`, `puk-invalid`, `mgmt-key-custom` and `attestation-invalid` raised from `enrollKey`'s card session now carry `details.serial`. Task 9 reads it.
 
@@ -850,44 +859,44 @@ Expected: FAIL — the order test reports `['verifyPin']` or `['verifyPin','pref
 In `VaultKeyService.ts`, replace the block currently spanning lines 301-321 with:
 
 ```ts
-      // A blocked PIN can't be enrolled — surface it before burning anything.
-      if (info.pinRetries === 0) throw withSerial(new VaultError('pin-locked', 'PIN is blocked'), info.serial)
-      // PIN/PUK and management credentials are global to the whole PIV
-      // application, not slot 0x82. Native must cryptographically verify the
-      // factory F9 chain, authenticate the default management key, and reject
-      // every occupied user slot it can reliably inspect before mutation.
-      //
-      // This runs BEFORE verifyPin deliberately. It is read-only, issues no
-      // VERIFY on either platform, and refuses every personalised PIV
-      // application — so a used token is identified without spending one of
-      // three PIN retries on the factory PIN the UI supplies on the user's
-      // behalf.
-      let preflight
-      try {
-        preflight = await driver.preflightDedicatedPiv(info.serial, args.replaceOccupiedVaultSlot === true)
-      } catch (e) {
-        throw withSerial(e, info.serial)
-      }
-      if (
-        preflight.ok !== true ||
-        preflight.manufacturerAttestation !== 'verified' ||
-        (preflight.inspection !== 'metadata' && preflight.inspection !== 'attestation')
-      ) {
-        throw withSerial(
-          new VaultError('attestation-invalid', 'Native manufacturer attestation was not verified'),
-          info.serial
-        )
-      }
-      // Verify the entered PIN before doing any card mutation. The signing
-      // probe below is the iOS-safe occupancy check for retired slot 0x82.
-      try {
-        const verified = await driver.verifyPin(info.serial, pin0)
-        requireVerifiedPin(verified)
-      } catch (e) {
-        throw withSerial(e, info.serial)
-      }
-      args.onPhase('checking-slot')
-      await requireEmptyVaultSlot(info.serial, pin0, args.replaceOccupiedVaultSlot === true)
+// A blocked PIN can't be enrolled — surface it before burning anything.
+if (info.pinRetries === 0) throw withSerial(new VaultError('pin-locked', 'PIN is blocked'), info.serial)
+// PIN/PUK and management credentials are global to the whole PIV
+// application, not slot 0x82. Native must cryptographically verify the
+// factory F9 chain, authenticate the default management key, and reject
+// every occupied user slot it can reliably inspect before mutation.
+//
+// This runs BEFORE verifyPin deliberately. It is read-only, issues no
+// VERIFY on either platform, and refuses every personalised PIV
+// application — so a used token is identified without spending one of
+// three PIN retries on the factory PIN the UI supplies on the user's
+// behalf.
+let preflight
+try {
+  preflight = await driver.preflightDedicatedPiv(info.serial, args.replaceOccupiedVaultSlot === true)
+} catch (e) {
+  throw withSerial(e, info.serial)
+}
+if (
+  preflight.ok !== true ||
+  preflight.manufacturerAttestation !== 'verified' ||
+  (preflight.inspection !== 'metadata' && preflight.inspection !== 'attestation')
+) {
+  throw withSerial(
+    new VaultError('attestation-invalid', 'Native manufacturer attestation was not verified'),
+    info.serial
+  )
+}
+// Verify the entered PIN before doing any card mutation. The signing
+// probe below is the iOS-safe occupancy check for retired slot 0x82.
+try {
+  const verified = await driver.verifyPin(info.serial, pin0)
+  requireVerifiedPin(verified)
+} catch (e) {
+  throw withSerial(e, info.serial)
+}
+args.onPhase('checking-slot')
+await requireEmptyVaultSlot(info.serial, pin0, args.replaceOccupiedVaultSlot === true)
 ```
 
 Wrap the existing `driver.changePuk` call (the one inside the `try` at what is currently line 386) so its rejection also carries the serial — change `throw e` in the `isDefiniteCredentialRejection(e)` branch to `throw withSerial(e, info.serial)`.
@@ -932,11 +941,13 @@ npm run fix && git add packages/expo-wallet-toolbox/core/services/vault/VaultKey
 Replaces the four-field page with a single "choose a PIN" page carrying a confirm field, and adds the step indicator.
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/ui/components/vault/EnrollWizard.tsx` (types at 80-81, state at ~139-142, the `pin` sub-step at 566-665, styles at the file tail)
 - Modify: `packages/expo-wallet-toolbox/core/i18n/translations.tsx`
 - Test: `packages/expo-wallet-toolbox/__tests__/ui/enrollWizard.test.tsx`
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: `KeySub` gains `'puk'` and `'reset'`; state `newPin`/`confirmPin`/`newPuk`/`pukAck`; `generateRecoveryCode(pin: string): string`; the `StepProgress` component used by Tasks 8 and 9; i18n keys `vault_pin_choose_title`, `vault_pin_choose_sub`, `vault_pin_confirm_label`, `vault_pin_mismatch`, `vault_pin_not_default`, `vault_setup_step`.
 
@@ -1106,21 +1117,21 @@ const KEY_STEPS: readonly KeySub[] = ['pin', 'puk', 'tap', 'name']
 Replace the `pin`/`newPin`/`puk`/`newPuk` state declarations with:
 
 ```ts
-  /** The PIN the user chose for this key. The factory PIN is supplied to the
-   * service below the UI, never typed. */
-  const [newPin, setNewPin] = useState('')
-  const [confirmPin, setConfirmPin] = useState('')
-  /** The generated recovery code for this key. Created when the PUK page is
-   * first shown and cleared with the rest of the key's inputs. */
-  const [newPuk, setNewPuk] = useState('')
-  const [pukAck, setPukAck] = useState(false)
+/** The PIN the user chose for this key. The factory PIN is supplied to the
+ * service below the UI, never typed. */
+const [newPin, setNewPin] = useState('')
+const [confirmPin, setConfirmPin] = useState('')
+/** The generated recovery code for this key. Created when the PUK page is
+ * first shown and cleared with the rest of the key's inputs. */
+const [newPuk, setNewPuk] = useState('')
+const [pukAck, setPukAck] = useState(false)
 ```
 
 Replace the `pinOk` / `needsNewPin` / `effectivePin` derivations with:
 
 ```ts
-  const pinChosen = pivCodeOk(newPin) && newPin !== DEFAULT_PIV_PIN
-  const pinOk = pinChosen && confirmPin === newPin
+const pinChosen = pivCodeOk(newPin) && newPin !== DEFAULT_PIV_PIN
+const pinOk = pinChosen && confirmPin === newPin
 ```
 
 Add `randomBytes` to the `@bsv/expo-wallet-toolbox` import list, and this generator beside `pivCodeOk` (Task 8's page displays what it returns; it is defined here because the PIN page's Continue handler calls it):
@@ -1155,15 +1166,15 @@ function generateRecoveryCode(pin: string): string {
 Update `clearKeyInputs` to reset the new state:
 
 ```ts
-  const clearKeyInputs = () => {
-    setNewPin('')
-    setConfirmPin('')
-    setNewPuk('')
-    setPukAck(false)
-    setPinError(null)
-    setFresh(null)
-    setName('')
-  }
+const clearKeyInputs = () => {
+  setNewPin('')
+  setConfirmPin('')
+  setNewPuk('')
+  setPukAck(false)
+  setPinError(null)
+  setFresh(null)
+  setName('')
+}
 ```
 
 Update the `runTap` callback's `enrollKey` arguments — the factory codes are supplied here:
@@ -1197,17 +1208,11 @@ const StepProgress: React.FC<{ sub: KeySub }> = ({ sub }) => {
   const n = index + 1
   const total = KEY_STEPS.length
   return (
-    <View
-      style={styles.progress}
-      accessibilityRole="progressbar"
-      accessibilityValue={{ min: 1, max: total, now: n }}
-    >
+    <View style={styles.progress} accessibilityRole="progressbar" accessibilityValue={{ min: 1, max: total, now: n }}>
       <View style={[styles.progressTrack, { backgroundColor: colors.backgroundSecondary }]}>
         <View style={[styles.progressFill, { backgroundColor: colors.accent, width: `${(n / total) * 100}%` }]} />
       </View>
-      <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>
-        {t('vault_setup_step', { n, total })}
-      </Text>
+      <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>{t('vault_setup_step', { n, total })}</Text>
     </View>
   )
 }
@@ -1227,88 +1232,88 @@ and these styles to the `StyleSheet.create` block:
 Replace the whole `if (sub === 'pin') { ... }` block (lines 566-665) with:
 
 ```tsx
-    if (sub === 'pin') {
-      const advance = () => {
-        if (!pivAck || busy) return
-        if (!pinChosen) {
-          setPinError(newPin === DEFAULT_PIV_PIN ? t('vault_pin_not_default') : null)
-          return
-        }
-        if (confirmPin !== newPin) {
-          setPinError(t('vault_pin_mismatch'))
-          return
-        }
-        setPinError(null)
-        // Generated once per visit to the PUK page, so going back and forward
-        // does not silently hand the user a different code to write down.
-        if (!newPuk) setNewPuk(generateRecoveryCode(newPin))
-        setSub('puk')
-      }
-      return (
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-          <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_key_step_title', { k })}</Text>
-          <StepProgress sub={sub} />
-          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_key_step_replace')}</Text>
-          {mode === 'add-key' && pivAcknowledgement}
-
-          <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_pin_choose_title')}</Text>
-          <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_pin_choose_sub')}</Text>
-          <TextInput
-            ref={pinInputRef}
-            accessibilityLabel={t('vault_pin_choose_title')}
-            style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
-            value={newPin}
-            onChangeText={text => {
-              setPinError(null)
-              setNewPin(text)
-            }}
-            placeholder="••••••"
-            placeholderTextColor={colors.textTertiary}
-            keyboardType="number-pad"
-            // Always secure: toggling this prop on based on length forces the
-            // native field to remount on the first keystroke and drops it.
-            secureTextEntry
-            maxLength={PIN_MAX}
-          />
-
-          <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_pin_confirm_label')}</Text>
-          <TextInput
-            accessibilityLabel={t('vault_pin_confirm_label')}
-            style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
-            value={confirmPin}
-            onChangeText={text => {
-              setPinError(null)
-              setConfirmPin(text)
-            }}
-            placeholder="••••••"
-            placeholderTextColor={colors.textTertiary}
-            keyboardType="number-pad"
-            secureTextEntry
-            maxLength={PIN_MAX}
-          />
-
-          {pinError && <Text style={[styles.err, { color: colors.error }]}>{pinError}</Text>}
-          {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
-          {recoverableDrafts.map(entry => (
-            <ActionButton
-              key={entry.record.serial}
-              label={`${t('vault_enrollment_resume')} · …${entry.record.serial.slice(-4)}`}
-              variant="outline"
-              enabled={pivAck && pinOk && !busy}
-              onPress={() => void resumeDraft(entry)}
-            />
-          ))}
-          {blockedDrafts.length > 0 && (
-            <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_enrollment_reset_required')}</Text>
-          )}
-          {Platform.OS === 'ios' && (
-            <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_nfc_activation_hint')}</Text>
-          )}
-          <ActionButton label={t('vault_continue')} enabled={pivAck && !busy} onPress={advance} />
-          {leaveLink}
-        </ScrollView>
-      )
+if (sub === 'pin') {
+  const advance = () => {
+    if (!pivAck || busy) return
+    if (!pinChosen) {
+      setPinError(newPin === DEFAULT_PIV_PIN ? t('vault_pin_not_default') : null)
+      return
     }
+    if (confirmPin !== newPin) {
+      setPinError(t('vault_pin_mismatch'))
+      return
+    }
+    setPinError(null)
+    // Generated once per visit to the PUK page, so going back and forward
+    // does not silently hand the user a different code to write down.
+    if (!newPuk) setNewPuk(generateRecoveryCode(newPin))
+    setSub('puk')
+  }
+  return (
+    <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_key_step_title', { k })}</Text>
+      <StepProgress sub={sub} />
+      <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_key_step_replace')}</Text>
+      {mode === 'add-key' && pivAcknowledgement}
+
+      <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_pin_choose_title')}</Text>
+      <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_pin_choose_sub')}</Text>
+      <TextInput
+        ref={pinInputRef}
+        accessibilityLabel={t('vault_pin_choose_title')}
+        style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+        value={newPin}
+        onChangeText={text => {
+          setPinError(null)
+          setNewPin(text)
+        }}
+        placeholder="••••••"
+        placeholderTextColor={colors.textTertiary}
+        keyboardType="number-pad"
+        // Always secure: toggling this prop on based on length forces the
+        // native field to remount on the first keystroke and drops it.
+        secureTextEntry
+        maxLength={PIN_MAX}
+      />
+
+      <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_pin_confirm_label')}</Text>
+      <TextInput
+        accessibilityLabel={t('vault_pin_confirm_label')}
+        style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+        value={confirmPin}
+        onChangeText={text => {
+          setPinError(null)
+          setConfirmPin(text)
+        }}
+        placeholder="••••••"
+        placeholderTextColor={colors.textTertiary}
+        keyboardType="number-pad"
+        secureTextEntry
+        maxLength={PIN_MAX}
+      />
+
+      {pinError && <Text style={[styles.err, { color: colors.error }]}>{pinError}</Text>}
+      {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+      {recoverableDrafts.map(entry => (
+        <ActionButton
+          key={entry.record.serial}
+          label={`${t('vault_enrollment_resume')} · …${entry.record.serial.slice(-4)}`}
+          variant="outline"
+          enabled={pivAck && pinOk && !busy}
+          onPress={() => void resumeDraft(entry)}
+        />
+      ))}
+      {blockedDrafts.length > 0 && (
+        <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_enrollment_reset_required')}</Text>
+      )}
+      {Platform.OS === 'ios' && (
+        <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_nfc_activation_hint')}</Text>
+      )}
+      <ActionButton label={t('vault_continue')} enabled={pivAck && !busy} onPress={advance} />
+      {leaveLink}
+    </ScrollView>
+  )
+}
 ```
 
 Note `resumeDraft` previously gated on `pivCodeOk(pin)` and called `getPin: async () => pin`. Change its `getPin` to `async () => newPin` — a protected draft's card already carries the PIN chosen in this run.
@@ -1336,11 +1341,13 @@ npm run fix && git add packages/expo-wallet-toolbox/ui/components/vault/EnrollWi
 ## Task 8: The generated recovery code page
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/ui/components/vault/EnrollWizard.tsx`
 - Modify: `packages/expo-wallet-toolbox/core/i18n/translations.tsx`
 - Test: `packages/expo-wallet-toolbox/__tests__/ui/enrollWizard.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `KeySub` `'puk'`, the `newPuk`/`pukAck` state, `generateRecoveryCode` and `StepProgress`, all from Task 7.
 - Produces: i18n keys `vault_puk_title`, `vault_puk_body`, `vault_puk_ack`.
 
@@ -1489,49 +1496,45 @@ Expected: FAIL — `vault_puk_title` not found.
 `generateRecoveryCode` and the `newPuk` / `pukAck` state already landed in Task 7. Add the sub-step block directly after the `pin` block:
 
 ```tsx
-    if (sub === 'puk') {
-      return (
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-          <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_key_step_title', { k })}</Text>
-          <StepProgress sub={sub} />
-          <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_puk_title')}</Text>
-          {/* Shown once and never stored, exactly like the PIN. The
+if (sub === 'puk') {
+  return (
+    <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_key_step_title', { k })}</Text>
+      <StepProgress sub={sub} />
+      <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_puk_title')}</Text>
+      {/* Shown once and never stored, exactly like the PIN. The
               acknowledgement is a tick rather than a plain button because
               losing this code silently is the failure this page exists to
               prevent. */}
-          <Text
-            accessibilityLabel={t('vault_puk_title')}
-            selectable
-            style={[styles.code, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
-          >
-            {newPuk}
-          </Text>
-          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_puk_body')}</Text>
-          <PressableScale
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: pukAck }}
-            haptic="tap"
-            onPress={() => setPukAck(value => !value)}
-            style={[styles.ackRow, { borderColor: pukAck ? colors.accent : colors.separator }]}
-          >
-            <Ionicons
-              name={pukAck ? 'checkbox' : 'square-outline'}
-              size={24}
-              color={pukAck ? colors.accent : colors.textTertiary}
-            />
-            <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_puk_ack')}</Text>
-          </PressableScale>
-          {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
-          <ActionButton
-            label={t('vault_continue')}
-            enabled={pukAck && pinOk && !busy}
-            onPress={() => void runTap()}
-          />
-          <ActionButton label={t('vault_back')} variant="outline" onPress={() => setSub('pin')} />
-          {leaveLink}
-        </ScrollView>
-      )
-    }
+      <Text
+        accessibilityLabel={t('vault_puk_title')}
+        selectable
+        style={[styles.code, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+      >
+        {newPuk}
+      </Text>
+      <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_puk_body')}</Text>
+      <PressableScale
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: pukAck }}
+        haptic="tap"
+        onPress={() => setPukAck(value => !value)}
+        style={[styles.ackRow, { borderColor: pukAck ? colors.accent : colors.separator }]}
+      >
+        <Ionicons
+          name={pukAck ? 'checkbox' : 'square-outline'}
+          size={24}
+          color={pukAck ? colors.accent : colors.textTertiary}
+        />
+        <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_puk_ack')}</Text>
+      </PressableScale>
+      {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+      <ActionButton label={t('vault_continue')} enabled={pukAck && pinOk && !busy} onPress={() => void runTap()} />
+      <ActionButton label={t('vault_back')} variant="outline" onPress={() => setSub('pin')} />
+      {leaveLink}
+    </ScrollView>
+  )
+}
 ```
 
 Add the style:
@@ -1573,11 +1576,13 @@ npm run fix && git add packages/expo-wallet-toolbox/ui/components/vault/EnrollWi
 ## Task 9: The reset page and error routing
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/ui/components/vault/EnrollWizard.tsx` (the `error` sub-step, currently ~703-735)
 - Modify: `packages/expo-wallet-toolbox/core/i18n/translations.tsx`
 - Test: `packages/expo-wallet-toolbox/__tests__/ui/enrollWizard.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `resetPivApplication` (Task 5), `details.serial` on errors (Task 6), `KeySub` `'reset'` (Task 7).
 - Produces: the final wizard behaviour. Nothing downstream.
 
@@ -1831,127 +1836,123 @@ const RESETTABLE: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>([
 Add to the component state:
 
 ```ts
-  /** The serial the failed attempt reported; a reset tap binds to it. */
-  const [resetSerial, setResetSerial] = useState<string | null>(null)
-  const [resetAck, setResetAck] = useState(false)
-  const [resetting, setResetting] = useState(false)
+/** The serial the failed attempt reported; a reset tap binds to it. */
+const [resetSerial, setResetSerial] = useState<string | null>(null)
+const [resetAck, setResetAck] = useState(false)
+const [resetting, setResetting] = useState(false)
 ```
 
 In `runTap`'s catch, after `copy` is computed, record the serial:
 
 ```ts
-        const failedSerial = duplicateSerial(err)
-        setResetSerial(
-          failedSerial && err && RESETTABLE.has(err.code) && err.code !== 'key-already-enrolled'
-            ? failedSerial
-            : null
-        )
+const failedSerial = duplicateSerial(err)
+setResetSerial(
+  failedSerial && err && RESETTABLE.has(err.code) && err.code !== 'key-already-enrolled' ? failedSerial : null
+)
 ```
 
 Add the reset handler beside `useDifferentKey`:
 
 ```ts
-  const runReset = useCallback(async () => {
-    if (!resetSerial || !resetAck || resetting) return
-    setResetting(true)
-    setStepError(null)
-    try {
-      await resetPivApplication({
-        serial: resetSerial,
-        // Stored ∪ pending: pivReset refuses these below the UI too, but the
-        // wizard holds pending records the store has not seen yet.
-        refuseSerials: [...metaKeys.map(r => r.serial), ...pending.map(r => r.serial)],
-        acknowledgeDestroysAllCredentials: true,
-        scopeToken,
-        nfcMessage: t('vault_nfc_enroll_message')
-      })
-      haptics.success()
-      showToast(t('vault_reset_done'), { type: 'success' })
-      setResetAck(false)
-      setResetSerial(null)
-      setKeyError(null)
-      // The PIN and recovery code chosen for this key are still valid — the
-      // card is back at factory state and they have not been written yet.
-      await runTap()
-    } catch (e) {
-      haptics.error()
-      const err = e instanceof VaultError ? e : undefined
-      if (err?.code === 'scope-changed') {
-        clearKeyInputs()
-        showToast(vaultErrorCopy('scope-changed'), { type: 'error' })
-        onCancel()
-        return
-      }
-      setStepError(
-        err?.code === 'key-already-enrolled' ? t('vault_err_reset_enrolled') : vaultErrorCopy(err?.code)
-      )
-    } finally {
-      setResetting(false)
+const runReset = useCallback(async () => {
+  if (!resetSerial || !resetAck || resetting) return
+  setResetting(true)
+  setStepError(null)
+  try {
+    await resetPivApplication({
+      serial: resetSerial,
+      // Stored ∪ pending: pivReset refuses these below the UI too, but the
+      // wizard holds pending records the store has not seen yet.
+      refuseSerials: [...metaKeys.map(r => r.serial), ...pending.map(r => r.serial)],
+      acknowledgeDestroysAllCredentials: true,
+      scopeToken,
+      nfcMessage: t('vault_nfc_enroll_message')
+    })
+    haptics.success()
+    showToast(t('vault_reset_done'), { type: 'success' })
+    setResetAck(false)
+    setResetSerial(null)
+    setKeyError(null)
+    // The PIN and recovery code chosen for this key are still valid — the
+    // card is back at factory state and they have not been written yet.
+    await runTap()
+  } catch (e) {
+    haptics.error()
+    const err = e instanceof VaultError ? e : undefined
+    if (err?.code === 'scope-changed') {
+      clearKeyInputs()
+      showToast(vaultErrorCopy('scope-changed'), { type: 'error' })
+      onCancel()
+      return
     }
-  }, [resetSerial, resetAck, resetting, metaKeys, pending, scopeToken, onCancel, runTap])
+    setStepError(err?.code === 'key-already-enrolled' ? t('vault_err_reset_enrolled') : vaultErrorCopy(err?.code))
+  } finally {
+    setResetting(false)
+  }
+}, [resetSerial, resetAck, resetting, metaKeys, pending, scopeToken, onCancel, runTap])
 ```
 
 Add the `reset` sub-step block before the `error` block:
 
 ```tsx
-    if (sub === 'reset') {
-      return (
-        <ScrollView contentContainerStyle={styles.body}>
-          <Ionicons name="warning-outline" size={48} color={colors.warning} style={styles.hero} />
-          <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_reset_title')}</Text>
-          <Text style={[styles.p, { color: colors.textSecondary }]}>
-            {resetSerial ? `…${resetSerial.slice(-4)}` : ''}
-          </Text>
-          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_reset_body')}</Text>
-          <PressableScale
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: resetAck }}
-            haptic="tap"
-            onPress={() => setResetAck(value => !value)}
-            style={[styles.ackRow, { borderColor: resetAck ? colors.error : colors.separator }]}
-          >
-            <Ionicons
-              name={resetAck ? 'checkbox' : 'square-outline'}
-              size={24}
-              color={resetAck ? colors.error : colors.textTertiary}
-            />
-            <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_reset_ack')}</Text>
-          </PressableScale>
-          {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
-          <ActionButton
-            label={resetting ? t('vault_resetting') : t('vault_reset_confirm')}
-            enabled={resetAck && !resetting}
-            busy={resetting}
-            onPress={() => void runReset()}
-          />
-          <ActionButton
-            label={t('vault_key_use_different')}
-            variant="outline"
-            enabled={!resetting}
-            onPress={() => {
-              setResetAck(false)
-              setStepError(null)
-              useDifferentKey()
-            }}
-          />
-        </ScrollView>
-      )
-    }
+if (sub === 'reset') {
+  return (
+    <ScrollView contentContainerStyle={styles.body}>
+      <Ionicons name="warning-outline" size={48} color={colors.warning} style={styles.hero} />
+      <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_reset_title')}</Text>
+      <Text style={[styles.p, { color: colors.textSecondary }]}>{resetSerial ? `…${resetSerial.slice(-4)}` : ''}</Text>
+      <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_reset_body')}</Text>
+      <PressableScale
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: resetAck }}
+        haptic="tap"
+        onPress={() => setResetAck(value => !value)}
+        style={[styles.ackRow, { borderColor: resetAck ? colors.error : colors.separator }]}
+      >
+        <Ionicons
+          name={resetAck ? 'checkbox' : 'square-outline'}
+          size={24}
+          color={resetAck ? colors.error : colors.textTertiary}
+        />
+        <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_reset_ack')}</Text>
+      </PressableScale>
+      {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+      <ActionButton
+        label={resetting ? t('vault_resetting') : t('vault_reset_confirm')}
+        enabled={resetAck && !resetting}
+        busy={resetting}
+        onPress={() => void runReset()}
+      />
+      <ActionButton
+        label={t('vault_key_use_different')}
+        variant="outline"
+        enabled={!resetting}
+        onPress={() => {
+          setResetAck(false)
+          setStepError(null)
+          useDifferentKey()
+        }}
+      />
+    </ScrollView>
+  )
+}
 ```
 
 In the `error` sub-step, add the offer above the existing branches:
 
 ```tsx
-        {resetSerial && (
-          <ActionButton
-            label={t('vault_reset_offer')}
-            variant="outline"
-            onPress={() => {
-              setStepError(null)
-              setSub('reset')
-            }}
-          />
-        )}
+{
+  resetSerial && (
+    <ActionButton
+      label={t('vault_reset_offer')}
+      variant="outline"
+      onPress={() => {
+        setStepError(null)
+        setSub('reset')
+      }}
+    />
+  )
+}
 ```
 
 Extend `clearKeyInputs` with `setResetSerial(null)` and `setResetAck(false)`.
@@ -1985,6 +1986,7 @@ npm run fix && git add packages/expo-wallet-toolbox/ui/components/vault/EnrollWi
 Seven of the eight old credential keys are now unreferenced. **`vault_enter_pin` is not one of them** — it is shared with `VaultCeremonySheet.tsx:195` and `VaultScreen.tsx:981,983` and must stay. (The design doc's §6 retire list is wrong on this point; it also omits `vault_set_new_puk` and `vault_default_pin_warning`, which are retirable.)
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/i18n/translations.tsx`
 
 **Interfaces:** consumes Tasks 7–9; produces nothing.
@@ -2021,7 +2023,7 @@ and fix any line the parser rejects by hand.
 
 - [ ] **Step 4: Fix the stale `vault_key_step_replace` translations**
 
-All 11 non-English values still say setup *stops* when a PIV slot is occupied; English was changed to say setup *warns* before replacing. The parity test cannot catch a meaning drift. Replace each with:
+All 11 non-English values still say setup _stops_ when a PIV slot is occupied; English was changed to say setup _warns_ before replacing. The parity test cannot catch a meaning drift. Replace each with:
 
 ```
 zh: '请使用专供保险库且已恢复出厂设置的 YubiKey。若其保险库槽位中已有旧密钥，设置会在替换前提示您。',

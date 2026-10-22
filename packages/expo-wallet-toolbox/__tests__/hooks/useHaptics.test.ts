@@ -3,7 +3,7 @@ jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(() => Promise.resolve()),
   notificationAsync: jest.fn(() => Promise.resolve()),
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
-  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
+  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' }
 }))
 
 import * as Haptics from 'expo-haptics'
@@ -14,8 +14,12 @@ describe('haptic vocabulary', () => {
   beforeEach(() => jest.clearAllMocks())
 
   describe('iOS', () => {
-    beforeEach(() => { Platform.OS = 'ios' })
-    afterEach(() => { Platform.OS = 'ios' })
+    beforeEach(() => {
+      Platform.OS = 'ios'
+    })
+    afterEach(() => {
+      Platform.OS = 'ios'
+    })
 
     it('maps semantics to the iOS APIs from the spec', () => {
       haptics.tap()
@@ -32,8 +36,12 @@ describe('haptic vocabulary', () => {
   })
 
   describe('Android', () => {
-    beforeEach(() => { Platform.OS = 'android' })
-    afterEach(() => { Platform.OS = 'ios' })
+    beforeEach(() => {
+      Platform.OS = 'android'
+    })
+    afterEach(() => {
+      Platform.OS = 'ios'
+    })
 
     it('no-ops tap/confirm on android', () => {
       haptics.tap()

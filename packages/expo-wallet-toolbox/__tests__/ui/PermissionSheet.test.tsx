@@ -235,7 +235,13 @@ describe('protocol prompts', () => {
       formatSats
     )!
     expect(active.details).toContainEqual({ label: 'Key ID', value: shown })
-    expect(active.details.map(d => d.label)).toEqual(['Protocol', 'Security level', 'Shared with', 'Key ID', 'Approval'])
+    expect(active.details.map(d => d.label)).toEqual([
+      'Protocol',
+      'Security level',
+      'Shared with',
+      'Key ID',
+      'Approval'
+    ])
   })
 
   test('leaves other protocols as the app named them', () => {

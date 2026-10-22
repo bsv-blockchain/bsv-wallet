@@ -37,7 +37,7 @@ export const BACKUP_PROTOCOL: WalletProtocol = [2, 'wallet backup log']
  * accounts, so a testnet wallet's manifest never even lists mainnet blobs) and three
  * unrelated encryption keys (so a mainnet blob would not decrypt on testnet regardless).
  */
-export function backupKeyId (chain: BackupChain): string {
+export function backupKeyId(chain: BackupChain): string {
   return `1 ${chain}`
 }
 
@@ -112,7 +112,6 @@ export const DEVICE_ID_KEY = 'backupDeviceId'
 // Exported separately from cursorKey so a caller that wants EVERY device's cursor for one
 // identity — e.g. a Wallet Check that must not see a different (departed) wallet's leftover
 // cursor on the same install — can scan by prefix without needing this device's own id.
-export const cursorKeyPrefix = (chain: BackupChain, pseudonym: string): string =>
-  `backupCursor-${chain}-${pseudonym}-`
+export const cursorKeyPrefix = (chain: BackupChain, pseudonym: string): string => `backupCursor-${chain}-${pseudonym}-`
 export const cursorKey = (chain: BackupChain, pseudonym: string, deviceId: string): string =>
   `${cursorKeyPrefix(chain, pseudonym)}${deviceId}`

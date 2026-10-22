@@ -28,9 +28,7 @@ export async function showChoiceSheet(args: {
   const ordered = choiceSheetOrder(args.options, cancelKey)
   const labelFor = (key: string) =>
     key === cancelKey ? cancelLabel : (args.options.find(o => o.key === key)?.label ?? key)
-  const destructiveIndexes = ordered.flatMap((o, i) =>
-    'destructive' in o && o.destructive ? [i] : []
-  )
+  const destructiveIndexes = ordered.flatMap((o, i) => ('destructive' in o && o.destructive ? [i] : []))
 
   if (Platform.OS === 'ios') {
     return new Promise(resolve => {

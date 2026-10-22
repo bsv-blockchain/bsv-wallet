@@ -14,7 +14,7 @@
 
 - Package name: `@bsv/expo-wallet-toolbox`. Location: `packages/expo-wallet-toolbox/{core,ui}`. Linked into root `package.json` via `"@bsv/expo-wallet-toolbox": "file:./packages/expo-wallet-toolbox"` (added in Task 1).
 - **This plan performs code relocation, not new-feature TDD.** Each task's step pattern is: (1) confirm baseline — run the subsystem's existing tests and confirm they pass before touching anything; (2) `git mv` the files (preserves history — never plain `mv` + `git add`); (3) fix imports; (4) run the same tests again from their new location; (5) commit. A task that also edits a not-yet-moved consumer file (e.g. `WalletContext.tsx` before it itself moves) does that as its own step.
-- **Import-fix rule:** after moving a file, any import of the form `from '@/...'` or `from './...'`/`from '../...'` that pointed at another module *also being moved in this plan* becomes a relative path to that module's new location inside the package. Imports of node_modules packages (`react`, `react-native`, `expo-*`, `@bsv/*`, etc.) are untouched. Verify with `grep -rn "from '@/" <moved-file-or-dir>` — every remaining hit must point only at app code not yet moved (expected mid-plan) or is a bug to fix now. Because moves use `git mv`, a leftover unfixed `@/` import that pointed at something already moved will fail to resolve (the old path no longer exists) — both `tsc` and Jest will error loudly, so there is no silent-breakage risk.
+- **Import-fix rule:** after moving a file, any import of the form `from '@/...'` or `from './...'`/`from '../...'` that pointed at another module _also being moved in this plan_ becomes a relative path to that module's new location inside the package. Imports of node_modules packages (`react`, `react-native`, `expo-*`, `@bsv/*`, etc.) are untouched. Verify with `grep -rn "from '@/" <moved-file-or-dir>` — every remaining hit must point only at app code not yet moved (expected mid-plan) or is a bug to fix now. Because moves use `git mv`, a leftover unfixed `@/` import that pointed at something already moved will fail to resolve (the old path no longer exists) — both `tsc` and Jest will error loudly, so there is no silent-breakage risk.
 - **Test command convention:** `npx jest <path-or-pattern>`.
 - **Commit convention:** Conventional Commits, `refactor(wallet-toolbox): <what moved>`.
 - Whenever a task's file list says "Test: move `__tests__/X.test.ts` → `packages/expo-wallet-toolbox/__tests__/...`", mirror the existing `__tests__/` subfolder convention (flat, except `storage/`, `vault/`, `secrets/` keep their own subfolders).
@@ -25,6 +25,7 @@
 ### Task 1: Scaffold the package + prove cross-package resolution works
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/package.json`
 - Create: `packages/expo-wallet-toolbox/tsconfig.json`
 - Create: `packages/expo-wallet-toolbox/core/index.ts`
@@ -33,6 +34,7 @@
 - Test: `packages/expo-wallet-toolbox/__tests__/packageResolution.test.ts`
 
 **Interfaces:**
+
 - Produces: `CANARY: string` from `@bsv/expo-wallet-toolbox`, `CANARY_UI: string` from `@bsv/expo-wallet-toolbox/ui` — proof that both entry points resolve through Jest/Metro before any real code moves. Every later task appends real exports to these same two `index.ts` files.
 
 - [ ] **Step 1: Create the package manifest**
@@ -65,6 +67,7 @@
   }
 }
 ```
+
 Save as `packages/expo-wallet-toolbox/package.json`.
 
 - [ ] **Step 2: Create the package tsconfig**
@@ -80,16 +83,19 @@ Save as `packages/expo-wallet-toolbox/package.json`.
   "include": ["core/**/*", "ui/**/*"]
 }
 ```
+
 Save as `packages/expo-wallet-toolbox/tsconfig.json`. Deliberately no `baseUrl`/`paths` — package-internal imports must be relative so the package resolves the same way inside any consuming app, not just this one.
 
 - [ ] **Step 3: Create the two entry-point barrels**
 
 `packages/expo-wallet-toolbox/core/index.ts`:
+
 ```ts
 export const CANARY = 'core'
 ```
 
 `packages/expo-wallet-toolbox/ui/index.ts`:
+
 ```ts
 export const CANARY_UI = 'ui'
 ```
@@ -97,6 +103,7 @@ export const CANARY_UI = 'ui'
 - [ ] **Step 4: Link the package into the root app**
 
 In root `package.json`, add (alphabetical position in `dependencies`):
+
 ```json
 "@bsv/expo-wallet-toolbox": "file:./packages/expo-wallet-toolbox",
 ```
@@ -130,6 +137,7 @@ describe('package resolution', () => {
   })
 })
 ```
+
 Save as `packages/expo-wallet-toolbox/__tests__/packageResolution.test.ts`.
 
 - [ ] **Step 8: Run it**
@@ -149,6 +157,7 @@ git commit -m "refactor(wallet-toolbox): scaffold @bsv/expo-wallet-toolbox packa
 ### Task 2: Move foundational leaf modules (no internal deps)
 
 **Files:**
+
 - Move: `utils/mnemonicWallet.ts` → `packages/expo-wallet-toolbox/core/mnemonicWallet.ts`
 - Move: `utils/walletDbRegistry.ts` → `packages/expo-wallet-toolbox/core/walletDbRegistry.ts`
 - Move: `utils/walletMonitor.ts` → `packages/expo-wallet-toolbox/core/walletMonitor.ts`
@@ -163,6 +172,7 @@ git commit -m "refactor(wallet-toolbox): scaffold @bsv/expo-wallet-toolbox packa
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks (these are the dependency-graph leaves).
 - Produces: `recoverMnemonicWallet` (mnemonicWallet), `getRegisteredDbs`/`registerDb`/`selectLatestDb`/`parseDbFilename` (walletDbRegistry), `configureNewHeaderPolling` (walletMonitor), `getOnline`/`subscribeOnline` (net/online), `logWithTimestamp` + friends (logging), `AppChain`/`WalletChain`/`toWalletChain`/`DEFAULT_WAB_URL`/`DEFAULT_STORAGE_URL`/`DEFAULT_MESSAGEBOX_URL`/`DEFAULT_BACKUP_URL`/`DEFAULT_CHAIN`/`ADMIN_ORIGINATOR` (config) — all re-exported from `packages/expo-wallet-toolbox/core/index.ts`. Every later core task both consumes some of these and appends its own exports to the same file.
 
@@ -193,6 +203,7 @@ git mv __tests__/netOnline.test.ts packages/expo-wallet-toolbox/__tests__/net/on
 git mv __tests__/walletMonitor.test.ts packages/expo-wallet-toolbox/__tests__/walletMonitor.test.ts
 git mv __tests__/diskSpace.test.ts packages/expo-wallet-toolbox/__tests__/diskSpace.test.ts
 ```
+
 Each moved test imports its subject via `@/utils/...` or `@/context/config` — update those to relative paths against the new test location, e.g. in `__tests__/net/online.test.ts`: `from '@/utils/net/online'` → `from '../../core/net/online'`.
 
 - [ ] **Step 4: Fix internal imports within the moved source files**
@@ -206,6 +217,7 @@ Expected: no output. If anything appears, fix it to a relative path per the Impo
 - [ ] **Step 5: Append exports to the core barrel**
 
 Add to `packages/expo-wallet-toolbox/core/index.ts`:
+
 ```ts
 export { recoverMnemonicWallet } from './mnemonicWallet'
 export { getRegisteredDbs, registerDb, selectLatestDb, parseDbFilename } from './walletDbRegistry'
@@ -224,6 +236,7 @@ export {
   ADMIN_ORIGINATOR
 } from './config'
 ```
+
 (Check `utils/logging.ts`'s actual named exports before finalizing this line — export every name it defines, not just `logWithTimestamp`.)
 
 - [ ] **Step 6: Run tests from the new location**
@@ -243,6 +256,7 @@ git commit -m "refactor(wallet-toolbox): move foundational leaf modules into cor
 ### Task 3: Move theme + i18n
 
 **Files:**
+
 - Move: `context/theme/ThemeContext.tsx` → `packages/expo-wallet-toolbox/core/theme/ThemeContext.tsx`
 - Move: `context/theme/tokens.ts` → `packages/expo-wallet-toolbox/core/theme/tokens.ts`
 - Move: `context/theme/assertThemeContrast.ts` → `packages/expo-wallet-toolbox/core/theme/assertThemeContrast.ts`
@@ -250,6 +264,7 @@ git commit -m "refactor(wallet-toolbox): move foundational leaf modules into cor
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks (both self-contained per the exploration map — no test files exist for either, so there is no baseline/re-run test step here beyond the type-check).
 - Produces: `ThemeProvider`, `useTheme`, `spacing`/`radii`/`typography` tokens, `LanguageProvider`, the i18n singleton default export — re-exported from `core/index.ts`.
 
@@ -262,6 +277,7 @@ git mv context/theme/tokens.ts packages/expo-wallet-toolbox/core/theme/tokens.ts
 git mv context/theme/assertThemeContrast.ts packages/expo-wallet-toolbox/core/theme/assertThemeContrast.ts
 git mv context/i18n/translations.tsx packages/expo-wallet-toolbox/core/i18n/translations.tsx
 ```
+
 (If `context/theme/` or `context/i18n/` contain any other files not listed above, move those too — check with `ls context/theme context/i18n` before running the commands and add any extras.)
 
 - [ ] **Step 2: Fix internal imports**
@@ -277,6 +293,7 @@ export { spacing, radii, typography, colors } from './theme/tokens'
 export { LanguageProvider } from './i18n/translations'
 export { default as i18n } from './i18n/translations'
 ```
+
 (Verify the exact named exports of `tokens.ts` and adjust the list — export every token group it defines.)
 
 - [ ] **Step 4: Type-check**
@@ -296,6 +313,7 @@ git commit -m "refactor(wallet-toolbox): move theme and i18n into core"
 ### Task 4: Move localpay transport protocol
 
 **Files:**
+
 - Move: `utils/localpay/codec.ts`, `session.ts`, `build.ts`, `pending.ts`, `verify.ts`, `qr.ts`, `nearbyPermissions.ts`, `types.ts` → `packages/expo-wallet-toolbox/core/localpay/`
 - Move: `utils/localpay/transport/socket.ts`, `awdl.ts`, `nearby.ts`, `select.ts` → `packages/expo-wallet-toolbox/core/localpay/transport/`
 - Move: `utils/peerpay/outbox.ts` → `packages/expo-wallet-toolbox/core/peerpay/outbox.ts`
@@ -303,6 +321,7 @@ git commit -m "refactor(wallet-toolbox): move theme and i18n into core"
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks (localpay only needs `@bsv/sdk` and, for transport/select.ts, the `react-native-localpay-transport` peer dep).
 - Produces: codec encode/decode functions, `SessionKeys`/session helpers, payment-frame builders, `PEERPAY_LABEL`/`PEERPAY_PROTOCOL_ID` and pending-queue helpers, `getLocalPayTransport`, `Ack` type, peerpay outbox helpers — re-exported from `core/index.ts`.
 
@@ -329,6 +348,7 @@ git mv utils/localpay/transport/nearby.ts packages/expo-wallet-toolbox/core/loca
 git mv utils/localpay/transport/select.ts packages/expo-wallet-toolbox/core/localpay/transport/select.ts
 git mv utils/peerpay/outbox.ts packages/expo-wallet-toolbox/core/peerpay/outbox.ts
 ```
+
 (If `utils/localpay/` has any additional files beyond this list, `ls utils/localpay utils/localpay/transport` first and include them.)
 
 - [ ] **Step 3: Move tests and fix imports**
@@ -344,6 +364,7 @@ git mv __tests__/localpayAirGap.test.ts packages/expo-wallet-toolbox/__tests__/l
 git mv __tests__/localpayTransportAwdl.test.ts packages/expo-wallet-toolbox/__tests__/localpay/transportAwdl.test.ts
 git mv __tests__/localpayTransportSelect.test.ts packages/expo-wallet-toolbox/__tests__/localpay/transportSelect.test.ts
 ```
+
 Update each test's imports from `@/utils/localpay/...` to relative paths against `__tests__/localpay/`, e.g. `from '@/utils/localpay/codec'` → `from '../../core/localpay/codec'`.
 
 - [ ] **Step 4: Fix internal imports**
@@ -385,11 +406,13 @@ git commit -m "refactor(wallet-toolbox): move localpay transport protocol into c
 ### Task 5: Move offline-payment queueing
 
 **Files:**
+
 - Move: every file under `utils/offline/` → `packages/expo-wallet-toolbox/core/offline/`
 - Test: `__tests__/offlineHold.test.ts`, `offlineOrder.test.ts`, `offlinePlan.test.ts`, `offlineChaintracks.test.ts` → `packages/expo-wallet-toolbox/__tests__/offline/`
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks.
 - Produces: offline-hold/order/plan helpers, `OfflineFirstChaintracks` (if that's where it lives — cross-check against Task 11's headers move; `OfflineFirstChaintracks` belongs with `utils/headers/`, not `utils/offline/`, per the exploration map — confirm with `ls utils/offline` and only move what's actually there).
 
@@ -418,6 +441,7 @@ git mv __tests__/offlineHold.test.ts packages/expo-wallet-toolbox/__tests__/offl
 git mv __tests__/offlineOrder.test.ts packages/expo-wallet-toolbox/__tests__/offline/order.test.ts
 git mv __tests__/offlinePlan.test.ts packages/expo-wallet-toolbox/__tests__/offline/plan.test.ts
 ```
+
 `offlineChaintracks.test.ts` — check its import target first (`grep -n "^import" __tests__/offlineChaintracks.test.ts`); if it tests `utils/headers/OfflineFirstChaintracks.ts` rather than anything under `utils/offline/`, leave it for Task 11 (headers) instead of moving it here.
 
 Fix each moved test's imports from `@/utils/offline/...` to relative paths against `__tests__/offline/`.
@@ -448,11 +472,13 @@ git commit -m "refactor(wallet-toolbox): move offline-payment queueing into core
 ### Task 6: Move the send-offline background task
 
 **Files:**
+
 - Move: `utils/monitor/TaskSendOffline.ts` → `packages/expo-wallet-toolbox/core/monitor/TaskSendOffline.ts`
 - Test: `__tests__/taskSendOffline.test.ts` → `packages/expo-wallet-toolbox/__tests__/monitor/taskSendOffline.test.ts`
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: offline-queue helpers from Task 5 (`core/offline`), `getOnline` from Task 2 (`core/net/online`).
 - Produces: `TaskSendOffline` — needed by Task 7 (storage, which imports it directly) and Task 17 (`WalletContext.tsx`).
 
@@ -497,6 +523,7 @@ git commit -m "refactor(wallet-toolbox): move TaskSendOffline into core"
 ### Task 7: Move the storage layer
 
 **Files:**
+
 - Move: `storage/StorageExpoSQLite.ts`, `storage/LocalStorageAdapter.ts`, `storage/errors.ts`, `storage/index.ts`, `storage/schema/*`, `storage/methods/*` → `packages/expo-wallet-toolbox/core/storage/` (mirroring the same subfolder structure)
 - Test: everything under `__tests__/storage/` → `packages/expo-wallet-toolbox/__tests__/storage/`
 - Test: `__tests__/walletBalanceSql.test.ts` → `packages/expo-wallet-toolbox/__tests__/storage/walletBalanceSql.test.ts`
@@ -504,6 +531,7 @@ git commit -m "refactor(wallet-toolbox): move TaskSendOffline into core"
 - Modify: `app/index.tsx:53-54` — will still import `@/storage/methods/...` directly until Task 18 rewires the app; leave as-is for now (this task only moves the package's own code, not its callers — the direct-import bypass gets fixed for good in Task 18).
 
 **Interfaces:**
+
 - Consumes: `getOnline` (Task 2), `logWithTimestamp`/`diskSpace` (Task 2), offline-hold helpers (Task 5), `TaskSendOffline` (Task 6), `AppChain`/`toWalletChain` (Task 2).
 - Produces: `StorageExpoSQLite`, `StorageExpoSQLiteOptions`, `createTables`, and — per the spec's explicit fix requirement — `findOfflineActions`, `OfflineActionRow`, `readWalletBalance` now also re-exported at the top level (previously only reachable via `storage/methods/*` direct imports).
 
@@ -533,6 +561,7 @@ git mv __tests__/storage/*.ts packages/expo-wallet-toolbox/__tests__/storage/
 git mv __tests__/walletBalanceSql.test.ts packages/expo-wallet-toolbox/__tests__/storage/walletBalanceSql.test.ts
 rmdir __tests__/storage 2>/dev/null || true
 ```
+
 Fix each test's `@/storage/...` import to a relative path against `__tests__/storage/`.
 
 - [ ] **Step 4: Fix internal imports**
@@ -555,6 +584,7 @@ export { findOfflineActions } from './storage/methods/offlineActions'
 export type { OfflineActionRow } from './storage/methods/offlineActions'
 export { readWalletBalance } from './storage/methods/walletBalanceSql'
 ```
+
 (Verify `LocalStorageAdapter.ts`'s actual export name/shape before finalizing.)
 
 - [ ] **Step 6: Run tests from new location**
@@ -574,12 +604,14 @@ git commit -m "refactor(wallet-toolbox): move storage layer into core, expose of
 ### Task 8: Move local secrets storage + LocalStorageProvider
 
 **Files:**
+
 - Move: every file under `services/secrets/` → `packages/expo-wallet-toolbox/core/services/secrets/`
 - Move: `context/LocalStorageProvider.tsx` → `packages/expo-wallet-toolbox/core/context/LocalStorageProvider.tsx`
 - Test: everything under `__tests__/secrets/` → `packages/expo-wallet-toolbox/__tests__/secrets/`
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks (secrets subsystem is self-contained per the exploration map).
 - Produces: `LocalStorageProvider`, `useLocalStorage` — needed by Tasks 17 (WalletContext) and many UI tasks.
 
@@ -603,6 +635,7 @@ mkdir -p packages/expo-wallet-toolbox/__tests__/secrets
 git mv __tests__/secrets/*.ts packages/expo-wallet-toolbox/__tests__/secrets/
 rmdir __tests__/secrets 2>/dev/null || true
 ```
+
 Fix each test's imports to relative paths against `__tests__/secrets/`.
 
 - [ ] **Step 4: Fix internal imports**
@@ -617,6 +650,7 @@ Fix every hit.
 ```ts
 export { default as LocalStorageProvider, useLocalStorage } from './context/LocalStorageProvider'
 ```
+
 (Adjust to the file's actual export shape — default vs named.)
 
 - [ ] **Step 6: Run tests**
@@ -636,12 +670,14 @@ git commit -m "refactor(wallet-toolbox): move secrets storage and LocalStoragePr
 ### Task 9: Move UserContext + ExchangeRateContext
 
 **Files:**
+
 - Move: `context/UserContext.tsx` → `packages/expo-wallet-toolbox/core/context/UserContext.tsx`
 - Move: `context/ExchangeRateContext.tsx` → `packages/expo-wallet-toolbox/core/context/ExchangeRateContext.tsx`
 - Move: `services/exchangeRate.ts` → `packages/expo-wallet-toolbox/core/services/exchangeRate.ts`
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks (both self-contained; no dedicated test files for either per the exploration map).
 - Produces: `UserContextProvider`, `NativeHandlers` type, `UserContext`, `ExchangeRateContextProvider`, `ExchangeRateContext`, `getExchangeRate`.
 
@@ -686,12 +722,14 @@ git commit -m "refactor(wallet-toolbox): move UserContext and ExchangeRateContex
 ### Task 10: Move pay rails
 
 **Files:**
+
 - Move: `utils/pay/rails/index.ts`, `address.ts`, `handle.ts`, `nearby.ts`, `sweeper.ts`, `proofNudge.ts`, `watchlist.ts` → `packages/expo-wallet-toolbox/core/pay/`
 - Move: `utils/parsePeerPayURI.ts` → `packages/expo-wallet-toolbox/core/parsePeerPayURI.ts`
 - Test: `__tests__/payRails.test.ts`, `payAddressRail.test.ts`, `payAddressDerivation.test.ts`, `payHandleRail.test.ts`, `payHandleInbox.test.ts`, `payNearbyRail.test.ts`, `paySweeper.test.ts`, `payWatchlist.test.ts`, `payerHold.test.ts`, `sendMaxSignerVerify.test.ts`, `verifyShadowRouting.test.ts` → `packages/expo-wallet-toolbox/__tests__/pay/`
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: `decodeSession` from localpay (Task 4), `StorageExpoSQLite`/offline-action helpers (Task 7), `TaskSendOffline` (Task 6).
 - Produces: `PayCell` type, `isPayCell`, rail routing helpers, `wocConfigFor`, `SWEEP_INTERVAL_MS`/`runSweep`/`shouldSweepNow`/`sweptTotal`, `takeProofNudge`, watchlist helpers, `validatePeerPayURI` — needed directly by Task 17 (`WalletContext.tsx`) and by the `PayScreen` UI task (Task 21).
 
@@ -735,6 +773,7 @@ git mv __tests__/payerHold.test.ts packages/expo-wallet-toolbox/__tests__/pay/pa
 git mv __tests__/sendMaxSignerVerify.test.ts packages/expo-wallet-toolbox/__tests__/pay/sendMaxSignerVerify.test.ts
 git mv __tests__/verifyShadowRouting.test.ts packages/expo-wallet-toolbox/__tests__/pay/verifyShadowRouting.test.ts
 ```
+
 Fix each test's imports to relative paths against `__tests__/pay/`.
 
 - [ ] **Step 5: Fix internal imports**
@@ -774,11 +813,13 @@ git commit -m "refactor(wallet-toolbox): move pay rails into core"
 ### Task 11: Move header sync
 
 **Files:**
+
 - Move: every file under `utils/headers/` → `packages/expo-wallet-toolbox/core/headers/`
 - Test: `__tests__/headerPrewarm.test.ts`, `headerStore.test.ts`, `syncHeaders.test.ts`, `offlineChaintracks.test.ts` (if not already moved in Task 5) → `packages/expo-wallet-toolbox/__tests__/headers/`
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks (headers subsystem is self-contained per the exploration map).
 - Produces: `HEADER_CHECKPOINTS`, `expoHeaderFs`, `HeaderStore`, `OfflineFirstChaintracks`, `prewarmOwnRoots`, `syncHeaders`, `HeaderSource` type — needed by Task 17 (`WalletContext.tsx`).
 
@@ -803,6 +844,7 @@ git mv __tests__/headerPrewarm.test.ts packages/expo-wallet-toolbox/__tests__/he
 git mv __tests__/headerStore.test.ts packages/expo-wallet-toolbox/__tests__/headers/headerStore.test.ts
 git mv __tests__/syncHeaders.test.ts packages/expo-wallet-toolbox/__tests__/headers/syncHeaders.test.ts
 ```
+
 If `offlineChaintracks.test.ts` is still in root `__tests__/` (not moved by Task 5), move it here: `git mv __tests__/offlineChaintracks.test.ts packages/expo-wallet-toolbox/__tests__/headers/offlineChaintracks.test.ts`.
 
 Fix each test's imports to relative paths against `__tests__/headers/`.
@@ -833,11 +875,13 @@ git commit -m "refactor(wallet-toolbox): move header sync into core"
 ### Task 12: Split shared/constants.ts
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/core/constants.ts`
 - Modify: `shared/constants.ts` (delete the wallet-relevant exports that moved, delete the dead browser-only exports)
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `DEFAULT_AUTO_APPROVE_THRESHOLD`, `AUTO_APPROVE_COOLDOWN_MS`, `AUTO_APPROVE_STORAGE_KEY`, `arcUrlStorageKey`, `arcApiTokenStorageKey`, `DEFAULT_ARC_URLS`, `KNOWN_ARC_URLS` — needed by Task 14 (`arcadeBroadcastProvider`) and Task 17 (`WalletContext.tsx`).
 
@@ -871,6 +915,7 @@ export const KNOWN_ARC_URLS = [
   { label: 'GorillaPool', url: 'https://arc.gorillapool.io', requiresToken: false }
 ]
 ```
+
 Save as `packages/expo-wallet-toolbox/core/constants.ts`.
 
 - [ ] **Step 2: Strip `shared/constants.ts` down to nothing**
@@ -881,6 +926,7 @@ Run: `grep -rln "kNEW_TAB_URL\|DEFAULT_HOMEPAGE_URL\|ANDROID_MIN_BOTTOM_INSET\|A
 Expected: no output (confirms dead). If anything shows up, keep that export instead of deleting it and note why in the commit message.
 
 Delete `shared/constants.ts` entirely (everything in it either moved to `core/constants.ts` or is confirmed dead):
+
 ```bash
 git rm shared/constants.ts
 rmdir shared 2>/dev/null || true
@@ -916,12 +962,14 @@ git commit -m "refactor(wallet-toolbox): split wallet constants into core, delet
 ### Task 13: Move backup + the backup-push background task
 
 **Files:**
+
 - Move: every file under `utils/backup/` → `packages/expo-wallet-toolbox/core/backup/`
 - Move: `utils/monitor/TaskBackupPush.ts` → `packages/expo-wallet-toolbox/core/monitor/TaskBackupPush.ts`
 - Test: `__tests__/backupClient.test.ts`, `backupCodec.test.ts`, `backupDerive.test.ts`, `backupErase.test.ts`, `backupEstimate.test.ts`, `backupPreference.test.ts`, `backupPush.test.ts`, `backupRestore.test.ts`, `backupRestoreOnImport.test.ts`, `backupTask.test.ts` → `packages/expo-wallet-toolbox/__tests__/backup/`
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: `DEFAULT_BACKUP_URL` (Task 2, `core/config`).
 - Produces: backup client/push/restore/erase/device-id/preference helpers, `BACKUP_CHAINS`, `TaskBackupPush` — needed by Task 17 (`WalletContext.tsx`) and the `WalletConfigScreen` UI task (Task 22).
 
@@ -954,6 +1002,7 @@ git mv __tests__/backupRestore.test.ts packages/expo-wallet-toolbox/__tests__/ba
 git mv __tests__/backupRestoreOnImport.test.ts packages/expo-wallet-toolbox/__tests__/backup/restoreOnImport.test.ts
 git mv __tests__/backupTask.test.ts packages/expo-wallet-toolbox/__tests__/backup/task.test.ts
 ```
+
 Fix each test's imports to relative paths against `__tests__/backup/`.
 
 - [ ] **Step 4: Fix internal imports**
@@ -966,6 +1015,7 @@ Fix every hit.
 - [ ] **Step 5: Append exports**
 
 Add one `export * from './backup/<file>'` per file found in Step 1, plus:
+
 ```ts
 export { TaskBackupPush } from './monitor/TaskBackupPush'
 ```
@@ -987,6 +1037,7 @@ git commit -m "refactor(wallet-toolbox): move backup subsystem and TaskBackupPus
 ### Task 14: Move services (wallet config, ARC broadcast, cap wallet args)
 
 **Files:**
+
 - Move: `services/walletServiceConfig.ts` → `packages/expo-wallet-toolbox/core/services/walletServiceConfig.ts`
 - Move: `services/arcadeBroadcastProvider.ts` → `packages/expo-wallet-toolbox/core/services/arcadeBroadcastProvider.ts`
 - Move: `services/capWalletArgs.ts` → `packages/expo-wallet-toolbox/core/services/capWalletArgs.ts`
@@ -994,6 +1045,7 @@ git commit -m "refactor(wallet-toolbox): move backup subsystem and TaskBackupPus
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: `DEFAULT_ARC_URLS`/`KNOWN_ARC_URLS` (Task 12, `core/constants`).
 - Produces: `createServices`, `chaintracksUrlFor`, ARC broadcast provider factory, `capWalletArgs` — needed by Task 17 (`WalletContext.tsx`).
 
@@ -1018,6 +1070,7 @@ git mv __tests__/walletServiceConfig.test.ts packages/expo-wallet-toolbox/__test
 git mv __tests__/arcadeBroadcastProvider.test.ts packages/expo-wallet-toolbox/__tests__/services/arcadeBroadcastProvider.test.ts
 git mv __tests__/capWalletArgs.test.ts packages/expo-wallet-toolbox/__tests__/services/capWalletArgs.test.ts
 ```
+
 Fix each test's imports to relative paths against `__tests__/services/`.
 
 - [ ] **Step 4: Fix internal imports**
@@ -1034,6 +1087,7 @@ export { createServices, chaintracksUrlFor } from './services/walletServiceConfi
 export * from './services/arcadeBroadcastProvider'
 export { capWalletArgs } from './services/capWalletArgs'
 ```
+
 (Verify exact names against each file before finalizing.)
 
 - [ ] **Step 6: Run tests**
@@ -1053,11 +1107,13 @@ git commit -m "refactor(wallet-toolbox): move wallet/ARC/capWalletArgs services 
 ### Task 15: Move the vault subsystem
 
 **Files:**
+
 - Move: every file under `services/vault/` → `packages/expo-wallet-toolbox/core/vault/`
 - Test: everything under `__tests__/vault/` → `packages/expo-wallet-toolbox/__tests__/vault/`
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks (vault is internally self-contained per the exploration map; its native `react-native-yubikey` dependency is structural/interface-only, already a peer dep from Task 1).
 - Produces: `VaultDriver` interface, `getVaultDriver`, `ceremony`/`ceremonyHost` (incl. `VAULT_RETENTION_MS`), `VaultKeyService`, `k1` helpers, `sealing` helpers, `session` helpers, `transfers` (deposit/withdraw/sweep/reclaim), `vaultStore`, `vaultDerivation`, `vaultPassphrase`, `guardVaultAccess`, `recordBackupAttestation`, `VaultError` type — needed by Task 16 (`VaultContext`), Task 17 (`WalletContext.tsx`), and the vault/connections/pair UI tasks (23, 24).
 
@@ -1081,6 +1137,7 @@ mkdir -p packages/expo-wallet-toolbox/__tests__/vault
 git mv __tests__/vault/*.ts packages/expo-wallet-toolbox/__tests__/vault/
 rmdir __tests__/vault 2>/dev/null || true
 ```
+
 Fix each test's imports to relative paths against `__tests__/vault/`.
 
 - [ ] **Step 4: Fix internal imports**
@@ -1109,6 +1166,7 @@ git commit -m "refactor(wallet-toolbox): move vault subsystem into core"
 ### Task 16: Move connection/pairing state + VaultContext + shared UI-feedback hooks
 
 **Files:**
+
 - Move: `stores/ConnectionStore.ts` → `packages/expo-wallet-toolbox/core/stores/ConnectionStore.ts`
 - Move: `context/WalletConnectionContext.tsx` → `packages/expo-wallet-toolbox/core/context/WalletConnectionContext.tsx`
 - Move: `context/VaultContext.tsx` → `packages/expo-wallet-toolbox/core/context/VaultContext.tsx`
@@ -1118,10 +1176,11 @@ git commit -m "refactor(wallet-toolbox): move vault subsystem into core"
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: `ceremonyHost`/`ceremony` (Task 15, `core/vault`), `i18n` (Task 3).
 - Produces: `connectionStore` (mobx store instance), `Connection` type, `WalletConnectionProvider`, `VaultProvider`, `haptics`, `useConfirmationSound` — needed by Task 17 (`WalletContext.tsx` does not use these directly, but `app/_layout.tsx` and several UI screens do).
 
-`VaultContext.tsx` depends on `useConfirmationSound`/`useHaptics` — these are device-feedback hooks, not screen components, and a *core* context needs them, so they cannot live in the `ui` layer (core must never import from ui). That's why they move here instead of with a screen task.
+`VaultContext.tsx` depends on `useConfirmationSound`/`useHaptics` — these are device-feedback hooks, not screen components, and a _core_ context needs them, so they cannot live in the `ui` layer (core must never import from ui). That's why they move here instead of with a screen task.
 
 - [ ] **Step 1: Baseline**
 
@@ -1147,6 +1206,7 @@ mkdir -p packages/expo-wallet-toolbox/__tests__/hooks
 git mv __tests__/useHaptics.test.ts packages/expo-wallet-toolbox/__tests__/hooks/useHaptics.test.ts
 git mv __tests__/useConfirmationSound.test.ts packages/expo-wallet-toolbox/__tests__/hooks/useConfirmationSound.test.ts
 ```
+
 Fix each test's imports to relative paths against `__tests__/hooks/`.
 
 - [ ] **Step 4: Fix internal imports**
@@ -1168,6 +1228,7 @@ export { VaultProvider, useVault } from './context/VaultContext'
 export { haptics } from './hooks/useHaptics'
 export { useConfirmationSound } from './hooks/useConfirmationSound'
 ```
+
 (Verify exact export names/shapes — default vs named, actual hook-consumer names like `useWalletConnection`/`useVault` — against each file before finalizing.)
 
 - [ ] **Step 6: Run tests**
@@ -1187,12 +1248,14 @@ git commit -m "refactor(wallet-toolbox): move connection store, VaultContext, an
 ### Task 17: Move WalletContext.tsx — the core hub
 
 **Files:**
+
 - Move: `context/WalletContext.tsx` → `packages/expo-wallet-toolbox/core/context/WalletContext.tsx`
 - Move: `hooks/usePermissionQueue.ts` → `packages/expo-wallet-toolbox/core/hooks/usePermissionQueue.ts`
 - Test: `__tests__/walletServiceConfig.test.ts` (already moved), any `walletBalanceSql`-adjacent context test — check `grep -rl "WalletContext" __tests__` for stragglers not yet covered by earlier tasks and move them here.
 - Modify: `packages/expo-wallet-toolbox/core/index.ts`
 
 **Interfaces:**
+
 - Consumes: everything moved in Tasks 2–16 — `ceremonyHost`/`getVaultDriver`/`backupAttestation` (vault), `config` constants, `useLocalStorage`, `usePermissionQueue`, `createServices`/`chaintracksUrlFor`, `configureNewHeaderPolling`, `getExchangeRate`, `logWithTimestamp`, `recoverMnemonicWallet`, `StorageExpoSQLite`, `getRegisteredDbs`/`registerDb`/`selectLatestDb`, `getOnline`/`subscribeOnline`, `processPending` (localpay/pending), `TaskSendOffline`, `TaskBackupPush`, `pushOnce`/`restoreOnImport` (backup), `findOfflineActions`/`processOfflineActions` (storage), `wocConfigFor` (pay/rails/address), `SWEEP_INTERVAL_MS`/`runSweep`/`shouldSweepNow`/`sweptTotal` (pay/sweeper), `HEADER_CHECKPOINTS`/`expoHeaderFs`/`HeaderStore`/`OfflineFirstChaintracks`/`prewarmOwnRoots`/`syncHeaders`/`HeaderSource` (headers), `DEFAULT_AUTO_APPROVE_THRESHOLD`/`AUTO_APPROVE_COOLDOWN_MS`/`AUTO_APPROVE_STORAGE_KEY` (constants), `UserContext` (Task 9).
 - Produces: `WalletContextProvider`, `useWallet` — this is the single most depended-on export in the whole package; every screen and `app/_layout.tsx` needs it.
 
@@ -1247,12 +1310,14 @@ git commit -m "refactor(wallet-toolbox): move WalletContext into core"
 ### Task 18: Finish the core barrel, wire the root app to it, dogfood checkpoint
 
 **Files:**
+
 - Modify: `app/_layout.tsx`
 - Modify: `app/index.tsx:53-54` (the direct `storage/methods` bypass the spec calls out)
 - Modify: `app/pay.tsx:36` (same bypass)
 - Modify: `packages/expo-wallet-toolbox/core/index.ts` (final pass — ensure every name any remaining `app/`/`components/`/`hooks/` file needs is actually exported)
 
 **Interfaces:**
+
 - Consumes: the complete `core/index.ts` barrel built up across Tasks 1–17.
 - Produces: nothing new — this task proves the barrel is complete and correct by making the whole app compile and run against it.
 
@@ -1274,31 +1339,40 @@ import {
   WalletConnectionProvider
 } from '@bsv/expo-wallet-toolbox'
 ```
+
 Remove the now-dead individual `@/context/...` import lines this replaces. Leave everything else in the file untouched (it doesn't otherwise reference moved code — `components/ui/*`, `components/vault/VaultCeremonySheet`, `hooks/useDeepLinking` all stay app-level per the spec).
 
 - [ ] **Step 2: Fix `app/index.tsx`'s storage bypass**
 
 Change:
+
 ```ts
 import { findOfflineActions, type OfflineActionRow } from '@/storage/methods/offlineActions'
 import { readWalletBalance } from '@/storage/methods/walletBalanceSql'
 ```
+
 to:
+
 ```ts
 import { findOfflineActions, type OfflineActionRow, readWalletBalance } from '@bsv/expo-wallet-toolbox'
 ```
+
 Also update every other `@/context/...`, `@/utils/...`, `@/services/...`, `@/storage`, `@/shared/constants` import in this file to the package import — check with `grep -n "from '@/" app/index.tsx` and resolve each against the barrel built in Tasks 1–17.
 
 - [ ] **Step 3: Fix `app/pay.tsx`'s storage bypass**
 
 Change:
+
 ```ts
 import { findOfflineActions, type OfflineActionRow } from '@/storage/methods/offlineActions'
 ```
+
 to:
+
 ```ts
 import { findOfflineActions, type OfflineActionRow } from '@bsv/expo-wallet-toolbox'
 ```
+
 Also resolve every other now-broken `@/` import in this file the same way.
 
 - [ ] **Step 4: Sweep the rest of the app for stale imports**
@@ -1333,12 +1407,14 @@ git commit -m "refactor(wallet-toolbox): wire root app to @bsv/expo-wallet-toolb
 ### Task 19: Move shared UI primitives (components/ui, components/security)
 
 **Files:**
+
 - Move: every file under `components/ui/` → `packages/expo-wallet-toolbox/ui/components/ui/`
 - Move: every file under `components/security/` → `packages/expo-wallet-toolbox/ui/components/security/`
 - Test: `__tests__/AlertCard.test.tsx`, `Celebration.test.tsx`, `PresenceRow.test.tsx`, `PressableScale.test.tsx`, `Toast.test.tsx` → `packages/expo-wallet-toolbox/__tests__/ui/`
 - Modify: `packages/expo-wallet-toolbox/ui/index.ts`
 
 **Interfaces:**
+
 - Consumes: `useTheme`/`spacing`/`radii`/`typography` (Task 3, core), `haptics` (Task 16, core).
 - Produces: every primitive component (`PressableScale`, `ScreenGradient`, `GroupedList`/`GroupedSection`/`ListRow`, `AlertCard`/`showAlert`/`AlertHost`, `Toast`/`showToast`/`ToastHost`, `PermissionSheet`, `ErrorBoundary`, `Celebration`, `PresenceRow`, `WalletLockNotice`) — needed by nearly every screen task that follows.
 
@@ -1355,6 +1431,7 @@ mkdir -p packages/expo-wallet-toolbox/ui/components/ui packages/expo-wallet-tool
 git mv components/ui/*.tsx packages/expo-wallet-toolbox/ui/components/ui/
 git mv components/security/*.tsx packages/expo-wallet-toolbox/ui/components/security/
 ```
+
 (If any `.ts` — not `.tsx` — files also live in those directories, include them in the `git mv` glob too.)
 
 - [ ] **Step 3: Move tests and fix imports**
@@ -1367,6 +1444,7 @@ git mv __tests__/PresenceRow.test.tsx packages/expo-wallet-toolbox/__tests__/ui/
 git mv __tests__/PressableScale.test.tsx packages/expo-wallet-toolbox/__tests__/ui/PressableScale.test.tsx
 git mv __tests__/Toast.test.tsx packages/expo-wallet-toolbox/__tests__/ui/Toast.test.tsx
 ```
+
 Fix each test's imports to relative paths against `__tests__/ui/`.
 
 - [ ] **Step 4: Fix internal imports**
@@ -1395,6 +1473,7 @@ git commit -m "refactor(wallet-toolbox): move shared UI primitives into ui"
 ### Task 20: Move wallet home screen
 
 **Files:**
+
 - Move: every file under `components/wallet/` → `packages/expo-wallet-toolbox/ui/components/wallet/`
 - Move: `utils/amountFormatHelpers.ts` → `packages/expo-wallet-toolbox/ui/amountFormatHelpers.ts`
 - Move: `utils/exportTransactions.ts` → `packages/expo-wallet-toolbox/ui/exportTransactions.ts`
@@ -1404,6 +1483,7 @@ git commit -m "refactor(wallet-toolbox): move shared UI primitives into ui"
 - Modify: `packages/expo-wallet-toolbox/ui/index.ts`
 
 **Interfaces:**
+
 - Consumes: `useWallet`, `useTheme`, `useTranslation`/i18n, `ExchangeRateContext`, `useLocalStorage`, `findOfflineActions`, `readWalletBalance` (all from `@bsv/expo-wallet-toolbox`), plus `PressableScale`/`ScreenGradient`/`showToast`/`WalletLockNotice` (Task 19, `@bsv/expo-wallet-toolbox/ui`).
 - Produces: `WalletHomeScreen` component.
 
@@ -1448,6 +1528,7 @@ If Step 1 found a test file covering `amountFormatHelpers`, `git mv` it into `pa
 ```ts
 export { WalletHomeScreen } from './screens/WalletHomeScreen'
 ```
+
 Plus one `export * from './components/wallet/<File>'` per file moved in Step 2, plus `export * from './amountFormatHelpers'` and `export { exportTransactionsAsCsv } from './exportTransactions'`.
 
 - [ ] **Step 8: Run tests + type-check**
@@ -1467,6 +1548,7 @@ git commit -m "refactor(wallet-toolbox): extract WalletHomeScreen into ui"
 ### Task 21: Move pay screen + local-payment UI
 
 **Files:**
+
 - Move: every file under `components/pay/` → `packages/expo-wallet-toolbox/ui/components/pay/`
 - Move: every file under `components/localpay/` → `packages/expo-wallet-toolbox/ui/components/localpay/`
 - Move: `hooks/useOnline.ts` → `packages/expo-wallet-toolbox/ui/hooks/useOnline.ts`
@@ -1476,6 +1558,7 @@ git commit -m "refactor(wallet-toolbox): extract WalletHomeScreen into ui"
 - Modify: `packages/expo-wallet-toolbox/ui/index.ts`
 
 **Interfaces:**
+
 - Consumes: `isPayCell`/`PayCell`/`wocConfigFor`/rail helpers (Task 10, core), `validatePeerPayURI` (Task 10, core), `takeProofNudge` (Task 10, core), `TaskSendOffline` (Task 6, core), `findOfflineActions` (Task 7, core), `useWallet` (Task 17, core), plus `PressableScale`/`showToast` etc. (Task 19, ui).
 - Produces: `PayScreen` component, `useOnline` hook.
 
@@ -1493,6 +1576,7 @@ git mv components/pay/*.tsx packages/expo-wallet-toolbox/ui/components/pay/
 git mv components/localpay/*.tsx packages/expo-wallet-toolbox/ui/components/localpay/
 git mv hooks/useOnline.ts packages/expo-wallet-toolbox/ui/hooks/useOnline.ts
 ```
+
 (Include any `.ts` non-component helper files in those directories in the `git mv` glob too — check with the Step 1 `ls`.)
 
 - [ ] **Step 3: Extract the screen component**
@@ -1519,6 +1603,7 @@ git mv __tests__/payReceivedOverlay.test.tsx packages/expo-wallet-toolbox/__test
 git mv __tests__/payScreen.test.tsx packages/expo-wallet-toolbox/__tests__/ui/payScreen.test.tsx
 git mv __tests__/useOnline.test.ts packages/expo-wallet-toolbox/__tests__/ui/useOnline.test.ts
 ```
+
 Fix each test's imports.
 
 - [ ] **Step 7: Append exports to the ui barrel**
@@ -1527,6 +1612,7 @@ Fix each test's imports.
 export { PayScreen } from './screens/PayScreen'
 export { useOnline } from './hooks/useOnline'
 ```
+
 Plus one `export * from './components/pay/<File>'` and `export * from './components/localpay/<File>'` per file moved in Step 2.
 
 - [ ] **Step 8: Run tests + type-check**
@@ -1546,6 +1632,7 @@ git commit -m "refactor(wallet-toolbox): extract PayScreen and local-payment UI 
 ### Task 22: Move settings + wallet-config screens
 
 **Files:**
+
 - Move: `utils/exportDatabases.ts`, `utils/importDatabases.ts`, `utils/printRecoveryShares.ts` → `packages/expo-wallet-toolbox/ui/`
 - Create: `packages/expo-wallet-toolbox/ui/screens/SettingsScreen.tsx` (extracted from `app/settings.tsx`)
 - Create: `packages/expo-wallet-toolbox/ui/screens/WalletConfigScreen.tsx` (extracted from `app/wallet-config.tsx`)
@@ -1554,6 +1641,7 @@ git commit -m "refactor(wallet-toolbox): extract PayScreen and local-payment UI 
 - Modify: `packages/expo-wallet-toolbox/ui/index.ts`
 
 **Interfaces:**
+
 - Consumes: `useWallet`, `useTheme`, `config` exports, `constants` exports (Task 12), `recoverMnemonicWallet` (Task 2), `TaskBackupPush`/backup preference/constants/erase helpers (Task 13), `LocalStorageProvider` (Task 8) — all from `@bsv/expo-wallet-toolbox`; `GroupedSection`/`ListRow`/`showAlert`/`showToast`/`AmountDisplay` from `@bsv/expo-wallet-toolbox/ui`.
 - Produces: `SettingsScreen`, `WalletConfigScreen` components.
 
@@ -1583,11 +1671,13 @@ Fix each hit. Note `importDatabases.ts` imports `i18n` directly (not via the `us
 - [ ] **Step 5: Rewrite the two app route files**
 
 `app/settings.tsx`:
+
 ```ts
 export { SettingsScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 ```
 
 `app/wallet-config.tsx`:
+
 ```ts
 export { WalletConfigScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 ```
@@ -1623,6 +1713,7 @@ git commit -m "refactor(wallet-toolbox): extract SettingsScreen and WalletConfig
 ### Task 23: Move vault screens
 
 **Files:**
+
 - Move: every file under `components/vault/` → `packages/expo-wallet-toolbox/ui/components/vault/`
 - Move: `hooks/useVaultBalance.ts` → `packages/expo-wallet-toolbox/ui/hooks/useVaultBalance.ts`
 - Create: `packages/expo-wallet-toolbox/ui/screens/VaultScreen.tsx`, `VaultRecoverScreen.tsx`, `VaultTransferScreen.tsx` (extracted from `app/vault.tsx`, `app/vault-recover.tsx`, `app/vault-transfer.tsx`)
@@ -1631,6 +1722,7 @@ git commit -m "refactor(wallet-toolbox): extract SettingsScreen and WalletConfig
 - Modify: `packages/expo-wallet-toolbox/ui/index.ts`
 
 **Interfaces:**
+
 - Consumes: vault subsystem exports (Task 15, core), `useWallet` (Task 17, core), `i18n` singleton (Task 3, core), `GroupedSection`/`ListRow`/`AmountDisplay`/`AmountInput`/`showAlert`/`showToast`/`haptics` (Task 19/20/16).
 - Produces: `VaultScreen`, `VaultRecoverScreen`, `VaultTransferScreen`, `useVaultBalance`.
 
@@ -1647,6 +1739,7 @@ mkdir -p packages/expo-wallet-toolbox/ui/components/vault
 git mv components/vault/*.tsx packages/expo-wallet-toolbox/ui/components/vault/
 git mv hooks/useVaultBalance.ts packages/expo-wallet-toolbox/ui/hooks/useVaultBalance.ts
 ```
+
 Note: `VaultCeremonySheet.tsx` — check whether it's under `components/vault/`. Per `app/_layout.tsx`'s import (`@/components/vault/VaultCeremonySheet`), it is used at the app-shell level alongside `PermissionSheet`/`ToastHost`. It still belongs in the package (it's vault UI, reusable the same as the screens), but `app/_layout.tsx` keeps rendering it — just via the package import: `import { VaultCeremonySheet } from '@bsv/expo-wallet-toolbox/ui'` (fold this one-line `_layout.tsx` fix into this task's Step 6).
 
 - [ ] **Step 3: Extract the three screens**
@@ -1664,12 +1757,15 @@ Fix each hit — note `app/vault.tsx`/`vault-recover.tsx`/`vault-transfer.tsx` i
 ```ts
 export { VaultScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 ```
+
 ```ts
 export { VaultRecoverScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 ```
+
 ```ts
 export { VaultTransferScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 ```
+
 (One line each, in `app/vault.tsx`, `app/vault-recover.tsx`, `app/vault-transfer.tsx` respectively.)
 
 - [ ] **Step 6: Fix `app/_layout.tsx`'s VaultCeremonySheet import**
@@ -1681,6 +1777,7 @@ Change `import { VaultCeremonySheet } from '@/components/vault/VaultCeremonyShee
 ```bash
 git mv __tests__/useVaultBalance.test.ts packages/expo-wallet-toolbox/__tests__/ui/useVaultBalance.test.ts
 ```
+
 Fix its import.
 
 - [ ] **Step 8: Append exports to the ui barrel**
@@ -1691,6 +1788,7 @@ export { VaultRecoverScreen } from './screens/VaultRecoverScreen'
 export { VaultTransferScreen } from './screens/VaultTransferScreen'
 export { useVaultBalance } from './hooks/useVaultBalance'
 ```
+
 Plus one `export * from './components/vault/<File>'` per file moved in Step 2, including `VaultCeremonySheet`.
 
 - [ ] **Step 9: Run tests + type-check**
@@ -1710,12 +1808,14 @@ git commit -m "refactor(wallet-toolbox): extract vault screens into ui"
 ### Task 24: Move connections + pair screens
 
 **Files:**
+
 - Move: `components/QRScanner.tsx` → `packages/expo-wallet-toolbox/ui/components/QRScanner.tsx`
 - Create: `packages/expo-wallet-toolbox/ui/screens/ConnectionsScreen.tsx`, `PairScreen.tsx` (extracted from `app/connections.tsx`, `app/pair.tsx`)
 - Modify: `app/connections.tsx`, `app/pair.tsx` (become thin wrappers)
 - Modify: `packages/expo-wallet-toolbox/ui/index.ts`
 
 **Interfaces:**
+
 - Consumes: `guardVaultAccess` (Task 15, core), `capWalletArgs` (Task 14, core), `ADMIN_ORIGINATOR` (Task 2, core), `connectionStore`/`Connection` (Task 16, core), `useWalletConnection` (Task 16, core), `useWallet` (Task 17, core), `GroupedSection`/`ListRow`/`showToast` (Task 19, ui).
 - Produces: `ConnectionsScreen`, `PairScreen`, `QRScanner`.
 
@@ -1746,6 +1846,7 @@ Fix each hit — `@/stores/ConnectionStore` becomes `@bsv/expo-wallet-toolbox` (
 ```ts
 export { ConnectionsScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 ```
+
 ```ts
 export { PairScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 ```
@@ -1761,6 +1862,7 @@ export { ConnectionsScreen } from './screens/ConnectionsScreen'
 export { PairScreen } from './screens/PairScreen'
 export { default as QRScanner } from './components/QRScanner'
 ```
+
 (Verify `QRScanner`'s actual export shape.)
 
 - [ ] **Step 8: Test + type-check**
@@ -1780,12 +1882,14 @@ git commit -m "refactor(wallet-toolbox): extract ConnectionsScreen and PairScree
 ### Task 25: Move trust + logs screens
 
 **Files:**
+
 - Move: `utils/validateTrust.ts`, `utils/isImageUrl.ts` → `packages/expo-wallet-toolbox/ui/`
 - Create: `packages/expo-wallet-toolbox/ui/screens/TrustScreen.tsx`, `LogsScreen.tsx` (extracted from `app/trust.tsx`, `app/logs.tsx`)
 - Modify: `app/trust.tsx`, `app/logs.tsx` (become thin wrappers)
 - Modify: `packages/expo-wallet-toolbox/ui/index.ts`
 
 **Interfaces:**
+
 - Consumes: `useWallet` (Task 17, core), `haptics` (Task 16, core), `GroupedSection`/`showAlert`/`showToast` (Task 19, ui).
 - Produces: `TrustScreen`, `LogsScreen`.
 
@@ -1814,6 +1918,7 @@ Fix each hit — `@/utils/validateTrust` becomes `@bsv/expo-wallet-toolbox/ui` (
 ```ts
 export { TrustScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 ```
+
 ```ts
 export { LogsScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 ```
@@ -1843,10 +1948,12 @@ git commit -m "refactor(wallet-toolbox): extract TrustScreen and LogsScreen into
 ### Task 26: UI phase dogfood checkpoint
 
 **Files:**
+
 - Modify: any remaining `app/`, `components/`, `hooks/` file with a stale import (swept below)
 - Modify: `app/_layout.tsx` (final pass)
 
 **Interfaces:**
+
 - Consumes: the complete `ui/index.ts` barrel built up across Tasks 19–25.
 - Produces: nothing new — proves the full extraction (core + ui) works end to end.
 
@@ -1892,9 +1999,11 @@ git commit -m "refactor(wallet-toolbox): finish ui extraction, sweep stale impor
 ### Task 27: Write the package README (native config documentation)
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/README.md`
 
 **Interfaces:**
+
 - Consumes: nothing (documentation only).
 - Produces: the install/setup guide a second consuming app (BSV Browser) follows.
 
@@ -1917,14 +2026,14 @@ npm install @bsv/expo-wallet-toolbox react-native-localpay-transport react-nativ
 
 \`\`\`tsx
 import {
-  WalletContextProvider,
-  ThemeProvider,
-  LocalStorageProvider,
-  LanguageProvider,
-  UserContextProvider,
-  ExchangeRateContextProvider,
-  WalletConnectionProvider,
-  VaultProvider
+WalletContextProvider,
+ThemeProvider,
+LocalStorageProvider,
+LanguageProvider,
+UserContextProvider,
+ExchangeRateContextProvider,
+WalletConnectionProvider,
+VaultProvider
 } from '@bsv/expo-wallet-toolbox'
 import { WalletHomeScreen, PayScreen } from '@bsv/expo-wallet-toolbox/ui'
 \`\`\`
@@ -1941,6 +2050,7 @@ export { WalletHomeScreen as default } from '@bsv/expo-wallet-toolbox/ui'
 A consuming app's own `app.json`/config plugins must declare:
 
 ### iOS `infoPlist`
+
 - `NSCameraUsageDescription`, `NSPhotoLibraryAddUsageDescription`, `NSMicrophoneUsageDescription`, `NSFaceIDUsageDescription`, `NSLocationWhenInUseUsageDescription`
 - `NSBonjourServices: ["_bsvpay._tcp"]`
 - `NSLocalNetworkUsageDescription`
@@ -1948,21 +2058,26 @@ A consuming app's own `app.json`/config plugins must declare:
 - `CFBundleURLTypes` for your app's own deep-link scheme (do not reuse `bsv-wallet://` or `peerpay://` — those are this repo's own scheme, not the package's)
 
 ### iOS entitlement
+
 - `com.apple.developer.nfc.readersession.formats: ["TAG"]` — add via a config plugin equivalent to this repo's `plugins/withNfcReaderEntitlement.js`
 
 ### Android `permissions`
+
 `INTERNET`, `SYSTEM_ALERT_WINDOW`, `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION`, `CAMERA`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`, `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT`, `BLUETOOTH_SCAN`, `NEARBY_WIFI_DEVICES`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE`
 
 ### Android intent filter
+
 Register your app's own deep-link scheme (VIEW/BROWSABLE/DEFAULT) — the local-payment QR/nearby flows deep-link back into your app, not this repo's.
 
 ### `expo-build-properties`
+
 \`\`\`json
 { "ios": { "useFrameworks": "static", "useModularHeaders": true } }
 \`\`\`
 Required for the Nitro/xcframework native modules to build.
 
 ### `metro.config.js`
+
 Route `node:crypto` to `react-native-quick-crypto` and shim `node:buffer`/`node:process` — see this repo's `metro.config.js` for the exact `resolver.resolveRequest` override.
 
 ## Jest configuration
@@ -1973,6 +2088,7 @@ If the consuming app runs Jest, extend its `transformIgnorePatterns` to include 
 node_modules/(?!(...|@bsv/expo-wallet-toolbox)/)
 \`\`\`
 ```
+
 Save as `packages/expo-wallet-toolbox/README.md`.
 
 - [ ] **Step 2: Commit**
@@ -1987,9 +2103,11 @@ git commit -m "docs(wallet-toolbox): add package README with native config requi
 ### Task 28: Publish prep
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/package.json` (`"private": false`)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: a package ready for `npm publish`, not yet published.
 

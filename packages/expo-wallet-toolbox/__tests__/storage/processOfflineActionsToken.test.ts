@@ -537,9 +537,7 @@ describe('XQ-009 remainder: reconciling a stale sent row', () => {
 
     expect(r).toMatchObject({ sent: 0, rejected: 1 })
     expect(
-      db.writes.some(
-        w => w.sql.includes('offline_actions') && w.params.includes('rejected') && w.params.includes(txid)
-      )
+      db.writes.some(w => w.sql.includes('offline_actions') && w.params.includes('rejected') && w.params.includes(txid))
     ).toBe(true)
     // Purely local bookkeeping: never re-broadcasts, and never touches the
     // toolbox's own request/transaction rows.

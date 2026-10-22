@@ -51,15 +51,15 @@ import type { AppDataSnapshot } from './codec'
 import { mergeContacts } from './contactsBackup'
 
 export interface KVStorage {
-  getKeyValue (k: string): Promise<string | undefined>
-  setKeyValue (k: string, v: string): Promise<void>
+  getKeyValue(k: string): Promise<string | undefined>
+  setKeyValue(k: string, v: string): Promise<void>
 }
 
 /** True for `undefined` or a snapshot carrying nothing at all — the common "nothing queued,
  * nothing to add" case, which must produce no `appData` field at all (see codec.ts's
  * encodeChunk docs on why an unsealed/appData-less chunk must serialise byte-for-byte as the
  * old-format envelope). */
-export function isEmptyAppData (appData: AppDataSnapshot | undefined): boolean {
+export function isEmptyAppData(appData: AppDataSnapshot | undefined): boolean {
   return (
     appData == null ||
     (appData.localpayPending === undefined &&
@@ -75,7 +75,7 @@ export function isEmptyAppData (appData: AppDataSnapshot | undefined): boolean {
  * send. Never called on its own cadence — see codec.ts's encodeChunk docs on why appData
  * only ever rides an already-non-empty chunk.
  */
-export async function captureAppDataSnapshot (storage: KVStorage): Promise<AppDataSnapshot> {
+export async function captureAppDataSnapshot(storage: KVStorage): Promise<AppDataSnapshot> {
   const [localpayPending, peerpayOutbox, receiveIssuedDates] = await Promise.all([
     storage.getKeyValue(PENDING_KEY),
     storage.getKeyValue(OUTBOX_KEY),
@@ -95,7 +95,7 @@ export async function captureAppDataSnapshot (storage: KVStorage): Promise<AppDa
  * a newer one already landed (e.g. re-running an interrupted restore) can never regress a
  * row that a later chunk already updated in this same pass.
  */
-export async function applyAppData (storage: KVStorage, snapshot: AppDataSnapshot): Promise<void> {
+export async function applyAppData(storage: KVStorage, snapshot: AppDataSnapshot): Promise<void> {
   if (snapshot.localpayPending !== undefined) await storage.setKeyValue(PENDING_KEY, snapshot.localpayPending)
   if (snapshot.peerpayOutbox !== undefined) await storage.setKeyValue(OUTBOX_KEY, snapshot.peerpayOutbox)
   if (snapshot.receiveIssuedDates !== undefined && snapshot.receiveIssuedDates.length > 0) {
@@ -105,7 +105,8 @@ export async function applyAppData (storage: KVStorage, snapshot: AppDataSnapsho
 
 /** Parses a KV row's raw JSON text into an array of plain objects, never throwing — a
  * corrupt or missing blob merges as if it were empty rather than failing the whole restore. */
-function parseJsonArray (raw: string | undefined): Array<Record<string, unknown>> { // eslint-disable-line @typescript-eslint/array-type
+function parseJsonArray(raw: string | undefined): Array<Record<string, unknown>> {
+  // eslint-disable-line @typescript-eslint/array-type
   if (raw === undefined) return []
   try {
     const parsed = JSON.parse(raw) as unknown
@@ -130,7 +131,7 @@ function parseJsonArray (raw: string | undefined): Array<Record<string, unknown>
  * `${timestamp}_${keyPrefix}`-derived per device), but keeps the merge total rather than
  * throwing on a theoretical collision.
  */
-function mergeJsonArrayById (a: string | undefined, b: string | undefined): string | undefined {
+function mergeJsonArrayById(a: string | undefined, b: string | undefined): string | undefined {
   if (a === undefined) return b
   if (b === undefined) return a
   const merged = new Map<string, Record<string, unknown>>()
@@ -147,7 +148,7 @@ function mergeJsonArrayById (a: string | undefined, b: string | undefined): stri
  * together this way before the single `applyAppData` call that actually reaches storage, so
  * no one device's snapshot can clobber another's.
  */
-export function mergeAppData (a: AppDataSnapshot | undefined, b: AppDataSnapshot | undefined): AppDataSnapshot {
+export function mergeAppData(a: AppDataSnapshot | undefined, b: AppDataSnapshot | undefined): AppDataSnapshot {
   return {
     localpayPending: mergeJsonArrayById(a?.localpayPending, b?.localpayPending),
     peerpayOutbox: mergeJsonArrayById(a?.peerpayOutbox, b?.peerpayOutbox),

@@ -2,10 +2,7 @@
   "expo": {
     "name": "BSV Wallet",
     "slug": "bsv-wallet",
-    "scheme": [
-      "bsv-wallet",
-      "bsv-browser"
-    ],
+    "scheme": ["bsv-wallet", "bsv-browser"],
     "version": "1.0.1",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
@@ -55,10 +52,7 @@
             "deploymentTarget": "16.4",
             "useFrameworks": "static",
             "useModularHeaders": true,
-            "forceStaticLinking": [
-              "RNFBApp",
-              "RNFBMessaging"
-            ]
+            "forceStaticLinking": ["RNFBApp", "RNFBMessaging"]
           }
         }
       ],
@@ -130,10 +124,7 @@
               "scheme": "peerpay"
             }
           ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
+          "category": ["BROWSABLE", "DEFAULT"]
         }
       ]
     },
@@ -145,9 +136,7 @@
         "aps-environment": "development"
       },
       "infoPlist": {
-        "UIBackgroundModes": [
-          "remote-notification"
-        ],
+        "UIBackgroundModes": ["remote-notification"],
         "NSCameraUsageDescription": "This app needs camera access to scan QR codes.",
         "NSPhotoLibraryAddUsageDescription": "This app needs permission to save images to your photo library.",
         "NSMicrophoneUsageDescription": "This app needs microphone access for video recording features.",
@@ -156,22 +145,15 @@
         "CFBundleURLTypes": [
           {
             "CFBundleURLName": "org.bsvblockchain.wallet.peerpay",
-            "CFBundleURLSchemes": [
-              "peerpay"
-            ]
+            "CFBundleURLSchemes": ["peerpay"]
           },
           {
             "CFBundleURLName": "org.bsvblockchain.wallet.pair",
-            "CFBundleURLSchemes": [
-              "bsv-wallet",
-              "bsv-browser"
-            ]
+            "CFBundleURLSchemes": ["bsv-wallet", "bsv-browser"]
           }
         ],
         "NSLocationWhenInUseUsageDescription": "BSV Wallet may request your location to enable features like discovering nearby devices/services and providing region-specific functionality. Your location is only used while the app is in use.",
-        "NSBonjourServices": [
-          "_bsvpay._tcp"
-        ],
+        "NSBonjourServices": ["_bsvpay._tcp"],
         "NSLocalNetworkUsageDescription": "BSV Wallet uses the local network to send and receive payments directly between nearby devices.",
         "NSBluetoothAlwaysUsageDescription": "BSV Wallet uses Bluetooth to send and receive payments directly between nearby devices.",
         "NSBluetoothPeripheralUsageDescription": "BSV Wallet uses Bluetooth to send and receive payments directly between nearby devices.",

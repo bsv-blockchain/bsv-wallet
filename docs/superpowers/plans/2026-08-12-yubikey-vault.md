@@ -21,7 +21,7 @@
 - `.easignore` must never be deleted; verify pack contents with `git ls-files --exclude-from .easignore --ignored --cached`.
 - Sounds: respect silent switch, mixWithOthers, lazy expo-audio require, never throw (clone useConfirmationSound rules).
 - No fractional opacity animation over LiquidGlass/Blur; springs/durations from `context/theme/motion.ts`; `PressableScale` for buttons; Celebration component NOT used.
-- i18n: every user-visible string via `context/i18n/translations.tsx`, flat snake_case `vault_*` keys, en block authoritative + all 12 other languages.
+- i18n: every user-visible string via `context/i18n/translations.tsx`, flat snake*case `vault*\*` keys, en block authoritative + all 12 other languages.
 - Never log key material, PINs, or ECDH secrets. Zero `V` (vault key bytes) after use where feasible.
 - Commit after every green task; conventional commits `feat(vault): …` / `test(vault): …`.
 
@@ -30,13 +30,16 @@
 ### Task 1: Sealing crypto (pure TS) — HKDF + seal/unseal
 
 **Files:**
+
 - Create: `services/vault/sealing.ts`
 - Create: `services/vault/types.ts`
 - Test: `__tests__/vault/sealing.test.ts`
 - Modify: `package.json` (add `@noble/curves: ^2.0.1` — check installed version with `npm view @noble/curves version`, pin caret at current major)
 
 **Interfaces:**
+
 - Produces:
+
   ```ts
   // types.ts
   export interface SealedBlob {
@@ -71,15 +74,15 @@ import { hkdfSha256, sealVaultKey, unsealVaultKey, softwareEcdh } from '../../se
 
 test('hkdf rfc5869 case 1', () => {
   const ikm = Array(22).fill(0x0b)
-  const salt = Array.from({length:13},(_,i)=>i)
-  const okm = hkdfSha256(ikm, salt, '', 42)   // info = 0xf0..f9 in the RFC — encode via bytes overload or hex helper
+  const salt = Array.from({ length: 13 }, (_, i) => i)
+  const okm = hkdfSha256(ikm, salt, '', 42) // info = 0xf0..f9 in the RFC — encode via bytes overload or hex helper
   // expected OKM: 3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865
 })
 test('seal/unseal round trip', () => {
-  const yubi = p256.keygen()   // simulates on-token key
+  const yubi = p256.keygen() // simulates on-token key
   const v = Array.from(crypto.getRandomValues(new Uint8Array(32)))
   const blob = sealVaultKey(v, hex(yubi.publicKey), { slot: 0x82, serial: '12345678' })
-  const shared = softwareEcdh(hex(yubi.secretKey), blob.ePub)  // what the token computes
+  const shared = softwareEcdh(hex(yubi.secretKey), blob.ePub) // what the token computes
   expect(unsealVaultKey(blob, shared)).toEqual(v)
 })
 ```
@@ -94,10 +97,12 @@ test('seal/unseal round trip', () => {
 ### Task 2: Vault store — persistence of seal + metadata
 
 **Files:**
+
 - Create: `services/vault/vaultStore.ts`
 - Test: `__tests__/vault/vaultStore.test.ts` (mock expo-secure-store + AsyncStorage — jest moduleNameMapper/mocks already exist in repo for AsyncStorage)
 
 **Interfaces:**
+
 - Produces:
   ```ts
   export interface VaultMeta {
@@ -106,19 +111,19 @@ test('seal/unseal round trip', () => {
     yubiSerial: string
     nickname: string
     slot: number
-    nextKeyIndex: number                     // next unused vault/<n>
-    depositKeys: { keyID: string; pkh: string }[]   // hex hash160 queue
+    nextKeyIndex: number // next unused vault/<n>
+    depositKeys: { keyID: string; pkh: string }[] // hex hash160 queue
     lastUsedAt?: number
   }
   export const vaultStore: {
     isEnrolled(): Promise<boolean>
-    getSeal(): Promise<SealedBlob | null>          // SecureStore 'vault_seal_v1'
+    getSeal(): Promise<SealedBlob | null> // SecureStore 'vault_seal_v1'
     setSeal(b: SealedBlob): Promise<void>
-    getMeta(): Promise<VaultMeta | null>           // AsyncStorage 'vault_meta_v1'
+    getMeta(): Promise<VaultMeta | null> // AsyncStorage 'vault_meta_v1'
     setMeta(m: VaultMeta): Promise<void>
-    popDepositKey(): Promise<{ keyID: string; pkh: string } | null>  // pops + persists
-    pushDepositKeys(keys: {keyID:string; pkh:string}[], nextKeyIndex: number): Promise<void>
-    clear(): Promise<void>                          // disable vault
+    popDepositKey(): Promise<{ keyID: string; pkh: string } | null> // pops + persists
+    pushDepositKeys(keys: { keyID: string; pkh: string }[], nextKeyIndex: number): Promise<void>
+    clear(): Promise<void> // disable vault
   }
   ```
 - SecureStore options: `{ keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY }` — same as mnemonic (LocalStorageProvider.tsx:122-137). No biometric gate here (ceremony IS the gate); do not route through LocalStorageProvider's ensureAuth.
@@ -130,6 +135,7 @@ test('seal/unseal round trip', () => {
 ### Task 3: Native module package scaffold — `packages/react-native-yubikey`
 
 **Files:**
+
 - Create: `packages/react-native-yubikey/package.json`, `nitro.json`, `YubiKeyPiv.podspec`, `tsconfig.json`
 - Create: `packages/react-native-yubikey/src/specs/YubiKeyPiv.nitro.ts`, `src/index.ts`, `src/types.ts`
 - Create: `packages/react-native-yubikey/ios/HybridYubiKeyPiv.swift`
@@ -139,6 +145,7 @@ test('seal/unseal round trip', () => {
 - Verify (no edit expected): `.gitignore` + `.easignore` negations `!/packages/**/android` + `!/packages/**/android/**` already cover the new dir — prove with `git ls-files --exclude-from .easignore --ignored --cached | grep react-native-yubikey` (must print nothing after `git add`).
 
 **Interfaces:**
+
 - Produces (Nitro spec — exact):
   ```ts
   // src/specs/YubiKeyPiv.nitro.ts
@@ -149,12 +156,12 @@ test('seal/unseal round trip', () => {
     stopDiscovery(): void
     setKeyListener(listener: (eventType: string, serial: string, transport: string) => void): void
     clearKeyListener(): void
-    getKeyInfo(): Promise<string>       // JSON: {serial, firmwareVersion, pinRetries}
-    verifyPin(pin: string): Promise<string>            // JSON: {ok, retriesLeft}
+    getKeyInfo(): Promise<string> // JSON: {serial, firmwareVersion, pinRetries}
+    verifyPin(pin: string): Promise<string> // JSON: {ok, retriesLeft}
     changePin(oldPin: string, newPin: string): Promise<string>
-    generateVaultKey(slot: number, touchPolicy: string, pinPolicy: string): Promise<string>  // JSON: {publicKey} 65B SEC1 hex
-    readVaultPublicKey(slot: number): Promise<string>  // JSON: {publicKey} or {publicKey:null}
-    ecdh(slot: number, pin: string, peerPublicKey: string): Promise<string>  // JSON: {secret} 32B hex x-coord; touch-gated
+    generateVaultKey(slot: number, touchPolicy: string, pinPolicy: string): Promise<string> // JSON: {publicKey} 65B SEC1 hex
+    readVaultPublicKey(slot: number): Promise<string> // JSON: {publicKey} or {publicKey:null}
+    ecdh(slot: number, pin: string, peerPublicKey: string): Promise<string> // JSON: {secret} 32B hex x-coord; touch-gated
     // errors reject with message `VAULT_ERR:<code>:<detail>` — TS layer parses to VaultError
   }
   ```
@@ -173,11 +180,13 @@ test('seal/unseal round trip', () => {
 ### Task 4: Driver abstraction + software mock
 
 **Files:**
+
 - Create: `services/vault/driver.ts` (driver selection + VaultError parsing + event fan-out)
 - Create: `services/vault/mockYubiKey.ts`
 - Test: `__tests__/vault/mockYubiKey.test.ts`
 
 **Interfaces:**
+
 - Produces:
   ```ts
   // driver.ts — the ONLY surface the rest of vault code sees
@@ -185,7 +194,9 @@ test('seal/unseal round trip', () => {
     isSupported(): boolean
     start(): void
     stop(): void
-    onKeyEvent(cb: (e: { type: 'attached' | 'detached'; serial?: string; transport: 'usb' | 'nfc' | 'mock' }) => void): () => void
+    onKeyEvent(
+      cb: (e: { type: 'attached' | 'detached'; serial?: string; transport: 'usb' | 'nfc' | 'mock' }) => void
+    ): () => void
     getKeyInfo(): Promise<{ serial: string; firmwareVersion: string; pinRetries: number }>
     verifyPin(pin: string): Promise<{ ok: boolean; retriesLeft: number }>
     changePin(oldPin: string, newPin: string): Promise<{ ok: boolean; retriesLeft: number }>
@@ -193,8 +204,8 @@ test('seal/unseal round trip', () => {
     readVaultPublicKey(slot: number): Promise<{ publicKey: string } | null>
     ecdh(slot: number, pin: string, peerPublicKey: string): Promise<{ secret: string }>
   }
-  export function getVaultDriver(): VaultDriver | null      // real > mock(dev toggle) > null
-  export function setMockDriverEnabled(on: boolean): void   // DEV settings toggle, AsyncStorage-backed
+  export function getVaultDriver(): VaultDriver | null // real > mock(dev toggle) > null
+  export function setMockDriverEnabled(on: boolean): void // DEV settings toggle, AsyncStorage-backed
   ```
 - Mock: software P-256 key per "inserted" virtual token; `mock.insertKey(serial)` / `mock.removeKey()` / `mock.setTouchBehavior('instant'|'delay'|'timeout')` / PIN '123456' default with retry counting → exposes same VaultDriver + test controls. ECDH via `softwareEcdh` from Task 1.
 
@@ -205,32 +216,41 @@ test('seal/unseal round trip', () => {
 ### Task 5: Ceremony controller (UI-free state machine)
 
 **Files:**
+
 - Create: `services/vault/ceremony.ts`
 - Test: `__tests__/vault/ceremony.test.ts` (drive with mock driver + fake store)
 
 **Interfaces:**
+
 - Consumes: `VaultDriver`, `vaultStore`, `unsealVaultKey`.
 - Produces:
   ```ts
-  export type CeremonyPhase = 'idle' | 'waiting-for-key' | 'connecting' | 'pin-entry'
-    | 'awaiting-touch' | 'unsealing' | 'armed' | 'error'
+  export type CeremonyPhase =
+    | 'idle'
+    | 'waiting-for-key'
+    | 'connecting'
+    | 'pin-entry'
+    | 'awaiting-touch'
+    | 'unsealing'
+    | 'armed'
+    | 'error'
   export interface CeremonyState {
     phase: CeremonyPhase
-    reason?: string            // privilegedReason / transfer summary shown in sheet
+    reason?: string // privilegedReason / transfer summary shown in sheet
     error?: { code: VaultErrorCode; retriesLeft?: number }
-    armedUntil?: number        // epoch ms, for countdown chip
+    armedUntil?: number // epoch ms, for countdown chip
   }
   export class CeremonyController {
     constructor(deps: { getDriver: () => VaultDriver | null; store: typeof vaultStore; retentionMs: number })
     subscribe(cb: (s: CeremonyState) => void): () => void
-    request(reason: string): Promise<PrivateKey>   // concurrent calls share one ceremony
+    request(reason: string): Promise<PrivateKey> // concurrent calls share one ceremony
     submitPin(pin: string): void
-    cancel(): void                                  // rejects pending with 'user-cancelled'
-    notifyKeyDetached(): void                       // → onRelock hook fires
-    onArmed?: (key: PrivateKey) => void             // transfers replenish hook
+    cancel(): void // rejects pending with 'user-cancelled'
+    notifyKeyDetached(): void // → onRelock hook fires
+    onArmed?: (key: PrivateKey) => void // transfers replenish hook
     onRelock?: (why: 'timeout' | 'detached' | 'manual') => void
   }
-  export const ceremony: CeremonyController        // module singleton (imperative-host pattern, like showAlert)
+  export const ceremony: CeremonyController // module singleton (imperative-host pattern, like showAlert)
   export function requestCeremony(reason: string): Promise<PrivateKey>
   ```
 - Transition rules: `request()` → if driver null → reject 'driver-unavailable'; start discovery; already-attached key skips waiting; serial ≠ seal.yubiSerial → error 'serial-mismatch' (stay in error, allow retry on key swap); PIN wrong → back to pin-entry with retriesLeft; touch timeout → error 'touch-timeout' with Retry (re-runs ecdh; PIN cached by pinPolicy=once so no re-prompt within session); success → phase 'armed', schedules `armedUntil = now + retentionMs`, resolves ALL queued requesters, fires onArmed. 'armed' phase auto-returns to 'idle' at armedUntil (UI countdown), controller does NOT hold the key (PKM does).
@@ -242,23 +262,25 @@ test('seal/unseal round trip', () => {
 ### Task 6: VaultKeyService — enroll / recover / disable + PKM keyGetter
 
 **Files:**
+
 - Create: `services/vault/VaultKeyService.ts`
 - Create: `services/vault/privileged.ts`
 - Test: `__tests__/vault/vaultKeyService.test.ts`, `__tests__/vault/privileged.test.ts`
 
 **Interfaces:**
+
 - Produces:
   ```ts
   // VaultKeyService.ts
   export async function enrollVault(args: {
     nickname: string
-    onPhase: (p: 'connecting'|'pin-check'|'generating'|'sealing'|'done') => void
+    onPhase: (p: 'connecting' | 'pin-check' | 'generating' | 'sealing' | 'done') => void
     requestPinChange?: (retries: number) => Promise<{ oldPin: string; newPin: string }>
     getPin: () => Promise<string>
-  }): Promise<{ backupMnemonic: string }>          // BIP39 24 words of V (@bsv/sdk Mnemonic.fromEntropy)
-  export async function recoverVaultKey(mnemonic: string): Promise<PrivateKey>   // phrase → V
+  }): Promise<{ backupMnemonic: string }> // BIP39 24 words of V (@bsv/sdk Mnemonic.fromEntropy)
+  export async function recoverVaultKey(mnemonic: string): Promise<PrivateKey> // phrase → V
   export async function resealToNewKey(v: PrivateKey, nickname: string, getPin: () => Promise<string>): Promise<void>
-  export async function disableVault(): Promise<void>   // clear() only — sweep handled by transfers first
+  export async function disableVault(): Promise<void> // clear() only — sweep handled by transfers first
   // privileged.ts
   export function makePrivilegedKeyGetter(opts: {
     getLegacyRootKey: () => PrivateKey
@@ -276,11 +298,13 @@ test('seal/unseal round trip', () => {
 ### Task 7: WalletContext wiring + relock-on-unplug
 
 **Files:**
+
 - Modify: `context/WalletContext.tsx:1219-1222` and `:1266-1268` (both PKM constructions)
 - Modify: `context/WalletContext.tsx` (managers effect: start driver discovery + detach subscription once wallet built)
 - Test: `__tests__/vault/privileged.test.ts` (extend — factory used identically in both paths; no WalletContext render test needed, logic lives in privileged.ts)
 
 **Interfaces:**
+
 - Consumes: `makePrivilegedKeyGetter`, `VAULT_RETENTION_MS`, `ceremony`.
 - Replacement (mnemonic path; recovered-key path mirrors with `recoveredKey`):
   ```ts
@@ -298,14 +322,17 @@ test('seal/unseal round trip', () => {
 ### Task 8: Transfers — deposit, withdraw, balance, key queue replenish
 
 **Files:**
+
 - Create: `services/vault/transfers.ts`
 - Test: `__tests__/vault/transfers.test.ts` (fake permissionsManager capturing args; real @bsv/sdk for script/sighash verification)
 
 **Interfaces:**
+
 - Consumes: `vaultStore`, `ceremony.onArmed`, permissionsManager via injection.
 - Produces:
   ```ts
-  export interface VaultWallet {   // subset of WalletInterface we call, injected
+  export interface VaultWallet {
+    // subset of WalletInterface we call, injected
     createAction(args: any, originator: string): Promise<any>
     signAction(args: any, originator: string): Promise<any>
     listOutputs(args: any, originator: string): Promise<any>
@@ -316,10 +343,23 @@ test('seal/unseal round trip', () => {
   export const VAULT_BASKET = 'admin vault'
   export const VAULT_PROTOCOL: [2, string] = [2, 'vault']
   export async function getVaultBalance(w: VaultWallet, adminOriginator: string): Promise<number>
-  export async function depositToVault(w: VaultWallet, adminOriginator: string, satoshis: number): Promise<{ txid: string }>
-  export async function withdrawFromVault(w: VaultWallet, adminOriginator: string, satoshis: number | 'all', reason: string): Promise<{ txid: string }>
-  export async function replenishDepositKeys(w: VaultWallet, adminOriginator: string): Promise<void>  // ceremony.onArmed hook; tops queue to 64 via privileged getPublicKey
-  export async function sweepVaultWithKey(w: VaultWallet, adminOriginator: string, v: PrivateKey): Promise<{ txid: string } | null>  // recovery path: signs directly with V
+  export async function depositToVault(
+    w: VaultWallet,
+    adminOriginator: string,
+    satoshis: number
+  ): Promise<{ txid: string }>
+  export async function withdrawFromVault(
+    w: VaultWallet,
+    adminOriginator: string,
+    satoshis: number | 'all',
+    reason: string
+  ): Promise<{ txid: string }>
+  export async function replenishDepositKeys(w: VaultWallet, adminOriginator: string): Promise<void> // ceremony.onArmed hook; tops queue to 64 via privileged getPublicKey
+  export async function sweepVaultWithKey(
+    w: VaultWallet,
+    adminOriginator: string,
+    v: PrivateKey
+  ): Promise<{ txid: string } | null> // recovery path: signs directly with V
   ```
 - deposit: `popDepositKey()` (null → throw VaultError('not-enrolled') if no meta, or trigger replenish-needed error `'pin-required'`? NO — distinct behavior: queue empty → caller runs ceremony then replenish then retry); `createAction({ description: 'Move to vault', outputs: [{ lockingScript: new P2PKH().lock(pkh).toHex(), satoshis, basket: VAULT_BASKET, outputDescription: 'Vault deposit', customInstructions: JSON.stringify({ v: 1, keyID }), tags: ['vault'] }], labels: ['vault', 'vault-deposit'] }, adminOriginator)`.
 - withdraw: `listOutputs({ basket: VAULT_BASKET, include: 'entire transactions', limit: 1000 }, adminOriginator)` → outputs with `customInstructions.keyID`, `outpoint`, `satoshis`, result `.BEEF`; select oldest-first covering amount (or all); remainder = selected − amount; outputs = remainder > 546 ? one fresh vault deposit output for remainder : []; `createAction({ description: reason, inputBEEF, inputs: sel.map(o => ({ outpoint: o.outpoint, unlockingScriptLength: 108, inputDescription: 'Vault withdrawal' })), outputs, labels: ['vault','vault-withdraw'], options: { randomizeOutputs: false } }, adminOriginator)` → `signableTransaction { tx, reference }`; `Transaction.fromAtomicBEEF(tx)`; per input i: derived pubkey = `getPublicKey({ privileged: true, privilegedReason: reason, protocolID: VAULT_PROTOCOL, keyID, counterparty: 'self', forSelf: true }, adminOriginator)`; preimage = `TransactionSignature.format({ sourceTXID, sourceOutputIndex, sourceSatoshis, transactionVersion: tx.version, otherInputs, inputIndex: i, outputs: tx.outputs, inputSequence: input.sequence, subscript: P2PKH().lock(hash160(pubkey)), lockTime: tx.lockTime, scope: TransactionSignature.SIGHASH_ALL | SIGHASH_FORKID })`; `hashToDirectlySign = sha256(sha256(preimage))` ⚠ verify single-vs-double against sdk P2PKH.unlock source in Step 1's test (test validates the finished input with sdk `Spend` — the test, not the plan, is the arbiter); `createSignature({ hashToDirectlySign, protocolID: VAULT_PROTOCOL, keyID, counterparty: 'self', privileged: true, privilegedReason: reason }, adminOriginator)` → DER sig + append scope byte → `new UnlockingScript([pushSig, pushPubkey])`; `signAction({ reference, spends: { [i]: { unlockingScript } } }, adminOriginator)`. On any throw after createAction: `abortAction({ reference })` then rethrow.
@@ -332,12 +372,14 @@ test('seal/unseal round trip', () => {
 ### Task 9: Sounds + haptic pairings
 
 **Files:**
+
 - Create: `scripts/generate-vault-sounds.mjs` (pure Node WAV synthesis, no deps)
 - Create: `assets/sounds/vault-open.wav`, `assets/sounds/vault-close.wav` (committed output)
 - Modify: `hooks/useConfirmationSound.ts` → generalize internal player cache to `playTone(assetId)`; export `sounds.vaultOpen`, `sounds.vaultClose` (keep `sounds.confirmation`/`release` API identical)
 - Test: `__tests__/useConfirmationSound.test.ts` (extend: new tones lazy-load, never throw, share audio-mode init)
 
 **Interfaces:**
+
 - Produces: `sounds.vaultOpen(): void`, `sounds.vaultClose(): void`.
 - Sound design (spec §5.3): vault-open ~0.7 s D3→F3 soft-mallet dyad + faint metallic tail, peak ≤ −6 dBFS; vault-close ~0.5 s single A2 thunk, fast decay. Synthesis: sine partials + exponential envelopes, 44.1 kHz 16-bit mono; script writes RIFF header by hand.
 - Pairing rule (doc comment): vaultOpen ↔ haptics.success (ceremony 'armed'); vaultClose ↔ haptics.confirm (relock). Never fire one for the other; never alongside Toast(success) auto-haptic.
@@ -349,6 +391,7 @@ test('seal/unseal round trip', () => {
 ### Task 10: Ceremony sheet + vault React context
 
 **Files:**
+
 - Create: `context/VaultContext.tsx` (subscribes to `ceremony`, exposes state + submitPin/cancel; wires onArmed → replenishDepositKeys + sounds.vaultOpen + haptics.success; onRelock → sounds.vaultClose + haptics.confirm + toast)
 - Create: `components/vault/VaultCeremonySheet.tsx` (Sheet-based, global)
 - Modify: `app/_layout.tsx` (mount `<VaultCeremonySheet/>` beside PermissionSheet; wrap with VaultProvider)
@@ -356,6 +399,7 @@ test('seal/unseal round trip', () => {
 - Test: `__tests__/vault/vaultContext.test.tsx` (react-test-renderer pattern used elsewhere in repo; assert state plumbing + sound/haptic firing via jest mocks)
 
 **Interfaces:**
+
 - Consumes: `ceremony`, `sounds`, `haptics`, `Sheet`, theme/motion tokens.
 - Produces: `useVault(): { state: CeremonyState; submitPin(p: string): void; cancel(): void }`.
 - Sheet content per phase (copy = i18n keys): waiting-for-key `vault_insert_key` + port illustration (static SVG/Ionicons composition, pulse via scale loop ≤ springs.settle, reduced-motion → static); connecting `vault_reading_key`; pin-entry `vault_enter_pin` + secure TextInput + `vault_pin_retries` when retriesLeft < 3; awaiting-touch `vault_touch_contact` + 15 s countdown ring (Reanimated, UI-thread) + pulsing gold disc; unsealing `vault_unlocking`; armed → sheet dismisses, `/vault` shows countdown chip `vault_unlocked_until`; error states: `vault_err_wrong_key` (+ serial), `vault_err_touch_timeout` + retry button, `vault_err_pin_locked` → link to recovery, `vault_err_removed`, generic `vault_err_generic`. Reason line always visible: `state.reason`.
@@ -367,6 +411,7 @@ test('seal/unseal round trip', () => {
 ### Task 11: /vault screen, enrollment wizard, transfer UI, settings entry
 
 **Files:**
+
 - Create: `app/vault.tsx` (route: hero/enroll state OR balance + deposit/withdraw + key card + activity)
 - Create: `components/vault/EnrollWizard.tsx` (intro → insert → PIN change if factory → generate (touch) → backup phrase → confirm quiz → done)
 - Create: `components/vault/TransferSheet.tsx` (amount via `AmountInput`/`AmountDisplay`, direction, confirm; deposit runs immediately, withdraw runs `requestCeremony` first)
@@ -377,6 +422,7 @@ test('seal/unseal round trip', () => {
 - Test: `__tests__/vault/useVaultBalance.test.ts`
 
 **Interfaces:**
+
 - Consumes: `useVault`, transfers API, `useWalletContext` (`managers.permissionsManager`, `adminOriginator`, `txStatusVersion` selector hooks), GroupedList/ListRow/PressableScale/Sheet, EnrollWizard consumes `enrollVault`/`recoverVaultKey`.
 - Backup-phrase step reuses the reveal-then-confirm interaction from `app/auth/mnemonic.tsx` (grid of words, then confirm 3 random positions); copy warns `vault_backup_warning`.
 - Withdraw reason string (shown in ceremony sheet): `t('vault_withdraw_reason', { amount })` — e.g. "Withdraw 12 500 sats from vault".
@@ -387,6 +433,7 @@ test('seal/unseal round trip', () => {
 ### Task 12: iOS entitlement plugin, app config, dev toggle, i18n sweep, verify
 
 **Files:**
+
 - Create: `plugins/withSmartCardEntitlement.js` (withEntitlementsPlist → `com.apple.security.smartcard: true`)
 - Modify: `app.json` (plugins array + nothing else)
 - Modify: `ios/BSVBrowser/BSVBrowser.entitlements` (add the key — tracked project must not drift from prebuild)
@@ -395,6 +442,7 @@ test('seal/unseal round trip', () => {
 - Test: full suite + typecheck + lint
 
 **Steps:**
+
 - [ ] **Step 1:** Plugin (clone `withWebBrowserEntitlement.js` shape) + entitlements edit + app.json.
 - [ ] **Step 2:** DEV mock toggle row.
 - [ ] **Step 3:** i18n: translate the en `vault_*` block into the 12 other blocks (subagent-friendly; mark with `// vault (machine-translated, needs native review)` comment).

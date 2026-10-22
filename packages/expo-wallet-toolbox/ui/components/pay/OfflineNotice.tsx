@@ -239,9 +239,7 @@ export default function OfflineNotice({
                 incoming money, and a bare "damaged data" title reads as "my queued
                 payments vanished". Steer away from blind re-sends — a quarantined entry
                 may already have been credited. */}
-            <Text style={[styles.body, { color: colors.textSecondary }]}>
-              {t('pay_offline_kv_corrupt_body')}
-            </Text>
+            <Text style={[styles.body, { color: colors.textSecondary }]}>{t('pay_offline_kv_corrupt_body')}</Text>
           </View>
         </View>
       )}

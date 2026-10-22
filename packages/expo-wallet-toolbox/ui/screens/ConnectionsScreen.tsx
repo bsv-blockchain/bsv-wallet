@@ -144,7 +144,11 @@ function parsePairingUri(raw: string): ParseResult {
 }
 
 function displayDomain(origin: string): string {
-  try { return parseExternalOrigin(origin).originator } catch { return 'Invalid origin' }
+  try {
+    return parseExternalOrigin(origin).originator
+  } catch {
+    return 'Invalid origin'
+  }
 }
 
 export const ConnectionsScreen = observer(function ConnectionsScreen() {
@@ -194,7 +198,7 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
           origin: external.origin,
           topic: result.params.topic,
           protocolID: result.params.protocolID,
-          backendIdentityKey: result.params.backendIdentityKey,
+          backendIdentityKey: result.params.backendIdentityKey
         })
         connectionStore.stageAuthorityTag(result.params.topic, tag)
       } catch (err) {
@@ -203,7 +207,9 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
       }
       await connect({ ...result.params, origin: external.origin }, wallet)
     } catch (err) {
-      showToast(`${t('connection_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, { type: 'error' })
+      showToast(`${t('connection_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, {
+        type: 'error'
+      })
     }
   }
 
@@ -212,7 +218,13 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
       conn,
       managers.permissionsManager,
       { liveTopic: sessionMeta?.topic, disconnect },
-      { store: connectionStore, guard: guardVaultAccess, cap: capWalletArgs, adminOriginator: ADMIN_ORIGINATOR, seqKey: lastSeqKey }
+      {
+        store: connectionStore,
+        guard: guardVaultAccess,
+        cap: capWalletArgs,
+        adminOriginator: ADMIN_ORIGINATOR,
+        seqKey: lastSeqKey
+      }
     )
   }
 
@@ -222,7 +234,9 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
     try {
       external = parseExternalOrigin(conn.origin)
     } catch (err) {
-      showToast(`${t('reconnect_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, { type: 'error' })
+      showToast(`${t('reconnect_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, {
+        type: 'error'
+      })
       return
     }
     // XR-027: reconnect() itself authenticates only that the wallet's own
@@ -243,12 +257,17 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
     } catch {
       storedTag = undefined // malformed tag on disk — treat exactly like a missing one
     }
-    const authentic = await verifyConnectionAuthorityTag(adminWallet, ADMIN_ORIGINATOR, {
-      origin: external.origin,
-      topic: conn.sessionId,
-      protocolID: conn.protocolID,
-      backendIdentityKey: conn.backendIdentityKey
-    }, storedTag)
+    const authentic = await verifyConnectionAuthorityTag(
+      adminWallet,
+      ADMIN_ORIGINATOR,
+      {
+        origin: external.origin,
+        topic: conn.sessionId,
+        protocolID: conn.protocolID,
+        backendIdentityKey: conn.backendIdentityKey
+      },
+      storedTag
+    )
     if (!authentic) {
       showToast(t('reconnect_needs_reapproval'), { type: 'error' })
       return
@@ -274,7 +293,9 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
       conn = { ...conn, origin: external.origin }
       await reconnect(conn, wallet)
     } catch (err) {
-      showToast(`${t('reconnect_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, { type: 'error' })
+      showToast(`${t('reconnect_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, {
+        type: 'error'
+      })
     }
   }
 
@@ -297,9 +318,7 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
           <View style={styles.empty}>
             <Ionicons name="wifi-outline" size={48} color={colors.textSecondary} style={{ marginBottom: spacing.md }} />
             <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>{t('no_connections_yet')}</Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-              {t('no_connections_subtitle')}
-            </Text>
+            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>{t('no_connections_subtitle')}</Text>
           </View>
         ) : (
           <>
@@ -364,11 +383,13 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
             )}
           </>
         )}
-
       </ScrollView>
 
       <View style={[styles.footer, { borderTopColor: colors.separator }]}>
-        <TouchableOpacity style={[styles.scanBtn, { backgroundColor: colors.accent }]} onPress={() => setScanning(true)}>
+        <TouchableOpacity
+          style={[styles.scanBtn, { backgroundColor: colors.accent }]}
+          onPress={() => setScanning(true)}
+        >
           <Ionicons name="qr-code-outline" size={20} color={colors.textOnAccent} style={{ marginRight: spacing.sm }} />
           <Text style={[styles.scanBtnText, { color: colors.textOnAccent }]}>{t('scan_qr_code')}</Text>
         </TouchableOpacity>
@@ -379,7 +400,12 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
             if (text) handleScan(text.trim())
           }}
         >
-          <Ionicons name="clipboard-outline" size={18} color={colors.textSecondary} style={{ marginRight: spacing.xs }} />
+          <Ionicons
+            name="clipboard-outline"
+            size={18}
+            color={colors.textSecondary}
+            style={{ marginRight: spacing.xs }}
+          />
           <Text style={[styles.pasteBtnText, { color: colors.textSecondary }]}>{t('paste_uri')}</Text>
         </TouchableOpacity>
       </View>

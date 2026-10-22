@@ -84,9 +84,12 @@ async function signedPairingParams(topic: string) {
 function fakeMobileWallet() {
   const mobileKey = PrivateKey.fromRandom()
   const decryptQueue: Array<{ resolve: (v: { plaintext: number[] }) => void }> = []
-  const decrypt = jest.fn(() => new Promise<{ plaintext: number[] }>(resolve => {
-    decryptQueue.push({ resolve })
-  }))
+  const decrypt = jest.fn(
+    () =>
+      new Promise<{ plaintext: number[] }>(resolve => {
+        decryptQueue.push({ resolve })
+      })
+  )
   return {
     getPublicKey: jest.fn(async () => ({ publicKey: mobileKey.toPublicKey().toString() })),
     encrypt: jest.fn(async () => ({ ciphertext: [1, 2, 3] })),

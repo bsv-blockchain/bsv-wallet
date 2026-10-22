@@ -279,9 +279,10 @@ test('XQ-014: a serial committed under a DIFFERENT wallet identity is refused de
   await enrolledSerialRegistry.record(SERIAL)
   const spies = cardContact()
 
-  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject(
-    { code: 'key-already-enrolled', details: { serial: SERIAL } }
-  )
+  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+    code: 'key-already-enrolled',
+    details: { serial: SERIAL }
+  })
   expectUntouched(spies)
 })
 

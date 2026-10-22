@@ -45,14 +45,18 @@ describe('enrolledSerialRegistry', () => {
   it('record() then has() is true, and it never carries pubkeys, nicknames or identity keys — bare serials only', async () => {
     await enrolledSerialRegistry.record('MOCK-1')
     expect(await enrolledSerialRegistry.has('MOCK-1')).toBe(true)
-    const raw = JSON.parse((AsyncStorage as unknown as { __store: Record<string, string> }).__store['vault_enrolled_serial_registry_v1'])
+    const raw = JSON.parse(
+      (AsyncStorage as unknown as { __store: Record<string, string> }).__store['vault_enrolled_serial_registry_v1']
+    )
     expect(raw).toEqual(['MOCK-1'])
   })
 
   it('record() is idempotent for the same serial', async () => {
     await enrolledSerialRegistry.record('MOCK-1')
     await enrolledSerialRegistry.record('MOCK-1')
-    const raw = JSON.parse((AsyncStorage as unknown as { __store: Record<string, string> }).__store['vault_enrolled_serial_registry_v1'])
+    const raw = JSON.parse(
+      (AsyncStorage as unknown as { __store: Record<string, string> }).__store['vault_enrolled_serial_registry_v1']
+    )
     expect(raw).toEqual(['MOCK-1'])
   })
 

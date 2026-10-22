@@ -22,7 +22,16 @@
  * transfers.ts's own verifyVaultInput call) exactly as it would be against
  * the genuine wallet-toolbox.
  */
-import { Beef, CompletedProtoWallet, LockingScript, P2PKH, PrivateKey, Transaction, UnlockingScript, Utils } from '@bsv/sdk'
+import {
+  Beef,
+  CompletedProtoWallet,
+  LockingScript,
+  P2PKH,
+  PrivateKey,
+  Transaction,
+  UnlockingScript,
+  Utils
+} from '@bsv/sdk'
 import type { VaultActionRow, VaultWallet } from '../../../core/services/vault/transfers'
 import type { VaultChainLookup } from '../../../core/services/vault/chainRecovery'
 
@@ -218,7 +227,9 @@ export class FakeVaultWallet implements VaultWallet {
       outpoint,
       satoshis: o.satoshis,
       ...(args.includeCustomInstructions ? { customInstructions: o.customInstructions } : {}),
-      ...(args.include === 'locking scripts' || args.include === 'entire transactions' ? { lockingScript: o.lockingScript } : {})
+      ...(args.include === 'locking scripts' || args.include === 'entire transactions'
+        ? { lockingScript: o.lockingScript }
+        : {})
     }))
     let beef: number[] | undefined
     if (args.include === 'entire transactions') {
@@ -253,8 +264,18 @@ export class FakeVaultWallet implements VaultWallet {
 
     const reference = `ref-${++this.refCounter}`
     let tx: Transaction
-    const explicit = (args.outputs ?? []) as { satoshis: number; lockingScript: string; basket?: string; customInstructions?: string; tags?: string[] }[]
-    const explicitMeta = explicit.map(o => ({ basket: o.basket, customInstructions: o.customInstructions, tags: o.tags }))
+    const explicit = (args.outputs ?? []) as {
+      satoshis: number
+      lockingScript: string
+      basket?: string
+      customInstructions?: string
+      tags?: string[]
+    }[]
+    const explicitMeta = explicit.map(o => ({
+      basket: o.basket,
+      customInstructions: o.customInstructions,
+      tags: o.tags
+    }))
 
     if (Array.isArray(args?.inputs)) {
       // withdraw / re-lock: spend named vault outpoints.
@@ -293,12 +314,22 @@ export class FakeVaultWallet implements VaultWallet {
       })
       this.sourceTxByTxid.set(fund.id('hex'), fund)
       tx = new Transaction(args.version ?? 1)
-      tx.addInput({ sourceTransaction: fund, sourceOutputIndex: 0, sequence: 0xffffffff, unlockingScript: new UnlockingScript([]) })
-      for (const o of explicit) tx.addOutput({ satoshis: o.satoshis, lockingScript: LockingScript.fromHex(o.lockingScript) })
+      tx.addInput({
+        sourceTransaction: fund,
+        sourceOutputIndex: 0,
+        sequence: 0xffffffff,
+        unlockingScript: new UnlockingScript([])
+      })
+      for (const o of explicit)
+        tx.addOutput({ satoshis: o.satoshis, lockingScript: LockingScript.fromHex(o.lockingScript) })
       tx.addOutput({ satoshis: 9_500, lockingScript: new P2PKH().lock(Utils.toArray('c3'.repeat(20), 'hex')) })
     }
 
-    this.pendingByReference.set(reference, { tx, kind: Array.isArray(args?.inputs) ? 'spend' : 'deposit', explicitMeta })
+    this.pendingByReference.set(reference, {
+      tx,
+      kind: Array.isArray(args?.inputs) ? 'spend' : 'deposit',
+      explicitMeta
+    })
     return { signableTransaction: { tx: tx.toAtomicBEEF(), reference } }
   }
 
@@ -359,7 +390,10 @@ export class FakeVaultWallet implements VaultWallet {
       throw new Error('FakeVaultWallet.internalizeAction: transaction is not confirmed (no usable chain-tracker proof)')
     }
     this.sourceTxByTxid.set(txid, tx)
-    for (const output of args.outputs as { outputIndex: number; insertionRemittance?: { basket: string; customInstructions?: string; tags?: string[] } }[]) {
+    for (const output of args.outputs as {
+      outputIndex: number
+      insertionRemittance?: { basket: string; customInstructions?: string; tags?: string[] }
+    }[]) {
       const real = tx.outputs[output.outputIndex]
       this.basket.set(`${txid}.${output.outputIndex}`, {
         satoshis: real.satoshis!,

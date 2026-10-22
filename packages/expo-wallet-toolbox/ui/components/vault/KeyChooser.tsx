@@ -43,11 +43,11 @@ export function formatVaultSerial(serial: string): string {
   return serial.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
 }
 
-export const KeyChooser: React.FC<{ keys: VaultKeyRecord[]; selected?: string; onSelect: (serial: string) => void }> = ({
-  keys,
-  selected,
-  onSelect
-}) => {
+export const KeyChooser: React.FC<{
+  keys: VaultKeyRecord[]
+  selected?: string
+  onSelect: (serial: string) => void
+}> = ({ keys, selected, onSelect }) => {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
   return (
@@ -64,7 +64,10 @@ export const KeyChooser: React.FC<{ keys: VaultKeyRecord[]; selected?: string; o
             onPress={() => onSelect(k.serial)}
             style={[
               styles.row,
-              i < keys.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
+              i < keys.length - 1 && {
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: colors.separator
+              }
             ]}
           >
             <Ionicons

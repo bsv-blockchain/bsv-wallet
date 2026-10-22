@@ -64,7 +64,9 @@ async function runFunding() {
     // Sort by height ascending (oldest first), then by tx_pos
     utxos.sort((a, b) => (a.height || Infinity) - (b.height || Infinity) || a.tx_pos - b.tx_pos)
     const oldest = utxos[0]
-    log(`Found ${utxos.length} UTXO(s). Using oldest: ${oldest.tx_hash}:${oldest.tx_pos} (${oldest.value} sats, block ${oldest.height})`)
+    log(
+      `Found ${utxos.length} UTXO(s). Using oldest: ${oldest.tx_hash}:${oldest.tx_pos} (${oldest.value} sats, block ${oldest.height})`
+    )
 
     log('Fetching BEEF...')
     const beef = await fetchBeef(oldest.tx_hash)
@@ -73,14 +75,16 @@ async function runFunding() {
     log('Calling createAction...')
     const result = await wallet.createAction({
       description: 'Fund wallet from UTXO',
-      inputs: [{
-        outpoint: oldest.tx_hash + '.' + oldest.tx_pos,
-        inputDescription: 'Fund wallet from secret UTXO',
-        unlockingScript: Script.fromASM(Utils.toHex(Utils.toArray(password, 'utf8'))).toHex(),
-      }],
+      inputs: [
+        {
+          outpoint: oldest.tx_hash + '.' + oldest.tx_pos,
+          inputDescription: 'Fund wallet from secret UTXO',
+          unlockingScript: Script.fromASM(Utils.toHex(Utils.toArray(password, 'utf8'))).toHex()
+        }
+      ],
       inputBEEF: beef,
       options: {
-        acceptDelayedBroadcast: false,
+        acceptDelayedBroadcast: false
       }
     })
 

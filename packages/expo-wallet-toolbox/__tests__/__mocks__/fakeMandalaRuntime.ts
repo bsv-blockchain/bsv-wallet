@@ -36,11 +36,7 @@ export const EURX: TokenAssetInfo = {
   issuerName: 'Beta Bank'
 }
 
-export function balanceOf(
-  asset: TokenAssetInfo = USDX,
-  baseUnits = 124000,
-  unsettledBaseUnits = 0
-): TokenBalance {
+export function balanceOf(asset: TokenAssetInfo = USDX, baseUnits = 124000, unsettledBaseUnits = 0): TokenBalance {
   return { asset, baseUnits, unsettledBaseUnits }
 }
 

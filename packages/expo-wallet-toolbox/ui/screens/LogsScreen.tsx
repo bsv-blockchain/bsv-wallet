@@ -1,13 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  ActivityIndicator,
-  Platform
-} from 'react-native'
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Platform } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { showToast } from '../components/ui/Toast'
 import { useTheme, spacing, typography, radii, useWallet } from '@bsv/expo-wallet-toolbox'
@@ -149,13 +141,23 @@ export function LogsScreen() {
       const output = await releaseStuckReservations()
       setLogs(prev => [
         ...prev,
-        { id: `${Date.now()}_${name}`, taskName: name, timestamp: new Date().toISOString(), output: output || '(no output)' }
+        {
+          id: `${Date.now()}_${name}`,
+          taskName: name,
+          timestamp: new Date().toISOString(),
+          output: output || '(no output)'
+        }
       ])
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100)
     } catch (e: any) {
       setLogs(prev => [
         ...prev,
-        { id: `${Date.now()}_${name}`, taskName: name, timestamp: new Date().toISOString(), output: `Error: ${e.message || 'unknown'}` }
+        {
+          id: `${Date.now()}_${name}`,
+          taskName: name,
+          timestamp: new Date().toISOString(),
+          output: `Error: ${e.message || 'unknown'}`
+        }
       ])
     } finally {
       setRunning(null)
@@ -175,9 +177,7 @@ export function LogsScreen() {
   }, [])
 
   const copyAll = useCallback(() => {
-    const text = logs
-      .map(e => `[${e.timestamp}] ${e.taskName}\n${e.output}`)
-      .join('\n\n')
+    const text = logs.map(e => `[${e.timestamp}] ${e.taskName}\n${e.output}`).join('\n\n')
     loadClipboard().setString(text)
     showToast('Copied all logs', { type: 'success' })
   }, [logs])
@@ -266,7 +266,10 @@ export function LogsScreen() {
               <ActivityIndicator size="small" color={colors.background} />
             ) : (
               <Text
-                style={[styles.taskPillText, { color: running === 'CheckUTXOs' ? colors.background : colors.textPrimary }]}
+                style={[
+                  styles.taskPillText,
+                  { color: running === 'CheckUTXOs' ? colors.background : colors.textPrimary }
+                ]}
                 numberOfLines={1}
               >
                 CheckUTXOs
@@ -290,7 +293,10 @@ export function LogsScreen() {
               <ActivityIndicator size="small" color={colors.background} />
             ) : (
               <Text
-                style={[styles.taskPillText, { color: running === 'ReleaseStuck' ? colors.background : colors.textPrimary }]}
+                style={[
+                  styles.taskPillText,
+                  { color: running === 'ReleaseStuck' ? colors.background : colors.textPrimary }
+                ]}
                 numberOfLines={1}
               >
                 Release stuck
@@ -306,9 +312,7 @@ export function LogsScreen() {
         style={[styles.terminal, { backgroundColor: '#12161D' }]}
         contentContainerStyle={styles.terminalContent}
       >
-        {logs.length === 0 && (
-          <Text style={styles.emptyText}>Tap a task above to run it and see output here.</Text>
-        )}
+        {logs.length === 0 && <Text style={styles.emptyText}>Tap a task above to run it and see output here.</Text>}
         {logs.map(entry => {
           const isCopied = copiedId === entry.id
           return (
@@ -320,9 +324,7 @@ export function LogsScreen() {
             >
               <View style={styles.logHeader}>
                 <Text style={styles.logTaskName}>{entry.taskName}</Text>
-                <Text style={styles.logTimestamp}>
-                  {new Date(entry.timestamp).toLocaleTimeString()}
-                </Text>
+                <Text style={styles.logTimestamp}>{new Date(entry.timestamp).toLocaleTimeString()}</Text>
                 <Ionicons
                   name={isCopied ? 'checkmark' : 'copy-outline'}
                   size={14}

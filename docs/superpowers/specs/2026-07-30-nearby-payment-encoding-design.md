@@ -34,7 +34,7 @@ redundant or unverifiable.
 - **`Session` encoding is unchanged.** Dropping `p`/`x` (letting the payer pick
   its own derivation nonces, as `bsvPaymentHandler.ts:158` does) was considered
   and rejected: the `p`/`x` equality test at `NearbyFlow.tsx:602-616` is the
-  *entire* frame-to-session binding. Without it a stray payment QR credits a
+  _entire_ frame-to-session binding. Without it a stray payment QR credits a
   stranger's payment against the live request and burns it, and the genuine
   payer is then told `already_paid`. Any replacement (frame-carried
   `sessionId`, or an HMAC over the frame keyed by the session PSK) is a bigger
@@ -82,8 +82,7 @@ Steps, in order:
 1. `Transaction.fromAtomicBEEF(frame.transaction)`. A parse failure throws.
 2. Bounds-check `frame.outputIndex` against `tx.outputs.length`.
 3. Derive the payee's own expected script:
-   `wallet.getPublicKey({ protocolID: PEERPAY_PROTOCOL_ID, keyID: \`${frame.derivationPrefix} ${frame.derivationSuffix}\`, counterparty: frame.senderIdentityKey, forSelf: true })`
-   → `new P2PKH().lock(PublicKey.fromString(pk).toAddress()).toHex()`.
+   `wallet.getPublicKey({ protocolID: PEERPAY_PROTOCOL_ID, keyID: \`${frame.derivationPrefix} ${frame.derivationSuffix}\`, counterparty: frame.senderIdentityKey, forSelf: true })`→`new P2PKH().lock(PublicKey.fromString(pk).toAddress()).toHex()`.
 4. Compare to `tx.outputs[outputIndex].lockingScript.toHex()`. Mismatch throws.
 5. Return that output's `satoshis`, validated with `isRequestableAmount`.
 
@@ -108,11 +107,11 @@ Errors are distinguished so the caller can pick a decline reason: a dedicated
 
 Decline mapping, within the existing reason set:
 
-| verify failure | reason | rationale |
-| --- | --- | --- |
-| `unparseable` | `decode_failed` | the bytes did not yield a transaction |
-| `not_mine` | `session_mismatch` | the frame is not a payment to this device |
-| amount vs `session.amount` | `session_mismatch` | unchanged |
+| verify failure             | reason             | rationale                                 |
+| -------------------------- | ------------------ | ----------------------------------------- |
+| `unparseable`              | `decode_failed`    | the bytes did not yield a transaction     |
+| `not_mine`                 | `session_mismatch` | the frame is not a payment to this device |
+| amount vs `session.amount` | `session_mismatch` | unchanged                                 |
 
 All three occur before `settlingRef` latches and before any write, so all three
 remain provable "queued nothing" declines — the payer may release its inputs.
@@ -194,12 +193,12 @@ Extend the existing suites; no new harness.
 
 ## Files touched
 
-| file | change |
-| --- | --- |
-| `utils/localpay/codec.ts` | `FRAME_VERSION` 2, drop `amount`, add `FRAME_BLOCK_BYTES`, delete `MAX_FRAME_QR_CHARS` and `frameFromQr` |
-| `utils/localpay/verify.ts` | new — `verifyFramePayment`, `FrameVerifyError` |
-| `utils/localpay/build.ts` | stop writing `amount` into the frame (it still validates and uses `amount` to size the output) |
-| `utils/pay/rails/nearby.ts` | re-export surface follows the codec |
-| `components/pay/PaymentQrDisplay.tsx` | always-fountain, fixed block size |
-| `components/pay/NearbyFlow.tsx` | verify in settle, satoshis from the tx, drop the bare-QR scan branch and the size gates |
-| `__tests__/localpay*.test.ts` | as above |
+| file                                  | change                                                                                                   |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `utils/localpay/codec.ts`             | `FRAME_VERSION` 2, drop `amount`, add `FRAME_BLOCK_BYTES`, delete `MAX_FRAME_QR_CHARS` and `frameFromQr` |
+| `utils/localpay/verify.ts`            | new — `verifyFramePayment`, `FrameVerifyError`                                                           |
+| `utils/localpay/build.ts`             | stop writing `amount` into the frame (it still validates and uses `amount` to size the output)           |
+| `utils/pay/rails/nearby.ts`           | re-export surface follows the codec                                                                      |
+| `components/pay/PaymentQrDisplay.tsx` | always-fountain, fixed block size                                                                        |
+| `components/pay/NearbyFlow.tsx`       | verify in settle, satoshis from the tx, drop the bare-QR scan branch and the size gates                  |
+| `__tests__/localpay*.test.ts`         | as above                                                                                                 |

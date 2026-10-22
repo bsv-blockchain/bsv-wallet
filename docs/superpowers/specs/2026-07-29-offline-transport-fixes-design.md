@@ -14,17 +14,17 @@ code on 2026-07-29; every claim below is cited.
 1. **A payer's transactions sit at `nosend` long after Wi-Fi returns.** Two
    independent causes:
    - **The QR send path never enqueues.** When `sendKind === 'qr'`,
-     `executeSend` renders the payment QR and returns *before*
+     `executeSend` renders the payment QR and returns _before_
      `finalizeDelivery` (`components/pay/NearbyFlow.tsx:995-1008`); the
      AWDL-failure→QR fallback does the same (`:1010-1028`). No
-     `offline_actions` row is ever written, and the release drain reads *only*
+     `offline_actions` row is ever written, and the release drain reads _only_
      `offline_actions` rows in `'queued'`/`'posting'`
      (`storage/methods/processOfflineActions.ts:77-78`). The transaction is
      invisible to every broadcast mechanism forever: `TaskSendWaiting` selects
      `unsent`/`sending`, and `TaskCheckNoSends` never sends
      (documented at `utils/localpay/build.ts:326-335`).
    - **The release trigger is one-shot with no retry.**
-     `TaskSendOffline.checkNow` is cleared *before* the drain runs
+     `TaskSendOffline.checkNow` is cleared _before_ the drain runs
      (`utils/monitor/TaskSendOffline.ts:31`), and its only setter is the
      reconnect listener (`context/WalletContext.tsx:1530-1535` — the comment at
      `TaskSendOffline.ts:16` claims a manual control that does not exist). If
@@ -93,7 +93,7 @@ with already-shipped builds:
   (`session.ts:47`, `NearbyFlow.tsx:813-821`).
 - **`o: 'ios' | 'android'`** — the operating system of the minting device.
   Metadata only: UX copy and diagnostics. Transport selection is driven by
-  caps, which state what the device can actually *do*; the OS field must never
+  caps, which state what the device can actually _do_; the OS field must never
   enter `selectTransport`.
 
 The plan must verify `decodeSession` tolerates unknown keys and added bits
@@ -113,7 +113,7 @@ AWDL-or-QR decision to:
    `bsvpayf2:` when it does not.
 
 Cross-OS pairs land on rung 3 by construction. QR is also the terminal
-fallback *at send time*: a radio dial failure or timeout drops automatically to
+fallback _at send time_: a radio dial failure or timeout drops automatically to
 rendering the QR — no button press, no 20-second wait. The AWDL connect phase
 gets a short (~4 s) timeout distinct from the overall
 `SEND_TIMEOUT_MS = 20_000` (`utils/localpay/transport/awdl.ts:13`), so an iOS
@@ -138,8 +138,8 @@ That is the dead end. New semantics — Done routes through the same
   `role = 'sent'`, transaction promoted to `unproven`, drained on reconnect.
 - **Cancel** → decline path → abort the build, release the inputs (unchanged).
 
-Broadcasting a frame the payee never scanned is safe *provided the QR can be
-shown again*: a payee scanning after broadcast internalizes normally (the
+Broadcasting a frame the payee never scanned is safe _provided the QR can be
+shown again_: a payee scanning after broadcast internalizes normally (the
 forced broadcast finds the txid already in the mempool, which
 `arcadeBroadcastProvider` already treats as success). To guarantee re-show
 across app restarts, the frame bytes are persisted in a new **nullable
@@ -196,11 +196,11 @@ permanently stuck ancestor is visible instead of silently blocking.
 call sites become userId-scoped), build a txid→row map, and let it override
 `getStatusInfo`:
 
-| queue state | badge | colour |
-| --- | --- | --- |
-| `queued` | "Offline · queued" | info (new, distinct from green/warning) |
-| `posting` | "Offline · sending" | info |
-| `rejected` | "Offline · rejected" + reason | error |
+| queue state | badge                         | colour                                  |
+| ----------- | ----------------------------- | --------------------------------------- |
+| `queued`    | "Offline · queued"            | info (new, distinct from green/warning) |
+| `posting`   | "Offline · sending"           | info                                    |
+| `rejected`  | "Offline · rejected" + reason | error                                   |
 
 `sent` rows are excluded — a settled transaction must show its normal status.
 The override wins over the raw `nosend`/`unproven` rendering, which also fixes
@@ -319,7 +319,7 @@ substitute for EAS archiving, required because eas-cli ignores every
 module was scaffolded. Its bare `android` rule silently stripped
 `packages/react-native-localpay-transport/android/` out of every EAS build
 archive since Task 14, so the module was never merely unregistered in a
-shipped binary, it was never *present* in one. Both fixes are required
+shipped binary, it was never _present_ in one. Both fixes are required
 together; neither alone produces a working Nearby path in an EAS-built app.
 
 ### Protocol mapping

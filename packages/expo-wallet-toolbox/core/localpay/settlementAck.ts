@@ -46,10 +46,7 @@ export interface SettlementAck {
  * signed it. Injected: the σ_I digest is the overlay's own and lives in
  * `@bsv/mandala`, so wallet and overlay cannot disagree about what is signed.
  */
-export type VerifyAdmissionFn = (
-  entry: AdmissionEntryWire,
-  overlayIdentityKey: string
-) => boolean | Promise<boolean>
+export type VerifyAdmissionFn = (entry: AdmissionEntryWire, overlayIdentityKey: string) => boolean | Promise<boolean>
 
 export function encodeSettlementAck(ack: SettlementAck): string {
   return SETTLEMENT_ACK_PREFIX + JSON.stringify(ack)

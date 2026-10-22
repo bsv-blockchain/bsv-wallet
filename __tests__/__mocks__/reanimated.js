@@ -4,12 +4,12 @@
 // We spread the official mock and add the missing export so PressableScale
 // and any other components using useReducedMotion work in tests.
 
-const officialMock = require('../../node_modules/react-native-reanimated/mock.js');
+const officialMock = require('../../node_modules/react-native-reanimated/mock.js')
 
 module.exports = {
   ...officialMock,
   default: {
-    ...officialMock.default,
+    ...officialMock.default
   },
-  useReducedMotion: () => false,
-};
+  useReducedMotion: () => false
+}

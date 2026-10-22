@@ -27,7 +27,7 @@ import { profileScopedKey } from '../profiles/profileStore'
 export const BACKUP_PUSH_ENABLED_KEY = 'backupPushEnabled'
 
 /** True unless the user has explicitly opted out. Never throws. */
-export async function isBackupPushEnabled (profileIndex?: number): Promise<boolean> {
+export async function isBackupPushEnabled(profileIndex?: number): Promise<boolean> {
   try {
     return (await AsyncStorage.getItem(profileScopedKey(BACKUP_PUSH_ENABLED_KEY, profileIndex))) !== 'false'
   } catch {
@@ -36,6 +36,6 @@ export async function isBackupPushEnabled (profileIndex?: number): Promise<boole
   }
 }
 
-export async function setBackupPushEnabled (enabled: boolean, profileIndex?: number): Promise<void> {
+export async function setBackupPushEnabled(enabled: boolean, profileIndex?: number): Promise<void> {
   await AsyncStorage.setItem(profileScopedKey(BACKUP_PUSH_ENABLED_KEY, profileIndex), enabled ? 'true' : 'false')
 }

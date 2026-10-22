@@ -75,34 +75,34 @@ There is no separate browsing mode -- the app opens straight into the wallet (ba
 
 ## Available Scripts
 
-| Script                  | Description                                                        |
-| ------------------------ | ------------------------------------------------------------------ |
-| `npm start`              | Start the Expo dev server (`expo start --dev-client`)              |
-| `npm run android`        | Start on a connected Android device / emulator                     |
-| `npm run ios`            | Start on a connected iOS device / simulator                        |
+| Script                   | Description                                                         |
+| ------------------------ | ------------------------------------------------------------------- |
+| `npm start`              | Start the Expo dev server (`expo start --dev-client`)               |
+| `npm run android`        | Start on a connected Android device / emulator                      |
+| `npm run ios`            | Start on a connected iOS device / simulator                         |
 | `npm run ios-run`        | Build (RN from source) + launch the iOS dev-client on the simulator |
-| `npm run ios-dev-device` | Start the dev server via tunnel, for a physical device off USB     |
-| `npm run web`            | Start the web version                                              |
-| `npm run lint`           | Run ESLint                                                         |
-| `npm run lint:fix`       | Run ESLint with auto-fix                                           |
-| `npm run format`         | Format all files with Prettier                                     |
-| `npm run format:check`   | Check formatting without writing                                   |
-| `npm run fix`            | Run `format` then `lint:fix`                                       |
-| `npm test`               | Run the Jest test suite                                            |
-| `npm run clean`          | Delete generated caches and build artifacts                        |
-| `npm run version`        | Bump version in package.json + app.json, commit and tag            |
+| `npm run ios-dev-device` | Start the dev server via tunnel, for a physical device off USB      |
+| `npm run web`            | Start the web version                                               |
+| `npm run lint`           | Run ESLint                                                          |
+| `npm run lint:fix`       | Run ESLint with auto-fix                                            |
+| `npm run format`         | Format all files with Prettier                                      |
+| `npm run format:check`   | Check formatting without writing                                    |
+| `npm run fix`            | Run `format` then `lint:fix`                                        |
+| `npm test`               | Run the Jest test suite                                             |
+| `npm run clean`          | Delete generated caches and build artifacts                         |
+| `npm run version`        | Bump version in package.json + app.json, commit and tag             |
 
 ### Device / Store Builds
 
-| Script                                 | Description                                    |
-| --------------------------------------- | ----------------------------------------------- |
-| `npm run android-dev-build`             | Local EAS dev-client build (Android emulator)   |
-| `npm run android-dev-physical`          | Local EAS dev-client build (physical Android)   |
-| `npm run android-apk`                   | Local EAS preview APK build                     |
-| `npm run android-build-for-play-store`  | Local EAS production AAB build                  |
-| `npm run ios-dev-build`                 | Local EAS dev-client build (iOS simulator)      |
-| `npm run ios-dev-physical`              | Local EAS dev-client build (physical iOS)       |
-| `npm run ios-build-for-app-store`       | Local EAS production build (iOS)                |
+| Script                                 | Description                                   |
+| -------------------------------------- | --------------------------------------------- |
+| `npm run android-dev-build`            | Local EAS dev-client build (Android emulator) |
+| `npm run android-dev-physical`         | Local EAS dev-client build (physical Android) |
+| `npm run android-apk`                  | Local EAS preview APK build                   |
+| `npm run android-build-for-play-store` | Local EAS production AAB build                |
+| `npm run ios-dev-build`                | Local EAS dev-client build (iOS simulator)    |
+| `npm run ios-dev-physical`             | Local EAS dev-client build (physical iOS)     |
+| `npm run ios-build-for-app-store`      | Local EAS production build (iOS)              |
 
 ## Project Structure
 
@@ -200,13 +200,13 @@ Both schemes are registered in `app.json` and the checked-in `ios/BSVWallet/Info
 
 Create a `.env.local` file in the project root. The app reads `EXPO_PUBLIC_*` variables at build time.
 
-| Variable                     | Purpose                                             | Default (mainnet)                              |
-| ----------------------------- | ---------------------------------------------------- | ------------------------------------------------ |
-| `EXPO_PUBLIC_ARC_URL`         | ARC transaction processor URL                        | `https://arcade-v2-us-1.bsvblockchain.tech`       |
-| `EXPO_PUBLIC_ARC_API_KEY`     | ARC API key                                          | (none)                                            |
-| `EXPO_PUBLIC_CHAINTRACKS_URL` | Chaintracks block-header service URL                 | `https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1` |
-| `EXPO_PUBLIC_WOC_API_KEY`     | WhatsOnChain API key (also used as the TAAL key)      | (none)                                            |
-| `EXPO_PUBLIC_BACKUP_URL`      | Encrypted wallet-backup service origin                | (empty -- backup disabled)                        |
+| Variable                      | Purpose                                          | Default (mainnet)                                          |
+| ----------------------------- | ------------------------------------------------ | ---------------------------------------------------------- |
+| `EXPO_PUBLIC_ARC_URL`         | ARC transaction processor URL                    | `https://arcade-v2-us-1.bsvblockchain.tech`                |
+| `EXPO_PUBLIC_ARC_API_KEY`     | ARC API key                                      | (none)                                                     |
+| `EXPO_PUBLIC_CHAINTRACKS_URL` | Chaintracks block-header service URL             | `https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1` |
+| `EXPO_PUBLIC_WOC_API_KEY`     | WhatsOnChain API key (also used as the TAAL key) | (none)                                                     |
+| `EXPO_PUBLIC_BACKUP_URL`      | Encrypted wallet-backup service origin           | (empty -- backup disabled)                                 |
 
 Testnet variants use a `_TEST_` infix (e.g. `EXPO_PUBLIC_TEST_ARC_URL`), and Teratest a `_TERATEST_` infix -- see `services/walletServiceConfig.ts` for the full per-network resolution.
 
@@ -294,6 +294,7 @@ npm run ios-run
 > `expo-dev-menu` link against (packager connection, Hermes inspector), so a
 > dev-client build against the prebuilt core **fails to link**. Dev-client
 > builds must therefore build React Native **from source**:
+>
 > - `npm run ios-run` sets `RCT_USE_PREBUILT_RNCORE=0` for you.
 > - `npm run ios-dev-build` / `ios-dev-physical` inherit it from the matching
 >   EAS profile in `eas.json` (`env.RCT_USE_PREBUILT_RNCORE = "0"`).
@@ -342,13 +343,13 @@ The `--clean` flag regenerates the native projects from scratch, ensuring all na
 
 **Features requiring native rebuilds:**
 
-| Feature                    | Native Dependencies                                                                          |
-| --------------------------- | ---------------------------------------------------------------------------------------------- |
-| Local Payments              | `@bsv/react-native-localpay-transport` (AWDL/Nearby Connections/BLE), `react-native-nitro-modules`, `@react-native-community/netinfo` |
-| Vault (hardware key)        | `react-native-yubikey`, `react-native-nitro-modules`                                          |
-| Wallet storage              | `expo-sqlite`                                                                                  |
-| Secure key storage          | `expo-secure-store`                                                                            |
-| Crypto polyfill             | `react-native-quick-crypto`                                                                    |
+| Feature              | Native Dependencies                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Local Payments       | `@bsv/react-native-localpay-transport` (AWDL/Nearby Connections/BLE), `react-native-nitro-modules`, `@react-native-community/netinfo` |
+| Vault (hardware key) | `react-native-yubikey`, `react-native-nitro-modules`                                                                                  |
+| Wallet storage       | `expo-sqlite`                                                                                                                         |
+| Secure key storage   | `expo-secure-store`                                                                                                                   |
+| Crypto polyfill      | `react-native-quick-crypto`                                                                                                           |
 
 **When is a rebuild needed?**
 
@@ -375,14 +376,14 @@ If you want to fork this project and release your own version on the Apple App S
 Open `app.json` and change the following fields to match your own project:
 
 | Field                       | Current value                            | What to change it to                                        |
-| ---------------------------- | ----------------------------------------- | -------------------------------------------------------------- |
-| `expo.name`                 | `"BSV Wallet"`                            | Your app's display name                                      |
-| `expo.slug`                 | `"bsv-wallet"`                            | Your Expo project slug (must match the dashboard)            |
-| `expo.scheme`               | `["bsv-wallet", "bsv-browser"]`            | Your app's URI schemes for deep links                        |
-| `expo.owner`                 | `"bsvb"`                                  | Your Expo account username or organization slug              |
-| `expo.extra.eas.projectId`  | `"435e9e20-dd2a-4be5-8684-af5809f913bb"`  | Your EAS project ID from the Expo dashboard                  |
-| `expo.android.package`       | `"org.bsvassociation.wallet"`             | Your Android application ID (e.g. `com.yourcompany.wallet`)  |
-| `expo.ios.bundleIdentifier`  | `"org.bsvassociation.wallet"`             | Your iOS bundle identifier (e.g. `com.yourcompany.wallet`)   |
+| --------------------------- | ---------------------------------------- | ----------------------------------------------------------- |
+| `expo.name`                 | `"BSV Wallet"`                           | Your app's display name                                     |
+| `expo.slug`                 | `"bsv-wallet"`                           | Your Expo project slug (must match the dashboard)           |
+| `expo.scheme`               | `["bsv-wallet", "bsv-browser"]`          | Your app's URI schemes for deep links                       |
+| `expo.owner`                | `"bsvb"`                                 | Your Expo account username or organization slug             |
+| `expo.extra.eas.projectId`  | `"435e9e20-dd2a-4be5-8684-af5809f913bb"` | Your EAS project ID from the Expo dashboard                 |
+| `expo.android.package`      | `"org.bsvassociation.wallet"`            | Your Android application ID (e.g. `com.yourcompany.wallet`) |
+| `expo.ios.bundleIdentifier` | `"org.bsvassociation.wallet"`            | Your iOS bundle identifier (e.g. `com.yourcompany.wallet`)  |
 
 The Android package and iOS bundle identifier must be unique across the Play Store and App Store respectively. Once published, they cannot be changed.
 
@@ -448,30 +449,30 @@ The `eas submit` commands will prompt you for your App Store Connect / Google Pl
 
 ### Summary of files you need to touch
 
-| File        | Fields to change                                                                                     |
-| ----------- | -------------------------------------------------------------------------------------------------------- |
-| `app.json`  | `name`, `slug`, `scheme`, `owner`, `extra.eas.projectId`, `android.package`, `ios.bundleIdentifier`      |
-| `eas.json`  | `production.env.*` values (ARC/Chaintracks/backup URLs, etc.)                                            |
-| Credentials | Run `eas credentials` for both platforms -- Android credentials are stored remotely on EAS by default    |
+| File        | Fields to change                                                                                      |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| `app.json`  | `name`, `slug`, `scheme`, `owner`, `extra.eas.projectId`, `android.package`, `ios.bundleIdentifier`   |
+| `eas.json`  | `production.env.*` values (ARC/Chaintracks/backup URLs, etc.)                                         |
+| Credentials | Run `eas credentials` for both platforms -- Android credentials are stored remotely on EAS by default |
 
 ## Supported Languages
 
 The app is localised into the following languages using `react-i18next`:
 
 | Code | Language             |
-| ---- | --------------------- |
-| `en` | English               |
-| `zh` | Chinese (Simplified)  |
-| `hi` | Hindi                 |
-| `es` | Spanish               |
-| `fr` | French                |
-| `ar` | Arabic                |
-| `pt` | Portuguese            |
-| `bn` | Bengali               |
-| `ru` | Russian               |
-| `id` | Indonesian            |
-| `ja` | Japanese              |
-| `pl` | Polish                |
+| ---- | -------------------- |
+| `en` | English              |
+| `zh` | Chinese (Simplified) |
+| `hi` | Hindi                |
+| `es` | Spanish              |
+| `fr` | French               |
+| `ar` | Arabic               |
+| `pt` | Portuguese           |
+| `bn` | Bengali              |
+| `ru` | Russian              |
+| `id` | Indonesian           |
+| `ja` | Japanese             |
+| `pl` | Polish               |
 
 Translations live in `context/i18n/translations.tsx`. The device locale is detected automatically via `expo-localization` and falls back to English.
 

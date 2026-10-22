@@ -5,7 +5,7 @@ Status: Approved in conversation, pending written-spec review
 
 ## Goal
 
-One mnemonic, many wallets. A user backs up a single seed (mnemonic + 2-of-3 recovery shares) and gets any number of independent wallet *profiles*, each with its own identity key, balance, history, contacts, handle and network. Switching profiles feels like switching between separate wallets. Nothing about the backup ceremony changes.
+One mnemonic, many wallets. A user backs up a single seed (mnemonic + 2-of-3 recovery shares) and gets any number of independent wallet _profiles_, each with its own identity key, balance, history, contacts, handle and network. Switching profiles feels like switching between separate wallets. Nothing about the backup ceremony changes.
 
 Secondary goal (user-requested): profiles double as a fast way to swap networks — e.g. profile1 on mainnet, profile2 on testnet — because network and endpoint settings live on the profile.
 
@@ -21,10 +21,10 @@ Secondary goal (user-requested): profiles double as a fast way to swap networks 
 
 Profile index `n` (0-based; displayed as `profile{n+1}`):
 
-| Key | Path | Notes |
-|---|---|---|
-| Primary key (identity) | `m/0'/n'` | Feeds `KeyDeriver`, storage identity, backup pseudonym, handle cert subject, MessageBox auth. Profile 0 = `m/0'/0'`, unchanged. |
-| Privileged key | `m/1'/n'` | Given to `PrivilegedKeyManager`. **Changes for profile 0** — today it is the BIP32 master `m`. Applied to every profile so no two profiles share key material. |
+| Key                    | Path      | Notes                                                                                                                                                          |
+| ---------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Primary key (identity) | `m/0'/n'` | Feeds `KeyDeriver`, storage identity, backup pseudonym, handle cert subject, MessageBox auth. Profile 0 = `m/0'/0'`, unchanged.                                |
+| Privileged key         | `m/1'/n'` | Given to `PrivilegedKeyManager`. **Changes for profile 0** — today it is the BIP32 master `m`. Applied to every profile so no two profiles share key material. |
 
 Implementation: `generateMnemonicWallet` / `recoverMnemonicWallet` in `packages/expo-wallet-toolbox/core/mnemonicWallet.ts` take a `profileIndex` (default 0) and return `{ primaryKey, privilegedKey, identityKey }` for that profile. The BIP32 master is no longer returned to callers.
 
@@ -43,16 +43,16 @@ New module `core/profiles/profileStore.ts`. One AsyncStorage key, readable befor
 ```ts
 // AsyncStorage key: 'wallet_profiles_v1'
 interface ProfilesState {
-  active: number               // index of the active profile
-  profiles: ProfileRecord[]    // dense, index 0..count-1, ordered by index
+  active: number // index of the active profile
+  profiles: ProfileRecord[] // dense, index 0..count-1, ordered by index
 }
 interface ProfileRecord {
   index: number
-  network: AppChain            // 'main' | 'test' | 'teratest'
-  arcUrl?: string              // per-profile override; absent = build default for network
-  messageBoxUrl?: string       // per-profile override; absent = build default
+  network: AppChain // 'main' | 'test' | 'teratest'
+  arcUrl?: string // per-profile override; absent = build default for network
+  messageBoxUrl?: string // per-profile override; absent = build default
   autoApproveThreshold?: number
-  needsRestore?: boolean       // set by restore discovery; cleared after first build's restore runs
+  needsRestore?: boolean // set by restore discovery; cleared after first build's restore runs
 }
 ```
 
@@ -71,20 +71,20 @@ wallet SQLite DB (contacts, handle cache, display name, local-pay / PeerPay queu
 
 **Per profile, by this change** (AsyncStorage keys gain an identity-key suffix, or move into `ProfileRecord`):
 
-| State | Today | After |
-|---|---|---|
-| Network | `finalConfig.network` | `ProfileRecord.network` |
-| ARC URL | `arc_custom_url_<chain>` | `ProfileRecord.arcUrl` |
-| ARC token | SecureStore per chain | SecureStore per profile + chain |
-| MessageBox URL | `message_box_url` | `ProfileRecord.messageBoxUrl` |
-| Auto-approve threshold | `autoApproveThreshold` | `ProfileRecord.autoApproveThreshold` |
-| Auto-approve ledger | `auto_approve_ledger` | `auto_approve_ledger_<identityKey>` |
-| Cached balance | `cached_wallet_balance_<network>*` | `cached_wallet_balance_<identityKey>_<network>*` |
-| Avatar | `wallet_user_avatar_icon` | `wallet_user_avatar_icon_<identityKey>` |
-| Paired connections | `connections` | `connections_<identityKey>` |
-| Seen-token markers | `mandala_seen_assets`, `mandala_seen_evictions` | suffixed `_<identityKey>` |
-| Push registration marker | `push_registration_v1` (single slot) | not profile-scoped: a map from identity key to the host and token registered, one entry per profile (see Push and `2026-10-01-multi-profile-followups-design.md` §4) |
-| Remote-backup preference | `backupPushEnabled` | `profileScopedKey`: profile 0 keeps the bare key, profile n uses `backupPushEnabled__p<n>`. Absence still means ON. |
+| State                    | Today                                           | After                                                                                                                                                                |
+| ------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Network                  | `finalConfig.network`                           | `ProfileRecord.network`                                                                                                                                              |
+| ARC URL                  | `arc_custom_url_<chain>`                        | `ProfileRecord.arcUrl`                                                                                                                                               |
+| ARC token                | SecureStore per chain                           | SecureStore per profile + chain                                                                                                                                      |
+| MessageBox URL           | `message_box_url`                               | `ProfileRecord.messageBoxUrl`                                                                                                                                        |
+| Auto-approve threshold   | `autoApproveThreshold`                          | `ProfileRecord.autoApproveThreshold`                                                                                                                                 |
+| Auto-approve ledger      | `auto_approve_ledger`                           | `auto_approve_ledger_<identityKey>`                                                                                                                                  |
+| Cached balance           | `cached_wallet_balance_<network>*`              | `cached_wallet_balance_<identityKey>_<network>*`                                                                                                                     |
+| Avatar                   | `wallet_user_avatar_icon`                       | `wallet_user_avatar_icon_<identityKey>`                                                                                                                              |
+| Paired connections       | `connections`                                   | `connections_<identityKey>`                                                                                                                                          |
+| Seen-token markers       | `mandala_seen_assets`, `mandala_seen_evictions` | suffixed `_<identityKey>`                                                                                                                                            |
+| Push registration marker | `push_registration_v1` (single slot)            | not profile-scoped: a map from identity key to the host and token registered, one entry per profile (see Push and `2026-10-01-multi-profile-followups-design.md` §4) |
+| Remote-backup preference | `backupPushEnabled`                             | `profileScopedKey`: profile 0 keeps the bare key, profile n uses `backupPushEnabled__p<n>`. Absence still means ON.                                                  |
 
 **Shared across profiles:** `walletSettings` (display currency, theme, etc.), one-time advisories (`nearby_advisory_shown_v1`, `push_advisory_shown_v1`), `backupDeviceId`, handle key pins (`handleRegistry.keyPins.v1`), mnemonic and recovery secrets.
 
@@ -146,6 +146,7 @@ for n = 1, 2, 3, …:
 New helper `isVaultAvailableForProfile(chain, activeProfile)`. It is true when `activeProfile === 0` and `isVaultAvailable(chain)`.
 
 Applied at:
+
 - Home Vault button (`WalletHomeScreen.tsx`). The gate becomes `activeProfile === 0 && (isVaultAvailable(chain) || hasVaultMeta)`.
 - Settings Vault row (`SettingsScreen.tsx`), same gate.
 - `VaultScreen` and `VaultTransferScreen` show their existing inert state when the gate is false. This covers deep links and the back stack after a switch.
@@ -179,6 +180,7 @@ Removed profiles (tombstones) are part of the store and are purged the same way.
 ## Testing
 
 Unit tests (jest, toolbox package):
+
 - `deriveProfileKeys`. Using a fixed test mnemonic, profile 0's identity equals `m/0'/0'`. Profile 1's equals `m/0'/1'`. Privileged keys equal `m/1'/n'`. Privileged and primary keys differ, and different profiles' keys differ.
 - Profile store: defaults, corrupt-JSON fallback, add, set active, clamping, per-profile field updates.
 - Restore discovery with an injected `BackupClient` fake:
@@ -191,6 +193,7 @@ Unit tests (jest, toolbox package):
 - `logout` clears every profile's DB registry and suffixed keys (with mocked storage).
 
 Manual (simulator):
+
 - Popover open and close. Tapping the active row opens `/profile`.
 - Add profile gives an empty wallet with a new identity.
 - Switching back shows the original balance.

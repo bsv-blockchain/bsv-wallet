@@ -207,8 +207,9 @@ async function setupFundedWallet(seed: number) {
  * whether the INPUT it tried to spend was released.
  */
 async function fundingOutputSpendable(storage: StorageExpoSQLite): Promise<boolean> {
-  const rows = (await (storage as unknown as { findOutputs: (a: unknown) => Promise<{ spendable: boolean }[]> })
-    .findOutputs({ partial: { transactionId: 1 } })) as { spendable: boolean }[]
+  const rows = (await (
+    storage as unknown as { findOutputs: (a: unknown) => Promise<{ spendable: boolean }[]> }
+  ).findOutputs({ partial: { transactionId: 1 } })) as { spendable: boolean }[]
   if (rows.length !== 1) throw new Error(`expected exactly one funding output, found ${rows.length}`)
   return rows[0].spendable
 }

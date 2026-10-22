@@ -5,7 +5,10 @@
  * output but not the req (Android DB, 2026-09-02).
  */
 import { DatabaseSync } from 'node:sqlite'
-import { UNPROVEN_TXIDS_WITHOUT_REQ_SQL, findUnprovenTxidsWithoutReq } from '../../core/storage/methods/unprovenWithoutReqSql'
+import {
+  UNPROVEN_TXIDS_WITHOUT_REQ_SQL,
+  findUnprovenTxidsWithoutReq
+} from '../../core/storage/methods/unprovenWithoutReqSql'
 
 const TX1 = 'aa'.repeat(32)
 const TX2 = 'bb'.repeat(32)

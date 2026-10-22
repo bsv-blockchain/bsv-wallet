@@ -25,9 +25,6 @@ export async function loadInboxAttempts(storage: StorageLike): Promise<Record<st
   }
 }
 
-export async function saveInboxAttempts(
-  storage: StorageLike,
-  map: Record<string, InboxAttempt>
-): Promise<void> {
+export async function saveInboxAttempts(storage: StorageLike, map: Record<string, InboxAttempt>): Promise<void> {
   await storage.setKeyValue(INBOX_ATTEMPTS_KEY, JSON.stringify(map))
 }

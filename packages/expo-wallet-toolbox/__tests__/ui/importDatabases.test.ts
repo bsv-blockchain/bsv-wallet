@@ -475,7 +475,7 @@ describe('importWalletDatabase', () => {
     expect(await AsyncStorage.getItem(`walletDbs-${KEY_SUFFIX}-${CHAIN}net`)).toBeNull()
   })
 
-  it('XR-082: accepts a genuine backup whose token_settlements table went through the real ensureTokenSettlementColumns migration (ALTER-appended columns, not createTables()\'s inline order)', async () => {
+  it("XR-082: accepts a genuine backup whose token_settlements table went through the real ensureTokenSettlementColumns migration (ALTER-appended columns, not createTables()'s inline order)", async () => {
     const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
     // Recreate token_settlements exactly as it looked on-disk BEFORE the
     // `reference`/`relevantVout` columns existed (same remaining columns, same

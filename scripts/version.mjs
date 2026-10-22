@@ -52,7 +52,10 @@ updateJson(resolve(root, 'app.json'), json => {
 })
 
 const infoPlist = resolve(root, 'ios', 'BSVWallet', 'Info.plist')
-execSync(`/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${version}" "${infoPlist}"`, { cwd: root, stdio: 'inherit' })
+execSync(`/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${version}" "${infoPlist}"`, {
+  cwd: root,
+  stdio: 'inherit'
+})
 console.log('  updated ios/BSVWallet/Info.plist')
 
 // Commit the version bump

@@ -1,11 +1,19 @@
 import { awdlTransport } from '../../core/localpay/transport/awdl'
 import { AckError } from '../../core/localpay/types'
 import { mintSession, instanceName } from '../../core/localpay/session'
-import { CodecError, FRAME_VERSION, SEAL_VERSION, encodeFrame, sealFrame, unsealFrame, type PaymentFrame } from '../../core/localpay/codec'
+import {
+  CodecError,
+  FRAME_VERSION,
+  SEAL_VERSION,
+  encodeFrame,
+  sealFrame,
+  unsealFrame,
+  type PaymentFrame
+} from '../../core/localpay/codec'
 import type { LocalPayTransport } from '@bsv/react-native-localpay-transport'
 
 jest.mock('@bsv/react-native-localpay-transport', () => ({
-  getLocalPayTransport: jest.fn(),
+  getLocalPayTransport: jest.fn()
 }))
 
 const { getLocalPayTransport } = jest.requireMock('@bsv/react-native-localpay-transport') as {
@@ -19,7 +27,7 @@ function fakeNative(overrides: Partial<LocalPayTransport> = {}) {
     stopListening: jest.fn().mockResolvedValue(undefined),
     confirmFrame: jest.fn().mockResolvedValue(undefined),
     sendFrame: jest.fn(),
-    ...overrides,
+    ...overrides
   }
 }
 
@@ -28,7 +36,7 @@ const session = mintSession({
   amount: 1,
   derivationPrefix: 'cA',
   derivationSuffix: 'cw',
-  supportsAwdl: true,
+  supportsAwdl: true
 })
 
 const frame: PaymentFrame = {
@@ -38,7 +46,7 @@ const frame: PaymentFrame = {
   outputIndex: 0,
   derivationPrefix: 'cA',
   derivationSuffix: 'cw',
-  transaction: new Uint8Array([1, 2, 3]),
+  transaction: new Uint8Array([1, 2, 3])
 }
 
 function toAckBase64(payload: unknown): string {
@@ -80,12 +88,14 @@ describe('awdlTransport.send', () => {
 
   it('resolves a genuine peer decline rather than throwing', async () => {
     const native = fakeNative({
-      sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: false, error: 'declined' })),
+      sendFrame: jest.fn().mockResolvedValue(toAckBase64({ ok: false, error: 'declined' }))
     })
     getLocalPayTransport.mockReturnValue(native)
 
-    await expect(awdlTransport.send(session, frame, new AbortController().signal))
-      .resolves.toEqual({ ok: false, error: 'declined' })
+    await expect(awdlTransport.send(session, frame, new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      error: 'declined'
+    })
   })
 
   it('seals outgoing frames: sendFrame carries ciphertext the session PSK opens', async () => {
@@ -196,7 +206,7 @@ describe('awdlTransport.receive', () => {
     })
     const native = fakeNative({
       startListening: startListening as never,
-      confirmFrame: jest.fn().mockRejectedValue(new Error('socket closed')) as never,
+      confirmFrame: jest.fn().mockRejectedValue(new Error('socket closed')) as never
     })
     getLocalPayTransport.mockReturnValue(native)
 
@@ -221,9 +231,10 @@ describe('awdlTransport.receive', () => {
 
     let timer: ReturnType<typeof setTimeout> | undefined
     const outcome = await Promise.race([
-      awdlTransport
-        .receive(session, new AbortController().signal)
-        .then(() => 'resolved' as const, () => 'rejected' as const),
+      awdlTransport.receive(session, new AbortController().signal).then(
+        () => 'resolved' as const,
+        () => 'rejected' as const
+      ),
       new Promise<'hung'>(resolve => {
         timer = setTimeout(() => resolve('hung'), 500)
       })

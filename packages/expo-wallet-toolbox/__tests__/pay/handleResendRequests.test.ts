@@ -64,7 +64,9 @@ describe('handleResendRequests', () => {
       refetch: async () => [8, 8, 8]
     })
     expect(r.resent).toBe(1)
-    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ messageBox: 'payment_inbox', recipient: '02bb' }))
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageBox: 'payment_inbox', recipient: '02bb' })
+    )
     expect(acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['c1'] })
   })
 
@@ -139,9 +141,7 @@ describe('handleResendRequests', () => {
     })
     expect(r.resent).toBe(1)
     expect(r.pending).toEqual([])
-    expect(sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ messageBox: 'payment_inbox', recipient })
-    )
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ messageBox: 'payment_inbox', recipient }))
     expect(JSON.parse(sendMessage.mock.calls[0][0].body)).toMatchObject({
       customInstructions: { derivationPrefix: 'x', derivationSuffix: 'y' },
       transaction: [3, 3],
@@ -191,9 +191,7 @@ describe('handleResendRequests', () => {
       refetch: async () => [7, 7]
     })
     expect(r.resent).toBe(1)
-    expect(sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ messageBox: 'payment_inbox', recipient })
-    )
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ messageBox: 'payment_inbox', recipient }))
     expect(JSON.parse(sendMessage.mock.calls[0][0].body)).toMatchObject({
       customInstructions: { derivationPrefix: 'np', derivationSuffix: 'ns' },
       transaction: [7, 7],
@@ -349,9 +347,11 @@ describe('handleResendRequests', () => {
       })
       const r = await handleResendRequests({
         client: {
-          listMessages: jest.fn().mockResolvedValue([
-            { messageId: 'c1', sender: '02bb', body: { type: 'resend_request', txid: 'aa', reason: 'corrupt' } }
-          ]),
+          listMessages: jest
+            .fn()
+            .mockResolvedValue([
+              { messageId: 'c1', sender: '02bb', body: { type: 'resend_request', txid: 'aa', reason: 'corrupt' } }
+            ]),
           sendMessage,
           acknowledgeMessage
         } as never,

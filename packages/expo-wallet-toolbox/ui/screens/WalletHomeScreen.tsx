@@ -741,7 +741,11 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       // XR-051: without this, an unauthenticated resend_request could not be
       // told apart from a legitimate one and would be surfaced (and kept
       // being surfaced) as pending forever.
-      const r = await listPendingResendRequests({ client, storage, listPeerPayAction: makeListPeerPayAction(pm, adminOriginator) })
+      const r = await listPendingResendRequests({
+        client,
+        storage,
+        listPeerPayAction: makeListPeerPayAction(pm, adminOriginator)
+      })
       setPendingResends(r.pending)
     } catch {
       // Silent: an unreachable box must not alert on focus. The stored

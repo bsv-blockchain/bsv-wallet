@@ -559,7 +559,11 @@ export function VaultTransferScreen() {
 
         {transfersBlocked && (
           <Text style={[styles.floor, { color: colors.warning }]}>
-            {t(meta?.pendingRemoval?.state === 'broadcast' ? 'vault_removal_awaiting_network' : 'vault_err_relock_required')}
+            {t(
+              meta?.pendingRemoval?.state === 'broadcast'
+                ? 'vault_removal_awaiting_network'
+                : 'vault_err_relock_required'
+            )}
           </Text>
         )}
 

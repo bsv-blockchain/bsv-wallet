@@ -3,7 +3,7 @@ jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(() => Promise.resolve()),
   notificationAsync: jest.fn(() => Promise.resolve()),
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
-  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
+  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' }
 }))
 
 jest.mock('expo-local-authentication', () => ({
@@ -28,8 +28,10 @@ import { choiceSheetOrder } from '../../ui/components/ui/ChoiceSheet'
 
 describe('choiceSheetOrder', () => {
   it('puts destructive options first and cancel last', () => {
-    expect(
-      choiceSheetOrder([{ key: 'abort', destructive: true }, { key: 'hold' }]).map(o => o.key)
-    ).toEqual(['abort', 'hold', 'cancel'])
+    expect(choiceSheetOrder([{ key: 'abort', destructive: true }, { key: 'hold' }]).map(o => o.key)).toEqual([
+      'abort',
+      'hold',
+      'cancel'
+    ])
   })
 })

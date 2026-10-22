@@ -281,7 +281,9 @@ describe('NearbyFlow — payee receive verification (P1-1)', () => {
     const deps = mockVerifyFramePayment.mock.calls[0][0] as { wallet: unknown; chainTracker: unknown }
     expect(deps.chainTracker).toBe(mockChainTracker)
     // The permissions manager itself (it alone carries createHmac), not an adapter.
-    expect(deps.wallet).toEqual(expect.objectContaining({ getPublicKey: expect.any(Function), createHmac: expect.any(Function) }))
+    expect(deps.wallet).toEqual(
+      expect.objectContaining({ getPublicKey: expect.any(Function), createHmac: expect.any(Function) })
+    )
   })
 
   it('declines having queued nothing when storage cannot supply a chain tracker', async () => {
@@ -328,9 +330,7 @@ describe('NearbyFlow — embedded payee', () => {
 
   it('reports busy from the payer-code scan through the paid overlay', async () => {
     const onBusy = jest.fn()
-    const s = wrap(
-      <NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} embedded={{ onBusy }} />
-    )
+    const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} embedded={{ onBusy }} />)
     await waitFor(() => expect(s.getByText('local_pay_scan_payer_qr')).toBeTruthy())
     expect(onBusy).toHaveBeenLastCalledWith(false)
     await act(async () => {

@@ -12,5 +12,5 @@ export const qrTransport: LocalPaymentTransport = {
   },
   send() {
     return Promise.reject(new QrHandoffRequired())
-  },
+  }
 }

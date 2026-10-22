@@ -31,12 +31,7 @@ function loadBlurView(): BlurViewComponent {
  * Translucent wrapper using expo-blur on iOS, solid fallback on Android.
  * Used for toolbar chrome and floating glass pill fallbacks.
  */
-export const BlurChrome: React.FC<BlurChromeProps> = ({
-  children,
-  intensity = 80,
-  borderRadius = 0,
-  style
-}) => {
+export const BlurChrome: React.FC<BlurChromeProps> = ({ children, intensity = 80, borderRadius = 0, style }) => {
   const { isDark, colors } = useTheme()
 
   if (Platform.OS === 'ios') {
@@ -53,13 +48,7 @@ export const BlurChrome: React.FC<BlurChromeProps> = ({
   }
 
   return (
-    <View
-      style={[
-        styles.container,
-        { borderRadius, backgroundColor: colors.chromeBackground },
-        style
-      ]}
-    >
+    <View style={[styles.container, { borderRadius, backgroundColor: colors.chromeBackground }, style]}>
       {children}
     </View>
   )
@@ -67,6 +56,6 @@ export const BlurChrome: React.FC<BlurChromeProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    overflow: 'hidden',
-  },
+    overflow: 'hidden'
+  }
 })

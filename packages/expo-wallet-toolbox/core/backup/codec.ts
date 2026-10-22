@@ -16,10 +16,7 @@
  */
 import type { CompletedProtoWallet } from '@bsv/sdk'
 import { Utils } from '@bsv/sdk'
-import {
-  parseJsonRpc,
-  stringifyJsonRpc
-} from '@bsv/wallet-toolbox-mobile'
+import { parseJsonRpc, stringifyJsonRpc } from '@bsv/wallet-toolbox-mobile'
 import { BACKUP_PROTOCOL, backupKeyId, type BackupChain } from './constants'
 import type { SyncChunk } from '../toolboxTypes'
 
@@ -44,7 +41,7 @@ const PACK_MIN_LENGTH = 32
  * Uint8Array back to `number[]`. An array that merely looked byte-like — small integer ids,
  * say — round-trips to exactly the values it started with.
  */
-function packBytes (value: unknown): unknown {
+function packBytes(value: unknown): unknown {
   if (Array.isArray(value)) {
     const isByteArray =
       value.length >= PACK_MIN_LENGTH &&
@@ -74,7 +71,7 @@ function packBytes (value: unknown): unknown {
  * payload blocked the JS thread for ~50s per attempt on device; the point is to never do
  * that work, not merely to avoid the failed upload at the end of it.
  */
-export function estimateEncodedBytes (chunk: SyncChunk): number {
+export function estimateEncodedBytes(chunk: SyncChunk): number {
   let bytes = 0
   const walk = (value: unknown): void => {
     if (typeof value === 'string') {
@@ -111,9 +108,10 @@ export function estimateEncodedBytes (chunk: SyncChunk): number {
  * strings and an underestimate only in the same way estimateEncodedBytes' own walk is (JSON
  * quoting/escaping is ignored).
  */
-export function estimateAppDataBytes (appData: AppDataSnapshot | undefined): number {
+export function estimateAppDataBytes(appData: AppDataSnapshot | undefined): number {
   if (appData == null) return 0
-  let bytes = (appData.localpayPending?.length ?? 0) + (appData.peerpayOutbox?.length ?? 0) + (appData.contacts?.length ?? 0)
+  let bytes =
+    (appData.localpayPending?.length ?? 0) + (appData.peerpayOutbox?.length ?? 0) + (appData.contacts?.length ?? 0)
   for (const d of appData.receiveIssuedDates ?? []) bytes += d.length
   return bytes
 }
@@ -126,7 +124,7 @@ const DATE_KEYS = new Set(['created_at', 'updated_at'])
 
 /** Inverse of packBytes: every Uint8Array becomes the `number[]` the toolbox
  * expects, and date columns come back as Date instances. */
-function unpackBytes (value: unknown, key?: string): unknown {
+function unpackBytes(value: unknown, key?: string): unknown {
   if (value instanceof Uint8Array) return Array.from(value)
   if (typeof value === 'string' && key != null && DATE_KEYS.has(key)) {
     const d = new Date(value)
@@ -183,7 +181,7 @@ export interface AppDataSnapshot {
  * has ever appended — this type exists mainly so RemoteSyncReader can read `seal`/`appData`
  * off an entry without re-decoding it a second time.
  */
-export type DecodedEntry = { kind: 'chunk', chunk: SyncChunk, seal?: BackupSeal, appData?: AppDataSnapshot }
+export type DecodedEntry = { kind: 'chunk'; chunk: SyncChunk; seal?: BackupSeal; appData?: AppDataSnapshot }
 
 /**
  * Serialise and encrypt a sync chunk, optionally sealing a generation in the same envelope.
@@ -211,7 +209,7 @@ export type DecodedEntry = { kind: 'chunk', chunk: SyncChunk, seal?: BackupSeal,
  * log (see push.ts's own docs) — an intentionally-empty-of-entities appended entry would
  * make a live restore stop early and silently drop whatever was appended after it.
  */
-export async function encodeChunk (
+export async function encodeChunk(
   wallet: CompletedProtoWallet,
   chunk: SyncChunk,
   chain: BackupChain,
@@ -238,7 +236,7 @@ export async function encodeChunk (
  * — decodes unchanged: `envelope.seal`/`envelope.appData` is `undefined`, so each is omitted
  * from the result exactly as it always was.
  */
-export async function decodeEntry (
+export async function decodeEntry(
   wallet: CompletedProtoWallet,
   ciphertext: number[],
   chain: BackupChain
@@ -262,7 +260,7 @@ export async function decodeEntry (
   }
   let seal: BackupSeal | undefined
   if (envelope.seal != null) {
-    const s = envelope.seal as { generation?: unknown, initialChunkCount?: unknown }
+    const s = envelope.seal as { generation?: unknown; initialChunkCount?: unknown }
     if (typeof s.generation !== 'number' || typeof s.initialChunkCount !== 'number') {
       throw new Error('backup seal is malformed')
     }
@@ -275,9 +273,14 @@ export async function decodeEntry (
 /** Validates a decrypted envelope's `appData` field. Throws rather than silently dropping a
  * malformed field: an app-owned recovery row that failed to decode as claimed must stop the
  * restore, not quietly disappear (same failure posture as a malformed seal, above). */
-function decodeAppData (raw: unknown): AppDataSnapshot | undefined {
+function decodeAppData(raw: unknown): AppDataSnapshot | undefined {
   if (raw == null) return undefined
-  const a = raw as { localpayPending?: unknown, peerpayOutbox?: unknown, receiveIssuedDates?: unknown, contacts?: unknown }
+  const a = raw as {
+    localpayPending?: unknown
+    peerpayOutbox?: unknown
+    receiveIssuedDates?: unknown
+    contacts?: unknown
+  }
   if (a.localpayPending !== undefined && typeof a.localpayPending !== 'string') {
     throw new Error('backup appData.localpayPending is malformed')
   }
@@ -309,7 +312,7 @@ function decodeAppData (raw: unknown): AppDataSnapshot | undefined {
  * so it can also read a chunk's seal, but this stays exported with its original signature
  * and behaviour so existing callers (and the codec round-trip tests) are unaffected.
  */
-export async function decodeChunk (
+export async function decodeChunk(
   wallet: CompletedProtoWallet,
   ciphertext: number[],
   chain: BackupChain
@@ -340,7 +343,7 @@ export const CHUNK_ENTITIES = [
  * The toolbox treats an all-empty chunk as the completion sentinel, so this doubles as
  * "nothing left to push" and "restore is finished".
  */
-export function isEmptyChunk (chunk: SyncChunk): boolean {
+export function isEmptyChunk(chunk: SyncChunk): boolean {
   const c = chunk as unknown as Record<string, unknown[] | undefined>
   return CHUNK_ENTITIES.every(name => (c[name]?.length ?? 0) === 0)
 }
@@ -351,7 +354,7 @@ export function isEmptyChunk (chunk: SyncChunk): boolean {
  * All twelve must exist as arrays: the toolbox's consumer loops forever on an `undefined`
  * entity array rather than treating it as empty.
  */
-export function emptyChunk (from: string, to: string, userIdentityKey: string): SyncChunk {
+export function emptyChunk(from: string, to: string, userIdentityKey: string): SyncChunk {
   const chunk: Record<string, unknown> = {
     fromStorageIdentityKey: from,
     toStorageIdentityKey: to,

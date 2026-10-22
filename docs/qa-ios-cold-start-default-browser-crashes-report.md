@@ -29,6 +29,7 @@ The code explicitly **blocks WebView mounting for the requested URL** behind wal
   - History logic is hybrid (custom + WebView native) with `pendingHistoryJumps`, `lastNavSig`, sentinel handling for `about:blank`/`kNEW_TAB_URL`.
 
 Simultaneous with the above:
+
 - `context/WalletContext.tsx:WalletContextProvider` mounts (ancestor in `_layout.tsx`).
 - Auto-build `useEffect` (on `configStatus === 'configured' && !walletBuilt`) sets `walletBuilding=true` and kicks off `buildWalletFromMnemonic` (or recovered key fallback).
 
@@ -53,6 +54,7 @@ if (!walletReady && !isNewTab) {
 - Once wallet finishes: `walletBecameReady` effect does `webviewRef.current?.reload()` (harmless if ref not yet attached). The WebView then mounts with `source={{uri: tab.sourceUrl ?? tab.url}}`.
 
 **Why this crashes on device**:
+
 - `buildWallet` / `buildWalletFromMnemonic` (WalletContext ~573–1010) does **a lot** on the JS thread + native:
   - `getExchangeRate()` fetch.
   - `KeyDeriver`, `WalletStorageManager`, `WalletSigner`, `Services`, multiple broadcast providers, chaintracks, etc.
@@ -78,6 +80,7 @@ Simulator hides this (fast everything). Real iPhone + default-browser launch (di
 - `goBack`/`goForward`/`navigateToHistoryIndex` perform `injectJavaScript` using stored history URLs.
 
 **Risks on cold start + close-all**:
+
 - Races between deep-link waiter (`isInitialized` polling), `initializeTabs`, `newTab(url)` from link, homepage-navigation effects (skipped for http tabs but still present), and wallet flip.
 - After "close all", a fresh tab + possible homepage logic runs while a pending deep-link URL was expected.
 - Restored tabs + incoming deep link can create extra tabs (if active URL doesn't match).
@@ -96,7 +99,7 @@ TabStore (lines ~388, 390, 462, 524, 526):
 tab.webviewRef.current.injectJavaScript(`window.location.href = "${url}";`)
 ```
 
-**No escaping**. 
+**No escaping**.
 
 - Cold-start URLs (or subsequent redirects stored in history) containing `"`, backticks, newlines, or certain unicode produce invalid JS when injected.
 - `injectJavaScript` of a syntax error in the WebView context commonly triggers `onContentProcessDidTerminate` (iOS) or renderer crash/exit (Android).

@@ -38,24 +38,24 @@
 
 ## File Structure
 
-| File | Responsibility |
-| --- | --- |
-| `GoogleService-Info.plist`, `google-services.json` (root) | Firebase app config, committed |
-| `packages/expo-wallet-toolbox/core/push/types.ts` | `PushAdapter` interface + `PushPermission` type |
-| `packages/expo-wallet-toolbox/core/toolboxConfig.ts` | add `push?: PushAdapter` to `ToolboxConfig`, `getPushAdapter()` |
-| `packages/expo-wallet-toolbox/core/push/pushAdvisory.ts` | "advisory already shown" device flag (mirrors `nearbyAdvisory.ts`) |
-| `packages/expo-wallet-toolbox/core/push/registration.ts` | `syncPushRegistration()` — idempotent registerDevice with cache marker |
-| `packages/expo-wallet-toolbox/core/push/events.ts` | `attachPushHandlers()` — tap / foreground / token-refresh wiring |
-| `packages/expo-wallet-toolbox/ui/components/pay/NotificationAdvisoryModal.tsx` | the pre-permission modal |
-| `packages/expo-wallet-toolbox/ui/screens/PayScreen.tsx` | show advisory on first `get-handle` |
-| `packages/expo-wallet-toolbox/ui/screens/SettingsScreen.tsx` | "Payment notifications" row |
-| `packages/expo-wallet-toolbox/core/context/WalletContext.tsx` | call sync + attach handlers once the wallet is up |
-| `packages/expo-wallet-toolbox/core/pay/sweeper.ts` | 5 s interval |
-| `packages/expo-wallet-toolbox/ui/components/pay/HandleReceive.tsx` | live listener with poll fallback |
-| `utils/push/firebasePushAdapter.ts` (app) | RN Firebase implementation of `PushAdapter` |
-| `index.js` (app) | `setBackgroundMessageHandler` no-op before app registration |
-| `app/_layout.tsx` (app) | pass `push: firebasePushAdapter` to `configureToolbox` |
-| `app.json`, `firebase.json`, `ios/` | plugins, entitlements, background mode, Android permission |
+| File                                                                           | Responsibility                                                         |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `GoogleService-Info.plist`, `google-services.json` (root)                      | Firebase app config, committed                                         |
+| `packages/expo-wallet-toolbox/core/push/types.ts`                              | `PushAdapter` interface + `PushPermission` type                        |
+| `packages/expo-wallet-toolbox/core/toolboxConfig.ts`                           | add `push?: PushAdapter` to `ToolboxConfig`, `getPushAdapter()`        |
+| `packages/expo-wallet-toolbox/core/push/pushAdvisory.ts`                       | "advisory already shown" device flag (mirrors `nearbyAdvisory.ts`)     |
+| `packages/expo-wallet-toolbox/core/push/registration.ts`                       | `syncPushRegistration()` — idempotent registerDevice with cache marker |
+| `packages/expo-wallet-toolbox/core/push/events.ts`                             | `attachPushHandlers()` — tap / foreground / token-refresh wiring       |
+| `packages/expo-wallet-toolbox/ui/components/pay/NotificationAdvisoryModal.tsx` | the pre-permission modal                                               |
+| `packages/expo-wallet-toolbox/ui/screens/PayScreen.tsx`                        | show advisory on first `get-handle`                                    |
+| `packages/expo-wallet-toolbox/ui/screens/SettingsScreen.tsx`                   | "Payment notifications" row                                            |
+| `packages/expo-wallet-toolbox/core/context/WalletContext.tsx`                  | call sync + attach handlers once the wallet is up                      |
+| `packages/expo-wallet-toolbox/core/pay/sweeper.ts`                             | 5 s interval                                                           |
+| `packages/expo-wallet-toolbox/ui/components/pay/HandleReceive.tsx`             | live listener with poll fallback                                       |
+| `utils/push/firebasePushAdapter.ts` (app)                                      | RN Firebase implementation of `PushAdapter`                            |
+| `index.js` (app)                                                               | `setBackgroundMessageHandler` no-op before app registration            |
+| `app/_layout.tsx` (app)                                                        | pass `push: firebasePushAdapter` to `configureToolbox`                 |
+| `app.json`, `firebase.json`, `ios/`                                            | plugins, entitlements, background mode, Android permission             |
 
 Tests live in `packages/expo-wallet-toolbox/__tests__/push/`. Run with `npx jest packages/expo-wallet-toolbox/__tests__/push`.
 
@@ -64,6 +64,7 @@ Tests live in `packages/expo-wallet-toolbox/__tests__/push/`. Run with `npx jest
 ### Task 1: Commit Firebase config files and wire them into app.json
 
 **Files:**
+
 - Create: `GoogleService-Info.plist`, `google-services.json` (copied from `~/Downloads`)
 - Modify: `app.json` (`expo.ios.googleServicesFile`, `expo.android.googleServicesFile`)
 
@@ -95,12 +96,14 @@ Note for the commit body: these files hold Firebase client identifiers, not secr
 ### Task 2: PushAdapter seam in the toolbox config
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/core/push/types.ts`
 - Modify: `packages/expo-wallet-toolbox/core/toolboxConfig.ts`
 - Modify: `packages/expo-wallet-toolbox/index.ts` (export types + `getPushAdapter`) — follow the existing export block for `configureToolbox`
 - Test: `packages/expo-wallet-toolbox/__tests__/toolboxConfig.test.ts` (extend)
 
 **Interfaces:**
+
 - Produces:
 
 ```ts
@@ -132,7 +135,9 @@ export interface PushAdapter {
 
 ```ts
 // toolboxConfig.ts additions
-export interface ToolboxConfig { /* existing fields */ push?: PushAdapter }
+export interface ToolboxConfig {
+  /* existing fields */ push?: PushAdapter
+}
 export function getPushAdapter(): PushAdapter | undefined
 ```
 
@@ -178,6 +183,7 @@ export function getPushAdapter(): PushAdapter | undefined {
 ### Task 3: Advisory-shown flag
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/core/push/pushAdvisory.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/push/pushAdvisory.test.ts`
 
@@ -216,10 +222,12 @@ describe('pushAdvisory', () => {
 ### Task 4: Device registration sync
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/core/push/registration.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/push/registration.test.ts`
 
 **Interfaces:**
+
 - Consumes: `PushAdapter` (Task 2).
 - Produces:
 
@@ -227,7 +235,10 @@ describe('pushAdvisory', () => {
 export const PUSH_REGISTRATION_KEY = 'push_registration_v1'
 
 export interface RegisterDeviceClient {
-  registerDevice(params: { fcmToken: string; platform?: 'ios' | 'android'; deviceId?: string }, overrideHost?: string): Promise<unknown>
+  registerDevice(
+    params: { fcmToken: string; platform?: 'ios' | 'android'; deviceId?: string },
+    overrideHost?: string
+  ): Promise<unknown>
 }
 
 export type SyncResult = 'registered' | 'unchanged' | 'skipped' | 'failed'
@@ -251,7 +262,11 @@ import type { PushAdapter } from '../../core/push/types'
 
 const mem = () => {
   const m = new Map<string, string>()
-  return { getItem: async (k: string) => m.get(k) ?? null, setItem: async (k: string, v: string) => void m.set(k, v), m }
+  return {
+    getItem: async (k: string) => m.get(k) ?? null,
+    setItem: async (k: string, v: string) => void m.set(k, v),
+    m
+  }
 }
 const adapter = (over: Partial<PushAdapter> = {}): PushAdapter =>
   ({
@@ -267,7 +282,13 @@ describe('syncPushRegistration', () => {
   it('registers and caches the marker', async () => {
     const storage = mem()
     const registerDevice = jest.fn().mockResolvedValue({ status: 'success' })
-    const r = await syncPushRegistration({ adapter: adapter(), host: HOST, identityKey: ID, makeClient: () => ({ registerDevice }), storage })
+    const r = await syncPushRegistration({
+      adapter: adapter(),
+      host: HOST,
+      identityKey: ID,
+      makeClient: () => ({ registerDevice }),
+      storage
+    })
     expect(r).toBe('registered')
     expect(registerDevice).toHaveBeenCalledWith({ fcmToken: 'tok1', platform: 'ios' }, HOST)
     expect(storage.m.get(PUSH_REGISTRATION_KEY)).toBe(`${HOST}|${ID}|tok1`)
@@ -283,32 +304,72 @@ describe('syncPushRegistration', () => {
   it('re-registers when token changes', async () => {
     const storage = mem()
     const registerDevice = jest.fn().mockResolvedValue({})
-    await syncPushRegistration({ adapter: adapter(), host: HOST, identityKey: ID, makeClient: () => ({ registerDevice }), storage })
-    const r = await syncPushRegistration({ adapter: adapter({ getToken: async () => 'tok2' }), host: HOST, identityKey: ID, makeClient: () => ({ registerDevice }), storage })
+    await syncPushRegistration({
+      adapter: adapter(),
+      host: HOST,
+      identityKey: ID,
+      makeClient: () => ({ registerDevice }),
+      storage
+    })
+    const r = await syncPushRegistration({
+      adapter: adapter({ getToken: async () => 'tok2' }),
+      host: HOST,
+      identityKey: ID,
+      makeClient: () => ({ registerDevice }),
+      storage
+    })
     expect(r).toBe('registered')
   })
   it('re-registers when identity changes', async () => {
     const storage = mem()
     const registerDevice = jest.fn().mockResolvedValue({})
-    await syncPushRegistration({ adapter: adapter(), host: HOST, identityKey: ID, makeClient: () => ({ registerDevice }), storage })
-    const r = await syncPushRegistration({ adapter: adapter(), host: HOST, identityKey: '03'.padEnd(66, 'b'), makeClient: () => ({ registerDevice }), storage })
+    await syncPushRegistration({
+      adapter: adapter(),
+      host: HOST,
+      identityKey: ID,
+      makeClient: () => ({ registerDevice }),
+      storage
+    })
+    const r = await syncPushRegistration({
+      adapter: adapter(),
+      host: HOST,
+      identityKey: '03'.padEnd(66, 'b'),
+      makeClient: () => ({ registerDevice }),
+      storage
+    })
     expect(r).toBe('registered')
   })
   it('skips when permission not granted', async () => {
     const registerDevice = jest.fn()
-    const r = await syncPushRegistration({ adapter: adapter({ getPermission: async () => 'denied' }), host: HOST, identityKey: ID, makeClient: () => ({ registerDevice }), storage: mem() })
+    const r = await syncPushRegistration({
+      adapter: adapter({ getPermission: async () => 'denied' }),
+      host: HOST,
+      identityKey: ID,
+      makeClient: () => ({ registerDevice }),
+      storage: mem()
+    })
     expect(r).toBe('skipped')
     expect(registerDevice).not.toHaveBeenCalled()
   })
   it('skips without adapter or host', async () => {
     const makeClient = jest.fn()
-    expect(await syncPushRegistration({ adapter: undefined, host: HOST, identityKey: ID, makeClient, storage: mem() })).toBe('skipped')
-    expect(await syncPushRegistration({ adapter: adapter(), host: undefined, identityKey: ID, makeClient, storage: mem() })).toBe('skipped')
+    expect(
+      await syncPushRegistration({ adapter: undefined, host: HOST, identityKey: ID, makeClient, storage: mem() })
+    ).toBe('skipped')
+    expect(
+      await syncPushRegistration({ adapter: adapter(), host: undefined, identityKey: ID, makeClient, storage: mem() })
+    ).toBe('skipped')
     expect(makeClient).not.toHaveBeenCalled()
   })
   it('does not cache on failure', async () => {
     const storage = mem()
-    const r = await syncPushRegistration({ adapter: adapter(), host: HOST, identityKey: ID, makeClient: () => ({ registerDevice: jest.fn().mockRejectedValue(new Error('503')) }), storage })
+    const r = await syncPushRegistration({
+      adapter: adapter(),
+      host: HOST,
+      identityKey: ID,
+      makeClient: () => ({ registerDevice: jest.fn().mockRejectedValue(new Error('503')) }),
+      storage
+    })
     expect(r).toBe('failed')
     expect(storage.m.has(PUSH_REGISTRATION_KEY)).toBe(false)
   })
@@ -374,6 +435,7 @@ export async function syncPushRegistration(args: {
 ### Task 5: Notification advisory modal on Share remote link
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/ui/components/pay/NotificationAdvisoryModal.tsx`
 - Modify: `packages/expo-wallet-toolbox/ui/screens/PayScreen.tsx` (state near `nearbyAdvisorySeen`, ~line 289; modal next to `<NearbyAdvisoryModal>`, ~line 586)
 - Modify: `packages/expo-wallet-toolbox/ui/index.ts` (export beside `NearbyAdvisoryModal`, line 61)
@@ -381,10 +443,12 @@ export async function syncPushRegistration(args: {
 - Test: `packages/expo-wallet-toolbox/__tests__/ui/notificationAdvisory.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `pushAdvisory` (Task 3), `getPushAdapter()` (Task 2).
 - Produces: `NotificationAdvisoryModal: React.FC<{ visible: boolean; onNotNow: () => void; onContinue: () => void }>`.
 
 Copy (English; translate for the other 11 locales in the same style as `pay_address_watching`):
+
 - `push_advisory_title`: "Get notified when you're paid"
 - `push_advisory_body`: "Next, your phone will ask to allow notifications. This lets BSV Wallet tell you when a payment arrives, even while the app is in the background."
 - `push_advisory_continue`: "Continue"
@@ -476,6 +540,7 @@ useEffect(() => {
 ### Task 6: App-side Firebase adapter and native config
 
 **Files:**
+
 - Create: `utils/push/firebasePushAdapter.ts`
 - Create: `firebase.json`
 - Modify: `index.js` (background handler, before app registration)
@@ -578,7 +643,7 @@ import { getMessaging, setBackgroundMessageHandler } from '@react-native-firebas
 setBackgroundMessageHandler(getMessaging(), async () => {})
 ```
 
-- [ ] **Step 6: _layout.tsx** — `import { firebasePushAdapter } from '@/utils/push/firebasePushAdapter'` and add `push: firebasePushAdapter` to the `configureToolbox({...})` call at line 66.
+- [ ] **Step 6: \_layout.tsx** — `import { firebasePushAdapter } from '@/utils/push/firebasePushAdapter'` and add `push: firebasePushAdapter` to the `configureToolbox({...})` call at line 66.
 
 - [ ] **Step 7: Prebuild and inspect**
 
@@ -601,11 +666,13 @@ Expected: entitlement present, `remote-notification` in background modes, POST_N
 ### Task 7: Wire registration and push events into WalletContext
 
 **Files:**
+
 - Create: `packages/expo-wallet-toolbox/core/push/events.ts`
 - Modify: `packages/expo-wallet-toolbox/core/context/WalletContext.tsx` (after `TaskCreditInbox.noteEnqueued()` ~line 2045; AppState foreground handler ~line 3031)
 - Test: `packages/expo-wallet-toolbox/__tests__/push/events.test.ts`
 
 **Interfaces:**
+
 - Consumes: `PushAdapter`, `syncPushRegistration`, `TaskCreditInbox.requestNow()`.
 - Produces:
 
@@ -643,7 +710,8 @@ describe('attachPushHandlers', () => {
   beforeEach(() => __resetInitialNotificationForTests())
   it('consumes initial notification once', async () => {
     const { adapter } = fakeAdapter({ data: { messageId: 'm1' } })
-    const requestInboxPass = jest.fn(), openActivity = jest.fn()
+    const requestInboxPass = jest.fn(),
+      openActivity = jest.fn()
     attachPushHandlers({ adapter, requestInboxPass, openActivity, onTokenRefresh: jest.fn() })()
     attachPushHandlers({ adapter, requestInboxPass, openActivity, onTokenRefresh: jest.fn() })
     await flush()
@@ -652,7 +720,8 @@ describe('attachPushHandlers', () => {
   })
   it('tap while backgrounded opens activity and requests a pass', () => {
     const { adapter, handlers } = fakeAdapter(null)
-    const requestInboxPass = jest.fn(), openActivity = jest.fn()
+    const requestInboxPass = jest.fn(),
+      openActivity = jest.fn()
     attachPushHandlers({ adapter, requestInboxPass, openActivity, onTokenRefresh: jest.fn() })
     handlers.opened({ data: {} })
     expect(openActivity).toHaveBeenCalled()
@@ -660,7 +729,8 @@ describe('attachPushHandlers', () => {
   })
   it('foreground message only requests an inbox pass', () => {
     const { adapter, handlers } = fakeAdapter(null)
-    const requestInboxPass = jest.fn(), openActivity = jest.fn()
+    const requestInboxPass = jest.fn(),
+      openActivity = jest.fn()
     attachPushHandlers({ adapter, requestInboxPass, openActivity, onTokenRefresh: jest.fn() })
     handlers.fg({ data: {} })
     expect(requestInboxPass).toHaveBeenCalled()
@@ -735,7 +805,8 @@ const syncPush = async () => {
     adapter: getPushAdapter(),
     host,
     identityKey: publicKey,
-    makeClient: h => new MessageBoxClient({ host: h, walletClient: permissionsManager as never, originator: adminOriginator })
+    makeClient: h =>
+      new MessageBoxClient({ host: h, walletClient: permissionsManager as never, originator: adminOriginator })
   })
 }
 pushSyncRef.current = syncPush
@@ -768,6 +839,7 @@ npx tsc --noEmit -p packages/expo-wallet-toolbox
 ### Task 8: Settings row
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/ui/screens/SettingsScreen.tsx` (new `GroupedSection` after Activity)
 - Modify: `translations.tsx` (3 keys × 12 locales)
 
@@ -788,25 +860,27 @@ useFocusEffect(
   }, [pushAdapter])
 )
 // …
-{pushAdapter && (
-  <GroupedSection header={t('notifications')}>
-    <ListRow
-      label={t('push_settings_row')}
-      icon="notifications-outline"
-      iconColor={colors.accent}
-      value={pushPermission === 'granted' ? t('push_settings_on') : t('push_settings_off')}
-      onPress={async () => {
-        if (pushPermission === 'undetermined') {
-          await pushAdvisory.set()
-          setPushPermission(await pushAdapter.requestPermission())
-        } else {
-          await pushAdapter.openSettings()
-        }
-      }}
-      isLast
-    />
-  </GroupedSection>
-)}
+{
+  pushAdapter && (
+    <GroupedSection header={t('notifications')}>
+      <ListRow
+        label={t('push_settings_row')}
+        icon="notifications-outline"
+        iconColor={colors.accent}
+        value={pushPermission === 'granted' ? t('push_settings_on') : t('push_settings_off')}
+        onPress={async () => {
+          if (pushPermission === 'undetermined') {
+            await pushAdvisory.set()
+            setPushPermission(await pushAdapter.requestPermission())
+          } else {
+            await pushAdapter.openSettings()
+          }
+        }}
+        isLast
+      />
+    </GroupedSection>
+  )
+}
 ```
 
 Use the screen's existing lazy expo-router loader for `useFocusEffect`. If `t('notifications')` does not exist, add `notifications: 'Notifications'` in all 12 locales too.
@@ -820,6 +894,7 @@ Use the screen's existing lazy expo-router loader for `useFocusEffect`. If `t('n
 ### Task 9: Live inbox listener on the Receive screen (E7)
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/ui/components/pay/HandleReceive.tsx` (poll loop ~lines 680–705, `INBOX_POLL_MS` line 159)
 
 **Interfaces:** Consumes `PeerPayClient.listenForLivePayments({ onPayment, overrideHost })` from `@bsv/message-box-client`.
@@ -858,6 +933,7 @@ return () => {
 ### Task 10: Address sweep at 5 s with WoC key and backoff (E8)
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/pay/sweeper.ts:17`
 - Modify: `packages/expo-wallet-toolbox/core/pay/rails/address.ts` (`getUtxosForAddress` fetch ~line 204; BEEF fetch ~line 399)
 - Test: `packages/expo-wallet-toolbox/__tests__/pay/sweeper.test.ts` (extend or create)
@@ -888,6 +964,7 @@ Plus a test that `getUtxosForAddress` sends header `woc-api-key` when the config
 **Do not start until the user answers:** do `gmb.bsvblockchain.tech` and `messagebox.bsvblockchain.tech` share one database? If yes, this is a constant change. If no, messages already waiting on gmb must be drained first (keep polling gmb as a secondary host until empty), and recipients' anointed host on the overlay must be updated — that becomes its own plan.
 
 **Files (same-database case):**
+
 - Modify: `packages/expo-wallet-toolbox/core/pay/rails/handle.ts:29-32` — `DEFAULT_MESSAGE_BOX_URL = 'https://messagebox.bsvblockchain.tech'`; add `'https://gmb.bsvblockchain.tech'` to the legacy set so a saved gmb preference follows the default (turn `LEGACY_MESSAGE_BOX_URL` into `LEGACY_MESSAGE_BOX_URLS: readonly string[]` and update its 2 call sites in WalletContext + Task 7's `syncPush`).
 - Modify: `app/_layout.tsx:80,88` fallbacks; `eas.json` production `EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL` and all `*_MANDALA_MESSAGEBOX_URL` values.
 - Test: update any test asserting the old constant (`grep -rn "gmb.bsvblockchain.tech" packages/expo-wallet-toolbox/__tests__`).

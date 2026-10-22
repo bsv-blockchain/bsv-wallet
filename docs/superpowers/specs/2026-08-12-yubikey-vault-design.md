@@ -120,25 +120,25 @@ Surface (all methods reject with typed error codes, never crash):
 ```ts
 interface YubiKeyPiv extends HybridObject {
   // availability
-  isSupported(): boolean            // iOS ≥16 / Android USB-host or NFC
+  isSupported(): boolean // iOS ≥16 / Android USB-host or NFC
   // discovery lifecycle — one session at a time
-  startDiscovery(): void            // USB (+NFC on Android) listeners
+  startDiscovery(): void // USB (+NFC on Android) listeners
   stopDiscovery(): void
   onKeyEvent(cb: (e: KeyEvent) => void): () => void
   // e: { type: 'attached'|'detached', serial?: string, transport: 'usb'|'nfc' }
 
   // PIV operations (each opens/uses the current connection)
-  getKeyInfo(): Promise<KeyInfo>    // serial, firmware, pin retries
-  verifyPin(pin: string): Promise<PinResult>          // { ok, retriesLeft }
+  getKeyInfo(): Promise<KeyInfo> // serial, firmware, pin retries
+  verifyPin(pin: string): Promise<PinResult> // { ok, retriesLeft }
   changePin(oldPin: string, newPin: string): Promise<PinResult>
   generateVaultKey(args: {
-    slot: number                    // 0x82
-    managementKey?: string          // hex; default key tried when omitted
-    touchPolicy: 'always'|'cached'
-    pinPolicy: 'once'|'always'
-  }): Promise<{ publicKey: string }>                  // 65-byte SEC1 hex
+    slot: number // 0x82
+    managementKey?: string // hex; default key tried when omitted
+    touchPolicy: 'always' | 'cached'
+    pinPolicy: 'once' | 'always'
+  }): Promise<{ publicKey: string }> // 65-byte SEC1 hex
   readVaultPublicKey(slot: number): Promise<{ publicKey: string } | null>
-  ecdh(args: { slot: number, peerPublicKey: string }): Promise<{ secret: string }>
+  ecdh(args: { slot: number; peerPublicKey: string }): Promise<{ secret: string }>
   // ^ the touch-gated call: blocks until touch or ~15 s timeout
 }
 ```
@@ -207,7 +207,7 @@ unseal(blob, pin):                                  # the ceremony
   customized and how to proceed. v1 does NOT rotate the management key
   (age-plugin-yubikey's PIN-protected-metadata trick deferred; risk accepted:
   default mgmt key allows an attacker with the token to wipe/regen the slot —
-  that *denies*, never *reveals*; funds recoverable via backup phrase).
+  that _denies_, never _reveals_; funds recoverable via backup phrase).
 - Retired slot 0x82 chosen (age-plugin-yubikey convention: slots 82–95 are
   "retired" and otherwise unused; 9a/9c/9d/9e left for real smart-card use).
 
@@ -217,14 +217,14 @@ unseal(blob, pin):                                  # the ceremony
 
 ```ts
 const privilegedKeyManager = buildPrivilegedKeyManager({
-  legacyRootKey: rootKey,        // pre-vault behavior
-  requestCeremony,               // from VaultCeremonyContext
+  legacyRootKey: rootKey, // pre-vault behavior
+  requestCeremony // from VaultCeremonyContext
 })
 // inside:
 new PrivilegedKeyManager(async (reason: string) => {
-  if (!(await vaultStore.isEnrolled())) return legacyRootKey   // unchanged today
-  return requestCeremony(reason)  // resolves with PrivateKey after unseal
-}, VAULT_RETENTION_MS)            // 120_000, one constant
+  if (!(await vaultStore.isEnrolled())) return legacyRootKey // unchanged today
+  return requestCeremony(reason) // resolves with PrivateKey after unseal
+}, VAULT_RETENTION_MS) // 120_000, one constant
 ```
 
 - **Not enrolled → exactly today's behavior.** Zero migration risk.
@@ -254,8 +254,8 @@ new PrivilegedKeyManager(async (reason: string) => {
   touch to replenish ("Vault needs your key to mint fresh addresses").
 - **Deposit (default → vault):** ordinary
   `createAction({ outputs: [{ lockingScript: P2PKH(pubKeyHash), satoshis,
-  basket: 'admin vault', customInstructions: JSON({v:1, keyID}),
-  outputDescription: 'Vault deposit' }], description, labels: ['vault','deposit'] })`
+basket: 'admin vault', customInstructions: JSON({v:1, keyID}),
+outputDescription: 'Vault deposit' }], description, labels: ['vault','deposit'] })`
   — funded and change-managed by the toolbox from the default basket. Spending
   authorization sheet applies as usual. **No YubiKey.**
 - **Withdraw (vault → default):**
@@ -264,15 +264,15 @@ new PrivilegedKeyManager(async (reason: string) => {
      supplies the BEEF.
   2. ceremony (one touch) → PKM armed.
   3. `createAction({ inputBEEF, inputs: [{ outpoint, unlockingScriptLength: 108,
-     inputDescription }...], outputs: [] , description, labels: ['vault','withdraw'] })`
+inputDescription }...], outputs: [] , description, labels: ['vault','withdraw'] })`
      → `signableTransaction`. All input value minus fee returns to the
      **default basket as change** — that IS the internal transfer.
      Partial withdrawal (amount < selected outputs): add one change-back output
      to a fresh vault deposit key so the remainder stays vaulted.
   4. for each input: compute the BIP143-style sighash with @bsv/sdk
      `TransactionSignature`, then `createSignature({ hashToDirectlySign,
-     protocolID: [2,'vault'], keyID, counterparty: 'self', privileged: true,
-     privilegedReason })` — PKM signs, raw key never touches vault code —
+protocolID: [2,'vault'], keyID, counterparty: 'self', privileged: true,
+privilegedReason })` — PKM signs, raw key never touches vault code —
      assemble P2PKH unlocking script (sig+type, derived pubkey).
   5. `signAction({ spends, reference })` → broadcast via normal rails.
 - **Balance:** `listOutputs({ basket: 'admin vault' })` sum; separate
@@ -320,16 +320,16 @@ idle → waiting-for-key → connecting → pin-entry → awaiting-touch
      → unsealing → armed(success) | error(code) → retry/cancel
 ```
 
-| state | copy (en) | visual | haptic | sound |
-|---|---|---|---|---|
-| waiting-for-key | "Insert your YubiKey" | key-into-port illustration, port pulses | `tap` on attach | — |
-| connecting | "Reading key…" | spinner | — | — |
-| pin-entry | "Enter your PIV PIN" | secure field + retriesLeft when <3 | `confirm` on ok, `error` on fail | — |
-| awaiting-touch | "Touch the gold contact" | disc pulses in sync with the key's LED, 15 s countdown ring | gentle `tap` at start | — |
-| unsealing | "Unlocking vault…" | brief | — | — |
-| armed | "Vault unlocked · relocks in 2:00" | countdown chip persists on /vault | `success` | **vault-open** |
-| relocked (timeout or unplug) | toast "Vault locked" | — | `confirm` | **vault-close** |
-| error | specific, actionable | — | `warning`/`error` | — |
+| state                        | copy (en)                          | visual                                                      | haptic                           | sound           |
+| ---------------------------- | ---------------------------------- | ----------------------------------------------------------- | -------------------------------- | --------------- |
+| waiting-for-key              | "Insert your YubiKey"              | key-into-port illustration, port pulses                     | `tap` on attach                  | —               |
+| connecting                   | "Reading key…"                     | spinner                                                     | —                                | —               |
+| pin-entry                    | "Enter your PIV PIN"               | secure field + retriesLeft when <3                          | `confirm` on ok, `error` on fail | —               |
+| awaiting-touch               | "Touch the gold contact"           | disc pulses in sync with the key's LED, 15 s countdown ring | gentle `tap` at start            | —               |
+| unsealing                    | "Unlocking vault…"                 | brief                                                       | —                                | —               |
+| armed                        | "Vault unlocked · relocks in 2:00" | countdown chip persists on /vault                           | `success`                        | **vault-open**  |
+| relocked (timeout or unplug) | toast "Vault locked"               | —                                                           | `confirm`                        | **vault-close** |
+| error                        | specific, actionable               | —                                                           | `warning`/`error`                | —               |
 
 Design rules honored: Quiet Precision motion tokens (springs.settle for the
 sheet, ≤350 ms), no fractional-opacity animation over glass (scale/translate
@@ -362,18 +362,18 @@ translations, flagged for native review).
 
 ## 6. Security analysis
 
-| Threat | Mitigation |
-|---|---|
-| Phone malware exfiltrates vault funds | Vault outputs locked to privileged-derived keys; plaintext V exists only during PKM retention after physical touch. Malware must wait for/coax a ceremony — game changed from "silent theft" to "physical presence + user action per window". |
-| Stolen phone (unlocked) | Same: vault spends need the YubiKey + PIN + touch. |
-| Stolen phone + YubiKey | PIV PIN (3 retries) gates ECDH. |
-| Malicious web page | `admin vault` basket invisible/untouchable to non-admin originators; privileged sigs require ceremony (page-triggered ceremony shows origin + reason — user declines). |
-| Sealed blob leaks (backup, cloud) | Blob useless without on-token ECDH; AES-GCM + HKDF from token-bound secret. |
-| YubiKey lost/bricked (PIN/PUK exhaustion) | Backup phrase recovers V → re-key or sweep. |
-| Wrong/second YubiKey | Serial binding + explicit error. |
-| Attacker with token wipes slot (default mgmt key) | Denial only, never disclosure; recover via phrase. Documented residual risk v1. |
-| Ceremony fatigue / prompt spam | One controller, queued requests share a ceremony; reason string always shown; page-originated requests rate-limited by their permission prompts upstream. |
-| Key material hygiene | V zeroed after seal/handoff; PKM chunked-XOR retention + scheduled destruction; unseal path never logs; PIN never persisted. |
+| Threat                                            | Mitigation                                                                                                                                                                                                                                    |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phone malware exfiltrates vault funds             | Vault outputs locked to privileged-derived keys; plaintext V exists only during PKM retention after physical touch. Malware must wait for/coax a ceremony — game changed from "silent theft" to "physical presence + user action per window". |
+| Stolen phone (unlocked)                           | Same: vault spends need the YubiKey + PIN + touch.                                                                                                                                                                                            |
+| Stolen phone + YubiKey                            | PIV PIN (3 retries) gates ECDH.                                                                                                                                                                                                               |
+| Malicious web page                                | `admin vault` basket invisible/untouchable to non-admin originators; privileged sigs require ceremony (page-triggered ceremony shows origin + reason — user declines).                                                                        |
+| Sealed blob leaks (backup, cloud)                 | Blob useless without on-token ECDH; AES-GCM + HKDF from token-bound secret.                                                                                                                                                                   |
+| YubiKey lost/bricked (PIN/PUK exhaustion)         | Backup phrase recovers V → re-key or sweep.                                                                                                                                                                                                   |
+| Wrong/second YubiKey                              | Serial binding + explicit error.                                                                                                                                                                                                              |
+| Attacker with token wipes slot (default mgmt key) | Denial only, never disclosure; recover via phrase. Documented residual risk v1.                                                                                                                                                               |
+| Ceremony fatigue / prompt spam                    | One controller, queued requests share a ceremony; reason string always shown; page-originated requests rate-limited by their permission prompts upstream.                                                                                     |
+| Key material hygiene                              | V zeroed after seal/handoff; PKM chunked-XOR retention + scheduled destruction; unseal path never logs; PIN never persisted.                                                                                                                  |
 
 Out of scope v1 (documented): management-key rotation, multi-YubiKey
 recipients, per-input on-token signing, hard mode (retention 0 — touch per
@@ -382,17 +382,17 @@ privileged RPC call raises the ceremony on the phone, which is correct).
 
 ## 7. Component inventory (isolation & interfaces)
 
-| unit | does | depends on |
-|---|---|---|
-| `packages/react-native-yubikey` | PIV APDU surface (spec above) | YubiKit iOS / yubikit-android |
-| `services/vault/sealing.ts` | pure crypto: seal/unseal/HKDF (no I/O) | @noble/curves p256, @bsv/sdk |
-| `services/vault/vaultStore.ts` | persistence of seal + meta | SecureStore, AsyncStorage |
-| `services/vault/VaultKeyService.ts` | enroll/unseal/recover/disable orchestration | module, sealing, store |
-| `services/vault/ceremony.ts` | CeremonyController state machine (UI-free) | VaultKeyService |
-| `context/VaultContext.tsx` | React wiring: ceremony state → sheet, keyGetter factory | ceremony, WalletContext |
-| `services/vault/transfers.ts` | deposit/withdraw/balance/selection | permissionsManager, @bsv/sdk |
-| `components/vault/*` | screen, wizard, ceremony sheet, key card | ui kit, theme, i18n |
-| `hooks/useVaultSounds` (ext. of `sounds`) | vaultOpen/vaultClose | expo-audio |
+| unit                                      | does                                                    | depends on                    |
+| ----------------------------------------- | ------------------------------------------------------- | ----------------------------- |
+| `packages/react-native-yubikey`           | PIV APDU surface (spec above)                           | YubiKit iOS / yubikit-android |
+| `services/vault/sealing.ts`               | pure crypto: seal/unseal/HKDF (no I/O)                  | @noble/curves p256, @bsv/sdk  |
+| `services/vault/vaultStore.ts`            | persistence of seal + meta                              | SecureStore, AsyncStorage     |
+| `services/vault/VaultKeyService.ts`       | enroll/unseal/recover/disable orchestration             | module, sealing, store        |
+| `services/vault/ceremony.ts`              | CeremonyController state machine (UI-free)              | VaultKeyService               |
+| `context/VaultContext.tsx`                | React wiring: ceremony state → sheet, keyGetter factory | ceremony, WalletContext       |
+| `services/vault/transfers.ts`             | deposit/withdraw/balance/selection                      | permissionsManager, @bsv/sdk  |
+| `components/vault/*`                      | screen, wizard, ceremony sheet, key card                | ui kit, theme, i18n           |
+| `hooks/useVaultSounds` (ext. of `sounds`) | vaultOpen/vaultClose                                    | expo-audio                    |
 
 Each service unit is plain TS with injected dependencies — unit-testable without
 React or native modules.
@@ -448,9 +448,9 @@ distributed through the App Store by a third party.
 
 **Resolved transport matrix (YubiKey 5C NFC):**
 
-| Platform | USB-C (CCID) | NFC (ISO7816) |
-|---|---|---|
-| Android | ✅ yubikit-android USB | ✅ |
+| Platform        | USB-C (CCID)            | NFC (ISO7816)                |
+| --------------- | ----------------------- | ---------------------------- |
+| Android         | ✅ yubikit-android USB  | ✅                           |
 | iOS (App Store) | ❌ entitlement rejected | ✅ this is the shipping path |
 
 **iOS = NFC.** App-Store-valid via the **NFC Tag Reading** capability

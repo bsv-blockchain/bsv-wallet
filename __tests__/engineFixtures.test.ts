@@ -33,8 +33,8 @@ afterEach(() => {
   delete g.__bsvSecpNative
 })
 
-const inRangeFixtures = fixtures.signFlow.filter((f) => isFixtureInRange(f.unsignedTx, f.inputsMeta))
-const outOfRangeFixtures = fixtures.signFlow.filter((f) => !isFixtureInRange(f.unsignedTx, f.inputsMeta))
+const inRangeFixtures = fixtures.signFlow.filter(f => isFixtureInRange(f.unsignedTx, f.inputsMeta))
+const outOfRangeFixtures = fixtures.signFlow.filter(f => !isFixtureInRange(f.unsignedTx, f.inputsMeta))
 
 describe('engine-sim-fixtures.json partitioned by sdk 2.8 monetary range', () => {
   it('11 fixtures are in range and 42 are out of range', () => {
@@ -45,7 +45,7 @@ describe('engine-sim-fixtures.json partitioned by sdk 2.8 monetary range', () =>
 })
 
 describe('in-range fixtures sign with the pure-JS SDK to the recorded oracle bytes', () => {
-  it.each(inRangeFixtures.map((f) => [f.caseIdx, f] as const))('case %i', async (_caseIdx, f) => {
+  it.each(inRangeFixtures.map(f => [f.caseIdx, f] as const))('case %i', async (_caseIdx, f) => {
     const tx = txFromFixture(f.unsignedTx, f.inputsMeta)
     await tx.sign()
     expect(tx.toHex()).toBe(f.expectedSignedTx)
@@ -53,15 +53,15 @@ describe('in-range fixtures sign with the pure-JS SDK to the recorded oracle byt
 })
 
 describe('out-of-range fixtures are rejected by tx.sign()', () => {
-  it.each(outOfRangeFixtures.map((f) => [f.caseIdx, f] as const))('case %i', async (_caseIdx, f) => {
+  it.each(outOfRangeFixtures.map(f => [f.caseIdx, f] as const))('case %i', async (_caseIdx, f) => {
     const tx = txFromFixture(f.unsignedTx, f.inputsMeta)
     await expect(tx.sign()).rejects.toThrow()
-    expect(tx.inputs.every((i) => i.unlockingScript == null)).toBe(true)
+    expect(tx.inputs.every(i => i.unlockingScript == null)).toBe(true)
   })
 })
 
 describe('rescaled variants of out-of-range fixtures', () => {
-  it.each(outOfRangeFixtures.map((f) => [f.caseIdx, f] as const))(
+  it.each(outOfRangeFixtures.map(f => [f.caseIdx, f] as const))(
     'case %i: variant is in range and signs deterministically',
     async (_caseIdx, f) => {
       const variant = rescaleFixtureInRange(f.unsignedTx, f.inputsMeta)
@@ -78,7 +78,7 @@ describe('rescaled variants of out-of-range fixtures', () => {
 })
 
 /** Frame a twin's unlocking scripts as the engine reply for every input. */
-function engineReplyFromTwin (twin: Transaction): ArrayBuffer {
+function engineReplyFromTwin(twin: Transaction): ArrayBuffer {
   const parts: Uint8Array[] = []
   for (let i = 0; i < twin.inputs.length; i++) {
     const script = Uint8Array.from(twin.inputs[i].unlockingScript!.toBinary())
@@ -102,14 +102,14 @@ describe('rescaled variants through a mock engine (optional, mirrors sdkSignRout
   // top of the required pure-JS determinism check above, not the primary
   // coverage for the routed tier (utils/engineNativeProof.ts's
   // runRoutedParity does that end to end, on-device).
-  it.each(outOfRangeFixtures.slice(0, 5).map((f) => [f.caseIdx, f] as const))(
+  it.each(outOfRangeFixtures.slice(0, 5).map(f => [f.caseIdx, f] as const))(
     'case %i: engine-routed == pure-JS',
     async (_caseIdx, f) => {
       const variant = rescaleFixtureInRange(f.unsignedTx, f.inputsMeta)
       const twin = txFromFixture(variant.unsignedTx, variant.inputsMeta)
       await twin.sign()
 
-      const calls: { skel: Uint8Array, metas: Uint8Array }[] = []
+      const calls: { skel: Uint8Array; metas: Uint8Array }[] = []
       g.__bsvEngineNative = {
         batchSignP2pkhInputs: async (skel: ArrayBuffer, metas: ArrayBuffer) => {
           calls.push({ skel: new Uint8Array(skel), metas: new Uint8Array(metas) })

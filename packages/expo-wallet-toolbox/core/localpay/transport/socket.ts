@@ -297,6 +297,6 @@ export function makeSocketTransport(
           }
         )
       })
-    },
+    }
   }
 }

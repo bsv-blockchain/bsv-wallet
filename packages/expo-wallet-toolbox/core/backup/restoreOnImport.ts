@@ -95,8 +95,9 @@ export interface RestoreOnImportResult {
   verified?: boolean
 }
 
-export async function restoreOnImport (deps: RestoreOnImportDeps): Promise<RestoreOnImportResult> {
-  const client = deps.client ?? (hasUrl(deps.baseUrl) ? new BackupClient(deps.baseUrl!, deps.primaryKey, deps.chain) : null)
+export async function restoreOnImport(deps: RestoreOnImportDeps): Promise<RestoreOnImportResult> {
+  const client =
+    deps.client ?? (hasUrl(deps.baseUrl) ? new BackupClient(deps.baseUrl!, deps.primaryKey, deps.chain) : null)
   if (client == null) {
     return { restored: false, chunks: 0, reason: 'not-configured' }
   }

@@ -4,7 +4,7 @@
 
 **Goal:** Replace `/payments`, `/legacy-payments`, `/local-payments` and the Identity-Key QR modal with one `/pay` screen on a 2×3 grid — direction (Pay / Get paid) × counterparty (nearby / handle / address) — where the transport is inferred, never chosen, and legacy receive sweeps itself in the background.
 
-**Architecture:** Every money path is *moved*, never rewritten. The three screens' logic is extracted into transport-agnostic modules under `utils/pay/` (pure/testable seams first, then the network calls, then the UI). `app/pay.tsx` owns the grid and the chrome and composes six cell components under `components/pay/`. `utils/localpay/*` is not touched at all: the nearby cell mounts today's `local-payments.tsx` body verbatim as `components/pay/NearbyFlow.tsx`. Legacy receive's poll-then-import loop leaves the screen and becomes a bounded background sweeper owned by `WalletContext`, beside the existing NetInfo-triggered localpay retry.
+**Architecture:** Every money path is _moved_, never rewritten. The three screens' logic is extracted into transport-agnostic modules under `utils/pay/` (pure/testable seams first, then the network calls, then the UI). `app/pay.tsx` owns the grid and the chrome and composes six cell components under `components/pay/`. `utils/localpay/*` is not touched at all: the nearby cell mounts today's `local-payments.tsx` body verbatim as `components/pay/NearbyFlow.tsx`. Legacy receive's poll-then-import loop leaves the screen and becomes a bounded background sweeper owned by `WalletContext`, beside the existing NetInfo-triggered localpay retry.
 
 **Tech Stack:** Expo Router 55 (file routes under `app/`), React Native 0.83, TypeScript, `@bsv/sdk`, `@bsv/message-box-client` (PeerPay), `@bsv/wallet-toolbox-mobile` (storage), react-i18next (12 locales in one file), jest + jest-expo.
 
@@ -38,47 +38,47 @@ Every task's requirements implicitly include this section.
   - Q3 — **Yes**: Get paid → handle offers a `peerpay:<identityKey>` share-sheet action alongside the QR and Copy.
   - Q4 — **Nothing outside the app deep-links to `/legacy-payments`.** Verified: the only references in the repo are `app/settings.tsx:132` and `app/_layout.tsx:149`. `peerpay:` is the only external entry point and it targets `/payments` (`app/+native-intent.ts:5`, `hooks/useDeepLinking.ts:95`).
   - Q5 — **Sweep bounds** (Task 4/5/6): interval **30 s**; only while `walletBuilt && AppState === 'active' && NetInfo connected`; watchlist holds at most **8** addresses; an entry is dropped after **24 h** with no activity (`lastActivityAt` = later of issue and last successful sweep) or once its date is more than **7 days** old; the sweeper never derives an address it was not handed (no blind look-back).
-- **Spec-vs-spec resolution:** Migration says the three screen files are *deleted*; Risks says *"Redirects, and a test per legacy route"*. Both are satisfied by deleting the ~5,000 lines of screen and leaving a 6-line `<Redirect>` stub at each old path (Task 14). The redirect target is computed by a pure, tested function.
+- **Spec-vs-spec resolution:** Migration says the three screen files are _deleted_; Risks says _"Redirects, and a test per legacy route"_. Both are satisfied by deleting the ~5,000 lines of screen and leaving a 6-line `<Redirect>` stub at each old path (Task 14). The redirect target is computed by a pure, tested function.
 
 ## File Structure
 
 **Created**
 
-| File | Responsibility |
-|---|---|
-| `utils/pay/rails/index.ts` | `RailId`, `PayTarget`, `inferRail`, `classifyScan`, precondition/consequence copy keys, `legacyRedirectTarget` |
-| `utils/pay/rails/address.ts` | Everything address-rail: date-keyed derivation, WoC reads, sweep/internalize, send, address validation |
-| `utils/pay/rails/handle.ts` | Everything PeerPay: send-with-outbox, incoming list/accept/internalize, `peerPayLinkFor` |
-| `utils/pay/rails/nearby.ts` | Thin re-export adapter over `utils/localpay/*` — no logic of its own |
-| `utils/pay/watchlist.ts` | Issued-address watchlist in KV storage, with the bounds from Q5 |
-| `utils/pay/sweeper.ts` | `runSweep` over the watchlist + `shouldSweepNow` gate |
-| `components/pay/NearbyFlow.tsx` | `app/local-payments.tsx`'s body, verbatim, minus its own header/route chrome |
-| `components/pay/HandleSend.tsx` | Pay → handle: identity search/scan, amount, send, outbox list |
-| `components/pay/HandleReceive.tsx` | Get paid → handle: your-handle QR, copy, share link, incoming inbox |
-| `components/pay/AddressSend.tsx` | Pay → address: paste/scan an address, amount, consequence line, send |
-| `components/pay/AddressReceive.tsx` | Get paid → address: address QR, copy, watching state, earlier-day recovery |
-| `components/pay/PayCellRow.tsx` | One row of the picker (icon, title, subtitle, chevron) |
-| `app/pay.tsx` | The one route: direction control, three rows, cell host, deep-link params |
-| `__tests__/payRails.test.ts` | Task 1 |
-| `__tests__/payAddressDerivation.test.ts` | Task 2 |
-| `__tests__/payAddressRail.test.ts` | Task 3 |
-| `__tests__/payWatchlist.test.ts` | Task 4 |
-| `__tests__/paySweeper.test.ts` | Task 5 |
-| `__tests__/payHandleRail.test.ts` | Task 7 |
-| `__tests__/payNearbyRail.test.ts` | Task 8 |
-| `__tests__/payScreen.test.tsx` | Task 13 |
+| File                                     | Responsibility                                                                                                 |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `utils/pay/rails/index.ts`               | `RailId`, `PayTarget`, `inferRail`, `classifyScan`, precondition/consequence copy keys, `legacyRedirectTarget` |
+| `utils/pay/rails/address.ts`             | Everything address-rail: date-keyed derivation, WoC reads, sweep/internalize, send, address validation         |
+| `utils/pay/rails/handle.ts`              | Everything PeerPay: send-with-outbox, incoming list/accept/internalize, `peerPayLinkFor`                       |
+| `utils/pay/rails/nearby.ts`              | Thin re-export adapter over `utils/localpay/*` — no logic of its own                                           |
+| `utils/pay/watchlist.ts`                 | Issued-address watchlist in KV storage, with the bounds from Q5                                                |
+| `utils/pay/sweeper.ts`                   | `runSweep` over the watchlist + `shouldSweepNow` gate                                                          |
+| `components/pay/NearbyFlow.tsx`          | `app/local-payments.tsx`'s body, verbatim, minus its own header/route chrome                                   |
+| `components/pay/HandleSend.tsx`          | Pay → handle: identity search/scan, amount, send, outbox list                                                  |
+| `components/pay/HandleReceive.tsx`       | Get paid → handle: your-handle QR, copy, share link, incoming inbox                                            |
+| `components/pay/AddressSend.tsx`         | Pay → address: paste/scan an address, amount, consequence line, send                                           |
+| `components/pay/AddressReceive.tsx`      | Get paid → address: address QR, copy, watching state, earlier-day recovery                                     |
+| `components/pay/PayCellRow.tsx`          | One row of the picker (icon, title, subtitle, chevron)                                                         |
+| `app/pay.tsx`                            | The one route: direction control, three rows, cell host, deep-link params                                      |
+| `__tests__/payRails.test.ts`             | Task 1                                                                                                         |
+| `__tests__/payAddressDerivation.test.ts` | Task 2                                                                                                         |
+| `__tests__/payAddressRail.test.ts`       | Task 3                                                                                                         |
+| `__tests__/payWatchlist.test.ts`         | Task 4                                                                                                         |
+| `__tests__/paySweeper.test.ts`           | Task 5                                                                                                         |
+| `__tests__/payHandleRail.test.ts`        | Task 7                                                                                                         |
+| `__tests__/payNearbyRail.test.ts`        | Task 8                                                                                                         |
+| `__tests__/payScreen.test.tsx`           | Task 13                                                                                                        |
 
 **Modified**
 
-| File | Change |
-|---|---|
-| `context/WalletContext.tsx` | Mount the background address sweeper beside the localpay retry loop; widen `localPayNotification` usage to carry sweep toasts |
-| `app/settings.tsx` | Four Activity rows + identity-QR modal → one **Pay** row |
-| `app/_layout.tsx` | Register `pay`; keep the three legacy `Stack.Screen` entries (now redirect stubs) |
-| `app/+native-intent.ts` | `peerpay:` → `/pay?peerpay=…` |
-| `hooks/useDeepLinking.ts` | `handlePeerPayLink` → `/pay` |
-| `app/payments.tsx`, `app/legacy-payments.tsx`, `app/local-payments.tsx` | Replaced by redirect stubs |
-| `context/i18n/translations.tsx` | New `pay_*` keys ×12 locales; orphans removed ×12 |
+| File                                                                    | Change                                                                                                                        |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `context/WalletContext.tsx`                                             | Mount the background address sweeper beside the localpay retry loop; widen `localPayNotification` usage to carry sweep toasts |
+| `app/settings.tsx`                                                      | Four Activity rows + identity-QR modal → one **Pay** row                                                                      |
+| `app/_layout.tsx`                                                       | Register `pay`; keep the three legacy `Stack.Screen` entries (now redirect stubs)                                             |
+| `app/+native-intent.ts`                                                 | `peerpay:` → `/pay?peerpay=…`                                                                                                 |
+| `hooks/useDeepLinking.ts`                                               | `handlePeerPayLink` → `/pay`                                                                                                  |
+| `app/payments.tsx`, `app/legacy-payments.tsx`, `app/local-payments.tsx` | Replaced by redirect stubs                                                                                                    |
+| `context/i18n/translations.tsx`                                         | New `pay_*` keys ×12 locales; orphans removed ×12                                                                             |
 
 **Deleted (content, not path):** the three screens' bodies. Their logic lands in `utils/pay/*` and `components/pay/*`.
 
@@ -89,12 +89,15 @@ Every task's requirements implicitly include this section.
 The pure core the whole feature hangs off. No React, no network, no wallet.
 
 **Files:**
+
 - Create: `utils/pay/rails/index.ts`
 - Test: `__tests__/payRails.test.ts`
 
 **Interfaces:**
+
 - Consumes: `validatePeerPayURI` from `@/utils/parsePeerPayURI`, `decodeSession`/`Session` from `@/utils/localpay/session`, `Utils` from `@bsv/sdk`.
 - Produces:
+
   ```ts
   type RailId = 'nearby' | 'handle' | 'address'
   type PayTarget =
@@ -106,7 +109,10 @@ The pure core the whole feature hangs off. No React, no network, no wallet.
   function classifyScan(raw: string): PayTarget | null
   function isValidBsvAddress(text: string): boolean
   function normalizeAddressInput(raw: string): string
-  function legacyRedirectTarget(route: 'payments' | 'legacy-payments' | 'local-payments', params: Record<string, string | undefined>): { pathname: '/pay'; params: Record<string, string> }
+  function legacyRedirectTarget(
+    route: 'payments' | 'legacy-payments' | 'local-payments',
+    params: Record<string, string | undefined>
+  ): { pathname: '/pay'; params: Record<string, string> }
   const PRECONDITION_KEYS: Record<RailId, string>
   const CONSEQUENCE_KEYS: Record<RailId, string>
   ```
@@ -328,7 +334,10 @@ export const CONSEQUENCE_KEYS: Record<RailId, string> = {
 
 /** Strips a `bitcoin:` scheme and any query string, leaving a bare address candidate. */
 export function normalizeAddressInput(raw: string): string {
-  return raw.replace(/^bitcoin:/i, '').split('?')[0].trim()
+  return raw
+    .replace(/^bitcoin:/i, '')
+    .split('?')[0]
+    .trim()
 }
 
 export function isValidBsvAddress(text: string): boolean {
@@ -396,8 +405,7 @@ export function legacyRedirectTarget(
   route: 'payments' | 'legacy-payments' | 'local-payments',
   params: Record<string, string | undefined>
 ): { pathname: '/pay'; params: Record<string, string> } {
-  const cell: PayCell =
-    route === 'payments' ? 'pay-handle' : route === 'legacy-payments' ? 'get-address' : 'get-nearby'
+  const cell: PayCell = route === 'payments' ? 'pay-handle' : route === 'legacy-payments' ? 'get-address' : 'get-nearby'
   const forwarded: Record<string, string> = { cell }
   for (const key of ['peerpay', 'identityKey', 'sats'] as const) {
     const value = params[key]
@@ -436,26 +444,36 @@ EOF
 
 ### Task 2: Address rail — date-keyed derivation
 
-The highest-risk port in the plan. The spec: *"Port with tests over `getCurrentDate`/offset before any UI work"* — a mis-ported derivation makes a previously-issued address unreachable and its funds unsweepable.
+The highest-risk port in the plan. The spec: _"Port with tests over `getCurrentDate`/offset before any UI work"_ — a mis-ported derivation makes a previously-issued address unreachable and its funds unsweepable.
 
 **Files:**
+
 - Create: `utils/pay/rails/address.ts`
 - Test: `__tests__/payAddressDerivation.test.ts`
 - Reference (source of truth to port from): `app/legacy-payments.tsx:44` (protocol ID), `:61-65` (`getCurrentDate`), `:101-102` (prefix/suffix), `:151-166` (`getPaymentAddress`), `:143-148` (WoC config).
 
 **Interfaces:**
+
 - Consumes: `PublicKey`, `Utils` from `@bsv/sdk`; `AppChain` from `@/types` (see note in Step 3).
 - Produces:
+
   ```ts
   const BRC29_PROTOCOL_ID: [number, string]
-  const LEGACY_DERIVATION_SUFFIX: string          // base64('legacy')
-  const MAX_RECOVERY_DAYS: number                 // 30 — the manual stepper's floor
+  const LEGACY_DERIVATION_SUFFIX: string // base64('legacy')
+  const MAX_RECOVERY_DAYS: number // 30 — the manual stepper's floor
   function getCurrentDate(daysOffset: number, now?: Date): string
   function derivationPrefixFor(date: string): string
   function legacyKeyId(derivationPrefix: string): string
   function wocConfigFor(network: AppChain): { apiBase: string; segment: string; network: 'mainnet' | 'testnet' }
-  interface AddressDerivingWallet { getPublicKey(args: unknown, originator?: string): Promise<{ publicKey: string }> }
-  function getPaymentAddress(wallet: AddressDerivingWallet, adminOriginator: string, derivationPrefix: string, network: 'mainnet' | 'testnet'): Promise<string>
+  interface AddressDerivingWallet {
+    getPublicKey(args: unknown, originator?: string): Promise<{ publicKey: string }>
+  }
+  function getPaymentAddress(
+    wallet: AddressDerivingWallet,
+    adminOriginator: string,
+    derivationPrefix: string,
+    network: 'mainnet' | 'testnet'
+  ): Promise<string>
   ```
 
 - [ ] **Step 1: Write the failing test**
@@ -517,7 +535,7 @@ describe('derivation key material', () => {
     expect(BRC29_PROTOCOL_ID).toEqual([2, '3241645161d8'])
   })
 
-  it("derives the prefix as base64 of the date string", () => {
+  it('derives the prefix as base64 of the date string', () => {
     expect(derivationPrefixFor('2026-07-28')).toBe(Utils.toBase64(Utils.toArray('2026-07-28', 'utf8')))
   })
 
@@ -617,7 +635,7 @@ Create `utils/pay/rails/address.ts`:
  * must not be "corrected".
  */
 import { PublicKey, Utils, type WalletProtocol } from '@bsv/sdk'
-import type { AppChain } from '@/context/config'   // 'main' | 'test' | 'teratest'
+import type { AppChain } from '@/context/config' // 'main' | 'test' | 'teratest'
 
 export const BRC29_PROTOCOL_ID: WalletProtocol = [2, '3241645161d8']
 
@@ -718,19 +736,31 @@ EOF
 
 ### Task 3: Address rail — reads, sweep, send
 
-The UTXO reads, the internalize (the *sweep mechanism*, which must survive verbatim — only its trigger changes), and the outbound send.
+The UTXO reads, the internalize (the _sweep mechanism_, which must survive verbatim — only its trigger changes), and the outbound send.
 
 **Files:**
+
 - Modify: `utils/pay/rails/address.ts` (append)
 - Test: `__tests__/payAddressRail.test.ts`
 - Reference to port from: `app/legacy-payments.tsx:168-201` (`getUtxosForAddress`, `getInternalizedUtxos`), `:203-244` (`getProcessedTransactions`, `fetchBalance`), `:273-368` (`handleImportFunds` — the sweep), `:449-481` (`handleSendBSV`).
 
 **Interfaces:**
+
 - Consumes: everything from Task 2; `Beef`, `PrivateKey`, `P2PKH`, `InternalizeActionArgs`, `InternalizeOutput` from `@bsv/sdk`.
 - Produces:
+
   ```ts
-  interface Utxo { txid: string; vout: number; satoshis: number }
-  interface ProcessedTx { txid: string; satoshis: number; status: string; importedAt: Date | null }
+  interface Utxo {
+    txid: string
+    vout: number
+    satoshis: number
+  }
+  interface ProcessedTx {
+    txid: string
+    satoshis: number
+    status: string
+    importedAt: Date | null
+  }
   interface AddressRailWallet extends AddressDerivingWallet {
     listActions(args: unknown, originator?: string): Promise<{ actions: any[] }>
     internalizeAction(args: unknown, originator?: string): Promise<{ accepted?: boolean } | undefined>
@@ -741,7 +771,14 @@ The UTXO reads, the internalize (the *sweep mechanism*, which must survive verba
   function availableUtxos(all: Utxo[], internalized: Set<string>): Utxo[]
   function fetchBalance(wallet, adminOriginator, woc, address): Promise<number>
   function getProcessedTransactions(wallet, adminOriginator, address): Promise<ProcessedTx[]>
-  function sweepAddress(args: { wallet; adminOriginator; woc; address; derivationPrefix; nowSeconds?: number }): Promise<{ importedSatoshis: number; failureCount: number }>
+  function sweepAddress(args: {
+    wallet
+    adminOriginator
+    woc
+    address
+    derivationPrefix
+    nowSeconds?: number
+  }): Promise<{ importedSatoshis: number; failureCount: number }>
   function sendToAddress(args: { wallet; adminOriginator; address; satoshis }): Promise<void>
   ```
 
@@ -795,9 +832,7 @@ describe('getUtxosForAddress', () => {
   it('calls the network-specific unspent/all endpoint', async () => {
     mockFetchOnce(() => ({ json: { result: [] } }))
     await getUtxosForAddress(woc, ADDRESS)
-    expect(global.fetch).toHaveBeenCalledWith(
-      `https://api.whatsonchain.com/v1/bsv/main/address/${ADDRESS}/unspent/all`
-    )
+    expect(global.fetch).toHaveBeenCalledWith(`https://api.whatsonchain.com/v1/bsv/main/address/${ADDRESS}/unspent/all`)
   })
 })
 
@@ -895,7 +930,13 @@ describe('sweepAddress', () => {
     mockFetchOnce(() => ({ json: { result: [] } }))
     const wallet = walletWithNothingImported()
     await expect(
-      sweepAddress({ wallet: wallet as never, adminOriginator: 'admin.com', woc, address: ADDRESS, derivationPrefix: prefix })
+      sweepAddress({
+        wallet: wallet as never,
+        adminOriginator: 'admin.com',
+        woc,
+        address: ADDRESS,
+        derivationPrefix: prefix
+      })
     ).resolves.toEqual({ importedSatoshis: 0, failureCount: 0 })
     expect(wallet.internalizeAction).not.toHaveBeenCalled()
   })
@@ -965,7 +1006,13 @@ describe('sweepAddress', () => {
       internalizeAction: jest.fn().mockResolvedValue({ accepted: false })
     }
     await expect(
-      sweepAddress({ wallet: wallet as never, adminOriginator: 'admin.com', woc, address: ADDRESS, derivationPrefix: prefix })
+      sweepAddress({
+        wallet: wallet as never,
+        adminOriginator: 'admin.com',
+        woc,
+        address: ADDRESS,
+        derivationPrefix: prefix
+      })
     ).resolves.toEqual({ importedSatoshis: 0, failureCount: 1 })
   })
 
@@ -978,7 +1025,13 @@ describe('sweepAddress', () => {
       internalizeAction: jest.fn()
     }
     await expect(
-      sweepAddress({ wallet: wallet as never, adminOriginator: 'admin.com', woc, address: ADDRESS, derivationPrefix: prefix })
+      sweepAddress({
+        wallet: wallet as never,
+        adminOriginator: 'admin.com',
+        woc,
+        address: ADDRESS,
+        derivationPrefix: prefix
+      })
     ).resolves.toEqual({ importedSatoshis: 0, failureCount: 0 })
     expect(wallet.internalizeAction).not.toHaveBeenCalled()
   })
@@ -1024,7 +1077,7 @@ describe('sendToAddress', () => {
 Run: `npx jest __tests__/payAddressRail.test.ts`
 Expected: FAIL — the new exports do not exist.
 
-If the two BEEF-based `sweepAddress` cases prove awkward to construct (an SDK version quirk in `mergeRawTx`/`findAtomicTransaction`), replace *only those two* with a seam test: extract the pure `buildInternalizeArgsFor(beefTx, utxos, …)` and assert its output shape directly, keeping the four non-BEEF `sweepAddress` cases. Do not delete coverage of the labels/remittance/description shape — that is the part that must not drift.
+If the two BEEF-based `sweepAddress` cases prove awkward to construct (an SDK version quirk in `mergeRawTx`/`findAtomicTransaction`), replace _only those two_ with a seam test: extract the pure `buildInternalizeArgsFor(beefTx, utxos, …)` and assert its output shape directly, keeping the four non-BEEF `sweepAddress` cases. Do not delete coverage of the labels/remittance/description shape — that is the part that must not drift.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1273,19 +1326,27 @@ EOF
 The background sweeper must not guess which addresses to poll. It polls exactly the ones the app has shown to a user, and it drops them on a schedule. This is where spec open question 5's bounds live.
 
 **Files:**
+
 - Create: `utils/pay/watchlist.ts`
 - Test: `__tests__/payWatchlist.test.ts`
 - Pattern to follow: `utils/localpay/pending.ts` (KV storage shape and the `withQueueLock` read-modify-write chain — copy that chain, do not import it; `pending.ts` is read-only).
 
 **Interfaces:**
+
 - Consumes: `KVStorage` shape (`getKeyValue`/`setKeyValue`) — declare a local interface, do not import from `utils/localpay/pending.ts`.
 - Produces:
+
   ```ts
   const WATCHLIST_KEY = 'pay_address_watchlist'
   const MAX_WATCHED = 8
-  const WATCH_TTL_MS = 86_400_000        // 24h of no activity
-  const MAX_WATCH_DAYS = 7               // an address dated older than this is dropped
-  interface WatchedAddress { address: string; date: string; derivationPrefix: string; lastActivityAt: string }
+  const WATCH_TTL_MS = 86_400_000 // 24h of no activity
+  const MAX_WATCH_DAYS = 7 // an address dated older than this is dropped
+  interface WatchedAddress {
+    address: string
+    date: string
+    derivationPrefix: string
+    lastActivityAt: string
+  }
   function pruneWatchlist(list: WatchedAddress[], nowMs: number): WatchedAddress[]
   function watchAddress(storage: KVStorage, entry: Omit<WatchedAddress, 'lastActivityAt'>): Promise<void>
   function getWatchlist(storage: KVStorage): Promise<WatchedAddress[]>
@@ -1536,10 +1597,7 @@ async function writeAll(storage: KVStorage, list: WatchedAddress[]): Promise<voi
 }
 
 /** Register (or refresh) an address the user has just been shown. */
-export async function watchAddress(
-  storage: KVStorage,
-  entry: Omit<WatchedAddress, 'lastActivityAt'>
-): Promise<void> {
+export async function watchAddress(storage: KVStorage, entry: Omit<WatchedAddress, 'lastActivityAt'>): Promise<void> {
   return withQueueLock(async () => {
     const now = Date.now()
     const existing = (await readAll(storage)).filter(e => e.address !== entry.address)
@@ -1559,9 +1617,7 @@ export async function touchWatched(storage: KVStorage, address: string): Promise
     const all = await readAll(storage)
     if (!all.some(e => e.address === address)) return
     const now = Date.now()
-    const next = all.map(e =>
-      e.address === address ? { ...e, lastActivityAt: new Date(now).toISOString() } : e
-    )
+    const next = all.map(e => (e.address === address ? { ...e, lastActivityAt: new Date(now).toISOString() } : e))
     await writeAll(storage, pruneWatchlist(next, now))
   })
 }
@@ -1610,17 +1666,34 @@ EOF
 Turns the watchlist plus the address rail into one callable pass, and states in one pure function when a pass is allowed to run.
 
 **Files:**
+
 - Create: `utils/pay/sweeper.ts`
 - Test: `__tests__/paySweeper.test.ts`
 
 **Interfaces:**
+
 - Consumes: `sweepAddress`, `wocConfigFor`, `type AddressRailWallet`, `type WocConfig` from `@/utils/pay/rails/address`; `getWatchlist`, `touchWatched`, `type KVStorage`, `type WatchedAddress` from `@/utils/pay/watchlist`.
 - Produces:
+
   ```ts
   const SWEEP_INTERVAL_MS = 30_000
-  interface SweepOutcome { address: string; importedSatoshis: number; failureCount: number }
-  function shouldSweepNow(state: { walletBuilt: boolean; appActive: boolean; online: boolean; inFlight: boolean }): boolean
-  function runSweep(args: { wallet: AddressRailWallet; storage: KVStorage; adminOriginator: string; woc: WocConfig }): Promise<SweepOutcome[]>
+  interface SweepOutcome {
+    address: string
+    importedSatoshis: number
+    failureCount: number
+  }
+  function shouldSweepNow(state: {
+    walletBuilt: boolean
+    appActive: boolean
+    online: boolean
+    inFlight: boolean
+  }): boolean
+  function runSweep(args: {
+    wallet: AddressRailWallet
+    storage: KVStorage
+    adminOriginator: string
+    woc: WocConfig
+  }): Promise<SweepOutcome[]>
   function sweptTotal(outcomes: SweepOutcome[]): number
   ```
 
@@ -1885,10 +1958,12 @@ EOF
 The lifecycle: an interval that only ticks when `shouldSweepNow` says so, an in-flight guard, and a toast when money lands. It sits directly beside the existing localpay retry loop so the two background sweeps read as one pattern.
 
 **Files:**
+
 - Modify: `context/WalletContext.tsx` (new effect immediately after the localpay block at `:1225-1269`; new ref beside `localPayProcessingRef` at `:331`)
 - Test: none automated — this is a React effect over `AppState`/`NetInfo`/`setInterval`, and its logic is already covered by Task 5's `shouldSweepNow`/`runSweep` tests. Verified in Task 16's device test.
 
 **Interfaces:**
+
 - Consumes: `runSweep`, `shouldSweepNow`, `sweptTotal`, `SWEEP_INTERVAL_MS` from `@/utils/pay/sweeper`; `wocConfigFor` from `@/utils/pay/rails/address`; existing `selectedNetwork`, `managers.permissionsManager`, `storage`, `walletBuilt`, `adminOriginator`, `setLocalPayNotification`, `t`.
 - Produces: no new context surface. Sweep results reach the UI through the existing `localPayNotification` channel, which `LocalPayNotificationBridge` (`app/_layout.tsx:83-93`) already turns into a global toast.
 
@@ -1897,9 +1972,9 @@ The lifecycle: an interval that only ticks when `shouldSweepNow` says so, an in-
 In `context/WalletContext.tsx`, immediately after the `localPayProcessingRef` declaration (`:331`), add:
 
 ```tsx
-  // Guards overlapping address-sweep passes. Same reason as the localpay guard
-  // above: a pass writes to the wallet, so two at once can race an internalize.
-  const addressSweepingRef = useRef<boolean>(false)
+// Guards overlapping address-sweep passes. Same reason as the localpay guard
+// above: a pass writes to the wallet, so two at once can race an internalize.
+const addressSweepingRef = useRef<boolean>(false)
 ```
 
 - [ ] **Step 2: Add the imports**
@@ -1917,73 +1992,73 @@ import { formatAmount } from '@/utils/amountFormatHelpers'
 Immediately after the localpay pending-queue effect (after the closing `}, [walletBuilt, managers.permissionsManager, storage, adminOriginator, t])` at `:1269`), add:
 
 ```tsx
-  // ── Background legacy-address sweep ──
-  // "Get paid → a conventional wallet" is: show the address, and money appears.
-  // The user never has to return to a screen, so the poll cannot live in one.
-  // Bounds live in utils/pay/watchlist.ts (which addresses) and
-  // utils/pay/sweeper.ts (when a pass may run at all).
-  useEffect(() => {
-    const wallet = managers.permissionsManager
-    if (!walletBuilt || !wallet || !storage) return
+// ── Background legacy-address sweep ──
+// "Get paid → a conventional wallet" is: show the address, and money appears.
+// The user never has to return to a screen, so the poll cannot live in one.
+// Bounds live in utils/pay/watchlist.ts (which addresses) and
+// utils/pay/sweeper.ts (when a pass may run at all).
+useEffect(() => {
+  const wallet = managers.permissionsManager
+  if (!walletBuilt || !wallet || !storage) return
 
-    let cancelled = false
-    let online = true
-    const woc = wocConfigFor(selectedNetwork)
+  let cancelled = false
+  let online = true
+  const woc = wocConfigFor(selectedNetwork)
 
-    const tick = async () => {
-      if (cancelled) return
-      if (
-        !shouldSweepNow({
-          walletBuilt: true,
-          appActive: AppState.currentState === 'active',
-          online,
-          inFlight: addressSweepingRef.current
-        })
-      ) {
-        return
-      }
-      addressSweepingRef.current = true
-      try {
-        const outcomes = await runSweep({
-          wallet: wallet as any,
-          storage,
-          adminOriginator,
-          woc
-        })
-        const total = sweptTotal(outcomes)
-        if (total > 0 && !cancelled) {
-          // The internalizeAction inside the sweep IS the inbound history entry
-          // (labels: legacy, inbound, …), so the toast is all that is left to do.
-          setLocalPayNotification({
-            message: t('pay_address_swept', { amount: formatAmount(total, settings?.currency || 'BSV') }),
-            type: 'success'
-          })
-        }
-      } catch {
-        // Best-effort. Every address stays watched and the next tick retries.
-      } finally {
-        addressSweepingRef.current = false
-      }
+  const tick = async () => {
+    if (cancelled) return
+    if (
+      !shouldSweepNow({
+        walletBuilt: true,
+        appActive: AppState.currentState === 'active',
+        online,
+        inFlight: addressSweepingRef.current
+      })
+    ) {
+      return
     }
-
-    const netUnsubscribe = NetInfo.addEventListener(state => {
-      online = !!state.isConnected && state.isInternetReachable !== false
-      // Coming back online is worth a pass immediately rather than at the next tick.
-      if (online) void tick()
-    })
-    const appSubscription = AppState.addEventListener('change', next => {
-      if (next === 'active') void tick()
-    })
-    const interval = setInterval(() => void tick(), SWEEP_INTERVAL_MS)
-    void tick()
-
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-      netUnsubscribe()
-      appSubscription.remove()
+    addressSweepingRef.current = true
+    try {
+      const outcomes = await runSweep({
+        wallet: wallet as any,
+        storage,
+        adminOriginator,
+        woc
+      })
+      const total = sweptTotal(outcomes)
+      if (total > 0 && !cancelled) {
+        // The internalizeAction inside the sweep IS the inbound history entry
+        // (labels: legacy, inbound, …), so the toast is all that is left to do.
+        setLocalPayNotification({
+          message: t('pay_address_swept', { amount: formatAmount(total, settings?.currency || 'BSV') }),
+          type: 'success'
+        })
+      }
+    } catch {
+      // Best-effort. Every address stays watched and the next tick retries.
+    } finally {
+      addressSweepingRef.current = false
     }
-  }, [walletBuilt, managers.permissionsManager, storage, adminOriginator, selectedNetwork, settings?.currency, t])
+  }
+
+  const netUnsubscribe = NetInfo.addEventListener(state => {
+    online = !!state.isConnected && state.isInternetReachable !== false
+    // Coming back online is worth a pass immediately rather than at the next tick.
+    if (online) void tick()
+  })
+  const appSubscription = AppState.addEventListener('change', next => {
+    if (next === 'active') void tick()
+  })
+  const interval = setInterval(() => void tick(), SWEEP_INTERVAL_MS)
+  void tick()
+
+  return () => {
+    cancelled = true
+    clearInterval(interval)
+    netUnsubscribe()
+    appSubscription.remove()
+  }
+}, [walletBuilt, managers.permissionsManager, storage, adminOriginator, selectedNetwork, settings?.currency, t])
 ```
 
 Check `formatAmount`'s signature before wiring the message — `grep -n "export function formatAmount" -A6 utils/amountFormatHelpers.ts`. In `app/payments.tsx:1170` it is called as `formatAmount(sats, currency, satoshisPerUSD)`; `satoshisPerUSD` is not available in `WalletContext`, so either pass the two-argument form (if the third is optional) or fall back to `t('pay_address_swept_plain')` with no amount. Do not add an ExchangeRate dependency to `WalletContext` for this.
@@ -2018,13 +2093,16 @@ EOF
 ### Task 7: Handle rail (PeerPay)
 
 **Files:**
+
 - Create: `utils/pay/rails/handle.ts`
 - Test: `__tests__/payHandleRail.test.ts`
 - Reference to port from: `app/payments.tsx:211-226` (`acceptWithRetry`), `:1050-1076` (`internalizePayment`), `:1136-1198` (`handleSend`'s four steps), `:1203-1226` (retry).
 
 **Interfaces:**
+
 - Consumes: `OutboxEntry`, `saveOutboxEntry`, `markOutboxSent`, `updateOutboxEntry` from `@/utils/peerpay/outbox`; `IncomingPayment`, `PaymentToken`, `PeerPayClient` types from `@bsv/message-box-client`.
 - Produces:
+
   ```ts
   const MESSAGE_BOX_URL_KEY = 'message_box_url'
   const DEFAULT_MESSAGE_BOX_URL = 'https://messagebox.babbage.systems'
@@ -2032,7 +2110,13 @@ EOF
   function peerPayLinkFor(identityKey: string, sats?: number): string
   function internalizeIncoming(wallet, adminOriginator, payment, description): Promise<void>
   function acceptWithRetry(client, messageBoxUrl, payment, description, internalize): Promise<void>
-  function sendViaHandle(args: { client; storage; recipient: string; satoshis: number; messageBoxUrl: string }): Promise<{ outboxId: string }>
+  function sendViaHandle(args: {
+    client
+    storage
+    recipient: string
+    satoshis: number
+    messageBoxUrl: string
+  }): Promise<{ outboxId: string }>
   function retryDelivery(args: { client; storage; entry: OutboxEntry }): Promise<void>
   ```
 
@@ -2211,7 +2295,13 @@ describe('sendViaHandle', () => {
       createPaymentToken: jest.fn().mockResolvedValue(token),
       sendMessage: jest.fn().mockResolvedValue(undefined)
     }
-    await sendViaHandle({ client: client as never, storage: s, recipient: KEY, satoshis: 700, messageBoxUrl: 'https://mb' })
+    await sendViaHandle({
+      client: client as never,
+      storage: s,
+      recipient: KEY,
+      satoshis: 700,
+      messageBoxUrl: 'https://mb'
+    })
     expect((await getOutboxEntries(s))[0].status).toBe('sent')
   })
 
@@ -2235,7 +2325,13 @@ describe('sendViaHandle', () => {
       createPaymentToken: jest.fn().mockResolvedValue(token),
       sendMessage: jest.fn().mockResolvedValue(undefined)
     }
-    await sendViaHandle({ client: client as never, storage: s, recipient: KEY, satoshis: 700, messageBoxUrl: 'https://mb' })
+    await sendViaHandle({
+      client: client as never,
+      storage: s,
+      recipient: KEY,
+      satoshis: 700,
+      messageBoxUrl: 'https://mb'
+    })
     expect(client.sendMessage).toHaveBeenCalledWith({
       recipient: KEY,
       messageBox: 'payment_inbox',
@@ -2319,12 +2415,7 @@ Create `utils/pay/rails/handle.ts`:
  * makes a crash recoverable.
  */
 import type { IncomingPayment, PaymentToken, PeerPayClient } from '@bsv/message-box-client'
-import {
-  markOutboxSent,
-  saveOutboxEntry,
-  updateOutboxEntry,
-  type OutboxEntry
-} from '@/utils/peerpay/outbox'
+import { markOutboxSent, saveOutboxEntry, updateOutboxEntry, type OutboxEntry } from '@/utils/peerpay/outbox'
 
 export const MESSAGE_BOX_URL_KEY = 'message_box_url'
 export const DEFAULT_MESSAGE_BOX_URL = 'https://messagebox.babbage.systems'
@@ -2354,9 +2445,7 @@ interface InternalizingWallet {
  */
 export function peerPayLinkFor(identityKey: string, sats?: number): string {
   const amount = sats !== undefined ? Math.round(Number(sats)) : NaN
-  return Number.isFinite(amount) && amount > 0
-    ? `peerpay:${identityKey}?sats=${amount}`
-    : `peerpay:${identityKey}`
+  return Number.isFinite(amount) && amount > 0 ? `peerpay:${identityKey}?sats=${amount}` : `peerpay:${identityKey}`
 }
 
 /** Credit an incoming payment, then acknowledge it. Never acknowledge first. */
@@ -2471,7 +2560,7 @@ export async function retryDelivery(args: {
 Run: `npx jest __tests__/payHandleRail.test.ts`
 Expected: PASS.
 
-If `internalizeIncoming`'s signature in the test (which takes `client` as the second argument) disagrees with what you implement, fix the *implementation* to match the test — the acknowledge must live inside the same function as the internalize so it cannot be forgotten at a call site.
+If `internalizeIncoming`'s signature in the test (which takes `client` as the second argument) disagrees with what you implement, fix the _implementation_ to match the test — the acknowledge must live inside the same function as the internalize so it cannot be forgotten at a call site.
 
 Then: `npx tsc --noEmit`.
 
@@ -2501,10 +2590,12 @@ EOF
 Deliberately trivial. Its job is to be the one import site for nearby, so no UI file ever reaches into `utils/localpay/*` and no logic accretes between the two.
 
 **Files:**
+
 - Create: `utils/pay/rails/nearby.ts`
 - Test: `__tests__/payNearbyRail.test.ts`
 
 **Interfaces:**
+
 - Consumes: `utils/localpay/{session,codec,pending,build}` and `utils/localpay/transport/{awdl,select,types}` — read-only.
 - Produces: re-exports only. No new behaviour, no wrappers.
 
@@ -2576,12 +2667,7 @@ export {
 export { buildPaymentFrame, finalizeDelivery } from '@/utils/localpay/build'
 export { awdlTransport } from '@/utils/localpay/transport/awdl'
 export { localSupportsAwdl, selectTransport } from '@/utils/localpay/transport/select'
-export {
-  isDeclineReason,
-  type Ack,
-  type ConfirmDelivery,
-  type DeclineReason
-} from '@/utils/localpay/transport/types'
+export { isDeclineReason, type Ack, type ConfirmDelivery, type DeclineReason } from '@/utils/localpay/transport/types'
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
@@ -2612,15 +2698,18 @@ EOF
 
 ### Task 9: NearbyFlow component (move `local-payments.tsx` verbatim)
 
-The spec's survival requirement 6: *everything in `local-payments.tsx`, unchanged in behaviour*. So this is a **move with a named list of edits**, not a rewrite. Do not restructure the phase machine, do not reorder the settle path, do not touch a comment.
+The spec's survival requirement 6: _everything in `local-payments.tsx`, unchanged in behaviour_. So this is a **move with a named list of edits**, not a rewrite. Do not restructure the phase machine, do not reorder the settle path, do not touch a comment.
 
 **Files:**
+
 - Create: `components/pay/NearbyFlow.tsx` (from `app/local-payments.tsx`, all 1930 lines)
 - Test: `__tests__/payScreen.test.tsx` covers it via the screen in Task 13; no separate test here.
 
 **Interfaces:**
+
 - Consumes: `utils/pay/rails/nearby` (replacing the direct `utils/localpay/*` imports), `useWallet`, theme, `QRScanner`, `AmountInput`, `AmountDisplay`, `Celebration`, `PressableScale`, `PresenceRow`, `sounds`, identity helpers.
 - Produces:
+
   ```ts
   interface NearbyFlowProps {
     /** Which side of the exchange this device is on. Set by the cell that mounted it. */
@@ -2689,16 +2778,16 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
 5. **Entry effect** — add immediately after the `useFocusEffect` block (original `:390-398`):
 
 ```tsx
-  // The grid already asked which side the user is on, so the old role screen is
-  // gone. A payee goes straight to naming an amount; a payer straight to the
-  // camera. Runs once per mount.
-  const enteredRef = useRef(false)
-  useEffect(() => {
-    if (enteredRef.current) return
-    enteredRef.current = true
-    if (initialRole === 'payee') setPhase('receive_amount')
-    else openScanner('send_scan')
-  }, [initialRole, openScanner])
+// The grid already asked which side the user is on, so the old role screen is
+// gone. A payee goes straight to naming an amount; a payer straight to the
+// camera. Runs once per mount.
+const enteredRef = useRef(false)
+useEffect(() => {
+  if (enteredRef.current) return
+  enteredRef.current = true
+  if (initialRole === 'payee') setPhase('receive_amount')
+  else openScanner('send_scan')
+}, [initialRole, openScanner])
 ```
 
 `openScanner` is declared below this point in the file; move its `useCallback` (original `:1098-1101`) up to just above this effect so the reference is defined at render time. Nothing else moves.
@@ -2710,10 +2799,10 @@ export default function NearbyFlow({ role: initialRole, onExit }: NearbyFlowProp
 8. **`closeScanner`** — the `'role'` branch becomes `'entry'`:
 
 ```tsx
-  const closeScanner = useCallback(() => {
-    scanLatchRef.current = false
-    setPhase(current => (current === 'receive_scan' ? 'receive_wait' : 'entry'))
-  }, [])
+const closeScanner = useCallback(() => {
+  scanLatchRef.current = false
+  setPhase(current => (current === 'receive_scan' ? 'receive_wait' : 'entry'))
+}, [])
 ```
 
 9. **Header** — delete the whole `<View style={[styles.header, …]}>` block (original `:1198-1218`) and the `insets.top` padding on the container; `app/pay.tsx` owns the chrome. Keep `insets.bottom` on the ScrollView's `contentContainerStyle`. Leave `styles.header*` definitions in place (harmless) or delete them if lint flags them as unused.
@@ -2790,12 +2879,15 @@ EOF
 Pay → someone with this app: search or scan a handle, name an amount, see the consequence, send. Plus the outgoing (outbox) list.
 
 **Files:**
+
 - Create: `components/pay/HandleSend.tsx`
 - Reference to port from: `app/payments.tsx:68-209` (`useIdentitySearch`), `:228-301` (`useMessageBoxConfig`), `:303-320` (`ResultBanner`), `:324-414` (`OutgoingSection`), `:528-611` (`ConfigPanel`), `:613-752` (`RecipientField`), `:1136-1236` (send/retry/dismiss handlers).
 
 **Interfaces:**
+
 - Consumes: `sendViaHandle`, `retryDelivery`, `MESSAGE_BOX_URL_KEY`, `DEFAULT_MESSAGE_BOX_URL`, `NO_MESSAGE_BOX` from `@/utils/pay/rails/handle`; `CONSEQUENCE_KEYS` from `@/utils/pay/rails`; `useWallet`, `PeerPayClient`, identity helpers, `AmountInput`, `showToast`, `Celebration`.
 - Produces:
+
   ```ts
   interface HandleSendProps {
     /** Prefilled recipient from a deep link or a scan (identity key hex). */
@@ -2855,11 +2947,7 @@ import { ExchangeRateContext } from '@/context/ExchangeRateContext'
 import { formatAmount } from '@/utils/amountFormatHelpers'
 import { CONSEQUENCE_KEYS } from '@/utils/pay/rails'
 import { NO_MESSAGE_BOX, retryDelivery, sendViaHandle } from '@/utils/pay/rails/handle'
-import {
-  getOutboxEntries,
-  removeOutboxEntry,
-  type OutboxEntry
-} from '@/utils/peerpay/outbox'
+import { getOutboxEntries, removeOutboxEntry, type OutboxEntry } from '@/utils/peerpay/outbox'
 import { haptics } from '@/hooks/useHaptics'
 
 const FIRST_PAYMENT_KEY = 'hasSentFirstPayment'
@@ -3136,10 +3224,12 @@ EOF
 Get paid → someone with this app: your handle (QR, copy, share link) and the inbox of payments waiting to be accepted. This is where the Identity-Key modal from `settings.tsx` lands.
 
 **Files:**
+
 - Create: `components/pay/HandleReceive.tsx`
 - Reference to port from: `app/payments.tsx:418-526` (`IncomingPaymentsSection`), `:754-858` (`PaymentRow`), `:1007-1133` (fetch/accept/accept-all), `app/settings.tsx:183-208` (the QR presentation) and `:41-46` (copy).
 
 **Interfaces:**
+
 - Consumes: `internalizeIncoming`, `acceptWithRetry`, `peerPayLinkFor`, `NO_MESSAGE_BOX` from `@/utils/pay/rails/handle`; `resolveIdentity`, `makeIdentityClient` from `@/utils/identity/resolveIdentity`; `Share` from `react-native`; `Clipboard`; `QRCode`.
 - Produces: `export default function HandleReceive(): JSX.Element` — no props.
 
@@ -3436,12 +3526,15 @@ EOF
 ### Task 12: AddressSend and AddressReceive components
 
 **Files:**
+
 - Create: `components/pay/AddressSend.tsx`, `components/pay/AddressReceive.tsx`
 - Reference to port from: `app/legacy-payments.tsx:611-714` (send form), `:486-608` (receive view), `:402-446` (validation + scan).
 
 **Interfaces:**
+
 - Consumes: from `@/utils/pay/rails/address` — `MAX_RECOVERY_DAYS`, `derivationPrefixFor`, `getCurrentDate`, `getPaymentAddress`, `getProcessedTransactions`, `sendToAddress`, `wocConfigFor`; from `@/utils/pay/rails` — `CONSEQUENCE_KEYS`, `isValidBsvAddress`, `normalizeAddressInput`; from `@/utils/pay/watchlist` — `watchAddress`.
 - Produces:
+
   ```ts
   export default function AddressSend(props: { initialAddress?: string }): JSX.Element
   export default function AddressReceive(): JSX.Element
@@ -3526,7 +3619,11 @@ export default function AddressSend({ initialAddress }: { initialAddress?: strin
   }, [wallet, adminOriginator, address, amount, currency, satoshisPerUSD, t])
 
   return (
-    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+    <ScrollView
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+    >
       <View style={styles.fieldGroup}>
         <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>{t('recipient_address').toUpperCase()}</Text>
         <View
@@ -3544,7 +3641,11 @@ export default function AddressSend({ initialAddress }: { initialAddress?: strin
             autoCorrect={false}
             style={[styles.input, { color: colors.textPrimary }]}
           />
-          <TouchableOpacity onPress={() => setScannerVisible(true)} style={styles.inputAction} accessibilityLabel={t('scan_qr_code')}>
+          <TouchableOpacity
+            onPress={() => setScannerVisible(true)}
+            style={styles.inputAction}
+            accessibilityLabel={t('scan_qr_code')}
+          >
             <Ionicons name="qr-code-outline" size={20} color={colors.accent} />
           </TouchableOpacity>
         </View>
@@ -3583,9 +3684,19 @@ export default function AddressSend({ initialAddress }: { initialAddress?: strin
         )}
       </PressableScale>
 
-      <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)} statusBarTranslucent>
+      <Modal
+        visible={scannerVisible}
+        animationType="slide"
+        onRequestClose={() => setScannerVisible(false)}
+        statusBarTranslucent
+      >
         <StatusBar style="light" />
-        <QRScanner multiScan onScan={onScan} onClose={() => setScannerVisible(false)} hintText={t('scan_bsv_address_hint')} />
+        <QRScanner
+          multiScan
+          onScan={onScan}
+          onClose={() => setScannerVisible(false)}
+          hintText={t('scan_bsv_address_hint')}
+        />
       </Modal>
     </ScrollView>
   )
@@ -3731,10 +3842,9 @@ export default function AddressReceive() {
         address,
         derivationPrefix: derivationPrefixFor(getCurrentDate(daysOffset))
       })
-      showToast(
-        importedSatoshis > 0 ? t('local_pay_added') : t('no_pending_payments'),
-        { type: importedSatoshis > 0 ? 'success' : 'info' }
-      )
+      showToast(importedSatoshis > 0 ? t('local_pay_added') : t('no_pending_payments'), {
+        type: importedSatoshis > 0 ? 'success' : 'info'
+      })
       setProcessed(await getProcessedTransactions(wallet as any, adminOriginator, address))
     } catch (e: any) {
       showToast(e?.message || t('unknown_error'), { type: 'error' })
@@ -3763,7 +3873,11 @@ export default function AddressReceive() {
           </View>
 
           <TouchableOpacity onPress={handleCopy} style={[styles.addressChip, { backgroundColor: colors.fillTertiary }]}>
-            <Text style={[styles.addressText, { color: colors.textSecondary }]} numberOfLines={1} ellipsizeMode="middle">
+            <Text
+              style={[styles.addressText, { color: colors.textSecondary }]}
+              numberOfLines={1}
+              ellipsizeMode="middle"
+            >
               {address}
             </Text>
             <View style={[styles.copyPill, { backgroundColor: copied ? colors.success + '20' : colors.fill }]}>
@@ -3810,7 +3924,11 @@ export default function AddressReceive() {
                         {formatDistanceToNow(tx.importedAt, { addSuffix: true })}
                       </Text>
                     ) : (
-                      <Text style={[styles.logTxid, { color: colors.textTertiary }]} numberOfLines={1} ellipsizeMode="middle">
+                      <Text
+                        style={[styles.logTxid, { color: colors.textTertiary }]}
+                        numberOfLines={1}
+                        ellipsizeMode="middle"
+                      >
                         {tx.txid}
                       </Text>
                     )}
@@ -3907,7 +4025,13 @@ const styles = StyleSheet.create({
   totalLabel: { ...typography.subhead },
   totalValue: { ...typography.headline, fontWeight: '700' },
   log: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.md, overflow: 'hidden' },
-  logRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
+  logRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md
+  },
   logSats: { ...typography.subhead, fontWeight: '600' },
   logTxid: { ...typography.caption1, fontFamily: 'monospace', flex: 1 },
   logTime: { ...typography.caption1, fontFamily: 'monospace' },
@@ -3968,11 +4092,13 @@ EOF
 Six cells, one screen, one route. The user picks a row; the transport is inferred.
 
 **Files:**
+
 - Create: `app/pay.tsx`, `components/pay/PayCellRow.tsx`
 - Modify: `app/_layout.tsx` (add `<Stack.Screen name="pay" />`)
 - Test: `__tests__/payScreen.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `PayCell`, `isPayCell`, `PRECONDITION_KEYS` from `@/utils/pay/rails`; `validatePeerPayURI`; all six cell components.
 - Produces: the route. Params it accepts: `cell` (a `PayCell`), `identityKey`, `sats`, `peerpay`.
 
@@ -4169,14 +4295,44 @@ interface CellSpec {
 
 const CELLS: Record<Direction, CellSpec[]> = {
   pay: [
-    { cell: 'pay-nearby', titleKey: 'pay_cell_nearby_pay', subtitleKey: 'pay_cell_nearby_pay_sub', icon: 'scan-outline' },
-    { cell: 'pay-handle', titleKey: 'pay_cell_handle_pay', subtitleKey: 'pay_cell_handle_pay_sub', icon: 'person-outline' },
-    { cell: 'pay-address', titleKey: 'pay_cell_address_pay', subtitleKey: 'pay_cell_address_pay_sub', icon: 'wallet-outline' }
+    {
+      cell: 'pay-nearby',
+      titleKey: 'pay_cell_nearby_pay',
+      subtitleKey: 'pay_cell_nearby_pay_sub',
+      icon: 'scan-outline'
+    },
+    {
+      cell: 'pay-handle',
+      titleKey: 'pay_cell_handle_pay',
+      subtitleKey: 'pay_cell_handle_pay_sub',
+      icon: 'person-outline'
+    },
+    {
+      cell: 'pay-address',
+      titleKey: 'pay_cell_address_pay',
+      subtitleKey: 'pay_cell_address_pay_sub',
+      icon: 'wallet-outline'
+    }
   ],
   get: [
-    { cell: 'get-nearby', titleKey: 'pay_cell_nearby_get', subtitleKey: 'pay_cell_nearby_get_sub', icon: 'qr-code-outline' },
-    { cell: 'get-handle', titleKey: 'pay_cell_handle_get', subtitleKey: 'pay_cell_handle_get_sub', icon: 'person-outline' },
-    { cell: 'get-address', titleKey: 'pay_cell_address_get', subtitleKey: 'pay_cell_address_get_sub', icon: 'wallet-outline' }
+    {
+      cell: 'get-nearby',
+      titleKey: 'pay_cell_nearby_get',
+      subtitleKey: 'pay_cell_nearby_get_sub',
+      icon: 'qr-code-outline'
+    },
+    {
+      cell: 'get-handle',
+      titleKey: 'pay_cell_handle_get',
+      subtitleKey: 'pay_cell_handle_get_sub',
+      icon: 'person-outline'
+    },
+    {
+      cell: 'get-address',
+      titleKey: 'pay_cell_address_get',
+      subtitleKey: 'pay_cell_address_get_sub',
+      icon: 'wallet-outline'
+    }
   ]
 }
 
@@ -4247,11 +4403,7 @@ export default function PayScreen() {
         return <NearbyFlow role="payee" onExit={() => setCell(null)} />
       case 'pay-handle':
         return (
-          <HandleSend
-            initialIdentityKey={initialIdentityKey}
-            initialSats={initialSats}
-            initialNotice={peerPayNotice}
-          />
+          <HandleSend initialIdentityKey={initialIdentityKey} initialSats={initialSats} initialNotice={peerPayNotice} />
         )
       case 'get-handle':
         return <HandleReceive />
@@ -4281,9 +4433,7 @@ export default function PayScreen() {
               accessibilityState={{ selected: active }}
               accessibilityLabel={t(d === 'pay' ? 'pay_direction_pay' : 'pay_direction_receive')}
             >
-              <Text
-                style={[styles.segmentLabel, { color: active ? colors.textPrimary : colors.textTertiary }]}
-              >
+              <Text style={[styles.segmentLabel, { color: active ? colors.textPrimary : colors.textTertiary }]}>
                 {t(d === 'pay' ? 'pay_direction_pay' : 'pay_direction_receive')}
               </Text>
             </PressableScale>
@@ -4308,7 +4458,13 @@ export default function PayScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
       <View style={[styles.header, { borderBottomColor: colors.separator }]}>
-        <PressableScale onPress={goBack} haptic="tap" style={styles.headerBtn} accessibilityRole="button" accessibilityLabel={t('back')}>
+        <PressableScale
+          onPress={goBack}
+          haptic="tap"
+          style={styles.headerBtn}
+          accessibilityRole="button"
+          accessibilityLabel={t('back')}
+        >
           <Ionicons name={I18nManager.isRTL ? 'chevron-forward' : 'chevron-back'} size={24} color={colors.accent} />
         </PressableScale>
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>
@@ -4335,7 +4491,13 @@ const styles = StyleSheet.create({
   headerTitle: { ...typography.headline, fontWeight: '600', flex: 1, textAlign: 'center' },
   grid: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
   segment: { flexDirection: 'row', borderRadius: radii.xl, padding: 2, marginBottom: spacing.xl },
-  segmentBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm + 2, borderRadius: radii.xl - 2 },
+  segmentBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radii.xl - 2
+  },
   segmentLabel: { ...typography.subhead, fontWeight: '500' },
   rows: { gap: spacing.md }
 })
@@ -4376,6 +4538,7 @@ EOF
 ### Task 14: Migration — menu, redirects, deep links
 
 **Files:**
+
 - Modify: `app/settings.tsx` (four rows + QR modal → one), `app/+native-intent.ts:5`, `hooks/useDeepLinking.ts:94-96`
 - Replace: `app/payments.tsx`, `app/legacy-payments.tsx`, `app/local-payments.tsx` with redirect stubs (`local-payments.tsx` was already moved in Task 9, so it must be recreated as a stub)
 - Test: extend `__tests__/payRails.test.ts` — `legacyRedirectTarget` is already covered by Task 1; add nothing new unless a stub needs a behaviour the function does not express.
@@ -4397,9 +4560,10 @@ import { legacyRedirectTarget } from '@/utils/pay/rails'
 
 export default function RetiredPaymentsRoute() {
   const params = useLocalSearchParams<Record<string, string | string[]>>()
-  const flat = Object.fromEntries(
-    Object.entries(params).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v])
-  ) as Record<string, string | undefined>
+  const flat = Object.fromEntries(Object.entries(params).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v])) as Record<
+    string,
+    string | undefined
+  >
   return <Redirect href={legacyRedirectTarget('payments', flat) as never} />
 }
 ```
@@ -4413,13 +4577,13 @@ Check `Redirect`'s accepted `href` shape for this expo-router version — `grep 
 In `app/settings.tsx`, replace the three `ListRow`s at `:122-139` **and** the `identityKey` row at `:140-167` with one:
 
 ```tsx
-          <ListRow
-            label={t('pay')}
-            icon="swap-horizontal-outline"
-            iconColor={colors.success}
-            onPress={() => router.push('/pay' as any)}
-            isLast
-          />
+<ListRow
+  label={t('pay')}
+  icon="swap-horizontal-outline"
+  iconColor={colors.success}
+  onPress={() => router.push('/pay' as any)}
+  isLast
+/>
 ```
 
 Then delete, in the same file: the `showQr` state (`:30`), the `copiedKey` state and `handleCopyKey` (`:29`, `:41-46`), the whole Identity-Key QR `<Modal>` (`:182-208`), the `qrBackdrop`/`qrPopover*`/`qrCard`/`qrKeyLabel` styles (`:233-287`), and the now-unused `QRCode`, `Clipboard` and `Ionicons` imports (check each with grep before removing — `Ionicons` may still be used elsewhere in the file).
@@ -4431,17 +4595,17 @@ Keep the `identityKey` fetch effect only if something else in the file uses it; 
 `app/+native-intent.ts:5`:
 
 ```ts
-    if (path?.toLowerCase().startsWith('peerpay:')) {
-      return `/pay?cell=pay-handle&peerpay=${encodeURIComponent(path)}`
-    }
+if (path?.toLowerCase().startsWith('peerpay:')) {
+  return `/pay?cell=pay-handle&peerpay=${encodeURIComponent(path)}`
+}
 ```
 
 `hooks/useDeepLinking.ts:94-96`:
 
 ```ts
-  const handlePeerPayLink = useCallback((url: string) => {
-    router.replace({ pathname: '/pay', params: { cell: 'pay-handle', peerpay: url } })
-  }, [])
+const handlePeerPayLink = useCallback((url: string) => {
+  router.replace({ pathname: '/pay', params: { cell: 'pay-handle', peerpay: url } })
+}, [])
 ```
 
 - [ ] **Step 4: Verify nothing still points at the old routes**
@@ -4483,9 +4647,11 @@ EOF
 ### Task 15: i18n — new keys in 12 locales, orphans removed
 
 **Files:**
+
 - Modify: `context/i18n/translations.tsx`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: the keys every component above already calls. Locale block start lines (they shift as you edit — re-grep rather than trusting these): `en:100`, `zh:397`, `hi:677`, `es:960`, `fr:1245`, `ar:1524`, `pt:1799`, `bn:2078`, `ru:2355`, `id:2634`, `ja:2911`, `pl:3205`.
 
@@ -4680,28 +4846,28 @@ EOF
 
 **Spec coverage**
 
-| Spec requirement | Task |
-|---|---|
-| One route, six cells, transport inferred | 1, 13 |
-| `utils/pay/rails/{index,nearby,handle,address}.ts` | 1, 3, 7, 8 |
-| `inferRail` / `PayTarget` discriminated union | 1 |
-| Survival 1 — legacy send | 3 (`sendToAddress`), 12, 16 |
-| Survival 2 — date-keyed receive + earlier days | 2, 12 (recovery disclosure), 16 |
-| Survival 3 — the sweep mechanism verbatim, trigger changed | 3 (`sweepAddress`), 5, 6 |
-| Survival 4 — PeerPay incoming list/accept/internalize | 7, 11 |
-| Survival 5 — identity search + `validatePeerPayURI` | 1 (`classifyScan`), 10 (`useIdentitySearch`) |
-| Survival 6 — everything in `local-payments.tsx` | 9 |
-| Survival 7 — identity QR relocated, settings modal removed | 11, 14 |
-| Legacy receive becomes automatic (owner, lifecycle, bounds) | 4, 5, 6 |
-| Day-offset demoted to secondary recovery | 12 |
-| Naming: Nearby / no Legacy Bridge / "Paid" / payment code | 15 (+ every component's copy) |
-| Precondition + consequence at choose and confirm | 1 (keys), 10, 12, 13 |
-| Migration: routes, menu, deep links, i18n orphans | 14, 15 |
-| Non-goal: `utils/localpay/*` untouched | 8, 9, 16 (enforced by a diff check) |
-| Risk: 5,000-line merge regresses a money path | task-per-module with review gates; 16 |
-| Risk: deep links break silently | 1 (tested mapping), 14, 16 |
-| Open Q3 / Q4 / Q5 | Global Constraints, 4, 5, 11 |
+| Spec requirement                                            | Task                                         |
+| ----------------------------------------------------------- | -------------------------------------------- |
+| One route, six cells, transport inferred                    | 1, 13                                        |
+| `utils/pay/rails/{index,nearby,handle,address}.ts`          | 1, 3, 7, 8                                   |
+| `inferRail` / `PayTarget` discriminated union               | 1                                            |
+| Survival 1 — legacy send                                    | 3 (`sendToAddress`), 12, 16                  |
+| Survival 2 — date-keyed receive + earlier days              | 2, 12 (recovery disclosure), 16              |
+| Survival 3 — the sweep mechanism verbatim, trigger changed  | 3 (`sweepAddress`), 5, 6                     |
+| Survival 4 — PeerPay incoming list/accept/internalize       | 7, 11                                        |
+| Survival 5 — identity search + `validatePeerPayURI`         | 1 (`classifyScan`), 10 (`useIdentitySearch`) |
+| Survival 6 — everything in `local-payments.tsx`             | 9                                            |
+| Survival 7 — identity QR relocated, settings modal removed  | 11, 14                                       |
+| Legacy receive becomes automatic (owner, lifecycle, bounds) | 4, 5, 6                                      |
+| Day-offset demoted to secondary recovery                    | 12                                           |
+| Naming: Nearby / no Legacy Bridge / "Paid" / payment code   | 15 (+ every component's copy)                |
+| Precondition + consequence at choose and confirm            | 1 (keys), 10, 12, 13                         |
+| Migration: routes, menu, deep links, i18n orphans           | 14, 15                                       |
+| Non-goal: `utils/localpay/*` untouched                      | 8, 9, 16 (enforced by a diff check)          |
+| Risk: 5,000-line merge regresses a money path               | task-per-module with review gates; 16        |
+| Risk: deep links break silently                             | 1 (tested mapping), 14, 16                   |
+| Open Q3 / Q4 / Q5                                           | Global Constraints, 4, 5, 11                 |
 
-**Placeholder scan:** no TBD/TODO, no "add error handling", no "similar to Task N". Every code step carries the code. Two deliberate *conditional* instructions exist — the BEEF-test fallback in Task 3 Step 2 and the provider-wrapper fallback in Task 13 Step 1 — and both name the exact reduced form to use, rather than leaving it open.
+**Placeholder scan:** no TBD/TODO, no "add error handling", no "similar to Task N". Every code step carries the code. Two deliberate _conditional_ instructions exist — the BEEF-test fallback in Task 3 Step 2 and the provider-wrapper fallback in Task 13 Step 1 — and both name the exact reduced form to use, rather than leaving it open.
 
 **Type consistency:** `KVStorage` is declared in `utils/pay/watchlist.ts` and structurally matches `utils/localpay/pending.ts`'s (`getKeyValue`/`setKeyValue`) without importing it. `AddressRailWallet extends AddressDerivingWallet` — Task 3 extends the interface Task 2 defines. `WocConfig` is produced by Task 2 and consumed by Tasks 3, 5, 6, 12. `SweepOutcome`/`sweptTotal` are defined in Task 5 and used in Task 6. `PayCell`/`isPayCell` are defined in Task 1 and used in Tasks 1 (`legacyRedirectTarget`), 13, 14. `NearbyFlowProps.role` is `'payer' | 'payee'` in Task 9 and passed as `role="payer"`/`role="payee"` in Task 13. `HandleSendProps` fields (`initialIdentityKey`, `initialSats`, `initialNotice`) match Task 13's call site and Task 13's test assertions.

@@ -24,28 +24,28 @@
 
 ## File Structure
 
-| File | Responsibility | Action |
-|---|---|---|
-| `core/parsePeerPayURI.ts` | BRC-125 parse; `url` extension; `peerPayValidationMessage` | modify |
-| `core/pay/rails/index.ts` | `PayTarget` (+`messageBoxUrl`), `classifyScan`, new `classifyRecipientInput` | modify |
-| `core/pay/rails/handle.ts` | `peerPayLinkFor(url)`, `sendViaHandle(recipientHost)`, `retryDelivery` | modify |
-| `core/peerpay/outbox.ts` | `OutboxEntry.recipientHost` | modify |
-| `core/amountFormatHelpers.ts` + `core/index.ts` | `formatAmountInInputUnit` | modify |
-| `core/i18n/translations.tsx` | keys | modify |
-| `ui/components/pay/useRecipientInput.ts` | recipient state: classify text, classify scan, search | rename from `useIdentitySearch.ts` + rewrite |
-| `ui/components/pay/RecipientField.tsx` | universal input + status row | modify |
-| `ui/components/pay/UniversalSend.tsx` | the send form | create (from `HandleSend.tsx`) |
-| `ui/components/pay/HandleSend.tsx`, `AddressSend.tsx` | — | delete |
-| `ui/components/pay/RequestHub.tsx` | amount + three method rows | create |
-| `ui/components/pay/NearbyFlow.tsx` | `initialSession` / `initialRequest` | modify |
-| `ui/components/pay/HandleReceive.tsx` | `initialSats`, link QR, no config bar | modify |
-| `ui/components/pay/AddressReceive.tsx` | `initialSats` figure | modify |
-| `ui/components/pay/AvailableBalance.tsx`, `PayForm.tsx` | balance line under input | modify |
-| `ui/components/pay/MessageBoxConfig.tsx` | drop `MessageBoxBar` | modify |
-| `ui/screens/PayScreen.tsx` | composition | modify |
-| `ui/screens/WalletConfigScreen.tsx` | message-box row in Advanced | modify |
-| `ui/index.ts` | exports | modify |
-| Tests | `__tests__/pay/peerPayUri.test.ts` (new), `rails.test.ts`, `handleRail.test.ts`, `amountInputUnit.test.ts` (new), `useRecipientInput.test.ts` (renamed), `__tests__/ui/universalSend.test.tsx` (new), `requestHub.test.tsx` (new), `payScreen.test.tsx`, `payFormComponents.test.tsx` | |
+| File                                                    | Responsibility                                                                                                                                                                                                                                                                        | Action                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `core/parsePeerPayURI.ts`                               | BRC-125 parse; `url` extension; `peerPayValidationMessage`                                                                                                                                                                                                                            | modify                                       |
+| `core/pay/rails/index.ts`                               | `PayTarget` (+`messageBoxUrl`), `classifyScan`, new `classifyRecipientInput`                                                                                                                                                                                                          | modify                                       |
+| `core/pay/rails/handle.ts`                              | `peerPayLinkFor(url)`, `sendViaHandle(recipientHost)`, `retryDelivery`                                                                                                                                                                                                                | modify                                       |
+| `core/peerpay/outbox.ts`                                | `OutboxEntry.recipientHost`                                                                                                                                                                                                                                                           | modify                                       |
+| `core/amountFormatHelpers.ts` + `core/index.ts`         | `formatAmountInInputUnit`                                                                                                                                                                                                                                                             | modify                                       |
+| `core/i18n/translations.tsx`                            | keys                                                                                                                                                                                                                                                                                  | modify                                       |
+| `ui/components/pay/useRecipientInput.ts`                | recipient state: classify text, classify scan, search                                                                                                                                                                                                                                 | rename from `useIdentitySearch.ts` + rewrite |
+| `ui/components/pay/RecipientField.tsx`                  | universal input + status row                                                                                                                                                                                                                                                          | modify                                       |
+| `ui/components/pay/UniversalSend.tsx`                   | the send form                                                                                                                                                                                                                                                                         | create (from `HandleSend.tsx`)               |
+| `ui/components/pay/HandleSend.tsx`, `AddressSend.tsx`   | —                                                                                                                                                                                                                                                                                     | delete                                       |
+| `ui/components/pay/RequestHub.tsx`                      | amount + three method rows                                                                                                                                                                                                                                                            | create                                       |
+| `ui/components/pay/NearbyFlow.tsx`                      | `initialSession` / `initialRequest`                                                                                                                                                                                                                                                   | modify                                       |
+| `ui/components/pay/HandleReceive.tsx`                   | `initialSats`, link QR, no config bar                                                                                                                                                                                                                                                 | modify                                       |
+| `ui/components/pay/AddressReceive.tsx`                  | `initialSats` figure                                                                                                                                                                                                                                                                  | modify                                       |
+| `ui/components/pay/AvailableBalance.tsx`, `PayForm.tsx` | balance line under input                                                                                                                                                                                                                                                              | modify                                       |
+| `ui/components/pay/MessageBoxConfig.tsx`                | drop `MessageBoxBar`                                                                                                                                                                                                                                                                  | modify                                       |
+| `ui/screens/PayScreen.tsx`                              | composition                                                                                                                                                                                                                                                                           | modify                                       |
+| `ui/screens/WalletConfigScreen.tsx`                     | message-box row in Advanced                                                                                                                                                                                                                                                           | modify                                       |
+| `ui/index.ts`                                           | exports                                                                                                                                                                                                                                                                               | modify                                       |
+| Tests                                                   | `__tests__/pay/peerPayUri.test.ts` (new), `rails.test.ts`, `handleRail.test.ts`, `amountInputUnit.test.ts` (new), `useRecipientInput.test.ts` (renamed), `__tests__/ui/universalSend.test.tsx` (new), `requestHub.test.tsx` (new), `payScreen.test.tsx`, `payFormComponents.test.tsx` |                                              |
 
 All paths below are relative to `packages/expo-wallet-toolbox/` unless they start with `docs/`, `app/` or `package.json`.
 
@@ -87,10 +87,12 @@ EOF
 ### Task 1: BRC-125 parser — `//` tolerance, `url` extension, `peerPayValidationMessage`
 
 **Files:**
+
 - Modify: `core/parsePeerPayURI.ts`
 - Test: `__tests__/pay/peerPayUri.test.ts` (create)
 
 **Interfaces:**
+
 - Produces: `PeerPayValidationResult.messageBoxUrl?: string`, `PeerPayParams.messageBoxUrl?: string`, `export function peerPayValidationMessage(result: PeerPayValidationResult | null): string | null` (moved here from `ui/components/pay/useIdentitySearch.ts`; Task 6 re-exports it from the hook for compatibility).
 
 - [ ] **Step 1: Write the failing tests**
@@ -337,12 +339,15 @@ EOF
 ### Task 2: Recipient classification — `classifyRecipientInput`, tighter `classifyScan`
 
 **Files:**
+
 - Modify: `core/pay/rails/index.ts`
 - Test: `__tests__/pay/rails.test.ts`
 
 **Interfaces:**
+
 - Consumes: `validatePeerPayURI`, `peerPayValidationMessage` (Task 1).
 - Produces:
+
   ```ts
   export type PayTarget =
     | { kind: 'nearby'; session: Session }
@@ -481,7 +486,7 @@ In `core/pay/rails/index.ts`:
 
 (b) Change the `PayTarget` handle variant to `{ kind: 'handle'; identityKey: string; sats?: number; messageBoxUrl?: string }`.
 
-(c) Above the `PayCell` type, replace its doc comment with: `/** Six cell names. Since the universal input, `pay-*` are deep-link aliases that all open the send form; `get-*` open one receive method directly. */`
+(c) Above the `PayCell` type, replace its doc comment with: `/** Six cell names. Since the universal input, `pay-_`are deep-link aliases that all open the send form;`get-_` open one receive method directly. */`
 
 (d) Replace the private `isCompressedPublicKey` with an exported, strict one, and add the new classifier. Put these after `isValidBsvAddress`:
 
@@ -554,16 +559,16 @@ Add `type PeerPayValidationResult` and `peerPayValidationMessage` to the existin
 (e) In `classifyScan`, change the `peerpay:` branch to:
 
 ```ts
-  if (text.toLowerCase().startsWith('peerpay:')) {
-    const result = validatePeerPayURI(text)
-    if (!result.identityKey || result.errors.identityKey) return null
-    return {
-      kind: 'handle',
-      identityKey: result.identityKey,
-      sats: result.sats,
-      ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {})
-    }
+if (text.toLowerCase().startsWith('peerpay:')) {
+  const result = validatePeerPayURI(text)
+  if (!result.identityKey || result.errors.identityKey) return null
+  return {
+    kind: 'handle',
+    identityKey: result.identityKey,
+    sats: result.sats,
+    ...(result.messageBoxUrl ? { messageBoxUrl: result.messageBoxUrl } : {})
   }
+}
 ```
 
 and the bare-key line to `if (isCompressedPublicKey(text)) return { kind: 'handle', identityKey: text.toLowerCase() }`.
@@ -595,11 +600,13 @@ EOF
 ### Task 3: Handle rail — `url` in links, `recipientHost` through send, outbox and retry
 
 **Files:**
+
 - Modify: `core/pay/rails/handle.ts` (`peerPayLinkFor` ~74-77, `sendViaHandle` ~371-470, `retryDelivery` ~558-596)
 - Modify: `core/peerpay/outbox.ts` (`OutboxEntry`, `saveOutboxEntry` ~111-133)
 - Test: `__tests__/pay/handleRail.test.ts`
 
 **Interfaces:**
+
 - Produces: `peerPayLinkFor(identityKey: string, sats?: number, messageBoxUrl?: string): string`; `sendViaHandle(args & { recipientHost?: string })`; `OutboxEntry.recipientHost?: string`; `saveOutboxEntry(storage, { …, recipientHost?: string })`.
 - `retryDelivery` signature unchanged; it reads `entry.recipientHost`. Call sites in `core/context/WalletContext.tsx:1360` and `ui/screens/WalletHomeScreen.tsx:890` need no change.
 
@@ -608,54 +615,54 @@ EOF
 In `__tests__/pay/handleRail.test.ts`, add `NO_MESSAGE_BOX` is already imported. Add inside `describe('peerPayLinkFor')`:
 
 ```ts
-  it('appends the message-box host as a percent-encoded url extension', () => {
-    expect(peerPayLinkFor(KEY, 5000, 'https://mb.example/')).toBe(
-      `peerpay:${KEY}?sats=5000&url=${encodeURIComponent('https://mb.example')}`
-    )
-  })
+it('appends the message-box host as a percent-encoded url extension', () => {
+  expect(peerPayLinkFor(KEY, 5000, 'https://mb.example/')).toBe(
+    `peerpay:${KEY}?sats=5000&url=${encodeURIComponent('https://mb.example')}`
+  )
+})
 
-  it('emits url alone when there is no amount', () => {
-    expect(peerPayLinkFor(KEY, undefined, 'https://mb.example')).toBe(
-      `peerpay:${KEY}?url=${encodeURIComponent('https://mb.example')}`
-    )
-  })
+it('emits url alone when there is no amount', () => {
+  expect(peerPayLinkFor(KEY, undefined, 'https://mb.example')).toBe(
+    `peerpay:${KEY}?url=${encodeURIComponent('https://mb.example')}`
+  )
+})
 
-  it('omits url for the no-server sentinel and for blank', () => {
-    expect(peerPayLinkFor(KEY, 10, NO_MESSAGE_BOX)).toBe(`peerpay:${KEY}?sats=10`)
-    expect(peerPayLinkFor(KEY, 10, '   ')).toBe(`peerpay:${KEY}?sats=10`)
-  })
+it('omits url for the no-server sentinel and for blank', () => {
+  expect(peerPayLinkFor(KEY, 10, NO_MESSAGE_BOX)).toBe(`peerpay:${KEY}?sats=10`)
+  expect(peerPayLinkFor(KEY, 10, '   ')).toBe(`peerpay:${KEY}?sats=10`)
+})
 
-  it('round-trips the url through the validator', () => {
-    const r = validatePeerPayURI(peerPayLinkFor(KEY, 42, 'https://mb.example/box'))
-    expect(r.sats).toBe(42)
-    expect(r.messageBoxUrl).toBe('https://mb.example/box')
-  })
+it('round-trips the url through the validator', () => {
+  const r = validatePeerPayURI(peerPayLinkFor(KEY, 42, 'https://mb.example/box'))
+  expect(r.sats).toBe(42)
+  expect(r.messageBoxUrl).toBe('https://mb.example/box')
+})
 
-  it('lowercases the key it emits', () => {
-    expect(peerPayLinkFor(KEY.toUpperCase())).toBe(`peerpay:${KEY}`)
-  })
+it('lowercases the key it emits', () => {
+  expect(peerPayLinkFor(KEY.toUpperCase())).toBe(`peerpay:${KEY}`)
+})
 ```
 
 Add inside `describe('sendViaHandle')`:
 
 ```ts
-  it('passes recipientHost to sendMessage and persists it on the entry', async () => {
-    const s = fakeStorage()
-    const w = fakeWallet()
-    const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    await sendViaHandle({ ...sendArgs(w, client, s), recipientHost: 'https://their.box' })
-    expect(client.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ recipient: KEY }), 'https://their.box')
-    expect((await getOutboxEntries(s))[0].recipientHost).toBe('https://their.box')
-  })
+it('passes recipientHost to sendMessage and persists it on the entry', async () => {
+  const s = fakeStorage()
+  const w = fakeWallet()
+  const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+  await sendViaHandle({ ...sendArgs(w, client, s), recipientHost: 'https://their.box' })
+  expect(client.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ recipient: KEY }), 'https://their.box')
+  expect((await getOutboxEntries(s))[0].recipientHost).toBe('https://their.box')
+})
 
-  it('sends with no host override and stores no recipientHost when none was given', async () => {
-    const s = fakeStorage()
-    const w = fakeWallet()
-    const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    await sendViaHandle(sendArgs(w, client, s))
-    expect(client.sendMessage.mock.calls[0][1]).toBeUndefined()
-    expect((await getOutboxEntries(s))[0]).not.toHaveProperty('recipientHost')
-  })
+it('sends with no host override and stores no recipientHost when none was given', async () => {
+  const s = fakeStorage()
+  const w = fakeWallet()
+  const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+  await sendViaHandle(sendArgs(w, client, s))
+  expect(client.sendMessage.mock.calls[0][1]).toBeUndefined()
+  expect((await getOutboxEntries(s))[0]).not.toHaveProperty('recipientHost')
+})
 ```
 
 Add a new describe block after `describe('sendViaHandle')`:
@@ -666,14 +673,20 @@ describe('retryDelivery — recipient host', () => {
     const s = fakeStorage()
     const w = fakeWallet()
     const failing = { sendMessage: jest.fn().mockRejectedValue(new Error('down')) }
-    await expect(
-      sendViaHandle({ ...sendArgs(w, failing, s), recipientHost: 'https://their.box' })
-    ).rejects.toThrow('down')
+    await expect(sendViaHandle({ ...sendArgs(w, failing, s), recipientHost: 'https://their.box' })).rejects.toThrow(
+      'down'
+    )
     const entry = (await getOutboxEntries(s))[0]
     expect(entry.status).toBe('unsent')
 
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    await retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
+    await retryDelivery({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      client: client as never,
+      storage: s,
+      entry
+    })
     expect(client.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ recipient: KEY }), 'https://their.box')
   })
 
@@ -684,7 +697,13 @@ describe('retryDelivery — recipient host', () => {
     await expect(sendViaHandle(sendArgs(w, failing, s))).rejects.toThrow('down')
     const entry = (await getOutboxEntries(s))[0]
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    await retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
+    await retryDelivery({
+      wallet: w as never,
+      adminOriginator: 'admin.com',
+      client: client as never,
+      storage: s,
+      entry
+    })
     expect(client.sendMessage.mock.calls[0][1]).toBeUndefined()
   })
 })
@@ -752,14 +771,14 @@ export function peerPayLinkFor(identityKey: string, sats?: number, messageBoxUrl
 Destructure `recipientHost` alongside the others. Change the `saveOutboxEntry` call to `saveOutboxEntry(storage, { recipient, token, messageBoxUrl, txid: car.txid, recipientHost })`. Change the delivery call to:
 
 ```ts
-    await client.sendMessage(
-      {
-        recipient,
-        messageBox: PAYMENT_INBOX,
-        body: JSON.stringify(token)
-      },
-      recipientHost
-    )
+await client.sendMessage(
+  {
+    recipient,
+    messageBox: PAYMENT_INBOX,
+    body: JSON.stringify(token)
+  },
+  recipientHost
+)
 ```
 
 (c) In `retryDelivery`, change the `sendMessage` call to pass `entry.recipientHost` as the second argument, same shape as above.
@@ -791,11 +810,13 @@ EOF
 ### Task 4: Balance line — `formatAmountInInputUnit`, `AvailableBalance`, `PayAmountField` order
 
 **Files:**
+
 - Modify: `core/amountFormatHelpers.ts` (append after `formatAmountParts`), `core/index.ts` (the named export list ending at line 45)
 - Modify: `ui/components/pay/AvailableBalance.tsx`, `ui/components/pay/PayForm.tsx:55-70`
 - Test: `__tests__/pay/amountInputUnit.test.ts` (create), `__tests__/ui/payFormComponents.test.tsx`
 
 **Interfaces:**
+
 - Produces: `export const formatAmountInInputUnit = (satoshis: number, currency: string, satoshisPerUSD: number): string` — exported from the barrel.
 
 - [ ] **Step 1: Write the failing tests**
@@ -902,7 +923,14 @@ import React, { useContext } from 'react'
 import { StyleSheet, Text } from 'react-native'
 import { useTranslation } from 'react-i18next'
 import { useSpendableBalance } from '../../hooks/useSpendableBalance'
-import { ExchangeRateContext, formatAmountInInputUnit, spacing, typography, useTheme, useWallet } from '@bsv/expo-wallet-toolbox'
+import {
+  ExchangeRateContext,
+  formatAmountInInputUnit,
+  spacing,
+  typography,
+  useTheme,
+  useWallet
+} from '@bsv/expo-wallet-toolbox'
 
 export default function AvailableBalance() {
   const { t } = useTranslation()
@@ -933,12 +961,12 @@ const styles = StyleSheet.create({
 In `ui/components/pay/PayForm.tsx`, change the body of `PayAmountField` to:
 
 ```tsx
-  return (
-    <PayField labelKey="amount">
-      <AmountInput value={value} onChangeText={onChangeText} showMax={showMax} />
-      {showBalance && <AvailableBalance />}
-    </PayField>
-  )
+return (
+  <PayField labelKey="amount">
+    <AmountInput value={value} onChangeText={onChangeText} showMax={showMax} />
+    {showBalance && <AvailableBalance />}
+  </PayField>
+)
 ```
 
 and update its doc comment's "same balance line" phrase to "same balance line beneath it".
@@ -969,6 +997,7 @@ EOF
 ### Task 5: Copy — new keys in twelve locales, placeholder rename
 
 **Files:**
+
 - Modify: `core/i18n/translations.tsx`
 - Modify: `ui/components/pay/RecipientField.tsx:107` (`t('search_name_or_key')` → `t('recipient_placeholder')`)
 
@@ -980,88 +1009,88 @@ For each of the twelve locale blocks, make these edits. Anchor lines for `en` ar
 
 (a) Replace the line `search_name_or_key: '…',` with `recipient_placeholder: '…',` using this value:
 
-| locale | value |
-|---|---|
-| en | `Handle, pubkey, or address...` |
-| zh | `账号、公钥或地址...` |
-| hi | `हैंडल, पब्लिक की या पता...` |
-| es | `Alias, clave pública o dirección...` |
-| fr | `Identifiant, clé publique ou adresse...` |
-| ar | `اسم المستخدم أو المفتاح العام أو العنوان...` |
-| pt | `Identificador, chave pública ou endereço...` |
-| bn | `হ্যান্ডেল, পাবলিক কী বা ঠিকানা...` |
-| ru | `Имя, публичный ключ или адрес...` |
-| id | `Handle, kunci publik, atau alamat...` |
-| ja | `ハンドル、公開鍵、またはアドレス...` |
-| pl | `Nazwa, klucz publiczny lub adres...` |
+| locale | value                                         |
+| ------ | --------------------------------------------- |
+| en     | `Handle, pubkey, or address...`               |
+| zh     | `账号、公钥或地址...`                         |
+| hi     | `हैंडल, पब्लिक की या पता...`                  |
+| es     | `Alias, clave pública o dirección...`         |
+| fr     | `Identifiant, clé publique ou adresse...`     |
+| ar     | `اسم المستخدم أو المفتاح العام أو العنوان...` |
+| pt     | `Identificador, chave pública ou endereço...` |
+| bn     | `হ্যান্ডেল, পাবলিক কী বা ঠিকানা...`           |
+| ru     | `Имя, публичный ключ или адрес...`            |
+| id     | `Handle, kunci publik, atau alamat...`        |
+| ja     | `ハンドル、公開鍵、またはアドレス...`         |
+| pl     | `Nazwa, klucz publiczny lub adres...`         |
 
 (b) Directly after the `valid_identity_key:` line, insert `valid_bsv_address:`:
 
-| locale | value |
-|---|---|
-| en | `Valid address entered` |
-| zh | `已输入有效地址` |
-| hi | `वैध पता दर्ज किया गया` |
-| es | `Dirección válida ingresada` |
-| fr | `Adresse valide saisie` |
-| ar | `تم إدخال عنوان صالح` |
-| pt | `Endereço válido inserido` |
-| bn | `বৈধ ঠিকানা প্রবেশ করা হয়েছে` |
-| ru | `Введён действительный адрес` |
-| id | `Alamat valid dimasukkan` |
-| ja | `有効なアドレスが入力されました` |
-| pl | `Wprowadzono prawidłowy adres` |
+| locale | value                            |
+| ------ | -------------------------------- |
+| en     | `Valid address entered`          |
+| zh     | `已输入有效地址`                 |
+| hi     | `वैध पता दर्ज किया गया`          |
+| es     | `Dirección válida ingresada`     |
+| fr     | `Adresse valide saisie`          |
+| ar     | `تم إدخال عنوان صالح`            |
+| pt     | `Endereço válido inserido`       |
+| bn     | `বৈধ ঠিকানা প্রবেশ করা হয়েছে`   |
+| ru     | `Введён действительный адрес`    |
+| id     | `Alamat valid dimasukkan`        |
+| ja     | `有効なアドレスが入力されました` |
+| pl     | `Wprowadzono prawidłowy adres`   |
 
 (c) Directly after the `message_box_removed:` line, insert two keys, `message_box_off:` then `message_box_off_hint:`:
 
-| locale | `message_box_off` | `message_box_off_hint` |
-|---|---|---|
-| en | `Off` | `Message box server is off. Turn it on in Settings › Advanced.` |
-| zh | `关闭` | `消息箱服务器已关闭。请在“设置 › 高级”中开启。` |
-| hi | `बंद` | `मैसेज बॉक्स सर्वर बंद है। इसे सेटिंग्स › एडवांस्ड में चालू करें।` |
-| es | `Desactivado` | `El servidor de buzón está desactivado. Actívalo en Ajustes › Avanzado.` |
-| fr | `Désactivé` | `Le serveur de boîte aux lettres est désactivé. Activez-le dans Réglages › Avancé.` |
-| ar | `متوقف` | `خادم صندوق الرسائل متوقف. فعّله من الإعدادات › متقدم.` |
-| pt | `Desligado` | `O servidor de caixa de mensagens está desligado. Ative-o em Configurações › Avançado.` |
-| bn | `বন্ধ` | `মেসেজ বক্স সার্ভার বন্ধ আছে। সেটিংস › অ্যাডভান্সড থেকে চালু করুন।` |
-| ru | `Выкл.` | `Сервер почтового ящика выключен. Включите его в Настройки › Дополнительно.` |
-| id | `Mati` | `Server kotak pesan mati. Nyalakan di Pengaturan › Lanjutan.` |
-| ja | `オフ` | `メッセージボックスサーバーがオフです。設定 › 詳細でオンにしてください。` |
-| pl | `Wył.` | `Serwer skrzynki wiadomości jest wyłączony. Włącz go w Ustawienia › Zaawansowane.` |
+| locale | `message_box_off` | `message_box_off_hint`                                                                  |
+| ------ | ----------------- | --------------------------------------------------------------------------------------- |
+| en     | `Off`             | `Message box server is off. Turn it on in Settings › Advanced.`                         |
+| zh     | `关闭`            | `消息箱服务器已关闭。请在“设置 › 高级”中开启。`                                         |
+| hi     | `बंद`             | `मैसेज बॉक्स सर्वर बंद है। इसे सेटिंग्स › एडवांस्ड में चालू करें।`                      |
+| es     | `Desactivado`     | `El servidor de buzón está desactivado. Actívalo en Ajustes › Avanzado.`                |
+| fr     | `Désactivé`       | `Le serveur de boîte aux lettres est désactivé. Activez-le dans Réglages › Avancé.`     |
+| ar     | `متوقف`           | `خادم صندوق الرسائل متوقف. فعّله من الإعدادات › متقدم.`                                 |
+| pt     | `Desligado`       | `O servidor de caixa de mensagens está desligado. Ative-o em Configurações › Avançado.` |
+| bn     | `বন্ধ`            | `মেসেজ বক্স সার্ভার বন্ধ আছে। সেটিংস › অ্যাডভান্সড থেকে চালু করুন।`                     |
+| ru     | `Выкл.`           | `Сервер почтового ящика выключен. Включите его в Настройки › Дополнительно.`            |
+| id     | `Mati`            | `Server kotak pesan mati. Nyalakan di Pengaturan › Lanjutan.`                           |
+| ja     | `オフ`            | `メッセージボックスサーバーがオフです。設定 › 詳細でオンにしてください。`               |
+| pl     | `Wył.`            | `Serwer skrzynki wiadomości jest wyłączony. Włącz go w Ustawienia › Zaawansowane.`      |
 
 (d) Directly after the `scan_identity_key_hint:` line, insert `scan_recipient_hint:` (the two old scan hints stay until Task 12 removes them):
 
-| locale | value |
-|---|---|
-| en | `Point the camera at a payment code` |
-| zh | `将相机对准付款码` |
-| hi | `कैमरे को भुगतान कोड पर लगाएं` |
-| es | `Apunte la cámara hacia un código de pago` |
-| fr | `Pointez la caméra vers un code de paiement` |
-| ar | `وجّه الكاميرا نحو رمز الدفع` |
-| pt | `Aponte a câmera para um código de pagamento` |
-| bn | `পেমেন্ট কোডে ক্যামেরা তাক করুন` |
-| ru | `Направьте камеру на платёжный код` |
-| id | `Arahkan kamera ke kode pembayaran` |
-| ja | `支払いコードにカメラを向けてください` |
-| pl | `Skieruj kamerę na kod płatności` |
+| locale | value                                         |
+| ------ | --------------------------------------------- |
+| en     | `Point the camera at a payment code`          |
+| zh     | `将相机对准付款码`                            |
+| hi     | `कैमरे को भुगतान कोड पर लगाएं`                |
+| es     | `Apunte la cámara hacia un código de pago`    |
+| fr     | `Pointez la caméra vers un code de paiement`  |
+| ar     | `وجّه الكاميرا نحو رمز الدفع`                 |
+| pt     | `Aponte a câmera para um código de pagamento` |
+| bn     | `পেমেন্ট কোডে ক্যামেরা তাক করুন`              |
+| ru     | `Направьте камеру на платёжный код`           |
+| id     | `Arahkan kamera ke kode pembayaran`           |
+| ja     | `支払いコードにカメラを向けてください`        |
+| pl     | `Skieruj kamerę na kod płatności`             |
 
 (e) Directly after the `pay_cell_address_get_sub:` line, insert four keys in this order: `pay_method`, `pay_method_nearby`, `pay_method_remote_link`, `pay_method_address`:
 
-| locale | `pay_method` | `pay_method_nearby` | `pay_method_remote_link` | `pay_method_address` |
-|---|---|---|---|---|
-| en | `Method` | `Nearby` | `Share remote link` | `To an address` |
-| zh | `方式` | `附近` | `分享远程链接` | `到某个地址` |
-| hi | `तरीका` | `नज़दीक` | `रिमोट लिंक साझा करें` | `एक पते पर` |
-| es | `Método` | `Cerca` | `Compartir enlace remoto` | `A una dirección` |
-| fr | `Méthode` | `À proximité` | `Partager un lien à distance` | `À une adresse` |
-| ar | `الطريقة` | `قريب` | `مشاركة رابط عن بُعد` | `إلى عنوان` |
-| pt | `Método` | `Por perto` | `Compartilhar link remoto` | `Para um endereço` |
-| bn | `পদ্ধতি` | `কাছাকাছি` | `রিমোট লিংক শেয়ার করুন` | `একটি ঠিকানায়` |
-| ru | `Способ` | `Рядом` | `Поделиться ссылкой` | `На адрес` |
-| id | `Metode` | `Terdekat` | `Bagikan tautan jarak jauh` | `Ke alamat` |
-| ja | `方法` | `近く` | `リモートリンクを共有` | `アドレスへ` |
-| pl | `Metoda` | `W pobliżu` | `Udostępnij link zdalny` | `Na adres` |
+| locale | `pay_method` | `pay_method_nearby` | `pay_method_remote_link`      | `pay_method_address` |
+| ------ | ------------ | ------------------- | ----------------------------- | -------------------- |
+| en     | `Method`     | `Nearby`            | `Share remote link`           | `To an address`      |
+| zh     | `方式`       | `附近`              | `分享远程链接`                | `到某个地址`         |
+| hi     | `तरीका`      | `नज़दीक`            | `रिमोट लिंक साझा करें`        | `एक पते पर`          |
+| es     | `Método`     | `Cerca`             | `Compartir enlace remoto`     | `A una dirección`    |
+| fr     | `Méthode`    | `À proximité`       | `Partager un lien à distance` | `À une adresse`      |
+| ar     | `الطريقة`    | `قريب`              | `مشاركة رابط عن بُعد`         | `إلى عنوان`          |
+| pt     | `Método`     | `Por perto`         | `Compartilhar link remoto`    | `Para um endereço`   |
+| bn     | `পদ্ধতি`     | `কাছাকাছি`          | `রিমোট লিংক শেয়ার করুন`      | `একটি ঠিকানায়`      |
+| ru     | `Способ`     | `Рядом`             | `Поделиться ссылкой`          | `На адрес`           |
+| id     | `Metode`     | `Terdekat`          | `Bagikan tautan jarak jauh`   | `Ke alamat`          |
+| ja     | `方法`       | `近く`              | `リモートリンクを共有`        | `アドレスへ`         |
+| pl     | `Metoda`     | `W pobliżu`         | `Udostępnij link zdalny`      | `Na adres`           |
 
 Quote strings with single quotes; where a value contains a single quote, use double quotes as the file already does (`"Clé d'identité valide saisie"`).
 
@@ -1072,12 +1101,14 @@ In `ui/components/pay/RecipientField.tsx`, change `placeholder={t('search_name_o
 - [ ] **Step 3: Verify**
 
 Run:
+
 ```bash
 grep -c "recipient_placeholder:" packages/expo-wallet-toolbox/core/i18n/translations.tsx
 grep -c "search_name_or_key" packages/expo-wallet-toolbox/core/i18n/translations.tsx packages/expo-wallet-toolbox/ui/components/pay/RecipientField.tsx
 for k in valid_bsv_address message_box_off message_box_off_hint scan_recipient_hint pay_method pay_method_nearby pay_method_remote_link pay_method_address; do printf '%s ' "$k"; grep -c "^      $k:" packages/expo-wallet-toolbox/core/i18n/translations.tsx; done
 npx tsc --noEmit
 ```
+
 Expected: `12`; `0` and `0`; every key `12`; tsc clean.
 
 - [ ] **Step 4: Commit**
@@ -1097,13 +1128,16 @@ EOF
 ### Task 6: `useRecipientInput` hook (from `useIdentitySearch`)
 
 **Files:**
+
 - Rename: `ui/components/pay/useIdentitySearch.ts` → `ui/components/pay/useRecipientInput.ts` (`git mv`), then rewrite
 - Rename: `__tests__/pay/useIdentitySearch.test.ts` → `__tests__/pay/useRecipientInput.test.ts` (`git mv`), then rewrite
 - Modify: `ui/index.ts:68-72` (export block)
 
 **Interfaces:**
+
 - Consumes: `classifyRecipientInput`, `classifyScan`, `PayTarget` (Task 2); `peerPayValidationMessage` (Task 1); `searchIdentities` (`ui/resolveIdentity.ts`).
 - Produces:
+
   ```ts
   export type RecipientTarget = Extract<PayTarget, { kind: 'handle' | 'address' }>
   export type RecipientInlineError = 'invalid_bsv_address'
@@ -1132,9 +1166,10 @@ EOF
     openScanner: () => void
     onScan: (data: string) => void
   }
-  export { peerPayValidationMessage }   // re-export for compatibility
+  export { peerPayValidationMessage } // re-export for compatibility
   export function classifyIdentitySearchError(_e: unknown): boolean
   ```
+
   Barrel exports: `peerPayValidationMessage, classifyIdentitySearchError, useRecipientInput, type RecipientTarget, type RecipientInlineError, type UseRecipientInputOptions` from `./components/pay/useRecipientInput`. `useIdentitySearch` is gone from the barrel.
 
 - [ ] **Step 1: Rename**
@@ -1242,7 +1277,9 @@ describe('useRecipientInput — typing', () => {
   })
 
   it('adopts an initial target and shows its text', () => {
-    const { result } = draw({ initialTarget: { kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://mb.example' } })
+    const { result } = draw({
+      initialTarget: { kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://mb.example' }
+    })
     expect(result.current.target).toEqual({ kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://mb.example' })
     expect(result.current.inputText).toBe(KEY)
   })
@@ -1598,6 +1635,7 @@ EOF
 ### Task 7: `UniversalSend` — one send form; `RecipientField` status row; delete `HandleSend`/`AddressSend`
 
 **Files:**
+
 - Create: `ui/components/pay/UniversalSend.tsx` (start by copying `HandleSend.tsx`; the full target file is given below)
 - Modify: `ui/components/pay/RecipientField.tsx`
 - Delete: `ui/components/pay/HandleSend.tsx`, `ui/components/pay/AddressSend.tsx`
@@ -1605,8 +1643,10 @@ EOF
 - Test: `__tests__/ui/universalSend.test.tsx` (create)
 
 **Interfaces:**
+
 - Consumes: `useRecipientInput`, `RecipientTarget` (Task 6); `CONSEQUENCE_KEYS`, `sendToAddress`, `sendViaHandle(recipientHost)` (Task 3), `NO_MESSAGE_BOX`, `useMessageBoxConfig`.
 - Produces:
+
   ```ts
   export interface UniversalSendProps {
     initialTarget?: Extract<RecipientTarget, { kind: 'handle' }>
@@ -1617,6 +1657,7 @@ EOF
   }
   export default function UniversalSend(props: UniversalSendProps): JSX.Element
   ```
+
   `RecipientField` props become: `selectedIdentity, inputText, target, inlineError, isSearching, searchResults, colors, t, onChangeText, onSelectIdentity, onClear, onOpenScanner`.
 
 - [ ] **Step 1: Write the failing render test**
@@ -2043,7 +2084,12 @@ export default function UniversalSend({
   const sendAddress = useCallback(
     async (to: Extract<RecipientTarget, { kind: 'address' }>, sats: number) => {
       if (!wallet) return
-      const { paidSatoshis } = await sendToAddress({ wallet: wallet as any, adminOriginator, address: to.address, satoshis: sats })
+      const { paidSatoshis } = await sendToAddress({
+        wallet: wallet as any,
+        adminOriginator,
+        address: to.address,
+        satoshis: sats
+      })
       setSent({ amount: paidSatoshis, recipient: to.address })
     },
     [wallet, adminOriginator]
@@ -2281,14 +2327,14 @@ In `ui/index.ts`: delete the `AddressSend` export line; replace the `HandleSend`
 In `ui/screens/PayScreen.tsx` (temporary, so tsc passes until Task 11): replace `import HandleSend from '../components/pay/HandleSend'` and `import AddressSend from '../components/pay/AddressSend'` with `import UniversalSend from '../components/pay/UniversalSend'`; replace the `case 'pay-handle':` return with
 
 ```tsx
-        return (
-          <UniversalSend
-            initialTarget={initialIdentityKey ? { kind: 'handle', identityKey: initialIdentityKey } : undefined}
-            initialSats={initialSats}
-            initialNotice={peerPayNotice}
-            onNearbySession={() => setCell('pay-nearby')}
-          />
-        )
+return (
+  <UniversalSend
+    initialTarget={initialIdentityKey ? { kind: 'handle', identityKey: initialIdentityKey } : undefined}
+    initialSats={initialSats}
+    initialNotice={peerPayNotice}
+    onNearbySession={() => setCell('pay-nearby')}
+  />
+)
 ```
 
 and the `case 'pay-address':` return with `return <UniversalSend onNearbySession={() => setCell('pay-nearby')} />`. In `__tests__/ui/payScreen.test.tsx`, change the two mock lines `jest.mock('../../ui/components/pay/HandleSend', () => 'HandleSend')` / `AddressSend` to a single `jest.mock('../../ui/components/pay/UniversalSend', () => 'UniversalSend')`, and in the two tests that look up `'HandleSend'` by type, look up `'UniversalSend'` instead and assert `cell.props.initialTarget.identityKey` is `KEY`. (Task 11 rewrites this test file properly; this keeps it green meanwhile.)
@@ -2325,11 +2371,14 @@ EOF
 No unit test is feasible for this 2,300-line native-bound component; the gate is `npx tsc --noEmit` plus the existing localpay suite. Every edit below is mechanical.
 
 **Files:**
+
 - Modify: `ui/components/pay/NearbyFlow.tsx` (props ~392-399; mount effect ~634-643; `reset` ~661-690; `startRequest` ~1034-1100; `onSessionScanned` ~1151-1171; `receive_amount` view ~1859-1881)
 - Modify: `core/i18n/translations.tsx` — remove `local_pay_amount_optional_hint` from all twelve locales
 
 **Interfaces:**
+
 - Produces:
+
   ```ts
   export interface NearbyFlowProps {
     role: 'payer' | 'payee'
@@ -2350,14 +2399,14 @@ Replace `NearbyFlowProps` with the interface above (keep the existing doc commen
 Change `const startRequest = useCallback(async () => {` to `const startRequest = useCallback(async (requested?: number) => {`. Replace the two lines
 
 ```ts
-    const requested = satsFrom(requestAmount)
-    const sats = requested > 0 ? requested : undefined
+const requested = satsFrom(requestAmount)
+const sats = requested > 0 ? requested : undefined
 ```
 
 with
 
 ```ts
-    const sats = requested !== undefined && Number.isFinite(requested) && requested > 0 ? Math.round(requested) : undefined
+const sats = requested !== undefined && Number.isFinite(requested) && requested > 0 ? Math.round(requested) : undefined
 ```
 
 and remove `requestAmount` from the dependency array. In the `receive_amount` view, change the Continue button to `onPress={() => void startRequest(satsFrom(requestAmount) || undefined)}`. Delete the line `{supportText(t('local_pay_amount_optional_hint'))}` and change the comment above `PayAmountField` to end with: `Zero or blank is a real choice — payer decides — and the design says so by not gating on it.`
@@ -2367,35 +2416,35 @@ and remove `requestAmount` from the dependency array. In the `receive_amount` vi
 Replace the `onSessionScanned` callback with:
 
 ```ts
-  /** The state moves that follow a valid session, whether scanned here or handed in. */
-  const adoptSession = useCallback((session: Session) => {
-    setScannedSession(session)
-    // Prompt-free read of this device's Bluetooth state for describeFloor.
-    // Never prepare() here: a payer who lands on QR must never be prompted.
-    setBleState(readBluetoothState())
-    // Who is being paid. Best-effort lookup for the presence row and the
-    // recipient card; nothing waits on it.
-    setPeerKey(session.identityKey)
-    setSendAmount('')
-    setRole('payer')
-    setPhase('send_confirm')
-  }, [])
+/** The state moves that follow a valid session, whether scanned here or handed in. */
+const adoptSession = useCallback((session: Session) => {
+  setScannedSession(session)
+  // Prompt-free read of this device's Bluetooth state for describeFloor.
+  // Never prepare() here: a payer who lands on QR must never be prompted.
+  setBleState(readBluetoothState())
+  // Who is being paid. Best-effort lookup for the presence row and the
+  // recipient card; nothing waits on it.
+  setPeerKey(session.identityKey)
+  setSendAmount('')
+  setRole('payer')
+  setPhase('send_confirm')
+}, [])
 
-  const onSessionScanned = useCallback(
-    (data: string) => {
-      if (scanLatchRef.current) return
-      scanLatchRef.current = true
-      let session: Session
-      try {
-        session = decodeSession(data)
-      } catch {
-        fail('generic', t('invalid_qr_code'))
-        return
-      }
-      adoptSession(session)
-    },
-    [adoptSession, fail, t]
-  )
+const onSessionScanned = useCallback(
+  (data: string) => {
+    if (scanLatchRef.current) return
+    scanLatchRef.current = true
+    let session: Session
+    try {
+      session = decodeSession(data)
+    } catch {
+      fail('generic', t('invalid_qr_code'))
+      return
+    }
+    adoptSession(session)
+  },
+  [adoptSession, fail, t]
+)
 ```
 
 - [ ] **Step 4: Move and extend the mount effect**
@@ -2403,24 +2452,24 @@ Replace the `onSessionScanned` callback with:
 Delete the `enteredRef` block at ~634-643 (the one commented "The grid already asked which side the user is on…"). Immediately after `onSessionScanned` (from Step 3), add:
 
 ```ts
-  // One entry per mount. A payee with a pre-set request mints at once; a payer
-  // with a pre-scanned session lands on confirm. Without either, the old
-  // behaviour: payee names an amount, payer raises the camera. Declared here,
-  // below startRequest and adoptSession, because a dependency array is read at
-  // render time and both are `const`s — referencing them from above would TDZ.
-  const enteredRef = useRef(false)
-  useEffect(() => {
-    if (enteredRef.current) return
-    enteredRef.current = true
-    if (initialRole === 'payee') {
-      if (initialRequest) void startRequest(initialRequest.sats)
-      else setPhase('receive_amount')
-    } else if (initialSession) {
-      adoptSession(initialSession)
-    } else {
-      openScanner('send_scan')
-    }
-  }, [initialRole, initialRequest, initialSession, openScanner, startRequest, adoptSession])
+// One entry per mount. A payee with a pre-set request mints at once; a payer
+// with a pre-scanned session lands on confirm. Without either, the old
+// behaviour: payee names an amount, payer raises the camera. Declared here,
+// below startRequest and adoptSession, because a dependency array is read at
+// render time and both are `const`s — referencing them from above would TDZ.
+const enteredRef = useRef(false)
+useEffect(() => {
+  if (enteredRef.current) return
+  enteredRef.current = true
+  if (initialRole === 'payee') {
+    if (initialRequest) void startRequest(initialRequest.sats)
+    else setPhase('receive_amount')
+  } else if (initialSession) {
+    adoptSession(initialSession)
+  } else {
+    openScanner('send_scan')
+  }
+}, [initialRole, initialRequest, initialSession, openScanner, startRequest, adoptSession])
 ```
 
 - [ ] **Step 5: `reset` leaves when the entry was pre-set**
@@ -2428,13 +2477,13 @@ Delete the `enteredRef` block at ~634-643 (the one commented "The grid already a
 At the top of `reset`'s body (before `abortAll()`), add:
 
 ```ts
-    // A mount whose amount or session came from outside has no phase to go
-    // back to — the hub or the send form owns that state. Leaving is the reset.
-    if (initialRequest || initialSession) {
-      abortAll()
-      onExit()
-      return
-    }
+// A mount whose amount or session came from outside has no phase to go
+// back to — the hub or the send form owns that state. Leaving is the reset.
+if (initialRequest || initialSession) {
+  abortAll()
+  onExit()
+  return
+}
 ```
 
 Add `initialRequest`, `initialSession`, `onExit` to `reset`'s dependency array.
@@ -2446,10 +2495,12 @@ In `core/i18n/translations.tsx`, delete the `local_pay_amount_optional_hint:` li
 - [ ] **Step 7: Verify**
 
 Run:
+
 ```bash
 grep -c "local_pay_amount_optional_hint" packages/expo-wallet-toolbox/core/i18n/translations.tsx packages/expo-wallet-toolbox/ui/components/pay/NearbyFlow.tsx
 npx tsc --noEmit && npm test -- packages/expo-wallet-toolbox/__tests__/localpay
 ```
+
 Expected: `0` and `0`; tsc clean; PASS.
 
 - [ ] **Step 8: Commit**
@@ -2474,10 +2525,12 @@ EOF
 ### Task 9: `HandleReceive` and `AddressReceive` carry the requested amount; config bar leaves `HandleReceive`
 
 **Files:**
+
 - Modify: `ui/components/pay/HandleReceive.tsx` (import line 21; signature ~370; `link` ~436; the `MessageBoxBar`/`ConfigPanel` block ~680-698; QR ~703; styles ~811)
 - Modify: `ui/components/pay/AddressReceive.tsx` (signature; QR block ~303-310; styles ~443)
 
 **Interfaces:**
+
 - Produces: `HandleReceive({ initialSats }: { initialSats?: number })`, `AddressReceive({ initialSats }: { initialSats?: number })`.
 - Consumes: `peerPayLinkFor(identityKey, sats?, messageBoxUrl?)` (Task 3).
 
@@ -2488,10 +2541,10 @@ EOF
 (c) Replace `const link = identityKey ? peerPayLinkFor(identityKey) : ''` with
 
 ```ts
-  // BRC-125 with this app's url extension: the payer learns where to deliver
-  // without an overlay lookup. Omitted when no server is configured, since
-  // there is then nowhere to point them.
-  const link = identityKey ? peerPayLinkFor(identityKey, initialSats, isConfigured ? messageBoxUrl : undefined) : ''
+// BRC-125 with this app's url extension: the payer learns where to deliver
+// without an overlay lookup. Omitted when no server is configured, since
+// there is then nowhere to point them.
+const link = identityKey ? peerPayLinkFor(identityKey, initialSats, isConfigured ? messageBoxUrl : undefined) : ''
 ```
 
 (d) Delete the `<MessageBoxBar …/>` element, the `{config.showConfig && (<ConfigPanel …/>)}` block and the comment above them. Replace `const config = useMessageBoxConfig(t)` / `const { messageBoxUrl } = config` with `const { messageBoxUrl } = useMessageBoxConfig(t)`.
@@ -2499,12 +2552,16 @@ EOF
 (f) Directly above `<View style={styles.qrHero}>`, insert:
 
 ```tsx
-      {/* The figure the code asks for, as its price. Only when one was named. */}
-      {initialSats !== undefined && initialSats > 0 && (
-        <Text style={[styles.requestedAmount, { color: colors.textPrimary }]}>
-          <AmountDisplay>{initialSats}</AmountDisplay>
-        </Text>
-      )}
+{
+  /* The figure the code asks for, as its price. Only when one was named. */
+}
+{
+  initialSats !== undefined && initialSats > 0 && (
+    <Text style={[styles.requestedAmount, { color: colors.textPrimary }]}>
+      <AmountDisplay>{initialSats}</AmountDisplay>
+    </Text>
+  )
+}
 ```
 
 (g) Add to `styles`: `requestedAmount: { ...typography.title2, textAlign: 'center', marginBottom: spacing.lg }`.
@@ -2543,12 +2600,15 @@ EOF
 ### Task 10: `RequestHub` — amount first, then three method rows
 
 **Files:**
+
 - Create: `ui/components/pay/RequestHub.tsx`
 - Test: `__tests__/ui/requestHub.test.tsx` (create)
 - Modify: `ui/index.ts` (add export)
 
 **Interfaces:**
+
 - Produces:
+
   ```ts
   export type RequestMethod = 'get-nearby' | 'get-handle' | 'get-address'
   export interface RequestHubProps {
@@ -2641,8 +2701,12 @@ describe('RequestHub', () => {
     const s = draw({ online: false })
     // PayCellRow's accessibility label is `${title}. ${subtitle}`.
     expect(s.getByLabelText('pay_method_nearby. pay_cell_nearby_get_sub').props.accessibilityState.disabled).toBe(false)
-    expect(s.getByLabelText('pay_method_remote_link. pay_offline_needs_internet').props.accessibilityState.disabled).toBe(true)
-    expect(s.getByLabelText('pay_method_address. pay_offline_needs_internet').props.accessibilityState.disabled).toBe(true)
+    expect(
+      s.getByLabelText('pay_method_remote_link. pay_offline_needs_internet').props.accessibilityState.disabled
+    ).toBe(true)
+    expect(s.getByLabelText('pay_method_address. pay_offline_needs_internet').props.accessibilityState.disabled).toBe(
+      true
+    )
   })
 })
 
@@ -2772,10 +2836,12 @@ EOF
 ### Task 11: `PayScreen` composition and its tests
 
 **Files:**
+
 - Modify: `ui/screens/PayScreen.tsx`
 - Test: `__tests__/ui/payScreen.test.tsx` (rewrite the grid/cell tests; keep the queue/banner tests)
 
 **Interfaces:**
+
 - Consumes: `UniversalSend` (Task 7), `RequestHub`, `requestSatsFrom`, `RequestMethod` (Task 10), `NearbyFlow` props (Task 8), `HandleReceive`/`AddressReceive` `initialSats` (Task 9), `validatePeerPayURI` with `messageBoxUrl` (Task 1).
 
 - [ ] **Step 1: Rewrite the tests**
@@ -2804,74 +2870,74 @@ jest.mock('../../ui/components/pay/AddressReceive', () => 'AddressReceive')
 (c) Add:
 
 ```ts
-  it('opens straight on the send form for the Pay direction — no chooser', () => {
-    const { UNSAFE_getByType, queryByText } = draw()
-    expect(UNSAFE_getByType('UniversalSend' as never)).toBeTruthy()
-    expect(queryByText('pay_cell_nearby_pay')).toBeNull()
-    expect(queryByText('pay_cell_handle_pay')).toBeNull()
-  })
+it('opens straight on the send form for the Pay direction — no chooser', () => {
+  const { UNSAFE_getByType, queryByText } = draw()
+  expect(UNSAFE_getByType('UniversalSend' as never)).toBeTruthy()
+  expect(queryByText('pay_cell_nearby_pay')).toBeNull()
+  expect(queryByText('pay_cell_handle_pay')).toBeNull()
+})
 
-  it('treats pay-handle and pay-address as aliases for the send form', () => {
-    mockParams.cell = 'pay-address'
-    expect(draw().UNSAFE_getByType('UniversalSend' as never).props.openScannerOnMount).toBeFalsy()
-  })
+it('treats pay-handle and pay-address as aliases for the send form', () => {
+  mockParams.cell = 'pay-address'
+  expect(draw().UNSAFE_getByType('UniversalSend' as never).props.openScannerOnMount).toBeFalsy()
+})
 
-  it('opens the send form with the scanner up for pay-nearby', () => {
-    mockParams.cell = 'pay-nearby'
-    expect(draw().UNSAFE_getByType('UniversalSend' as never).props.openScannerOnMount).toBe(true)
-  })
+it('opens the send form with the scanner up for pay-nearby', () => {
+  mockParams.cell = 'pay-nearby'
+  expect(draw().UNSAFE_getByType('UniversalSend' as never).props.openScannerOnMount).toBe(true)
+})
 
-  it('prefills the send form from a peerpay link, url extension included', () => {
-    mockParams.peerpay = `peerpay:${KEY}?sats=1000&url=${encodeURIComponent('https://mb.example')}`
-    const form = draw().UNSAFE_getByType('UniversalSend' as never)
-    expect(form.props.initialTarget).toEqual({ kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://mb.example' })
-    expect(form.props.initialSats).toBe(1000)
-  })
+it('prefills the send form from a peerpay link, url extension included', () => {
+  mockParams.peerpay = `peerpay:${KEY}?sats=1000&url=${encodeURIComponent('https://mb.example')}`
+  const form = draw().UNSAFE_getByType('UniversalSend' as never)
+  expect(form.props.initialTarget).toEqual({ kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://mb.example' })
+  expect(form.props.initialSats).toBe(1000)
+})
 
-  it('surfaces a malformed peerpay link as a notice on the send form', () => {
-    mockParams.peerpay = 'peerpay:nope'
-    expect(draw().UNSAFE_getByType('UniversalSend' as never).props.initialNotice).toContain('identity key')
-  })
+it('surfaces a malformed peerpay link as a notice on the send form', () => {
+  mockParams.peerpay = 'peerpay:nope'
+  expect(draw().UNSAFE_getByType('UniversalSend' as never).props.initialNotice).toContain('identity key')
+})
 
-  it('swaps the send form for the nearby payer flow when a session code is scanned', () => {
-    const { UNSAFE_getByType } = draw()
-    const session = mintSession({
-      identityKey: KEY,
-      derivationPrefix: 'ZGV2LXByZWZpeA==',
-      derivationSuffix: 'ZGV2LXN1ZmZpeA==',
-      supportsAwdl: false
-    })
-    act(() => UNSAFE_getByType('UniversalSend' as never).props.onNearbySession(session))
-    // The nearby advisory has not been acknowledged in this test, so the flow
-    // waits behind the modal; the header already names the rail.
-    const nearby = UNSAFE_getByType('NearbyFlow' as never)
-    expect(nearby.props.role).toBe('payer')
-    expect(nearby.props.initialSession).toBe(session)
+it('swaps the send form for the nearby payer flow when a session code is scanned', () => {
+  const { UNSAFE_getByType } = draw()
+  const session = mintSession({
+    identityKey: KEY,
+    derivationPrefix: 'ZGV2LXByZWZpeA==',
+    derivationSuffix: 'ZGV2LXN1ZmZpeA==',
+    supportsAwdl: false
   })
+  act(() => UNSAFE_getByType('UniversalSend' as never).props.onNearbySession(session))
+  // The nearby advisory has not been acknowledged in this test, so the flow
+  // waits behind the modal; the header already names the rail.
+  const nearby = UNSAFE_getByType('NearbyFlow' as never)
+  expect(nearby.props.role).toBe('payer')
+  expect(nearby.props.initialSession).toBe(session)
+})
 
-  it('opens the request hub for the Get direction, titled Request Payment', () => {
-    mockParams.direction = 'get'
-    const { UNSAFE_getByType, getByText, queryByText } = draw()
-    expect(UNSAFE_getByType('RequestHub' as never)).toBeTruthy()
-    expect(getByText('local_pay_request')).toBeTruthy()
-    expect(queryByText('pay_direction_receive')).toBeNull()
-  })
+it('opens the request hub for the Get direction, titled Request Payment', () => {
+  mockParams.direction = 'get'
+  const { UNSAFE_getByType, getByText, queryByText } = draw()
+  expect(UNSAFE_getByType('RequestHub' as never)).toBeTruthy()
+  expect(getByText('local_pay_request')).toBeTruthy()
+  expect(queryByText('pay_direction_receive')).toBeNull()
+})
 
-  it('carries the hub amount into the picked method', () => {
-    mockParams.direction = 'get'
-    const { UNSAFE_getByType } = draw()
-    const hub = UNSAFE_getByType('RequestHub' as never)
-    act(() => hub.props.onChangeRequestSats('2500'))
-    act(() => UNSAFE_getByType('RequestHub' as never).props.onPick('get-handle'))
-    expect(UNSAFE_getByType('HandleReceive' as never).props.initialSats).toBe(2500)
-  })
+it('carries the hub amount into the picked method', () => {
+  mockParams.direction = 'get'
+  const { UNSAFE_getByType } = draw()
+  const hub = UNSAFE_getByType('RequestHub' as never)
+  act(() => hub.props.onChangeRequestSats('2500'))
+  act(() => UNSAFE_getByType('RequestHub' as never).props.onPick('get-handle'))
+  expect(UNSAFE_getByType('HandleReceive' as never).props.initialSats).toBe(2500)
+})
 
-  it('opens a receive method directly, amount unset, when a deep link names it', () => {
-    mockParams.cell = 'get-handle'
-    const { UNSAFE_getByType, getByText } = draw()
-    expect(UNSAFE_getByType('HandleReceive' as never).props.initialSats).toBeUndefined()
-    expect(getByText('pay_method_remote_link')).toBeTruthy()
-  })
+it('opens a receive method directly, amount unset, when a deep link names it', () => {
+  mockParams.cell = 'get-handle'
+  const { UNSAFE_getByType, getByText } = draw()
+  expect(UNSAFE_getByType('HandleReceive' as never).props.initialSats).toBeUndefined()
+  expect(getByText('pay_method_remote_link')).toBeTruthy()
+})
 ```
 
 Edit `'opens the nearby payee cell for the get-nearby link'` to also assert `expect(UNSAFE_getByType('NearbyFlow' as never).props.initialRequest).toEqual({ sats: undefined })`.
@@ -2931,46 +2997,46 @@ const isRequestMethod = (v: string | undefined): v is RequestMethod =>
 (d) Params and state — replace from `const peerpay = firstParam(params.peerpay)` through `const [cell, setCell] = useState<PayCell | null>(openingCell)` with:
 
 ```ts
-  const peerpay = firstParam(params.peerpay)
-  const peerPayValidation = useMemo(() => (peerpay ? validatePeerPayURI(peerpay) : null), [peerpay])
-  const peerPayNotice = useMemo(() => {
-    if (!peerPayValidation) return null
-    const messages = [peerPayValidation.errors.identityKey, peerPayValidation.errors.sats].filter(Boolean)
-    return messages.length ? messages.join('. ') : null
-  }, [peerPayValidation])
+const peerpay = firstParam(params.peerpay)
+const peerPayValidation = useMemo(() => (peerpay ? validatePeerPayURI(peerpay) : null), [peerpay])
+const peerPayNotice = useMemo(() => {
+  if (!peerPayValidation) return null
+  const messages = [peerPayValidation.errors.identityKey, peerPayValidation.errors.sats].filter(Boolean)
+  return messages.length ? messages.join('. ') : null
+}, [peerPayValidation])
 
-  const initialIdentityKey = peerPayValidation?.identityKey ?? firstParam(params.identityKey)
-  const satsParam = peerPayValidation?.sats ?? Number(firstParam(params.sats))
-  const initialSats = Number.isFinite(satsParam) && satsParam > 0 ? Number(satsParam) : undefined
-  // Memoized: useRecipientInput re-adopts initialTarget whenever its identity changes.
-  const initialTarget = useMemo(
-    () =>
-      initialIdentityKey
-        ? {
-            kind: 'handle' as const,
-            identityKey: initialIdentityKey,
-            ...(peerPayValidation?.messageBoxUrl ? { messageBoxUrl: peerPayValidation.messageBoxUrl } : {})
-          }
-        : undefined,
-    [initialIdentityKey, peerPayValidation?.messageBoxUrl]
-  )
+const initialIdentityKey = peerPayValidation?.identityKey ?? firstParam(params.identityKey)
+const satsParam = peerPayValidation?.sats ?? Number(firstParam(params.sats))
+const initialSats = Number.isFinite(satsParam) && satsParam > 0 ? Number(satsParam) : undefined
+// Memoized: useRecipientInput re-adopts initialTarget whenever its identity changes.
+const initialTarget = useMemo(
+  () =>
+    initialIdentityKey
+      ? {
+          kind: 'handle' as const,
+          identityKey: initialIdentityKey,
+          ...(peerPayValidation?.messageBoxUrl ? { messageBoxUrl: peerPayValidation.messageBoxUrl } : {})
+        }
+      : undefined,
+  [initialIdentityKey, peerPayValidation?.messageBoxUrl]
+)
 
-  const paramCell = firstParam(params.cell)
-  // Direction is fixed by how the user got here. A peerpay link is a request
-  // to pay; a `get-*` cell or `?direction=get` is the receive side.
-  const direction: Direction =
-    peerpay || (paramCell ?? '').startsWith('pay')
-      ? 'pay'
-      : isRequestMethod(paramCell) || firstParam(params.direction) === 'get'
-        ? 'get'
-        : 'pay'
-  /** Pay side: a scanned nearby session takes over the screen. */
-  const [nearbySession, setNearbySession] = useState<Session | null>(null)
-  /** Get side: the method chosen on the hub, or named by a deep link. */
-  const [method, setMethod] = useState<RequestMethod | null>(isRequestMethod(paramCell) ? paramCell : null)
-  /** Get side: the hub's raw amount, carried into the method. */
-  const [requestSats, setRequestSats] = useState('')
-  const openScannerOnMount = paramCell === 'pay-nearby'
+const paramCell = firstParam(params.cell)
+// Direction is fixed by how the user got here. A peerpay link is a request
+// to pay; a `get-*` cell or `?direction=get` is the receive side.
+const direction: Direction =
+  peerpay || (paramCell ?? '').startsWith('pay')
+    ? 'pay'
+    : isRequestMethod(paramCell) || firstParam(params.direction) === 'get'
+      ? 'get'
+      : 'pay'
+/** Pay side: a scanned nearby session takes over the screen. */
+const [nearbySession, setNearbySession] = useState<Session | null>(null)
+/** Get side: the method chosen on the hub, or named by a deep link. */
+const [method, setMethod] = useState<RequestMethod | null>(isRequestMethod(paramCell) ? paramCell : null)
+/** Get side: the hub's raw amount, carried into the method. */
+const [requestSats, setRequestSats] = useState('')
+const openScannerOnMount = paramCell === 'pay-nearby'
 ```
 
 Remove the `PayCell`/`isPayCell` imports if now unused.
@@ -2982,76 +3048,78 @@ Remove the `PayCell`/`isPayCell` imports if now unused.
 (g) Replace `grid()` and `body()` with:
 
 ```tsx
-  const offlineNotice = (
-    <View style={styles.noticeWrap}>
-      <OfflineNotice
-        online={online}
-        queued={queued}
-        rejected={rejected}
-        sentRejected={sentRejected}
-        onSendNow={() => TaskSendOffline.requestNow()}
-        stalled={stalled}
-        pendingCount={pendingCount}
-        pendingStuck={pendingStuck}
-        pendingCorrupt={pendingCorrupt}
-        queuedSent={queuedSentRows}
-        onShowCode={setShowCode}
-        onRequestAgain={row => void onRequestAgain(row)}
-        onCopyDetails={onCopyDetails}
-        onDismiss={row => void onDismiss(row)}
-        onSendAgain={row => void onSendAgain(row)}
-      />
-    </View>
-  )
+const offlineNotice = (
+  <View style={styles.noticeWrap}>
+    <OfflineNotice
+      online={online}
+      queued={queued}
+      rejected={rejected}
+      sentRejected={sentRejected}
+      onSendNow={() => TaskSendOffline.requestNow()}
+      stalled={stalled}
+      pendingCount={pendingCount}
+      pendingStuck={pendingStuck}
+      pendingCorrupt={pendingCorrupt}
+      queuedSent={queuedSentRows}
+      onShowCode={setShowCode}
+      onRequestAgain={row => void onRequestAgain(row)}
+      onCopyDetails={onCopyDetails}
+      onDismiss={row => void onDismiss(row)}
+      onSendAgain={row => void onSendAgain(row)}
+    />
+  </View>
+)
 
-  const body = () => {
-    if (direction === 'pay') {
-      if (nearbySession) {
-        return nearbyAdvisorySeen ? <NearbyFlow role="payer" initialSession={nearbySession} onExit={goBack} /> : null
-      }
+const body = () => {
+  if (direction === 'pay') {
+    if (nearbySession) {
+      return nearbyAdvisorySeen ? <NearbyFlow role="payer" initialSession={nearbySession} onExit={goBack} /> : null
+    }
+    return (
+      <>
+        {offlineNotice}
+        <UniversalSend
+          initialTarget={initialTarget}
+          initialSats={initialSats}
+          initialNotice={peerPayNotice}
+          openScannerOnMount={openScannerOnMount}
+          onNearbySession={setNearbySession}
+        />
+      </>
+    )
+  }
+  const sats = requestSatsFrom(requestSats)
+  switch (method) {
+    case 'get-nearby':
+      return nearbyAdvisorySeen ? <NearbyFlow role="payee" initialRequest={{ sats }} onExit={goBack} /> : null
+    case 'get-handle':
+      return <HandleReceive initialSats={sats} />
+    case 'get-address':
+      return <AddressReceive initialSats={sats} />
+    default:
       return (
         <>
           {offlineNotice}
-          <UniversalSend
-            initialTarget={initialTarget}
-            initialSats={initialSats}
-            initialNotice={peerPayNotice}
-            openScannerOnMount={openScannerOnMount}
-            onNearbySession={setNearbySession}
+          <RequestHub
+            requestSats={requestSats}
+            onChangeRequestSats={setRequestSats}
+            onPick={setMethod}
+            online={online}
           />
         </>
       )
-    }
-    const sats = requestSatsFrom(requestSats)
-    switch (method) {
-      case 'get-nearby':
-        return nearbyAdvisorySeen ? <NearbyFlow role="payee" initialRequest={{ sats }} onExit={goBack} /> : null
-      case 'get-handle':
-        return <HandleReceive initialSats={sats} />
-      case 'get-address':
-        return <AddressReceive initialSats={sats} />
-      default:
-        return (
-          <>
-            {offlineNotice}
-            <RequestHub
-              requestSats={requestSats}
-              onChangeRequestSats={setRequestSats}
-              onPick={setMethod}
-              online={online}
-            />
-          </>
-        )
-    }
   }
+}
 ```
 
 (h) Header title — replace the `{cell ? t(CELL_TITLE_KEYS[cell]) : …}` expression with:
 
 ```tsx
-          {direction === 'pay'
-            ? t(nearbySession ? 'pay_cell_nearby_pay' : 'pay_direction_pay')
-            : t(method ? METHOD_TITLE_KEYS[method] : 'local_pay_request')}
+{
+  direction === 'pay'
+    ? t(nearbySession ? 'pay_cell_nearby_pay' : 'pay_direction_pay')
+    : t(method ? METHOD_TITLE_KEYS[method] : 'local_pay_request')
+}
 ```
 
 and replace the comment above it with `{/* The screen names what it is doing: the direction, or the rail/method once one is live. */}`.
@@ -3091,6 +3159,7 @@ EOF
 ### Task 12: Message-box row in Settings › Advanced; delete `MessageBoxBar`; retire old copy; final sweep
 
 **Files:**
+
 - Modify: `ui/screens/WalletConfigScreen.tsx` (imports ~1-60; state ~150-165; Advanced › Configuration ~617-720)
 - Modify: `ui/components/pay/MessageBoxConfig.tsx` (delete `MessageBoxBar` and its props/styles)
 - Modify: `ui/index.ts` (drop `MessageBoxBar`)
@@ -3108,39 +3177,43 @@ In `ui/screens/WalletConfigScreen.tsx`:
 (c) In the Advanced › Configuration `GroupedSection`, directly before the `<ListRow label="Auto Spend Up To" …` element, insert:
 
 ```tsx
-            {/* The one home of the message-box setting. Save / Default / Use no
+{
+  /* The one home of the message-box setting. Save / Default / Use no
                 server live in ConfigPanel, unchanged from when it sat on the
                 pay screens; the row's value says which server handle payments
-                go through, or that none does. */}
-            <ListRow
-              label={t('message_box_server')}
-              value={
-                messageBox.messageBoxUrl === NO_MESSAGE_BOX
-                  ? t('message_box_off')
-                  : messageBox.messageBoxUrl.replace(/^https:\/\//, '')
-              }
-              icon="mail-outline"
-              iconColor="#5E5CE6"
-              onPress={() => messageBox.setShowConfig(v => !v)}
-              showChevron={messageBox.showConfig}
-              chevronDown={messageBox.showConfig}
-            />
-            {messageBox.showConfig && (
-              <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md }}>
-                <ConfigPanel
-                  urlInput={messageBox.urlInput}
-                  isSaving={messageBox.isSaving}
-                  colors={colors}
-                  t={t}
-                  onChangeUrl={messageBox.setUrlInput}
-                  onSave={() => {
-                    void messageBox.handleSave(messageBox.urlInput)
-                  }}
-                  onReset={messageBox.handleReset}
-                  onNone={messageBox.handleNone}
-                />
-              </View>
-            )}
+                go through, or that none does. */
+}
+;<ListRow
+  label={t('message_box_server')}
+  value={
+    messageBox.messageBoxUrl === NO_MESSAGE_BOX
+      ? t('message_box_off')
+      : messageBox.messageBoxUrl.replace(/^https:\/\//, '')
+  }
+  icon="mail-outline"
+  iconColor="#5E5CE6"
+  onPress={() => messageBox.setShowConfig(v => !v)}
+  showChevron={messageBox.showConfig}
+  chevronDown={messageBox.showConfig}
+/>
+{
+  messageBox.showConfig && (
+    <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md }}>
+      <ConfigPanel
+        urlInput={messageBox.urlInput}
+        isSaving={messageBox.isSaving}
+        colors={colors}
+        t={t}
+        onChangeUrl={messageBox.setUrlInput}
+        onSave={() => {
+          void messageBox.handleSave(messageBox.urlInput)
+        }}
+        onReset={messageBox.handleReset}
+        onNone={messageBox.handleNone}
+      />
+    </View>
+  )
+}
 ```
 
 (`useMessageBoxConfig` auto-opens the panel when the saved value is the no-server sentinel; here that simply means the row opens expanded, which is right — the user is looking at a setting that needs attention.)
@@ -3156,15 +3229,19 @@ Delete `scan_bsv_address_hint:` and `scan_identity_key_hint:` from all twelve lo
 - [ ] **Step 4: Sweep**
 
 Run:
+
 ```bash
 grep -rn "HandleSend\|AddressSend\|useIdentitySearch\|MessageBoxBar\|search_name_or_key\|scan_bsv_address_hint\|scan_identity_key_hint\|local_pay_amount_optional_hint\|CELL_TITLE_KEYS\|PayCellRow" app packages/expo-wallet-toolbox/ui packages/expo-wallet-toolbox/core packages/expo-wallet-toolbox/__tests__ | grep -v "^packages/expo-wallet-toolbox/ui/components/pay/PayCellRow.tsx\|^packages/expo-wallet-toolbox/ui/components/pay/RequestHub.tsx\|^packages/expo-wallet-toolbox/__tests__/ui/requestHub.test.tsx\|^packages/expo-wallet-toolbox/ui/index.ts.*PayCellRow"
 ```
+
 Expected: no output. (`PayCellRow` stays: `RequestHub` uses it and the barrel exports it.)
 
 Then the full gate:
+
 ```bash
 npx tsc --noEmit && npm test -- packages/expo-wallet-toolbox && npm run lint
 ```
+
 Expected: tsc clean; all suites PASS; lint clean (or only pre-existing warnings — compare against `git stash`-free baseline by checking the warning list mentions no file this plan touched).
 
 - [ ] **Step 5: Commit**

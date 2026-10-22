@@ -109,11 +109,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -123,9 +131,15 @@ jest.mock('expo-secure-store', () => ({
     return {
       WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wutdo',
       getItemAsync: jest.fn(async (k: string) => store[k] ?? null),
-      setItemAsync: jest.fn(async (k: string, v: string) => { store[k] = v }),
-      deleteItemAsync: jest.fn(async (k: string) => { delete store[k] }),
-      __clear: () => { for (const k of Object.keys(store)) delete store[k] }
+      setItemAsync: jest.fn(async (k: string, v: string) => {
+        store[k] = v
+      }),
+      deleteItemAsync: jest.fn(async (k: string) => {
+        delete store[k]
+      }),
+      __clear: () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   })()
 }))
@@ -271,8 +285,9 @@ async function setupFundedWallet(seed: number) {
 /** Same load-bearing check as abortActionChainStatus.test.ts: the funding
  * output's own `spendable` state. */
 async function fundingOutputSpendable(storage: StorageExpoSQLite): Promise<boolean> {
-  const rows = (await (storage as unknown as { findOutputs: (a: unknown) => Promise<{ spendable: boolean }[]> })
-    .findOutputs({ partial: { transactionId: 1 } })) as { spendable: boolean }[]
+  const rows = (await (
+    storage as unknown as { findOutputs: (a: unknown) => Promise<{ spendable: boolean }[]> }
+  ).findOutputs({ partial: { transactionId: 1 } })) as { spendable: boolean }[]
   if (rows.length !== 1) throw new Error(`expected exactly one funding output, found ${rows.length}`)
   return rows[0].spendable
 }
@@ -357,7 +372,11 @@ describe('XQ-016 review follow-up: freeReservedInputs against the REAL (non-mock
       {
         description: 'XQ-016 vault-interaction control: never signed',
         outputs: [
-          { lockingScript: new P2PKH().lock(PrivateKey.fromRandom().toAddress()).toHex(), satoshis: 1000, outputDescription: 'control output' }
+          {
+            lockingScript: new P2PKH().lock(PrivateKey.fromRandom().toAddress()).toHex(),
+            satoshis: 1000,
+            outputDescription: 'control output'
+          }
         ],
         options: { randomizeOutputs: false, noSend: true, signAndProcess: false }
       },

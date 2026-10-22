@@ -13,7 +13,7 @@ import Animated, {
   withSpring,
   withTiming,
   withDelay,
-  useReducedMotion,
+  useReducedMotion
 } from 'react-native-reanimated'
 import { useTheme, springs, durations, haptics } from '@bsv/expo-wallet-toolbox'
 
@@ -54,7 +54,7 @@ export default function Celebration({ size = 88, onDone }: CelebrationProps) {
 
   const circleStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
-    transform: [{ scale: scale.value }],
+    transform: [{ scale: scale.value }]
   }))
   const pathProps = useAnimatedProps(() => ({ strokeDashoffset: draw.value }))
 
@@ -80,5 +80,5 @@ export default function Celebration({ size = 88, onDone }: CelebrationProps) {
 }
 
 const styles = StyleSheet.create({
-  center: { alignItems: 'center', justifyContent: 'center' },
+  center: { alignItems: 'center', justifyContent: 'center' }
 })

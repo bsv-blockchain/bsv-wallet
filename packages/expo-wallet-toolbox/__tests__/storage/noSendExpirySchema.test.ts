@@ -136,10 +136,12 @@ describe('NEW-01: transactions table carries the vendor’s BRC-177 noSendExpiry
         provenTxId INTEGER
       );
     `)
-    legacy.prepare(
-      `INSERT INTO transactions (transactionId, created_at, updated_at, userId, status, reference, isOutgoing, satoshis, txid)
+    legacy
+      .prepare(
+        `INSERT INTO transactions (transactionId, created_at, updated_at, userId, status, reference, isOutgoing, satoshis, txid)
        VALUES (1,'n','n',7,'completed','legacy-ref',1,1000,?)`
-    ).run(TXID)
+      )
+      .run(TXID)
 
     await ensureTransactionsColumns(adapt(legacy) as never)
     // Idempotent: a second boot must not throw "duplicate column name".
@@ -149,10 +151,7 @@ describe('NEW-01: transactions table carries the vendor’s BRC-177 noSendExpiry
     for (const col of NO_SEND_EXPIRY_COLUMNS) expect(cols).toContain(col)
     expect(new Set(cols).size).toBe(cols.length)
 
-    const row = legacy.prepare('SELECT * FROM transactions WHERE transactionId = 1').get() as Record<
-      string,
-      unknown
-    >
+    const row = legacy.prepare('SELECT * FROM transactions WHERE transactionId = 1').get() as Record<string, unknown>
     expect(row.txid).toBe(TXID)
     expect(row.reference).toBe('legacy-ref')
     expect(row.noSendExpiryState).toBeNull()

@@ -45,7 +45,14 @@ jest.mock('../../core/diskSpace', () => ({ diskPressure: () => 'ok' }))
 
 import { PrivateKey } from '@bsv/sdk'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
-import { encodeFrame, decodeFrame, sealFrame, unsealFrame, FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
+import {
+  encodeFrame,
+  decodeFrame,
+  sealFrame,
+  unsealFrame,
+  FRAME_VERSION,
+  type PaymentFrame
+} from '../../core/localpay/codec'
 import { getPending, savePending, type KVStorage } from '../../core/localpay/pending'
 
 const NOW = new Date('2026-09-17T12:00:00Z')
@@ -55,15 +62,7 @@ const TXID = 'cd'.repeat(32)
 // A goose, a lion, a family (multi-codepoint ZWJ sequence), a flag (regional
 // indicator pair) and a skin-tone modifier — non-BMP surrogate pairs plus the
 // other shapes "weird emoji" tends to mean, not just one plain astral glyph.
-const WEIRD_NOTES = [
-  '🪿',
-  '🦁',
-  'lunch 🪿🦁 split',
-  '👨‍👩‍👧‍👦 family dinner',
-  '🇨🇦 poutine run',
-  '👍🏽 thanks',
-  '🪿'.repeat(50)
-]
+const WEIRD_NOTES = ['🪿', '🦁', 'lunch 🪿🦁 split', '👨‍👩‍👧‍👦 family dinner', '🇨🇦 poutine run', '👍🏽 thanks', '🪿'.repeat(50)]
 
 describe('nearby-payment note: non-BMP emoji survive every layer it crosses', () => {
   const sample = (note: string): PaymentFrame => ({
@@ -101,7 +100,11 @@ describe('nearby-payment note: non-BMP emoji survive every layer it crosses', ()
     let storage: StorageExpoSQLite
 
     beforeEach(async () => {
-      storage = new StorageExpoSQLite({ chain: 'main', identityKey: IDENTITY, databaseName: 'note-emoji-test' } as never)
+      storage = new StorageExpoSQLite({
+        chain: 'main',
+        identityKey: IDENTITY,
+        databaseName: 'note-emoji-test'
+      } as never)
       await storage.migrate('test', IDENTITY)
     })
 

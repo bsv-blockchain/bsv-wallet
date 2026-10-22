@@ -92,14 +92,14 @@ For a non-active row with `needsRestore` or no `identityKey`, the UI should say 
 
 ### 2.2 The balance sources and why the usual ones are insufficient
 
-| Source | Reference | Problem as a deletion gate |
-|---|---|---|
-| `readWalletBalance` | `core/storage/methods/walletBalanceSql.ts:35-36,57-67` | `default` basket only, `spendable=1`, status in `completed`, `unproven`, `sending`, `nosend`. Excludes `unprocessed` and every other basket. Returns `null` when the basket does not exist, which is "never held anything", not a failed read. |
-| `useSpendableBalance` | `ui/hooks/useSpendableBalance.ts:17-87` | Sets the AsyncStorage cache into state before the live read (`:32-38`). Never gate on it. |
-| Home `refreshBalance` | `ui/screens/WalletHomeScreen.tsx:591-661` | Same two-step pattern; cache key `cached_wallet_balance_<net>__p<n>` (`:456`). |
-| `mandala.balances()` | `core/mandala/createRuntime.ts:2272-2290` | `baseUnits` and `unsettledBaseUnits`. But `listTokenOutputs` swallows any error and returns `[]` (`:707-714`), so a failure reads as zero. Fail-open for a guard. |
-| `readUnprocessedPending` | `core/localpay/pending.ts:376-407` | Returns `{count, stuck, corrupt}`. On corruption it returns `0, 0, corrupt:true`, so the guard must treat `corrupt` as blocking. |
-| `getOutboxEntries` | `core/peerpay/outbox.ts:130-137` | Swallows errors to `[]`. `readEntries` is not exported (`:111`), so strict reading needs a new export. |
+| Source                   | Reference                                              | Problem as a deletion gate                                                                                                                                                                                                                     |
+| ------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `readWalletBalance`      | `core/storage/methods/walletBalanceSql.ts:35-36,57-67` | `default` basket only, `spendable=1`, status in `completed`, `unproven`, `sending`, `nosend`. Excludes `unprocessed` and every other basket. Returns `null` when the basket does not exist, which is "never held anything", not a failed read. |
+| `useSpendableBalance`    | `ui/hooks/useSpendableBalance.ts:17-87`                | Sets the AsyncStorage cache into state before the live read (`:32-38`). Never gate on it.                                                                                                                                                      |
+| Home `refreshBalance`    | `ui/screens/WalletHomeScreen.tsx:591-661`              | Same two-step pattern; cache key `cached_wallet_balance_<net>__p<n>` (`:456`).                                                                                                                                                                 |
+| `mandala.balances()`     | `core/mandala/createRuntime.ts:2272-2290`              | `baseUnits` and `unsettledBaseUnits`. But `listTokenOutputs` swallows any error and returns `[]` (`:707-714`), so a failure reads as zero. Fail-open for a guard.                                                                              |
+| `readUnprocessedPending` | `core/localpay/pending.ts:376-407`                     | Returns `{count, stuck, corrupt}`. On corruption it returns `0, 0, corrupt:true`, so the guard must treat `corrupt` as blocking.                                                                                                               |
+| `getOutboxEntries`       | `core/peerpay/outbox.ts:130-137`                       | Swallows errors to `[]`. `readEntries` is not exported (`:111`), so strict reading needs a new export.                                                                                                                                         |
 
 ### 2.3 Recommended definition of "zero"
 
@@ -210,10 +210,12 @@ Write order matters because other writers fire after teardown (balance-cache hoo
 
 ```ts
 interface ProfileRecord {
-  index: number; network: AppChain
-  identityKey?: string; needsRestore?: boolean
-  name?: string        // rename (section 1)
-  deleted?: true       // tombstone: hidden everywhere, never reused
+  index: number
+  network: AppChain
+  identityKey?: string
+  needsRestore?: boolean
+  name?: string // rename (section 1)
+  deleted?: true // tombstone: hidden everywhere, never reused
 }
 ```
 

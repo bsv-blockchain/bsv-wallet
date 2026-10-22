@@ -79,12 +79,12 @@ The server receives the payment headers, decodes the BEEF, and calls `wallet.int
 
 ## Files
 
-| File | Role |
-|------|------|
-| `utils/webview/bsvPaymentHandler.ts` | Core 402 handler — probe, payment construction, retry, caching |
-| `utils/webview/errorPages.ts` | Static fallback HTML for 402, 403, 404, 500 |
-| `utils/webview/injectedPolyfills.ts` | Fetch wrapper that posts `PAYMENT_REQUIRED` messages for JS-initiated requests |
-| `app/index.tsx` | Wires handler into `onHttpError` and `handleMessage`, initializes handler with wallet |
+| File                                 | Role                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------- |
+| `utils/webview/bsvPaymentHandler.ts` | Core 402 handler — probe, payment construction, retry, caching                        |
+| `utils/webview/errorPages.ts`        | Static fallback HTML for 402, 403, 404, 500                                           |
+| `utils/webview/injectedPolyfills.ts` | Fetch wrapper that posts `PAYMENT_REQUIRED` messages for JS-initiated requests        |
+| `app/index.tsx`                      | Wires handler into `onHttpError` and `handleMessage`, initializes handler with wallet |
 
 ## Error Handling
 

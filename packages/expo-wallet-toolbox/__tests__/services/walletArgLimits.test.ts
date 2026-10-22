@@ -31,11 +31,7 @@ describe('checkWalletArgs', () => {
     // The SDK only cross-checks this against a supplied script and never bounds
     // it, so a page can declare 959,871 per input with an almost empty payload
     // and still make the wallet fund and build a ~1 MB-per-input transaction.
-    const r = checkWalletArgs(
-      'createAction',
-      { inputs: [{ outpoint: 'x', unlockingScriptLength: 959_871 }] },
-      L
-    )
+    const r = checkWalletArgs('createAction', { inputs: [{ outpoint: 'x', unlockingScriptLength: 959_871 }] }, L)
     expect(r?.field).toBe('inputs[0].unlockingScriptLength')
   })
 
@@ -70,11 +66,8 @@ describe('checkWalletArgs', () => {
 
   it('caps array lengths', () => {
     expect(
-      checkWalletArgs(
-        'createAction',
-        { outputs: Array.from({ length: 1001 }, () => ({ lockingScript: '00' })) },
-        L
-      )?.field
+      checkWalletArgs('createAction', { outputs: Array.from({ length: 1001 }, () => ({ lockingScript: '00' })) }, L)
+        ?.field
     ).toBe('outputs.length')
     expect(
       checkWalletArgs('createAction', { inputs: Array.from({ length: 1001 }, () => ({ outpoint: 'x' })) }, L)?.field
@@ -83,11 +76,8 @@ describe('checkWalletArgs', () => {
 
   it('caps customInstructions per output', () => {
     expect(
-      checkWalletArgs(
-        'createAction',
-        { outputs: [{ lockingScript: '00', customInstructions: 'x'.repeat(5000) }] },
-        L
-      )?.field
+      checkWalletArgs('createAction', { outputs: [{ lockingScript: '00', customInstructions: 'x'.repeat(5000) }] }, L)
+        ?.field
     ).toBe('outputs[0].customInstructions')
   })
 
@@ -121,9 +111,7 @@ describe('checkWalletArgs', () => {
       expect(checkWalletArgs('encrypt', { plaintext: new Array(1024).fill(0) }, L)).toBeNull()
       expect(checkWalletArgs('decrypt', { ciphertext: new Array(1024).fill(0) }, L)).toBeNull()
       expect(checkWalletArgs('createHmac', { data: new Array(32).fill(0) }, L)).toBeNull()
-      expect(
-        checkWalletArgs('verifyHmac', { data: new Array(32).fill(0), hmac: new Array(32).fill(0) }, L)
-      ).toBeNull()
+      expect(checkWalletArgs('verifyHmac', { data: new Array(32).fill(0), hmac: new Array(32).fill(0) }, L)).toBeNull()
       expect(checkWalletArgs('createSignature', { hashToDirectlySign: new Array(32).fill(0) }, L)).toBeNull()
       expect(
         checkWalletArgs(

@@ -64,7 +64,7 @@ describe('payment tones', () => {
     await settle()
     expect(audio.__calls.audioModes[0]).toMatchObject({
       interruptionMode: 'mixWithOthers',
-      shouldPlayInBackground: false,
+      shouldPlayInBackground: false
     })
   })
 
@@ -176,7 +176,7 @@ describe('vault tones', () => {
     expect(audio.__calls.audioModes).toHaveLength(1)
     expect(audio.__calls.audioModes[0]).toMatchObject({
       playsInSilentMode: false,
-      interruptionMode: 'mixWithOthers',
+      interruptionMode: 'mixWithOthers'
     })
   })
 

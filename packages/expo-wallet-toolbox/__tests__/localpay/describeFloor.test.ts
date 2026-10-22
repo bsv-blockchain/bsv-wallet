@@ -1,6 +1,14 @@
 import { Platform } from 'react-native'
 import { describeFloor, type FloorReason } from '../../core/localpay/transport/select'
-import { mintSession, CAP_AWDL, CAP_BLE, CAP_NEARBY, HINT_BT, HINT_WIFI, type Session } from '../../core/localpay/session'
+import {
+  mintSession,
+  CAP_AWDL,
+  CAP_BLE,
+  CAP_NEARBY,
+  HINT_BT,
+  HINT_WIFI,
+  type Session
+} from '../../core/localpay/session'
 
 let mockIsSupported = true
 let mockBleSupported = true

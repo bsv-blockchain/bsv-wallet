@@ -868,11 +868,7 @@ describe('removing the profile', () => {
     ['tokens', { kind: 'blocked', reasons: ['token-balance'] }, 'profile_remove_blocked_funds'],
     ['an unfinished handle write', { kind: 'blocked', reasons: ['handle-journal'] }, 'profile_remove_failed_handle'],
     ['a check that could not run', { kind: 'blocked', reasons: ['check-failed'] }, 'profile_remove_blocked_check'],
-    [
-      'money on another network',
-      { kind: 'blocked', reasons: ['other-network'] },
-      'profile_remove_blocked_network'
-    ],
+    ['money on another network', { kind: 'blocked', reasons: ['other-network'] }, 'profile_remove_blocked_network'],
     ['a registry that did not answer', { kind: 'handle-failed' }, 'profile_remove_failed_handle'],
     ['being offline', { kind: 'refused', reason: 'offline' }, 'profile_remove_offline'],
     ['a refusal of another kind', { kind: 'refused', reason: 'busy' }, 'profile_remove_failed'],

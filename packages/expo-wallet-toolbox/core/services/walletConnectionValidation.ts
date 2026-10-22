@@ -23,7 +23,7 @@ export const MAX_RPC_PLAINTEXT_BYTES = 5 * MB
 // @bsv/sdk authenticated encryption adds 48 bytes today. Keep a small explicit
 // allowance so a future compatible envelope does not fail at the boundary.
 export const MAX_RPC_CIPHERTEXT_BYTES = MAX_RPC_PLAINTEXT_BYTES + 256
-export const MAX_RPC_CIPHERTEXT_CHARS = Math.ceil(MAX_RPC_CIPHERTEXT_BYTES * 4 / 3)
+export const MAX_RPC_CIPHERTEXT_CHARS = Math.ceil((MAX_RPC_CIPHERTEXT_BYTES * 4) / 3)
 export const MAX_RPC_WIRE_CHARS = MAX_RPC_CIPHERTEXT_CHARS + 1024
 export const MAX_IN_FLIGHT_RPC = 4
 /**
@@ -96,12 +96,7 @@ export function buildConnectionAuthorityMessage(tuple: ConnectionAuthorityTuple)
 export function buildPairingSignatureMessage(
   params: Pick<Required<ConnectParams>, 'topic' | 'backendIdentityKey' | 'origin' | 'expiry'>
 ): string {
-  return [
-    params.topic,
-    params.backendIdentityKey,
-    params.origin,
-    params.expiry
-  ].join('|')
+  return [params.topic, params.backendIdentityKey, params.origin, params.expiry].join('|')
 }
 
 function requireBoundedString(value: unknown, name: string, maxBytes: number, minBytes = 1): string {
@@ -122,13 +117,25 @@ export function parseWalletProtocol(raw: unknown): { raw: string; value: WalletP
   } catch {
     throw new Error('protocolID is not valid JSON')
   }
-  if (!Array.isArray(parsed) || parsed.length !== 2 || !Number.isInteger(parsed[0]) ||
-      parsed[0] < 0 || parsed[0] > 2 || typeof parsed[1] !== 'string') {
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length !== 2 ||
+    !Number.isInteger(parsed[0]) ||
+    parsed[0] < 0 ||
+    parsed[0] > 2 ||
+    typeof parsed[1] !== 'string'
+  ) {
     throw new Error('protocolID must be a valid [security level, protocol name] tuple')
   }
   const name = parsed[1]
-  if (name.length < 5 || name.length > 400 || name !== name.trim().toLowerCase() ||
-      !/^[a-z0-9 ]+$/.test(name) || name.includes('  ') || name.endsWith(' protocol')) {
+  if (
+    name.length < 5 ||
+    name.length > 400 ||
+    name !== name.trim().toLowerCase() ||
+    !/^[a-z0-9 ]+$/.test(name) ||
+    name.includes('  ') ||
+    name.endsWith(' protocol')
+  ) {
     throw new Error('protocolID contains an invalid protocol name')
   }
   const value = [parsed[0], name] as WalletProtocol
@@ -179,7 +186,7 @@ function validateSignature(raw: unknown): string {
   }
   // A DER ECDSA signature is normally 70-72 bytes. These wider bounds reject
   // empty/truncated and oversized values before the SDK's base64 decoder.
-  const decodedBytes = Math.floor(sig.length * 3 / 4)
+  const decodedBytes = Math.floor((sig.length * 3) / 4)
   if (decodedBytes < 8 || decodedBytes > 80) throw new Error('Pairing signature has an invalid length')
   return sig
 }
@@ -235,7 +242,14 @@ export function validateStoredConnectionFields(raw: {
   const mobileIdentityKey = validateMobileIdentityKey(raw.mobileIdentityKey)
   const protocol = parseWalletProtocol(raw.protocolID)
   const external = validateCanonicalExternalOrigin(raw.origin)
-  return { topic, backendIdentityKey, mobileIdentityKey, protocolIDRaw: protocol.raw, protocolID: protocol.value, external }
+  return {
+    topic,
+    backendIdentityKey,
+    mobileIdentityKey,
+    protocolIDRaw: protocol.raw,
+    protocolID: protocol.value,
+    external
+  }
 }
 
 /** XR-027: a stored connection's authority tag is untrusted AsyncStorage data
@@ -246,11 +260,7 @@ export function validateStoredConnectionFields(raw: {
  * than handed to verifyHmac. */
 export function validateStoredConnectionAuthorityTag(raw: unknown): string | undefined {
   if (raw === undefined || raw === null) return undefined
-  if (
-    typeof raw !== 'string' ||
-    raw.length !== CONNECTION_AUTHORITY_TAG_CHARS ||
-    !/^[A-Za-z0-9_-]+$/.test(raw)
-  ) {
+  if (typeof raw !== 'string' || raw.length !== CONNECTION_AUTHORITY_TAG_CHARS || !/^[A-Za-z0-9_-]+$/.test(raw)) {
     throw new Error('Stored connection authority tag is invalid')
   }
   return raw
@@ -302,8 +312,12 @@ export function parseRelayResponse(raw: unknown): string {
   } catch {
     throw new Error('Origin server returned invalid relay JSON')
   }
-  if (data === null || typeof data !== 'object' || Array.isArray(data) ||
-      typeof (data as { relay?: unknown }).relay !== 'string') {
+  if (
+    data === null ||
+    typeof data !== 'object' ||
+    Array.isArray(data) ||
+    typeof (data as { relay?: unknown }).relay !== 'string'
+  ) {
     throw new Error('Origin server did not return a relay URL')
   }
   return validateRelayUrl((data as { relay: string }).relay)
@@ -342,16 +356,18 @@ export function parseBoundedWireEnvelope(raw: unknown, expectedTopic: string): B
     }
   }
   if (envelope.topic !== expectedTopic) throw new Error('Wallet relay message has the wrong topic')
-  if (typeof envelope.ciphertext !== 'string' || envelope.ciphertext.length === 0 ||
-      envelope.ciphertext.length > MAX_RPC_CIPHERTEXT_CHARS ||
-      envelope.ciphertext.length % 4 === 1 ||
-      Math.floor(envelope.ciphertext.length * 3 / 4) > MAX_RPC_CIPHERTEXT_BYTES ||
-      !/^[A-Za-z0-9_-]+$/.test(envelope.ciphertext)) {
+  if (
+    typeof envelope.ciphertext !== 'string' ||
+    envelope.ciphertext.length === 0 ||
+    envelope.ciphertext.length > MAX_RPC_CIPHERTEXT_CHARS ||
+    envelope.ciphertext.length % 4 === 1 ||
+    Math.floor((envelope.ciphertext.length * 3) / 4) > MAX_RPC_CIPHERTEXT_BYTES ||
+    !/^[A-Za-z0-9_-]+$/.test(envelope.ciphertext)
+  ) {
     throw new Error('Wallet relay ciphertext is invalid or too large')
   }
-  const mobileIdentityKey = envelope.mobileIdentityKey === undefined
-    ? undefined
-    : validateMobileIdentityKey(envelope.mobileIdentityKey)
+  const mobileIdentityKey =
+    envelope.mobileIdentityKey === undefined ? undefined : validateMobileIdentityKey(envelope.mobileIdentityKey)
   return { topic: expectedTopic, ciphertext: envelope.ciphertext, mobileIdentityKey }
 }
 

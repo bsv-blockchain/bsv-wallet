@@ -108,7 +108,10 @@ const BASE_URL = process.env.RESTORE_BASE_URL ?? 'https://backup.bsvblockchain.t
   jest.setTimeout(300_000)
 
   it('replays every chunk into a fresh database', async () => {
-    const shares = (process.env.RESTORE_SHARES ?? '').split(',').map((s: string) => s.trim()).filter(Boolean)
+    const shares = (process.env.RESTORE_SHARES ?? '')
+      .split(',')
+      .map((s: string) => s.trim())
+      .filter(Boolean)
     expect(shares.length).toBeGreaterThanOrEqual(2)
 
     const secret = recoverSecretFromShares(shares)
@@ -154,9 +157,7 @@ const BASE_URL = process.env.RESTORE_BASE_URL ?? 'https://backup.bsvblockchain.t
         // eslint-disable-next-line no-console
         console.log(`${t}: ${r.n}`)
       }
-      const bal = await db.getFirstAsync(
-        "SELECT SUM(satoshis) AS sats, COUNT(*) AS n FROM outputs WHERE spendable = 1"
-      )
+      const bal = await db.getFirstAsync('SELECT SUM(satoshis) AS sats, COUNT(*) AS n FROM outputs WHERE spendable = 1')
       // eslint-disable-next-line no-console
       console.log(`spendable outputs: ${bal.n}, total sats: ${bal.sats}`)
     } catch (e) {

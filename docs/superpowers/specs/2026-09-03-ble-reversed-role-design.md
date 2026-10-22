@@ -33,7 +33,7 @@ Two runs, identical signature. Logs: Android `adb logcat -v threadtime` (`Hybrid
 `core/localpay/session.ts`:
 
 ```ts
-export const CAP_BLE      = 0x04 // payee is advertising bsvpay-ble/1 (peripheral)
+export const CAP_BLE = 0x04 // payee is advertising bsvpay-ble/1 (peripheral)
 export const CAP_BLE_SCAN = 0x08 // payee is ALSO scanning for a payer advertising this session's service UUID (central)
 // 0x10..0x80 reserved for future rungs (L2CAP, NFC, Wi-Fi Aware).
 ```
@@ -58,19 +58,19 @@ Compatibility: decoders ignore unknown bits. An old Android payer against a new 
 
 GATT mechanics do not change: the service UUID derivation, the FRAME characteristic (write, writeWithoutResponse; central → peripheral) and the ACK characteristic (indicate; peripheral → central) are as in the 09-02 spec §2. What changes is who is payer and who is payee behind those roles, and therefore who speaks first once the central has subscribed:
 
-| Mode | Central | Peripheral | First message after subscribe |
-|---|---|---|---|
-| Standard (09-02 spec) | payer | payee | central writes `HELLO_A` |
-| Reversed (this spec) | payee | payer | peripheral indicates `HELLO_A` |
+| Mode                  | Central | Peripheral | First message after subscribe  |
+| --------------------- | ------- | ---------- | ------------------------------ |
+| Standard (09-02 spec) | payer   | payee      | central writes `HELLO_A`       |
+| Reversed (this spec)  | payee   | payer      | peripheral indicates `HELLO_A` |
 
 Message bytes, HMAC domains and the ack MAC are identical in both modes (`HELLO_A 0x01` is always the payer's proof, `HELLO_B 0x02` always the payee's, `FRAME 0x03` always payer → payee, `ACK 0x04` always payee → payer). Only the GATT primitive carrying each message flips:
 
-| Message | Standard | Reversed |
-|---|---|---|
-| `HELLO_A` | central write → FRAME char | peripheral indication ← ACK char |
-| `HELLO_B` | peripheral indication ← ACK char | central write → FRAME char |
-| `FRAME` | central writes without response → FRAME char | peripheral indications ← ACK char |
-| `ACK` | peripheral indication ← ACK char | central write **with response** → FRAME char |
+| Message   | Standard                                     | Reversed                                     |
+| --------- | -------------------------------------------- | -------------------------------------------- |
+| `HELLO_A` | central write → FRAME char                   | peripheral indication ← ACK char             |
+| `HELLO_B` | peripheral indication ← ACK char             | central write → FRAME char                   |
+| `FRAME`   | central writes without response → FRAME char | peripheral indications ← ACK char            |
+| `ACK`     | peripheral indication ← ACK char             | central write **with response** → FRAME char |
 
 Chunking is unchanged: `[u32 BE length][message]`, cut to `min(ATT_MTU − 3, 512)` (`maxUpdateValueLength` / `maximumWriteValueLength` on iOS, `mtu − 3` on Android — both now clamped at 512, see the 2026-09-03 hardware-run correction in the amended 09-02 spec), reassembled by the existing `Reassembler` on the receiving side.
 

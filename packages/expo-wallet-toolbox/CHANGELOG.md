@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.20.0
 
 ### Breaking
 
@@ -62,6 +62,16 @@
 
 ### Changed
 
+- **`UniversalSend` review no longer warns about a live payment's route.**
+  When the wallet can pay live, review says "Pays live, straight to their
+  wallet, when they're online" (`pay_review_route_live`) instead of a
+  warning-toned "Delivering to {host}". A link-named host (XR-053) now
+  appears in the message-box fallback prompt (`direct_pay_fallback_host`),
+  where the payer chooses that route. When live payments aren't available it
+  still shows on review, as information rather than a warning.
+- **No "Not verified" line for a bare identity key.** Review shows a trust
+  line only for a contact or a registered handle. `pay_trust_unverified` is
+  removed.
 - **The receiving wallet broadcasts an incoming payment as it takes it in.**
   The `@bsv/wallet-toolbox-mobile` peer is now `^2.14.9`. Up to 2.14.6,
   `internalizeAction` was meant to post an unproven payment that is new to the
@@ -107,7 +117,7 @@
   the message box as the fallback.
   - **Opt in.** It turns on when the host installs `@bsv/webrtpay` (an
     optional peer, `^0.2.1`), sets `configureToolbox({ directPay: { enabled:
-    true, RTCPeerConnection } })` and mounts `DirectPayProvider` inside
+true, RTCPeerConnection } })` and mounts `DirectPayProvider` inside
     `WalletContextProvider`. Without all three nothing changes.
   - **`DirectPayManager`.** Wallets find each other through the relay by
     default. If the relay is not online within 5 s, receiving falls back to
@@ -167,6 +177,7 @@
 
   Nothing is wired into `WalletContext` or a screen yet. The live manager
   and receive/send rails follow in a later release.
+
 - **`deriveCallbackToken` is exported.** Known-answer vectors pin it. BSV
   Desktop now derives the same Arcade callback token, so a wallet open in both
   apps hears one status stream. No behaviour change.
@@ -252,9 +263,9 @@
   it behaves as before, and each prewarmed read is used once; a later run
   (after logout) does its own.
 - **A host-configurable minimum handle length.** `configureToolbox({
-  handleMinLength: 1 | 2 | 3 })` (default 3) sets the shortest handle
+handleMinLength: 1 | 2 | 3 })` (default 3) sets the shortest handle
   `isValidHandleFormat` accepts; `getHandleMinLength()` reads it. The rest of
-  the format is unchanged (a-z 0-9 . _ -, at most 32, starting and ending
+  the format is unchanged (a-z 0-9 . \_ -, at most 32, starting and ending
   with a letter or digit). A host that lowers it must use a registry that
   accepts the shorter handles.
 - **Payment links carry a note.** `peerpay:` links may carry a `note`
@@ -338,7 +349,6 @@
   fixes it, apps must carry a `patch-package` patch for `@bsv/mandala` 0.4.1
   that pads the description the same way.
 
-
 ## 0.15.2
 
 ### Fixed
@@ -408,7 +418,7 @@
   `[2, 'mandala token']` stays reserved, and privileged calls are still
   refused. So are the address rail's own key IDs: a BRC-29 call from a
   connected origin whose key ID is `base64(YYYY-MM-DD) + ' ' +
-  base64('legacy')` is refused for every key-using method and counterparty
+base64('legacy')` is refused for every key-using method and counterparty
   (`isAddressRailKeyID`, exported from the vault guard).
 - **BRC-29 signing asks every time.** An approval under `3241645161d8` is
   never reused: each signature gets its own prompt, and one app's concurrent
@@ -444,7 +454,7 @@
 ### Breaking
 
 - **The privileged key is no longer the BIP32 master.** A mnemonic wallet's
-  `PrivilegedKeyManager` now gets profile *n*'s own key at `m/1'/n'` (`m/1'/0'`
+  `PrivilegedKeyManager` now gets profile _n_'s own key at `m/1'/n'` (`m/1'/0'`
   for the default profile) instead of the master key `m`, so no two profiles
   share key material. Anything a host derived with `privileged: true` under an
   existing wallet derives differently after upgrading. A recovered-key (WIF)
@@ -701,7 +711,7 @@ corrects them until the library ships the same fixes (bsv-blockchain/ts-stack#67
 
 - A `createAction` with `noSend` returned `noSendChange` outpoints on the
   unsigned txid next to the signed `txid` (`noSendChange[0]: expected an
-  outpoint of the returned transaction`). They now name the signed transaction.
+outpoint of the returned transaction`). They now name the signed transaction.
 - That no-send action could not be released: the caller only has its `txid`,
   and the permissions manager refused `abortAction` by txid from any non-admin
   origin, so its inputs stayed locked until no-send expiry. The origin that
@@ -1005,7 +1015,7 @@ committed key and its PIN, could spend without the mnemonic.
   arbitrary-depth unconfirmed ancestor BEEF was considered and rejected as
   open-ended complexity for a narrow confirmation-window edge case, not
   required by the availability guarantee's core promise (surviving loss of
-  a *settled* deposit). An unconfirmed candidate is surfaced as "pending
+  a _settled_ deposit). An unconfirmed candidate is surfaced as "pending
   confirmation," never silently dropped.
 - ARC/indexer acceptance of a transaction carrying a ~45 KB R1C lock plus a
   1-sat P2PKH plus a ~1.5 KB `OP_RETURN` in one broadcast has not been
@@ -1301,7 +1311,7 @@ committed key and its PIN, could spend without the mnemonic.
   enabled for retry instead of reporting a clean deletion that didn't happen.
 - **KEK provisioning can no longer be silently downgraded or hijacked (XR-108,
   XR-109, XR-111, XR-116).** A self-consistent but forged `{policy:'degraded',
-  kekId}` sentinel could previously ride the app's own automatic degraded-to-
+kekId}` sentinel could previously ride the app's own automatic degraded-to-
   biometric upgrade and silently overwrite the real biometric KEK with an
   attacker's key; `upgradeToBiometric()` now reads the existing authenticated
   KEK first and refuses the upgrade outright if one is already there, and
@@ -1394,7 +1404,7 @@ committed key and its PIN, could spend without the mnemonic.
   peak memory. Concurrent messages on one connection now also share a
   `MAX_IN_FLIGHT_RPC_BYTES` budget equal to the existing single-message
   ceiling. Separately, `encrypt`/`decrypt`/`createHmac`/`verifyHmac`/`createSig
-  nature`/`verifySignature` had no per-call size cap at all beyond the
+nature`/`verifySignature` had no per-call size cap at all beyond the
   transport ceiling; they now share a 1 MiB `cryptoPayload` ceiling (halved on
   low-tier devices). A connected app sending an oversized crypto-call payload,
   or enough concurrent large messages to cross the shared budget, now has the
@@ -1554,7 +1564,7 @@ committed key and its PIN, could spend without the mnemonic.
 - **Token decimals bounded everywhere one is read (XR-043).** An extreme
   `decimals` value from a session QR or a registry entry had no upper bound;
   `formatTokenAmount(500, Number.MAX_SAFE_INTEGER)` reliably threw `RangeError:
-  Invalid string length`, and the crash re-triggered on every later render
+Invalid string length`, and the crash re-triggered on every later render
   since the metadata persists. Decode, registry resolution, formatting/parsing,
   and the input mask now all clamp or reject outside `[0, 18]` — a host calling
   `formatTokenAmount`/`parseTokenAmount` directly with an out-of-range value
@@ -1563,7 +1573,7 @@ committed key and its PIN, could spend without the mnemonic.
   sharing a ticker (a look-alike distributed by a malicious issuer) were
   visually indistinguishable through the whole select-to-send flow. The asset
   switcher, asset picker, and the Send review step now all show `issuerName ·
-  fingerprint` alongside the ticker.
+fingerprint` alongside the ticker.
 - **Real token actions now reach the consent gate (XR-037).** Two different
   constants both named `MANDALA_ACTION_LABEL` — one for home-screen
   recognition, one for the P-routed `listActions` consent gate — and only the
@@ -1680,7 +1690,7 @@ committed key and its PIN, could spend without the mnemonic.
 - **Duplicate-delivery detection narrowed to the structured code (XR-046).**
   `isDuplicateMessageError` matched free prose in a thrown error's message,
   entirely attacker/host-controlled; it now requires `@bsv/message-box-
-  client`'s own structured `ERR_DUPLICATE_MESSAGE` code, which the client
+client`'s own structured `ERR_DUPLICATE_MESSAGE` code, which the client
   validates before embedding.
 - **Inbox shape-check bounded (XR-047).** An unbounded
   `transaction`/derivation-string length in a poisoned inbox message re-
@@ -1813,7 +1823,7 @@ committed key and its PIN, could spend without the mnemonic.
   BUMP/root check only proves the requested txid is confirmed; nothing checked
   that a separately-fetched raw-tx response actually hashed to that txid before
   completing a transaction on it. It now requires `doubleSha256(rawTx) ===
-  txid`.
+txid`.
 - **Only an authoritative 404 proves chain absence (XR-030).** A manual proof
   refresh treated any non-2xx response (a rate limit, a 5xx, an auth error)
   identically to a definitive 404 and released reserved inputs on a stale row;
@@ -1941,7 +1951,7 @@ committed key and its PIN, could spend without the mnemonic.
   release a `nosend` action's reserved inputs — including one already handed to
   a counterparty over PeerPay or LocalPay, turning a chain-status outage into a
   payer-side double-spend race. The patch (`patches/@bsv+wallet-toolbox-
-  mobile+2.14.0.patch`) now retries the chain-status check once and, if still
+mobile+2.14.0.patch`) now retries the chain-status check once and, if still
   unresolved, throws instead of invalidating — every in-app `abortAction`
   caller already handles a thrown result sensibly, and Vault's own abort calls
   (strictly unsigned-only) are unaffected. Verified end to end through Vault's
@@ -2032,7 +2042,7 @@ surfaced above, collected here for visibility:
 - **Pairing QR signatures verify in the `@bsv/wallet-relay` 0.5.x format.**
   `buildPairingSignatureMessage` (`walletConnectionValidation.ts`) had drifted
   to a domained `bsv-wallet-pairing-v1|topic|backendIdentityKey|protocolID|
-  origin|expiry` transcript, while wallet-relay backends sign
+origin|expiry` transcript, while wallet-relay backends sign
   `topic|backendIdentityKey|origin|expiry`, so every real pairing QR failed
   with "Signature is not valid". Any future transcript change must be
   coordinated with wallet-relay and its backends.
@@ -2252,7 +2262,7 @@ block:
   only blocks an abort once the payer's own settlement row has already
   advanced to handed-over, which never happens on a decline. It now accepts
   an optional `watchDeclinedAbort?: (entry: { txid: string; reference:
-  string }) => Promise<void>` dependency, called after every decline (BSV or
+string }) => Promise<void>` dependency, called after every decline (BSV or
   token) it has a txid for, whether or not the abort itself succeeded.
   `core/localpay/pendingAborts.ts` gains a durable watch list
   (`queueDeclinedAbortWatch` / `verifyDeclinedAborts`, backed by a new
@@ -2289,7 +2299,7 @@ wallet" state as soon as the payment was durably queued, before
 the overlay never retracted or recoloured, claiming a credit the device
 could not back yet. `PaymentSuccessOverlay` gains an optional
 `verification?: 'pending' | 'verified' | 'not-credited'` prop, defaulting to
-`'verified'` so every existing caller is unaffected. The overlay's *timing*
+`'verified'` so every existing caller is unaffected. The overlay's _timing_
 is unchanged — still shown the instant the payment is durably queued; only
 the claim is gated: `'pending'` shows a neutral "Confirming with your
 wallet…" (`local_pay_received_confirming`) the moment it appears, resolving
@@ -2396,9 +2406,9 @@ Three fixes sharing `WalletContext.tsx`'s wiring:
   to `AsyncStorage` so an app restart does not reset the cap.
 - **Broadcast callback token**: the Arcade `X-CallbackToken` was
   `keyDeriver.identityKey.substring(0, 32)` — the first 32 hex chars of the
-  wallet's own *public* identity key, a value any past counterparty already
+  wallet's own _public_ identity key, a value any past counterparty already
   has. `core/services/callbackToken.ts`'s `deriveCallbackToken` derives it
-  from a BRC-42 *private* key instead (fixed protocol/keyID, counterparty
+  from a BRC-42 _private_ key instead (fixed protocol/keyID, counterparty
   `'self'`, then hashed) — deterministic per wallet, but only this wallet's
   root key can compute it. The token is recomputed on every wallet build and
   used for both the Arcade broadcast service and the Monitor's
@@ -2412,7 +2422,7 @@ Three fixes sharing `WalletContext.tsx`'s wiring:
   answering for the wrong network, and this path never writes `spentBy`, so
   nothing could ever undo a wrong call. `core/walletRepair/shouldMarkUnspendable.ts`
   now requires the toolbox's own configured `getUtxoStatus` provider to
-  *also* report the output as no longer a UTXO before committing to
+  _also_ report the output as no longer a UTXO before committing to
   `spendable: false`; either way, the claimed spender is now recorded in
   `outputs.spendingDescription` as a paper trail (a free-text column
   nothing else in this app reads or writes).
@@ -2427,7 +2437,7 @@ single timeout-guarded `getExchangeRate()` instead of re-implementing an
 untimed fetch and its own cache/fallback.
 
 Separately, that background refresh used to be fire-and-forget — its result
-only ever reached the UI on the *next* cold start, so a session that opened
+only ever reached the UI on the _next_ cold start, so a session that opened
 with a stale cached/fallback rate stayed stale until closed and reopened.
 `getExchangeRate()` now returns an additional `refreshed: Promise<number |
 undefined>` field (never rejects — every failure mode is still caught and
@@ -2461,7 +2471,7 @@ vetting. A foreign-domain match now gets `pay_trust_handle_domain_attested`
   with no in-app way to resolve it. `core/services/vault/transfers.ts` gains
   `resolveHeldVaultDeposit(w, adminOriginator, meta, scopeToken?)`: it asks
   the network for the held txid's status first (`already-known` if the
-  network already has it, otherwise re-broadcasts the *exact*
+  network already has it, otherwise re-broadcasts the _exact_
   already-signed bytes via the same `sendWith` call the normal release
   uses — never a second transaction, never `abortAction`). `VaultScreen`
   shows a "Finish the interrupted deposit" notice and button
@@ -2491,7 +2501,7 @@ vetting. A foreign-domain match now gets `pay_trust_handle_domain_attested`
   `hasVaultMeta` flag, backed by the existing `vaultStore.isEnrolled()`
   read (no new network call). `WalletHomeScreen` and `SettingsScreen` now
   show their Vault entry point when `isVaultAvailable(selectedNetwork) ||
-  hasVaultMeta`, so an already-funded vault stays reachable even with
+hasVaultMeta`, so an already-funded vault stays reachable even with
   `EXPO_PUBLIC_VAULT_ENABLED` off or the network switched away from
   mainnet. `VaultScreen`'s own withdraw/deposit gating is unchanged.
 - **Vendored patch.** The `@bsv+wallet-toolbox-mobile+2.14.0.patch` funding
@@ -2501,12 +2511,12 @@ vetting. A foreign-domain match now gets `pay_trust_handle_domain_attested`
   `validateSignableVaultPlan`'s strict input-count check then rejected
   outright — spuriously failing an otherwise-legitimate withdraw or relock.
   Re-keyed to the already-computed `vargs.__bsvVaultAdminAuthorized ===
-  true` flag, which covers deposit, withdraw and relock alike.
+true` flag, which covers deposit, withdraw and relock alike.
 
 ### Mandala: a handle-rail token is held before it is internalized
 
 `@bsv/mandala`'s own `receiveTokens` calls `wallet.internalizeAction()`
-*before* it calls the settle hook that finally writes a `token_settlements`
+_before_ it calls the settle hook that finally writes a `token_settlements`
 row — on a handle-rail token's first credit, that row does not exist yet, so
 `StorageExpoSQLite.attemptToPostReqsToNetwork`'s guard (which looks up
 exactly that row) finds nothing and lets an unmediated broadcast through
@@ -2732,7 +2742,7 @@ under Node again.
   optional arguments. **A host calling it directly must pass `incoming` (and
   `labels`)**: without them, `completed`, `unproven` and `sending` now resolve
   to "Spent". New exports from `ui/txStatus.ts`: `activityKind(incoming,
-  labels)`, the one place a row's word is decided, returning the new
+labels)`, the one place a row's word is decided, returning the new
   `ActivityKind` (`'sent' | 'received' | 'spent' | 'transferred'`), and
   `isPaymentAction(labels)`.
 - Token (Mandala) rows use the same words: "Sent" or "Received" once settled,
@@ -2964,8 +2974,8 @@ New:
   `VaultProgress.signed/total`.
 - Transfers: `depositToVault(w, adminOriginator, satoshis, opts?)` needs no
   hardware; `withdrawFromVault(w, adminOriginator, amount, reason,
-  chosenSerial, opts?)`; `previewVaultWithdrawal(w, adminOriginator,
-  chosenSerial, amount)` — the chosen key's selectable total, capped count
+chosenSerial, opts?)`; `previewVaultWithdrawal(w, adminOriginator,
+chosenSerial, amount)` — the chosen key's selectable total, capped count
   and unreachable set without reserving or tapping, for the remainder
   confirmation before the tap; `relockVault`; `estimateRelockFee`;
   `getVaultKeyCoverage`; `orphanedIfRemoved`;
@@ -3359,7 +3369,7 @@ pay-first UX, recipient-submits offline settlement (specs:
   registers an InteractionManager handle for the duration of the animation, and
   `Animated.loop` means that duration never ends — so the handle was held for
   as long as the component stayed mounted, and while any handle is held
-  `InteractionManager.runAfterInteractions` never fires for *anyone* in the
+  `InteractionManager.runAfterInteractions` never fires for _anyone_ in the
   process. `Balance` renders `<AppLogo rotate />` whenever a balance is loading,
   so this was reachable in normal use: `PayScreen`'s deferred proof sweep never
   ran, and a host that defers real work the same way could hang indefinitely

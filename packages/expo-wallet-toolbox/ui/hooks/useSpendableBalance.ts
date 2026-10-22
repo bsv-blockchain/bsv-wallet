@@ -32,7 +32,7 @@ export function useSpendableBalance(): number | null {
         const cached = await AsyncStorage.getItem(cacheKey)
         const value = cached == null ? NaN : Number(cached)
         if (!cancelled && Number.isFinite(value)) {
-          setBalance(prev => prev?.key === cacheKey ? prev : { key: cacheKey, value })
+          setBalance(prev => (prev?.key === cacheKey ? prev : { key: cacheKey, value }))
         }
       } catch {
         // A broken cache must not prevent the live read below.
@@ -54,7 +54,7 @@ export function useSpendableBalance(): number | null {
           total = totalOutputs ?? 0
         }
         if (cancelled) return
-        setBalance(prev => prev?.key === cacheKey && prev.value === total ? prev : { key: cacheKey, value: total })
+        setBalance(prev => (prev?.key === cacheKey && prev.value === total ? prev : { key: cacheKey, value: total }))
         await AsyncStorage.setItem(cacheKey, String(total))
       } catch {
         // Keep the last known figure: a failed read is not "zero satoshis".

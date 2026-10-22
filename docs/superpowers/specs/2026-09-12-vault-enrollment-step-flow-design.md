@@ -78,12 +78,12 @@ refusal for any key already enrolled in the vault.
 
 `KeySub` becomes `'pin' | 'puk' | 'tap' | 'name' | 'reset' | 'error'`.
 
-| Step | Page | Gate to continue |
-|---|---|---|
-| 1/4 | **Choose PIN** — two fields: choose, confirm | 6–8 digits, not `123456`, both equal |
-| 2/4 | **Recovery code** — 8 generated digits, shown large | `I've written this down` ticked |
-| 3/4 | **Tap** — unchanged | — |
-| 4/4 | **Name** — unchanged | — |
+| Step | Page                                                | Gate to continue                     |
+| ---- | --------------------------------------------------- | ------------------------------------ |
+| 1/4  | **Choose PIN** — two fields: choose, confirm        | 6–8 digits, not `123456`, both equal |
+| 2/4  | **Recovery code** — 8 generated digits, shown large | `I've written this down` ticked      |
+| 3/4  | **Tap** — unchanged                                 | —                                    |
+| 4/4  | **Name** — unchanged                                | —                                    |
 
 A local `StepProgress` component renders a bar filled `n/4` plus a `Step n of 4`
 line, under the existing `Key {k} of up to 5` title. It appears on those four
@@ -119,7 +119,7 @@ exists to prevent.
 The wizard passes:
 
 ```ts
-getPin:           async () => '123456'
+getPin: async () => '123456'
 requestPinChange: async () => ({ oldPin: '123456', newPin: chosenPin })
 requestPukChange: async () => ({ oldPuk: '12345678', newPuk: generatedPuk })
 ```
@@ -206,15 +206,15 @@ definition not yet part of the vault.
 
 ### 7 · Which errors offer reset
 
-| Code | Offer | Reason |
-|---|---|---|
-| `mgmt-key-custom` | yes | Genuine Yubico key whose management key was rotated |
-| `slot-occupied` | yes, as a heavier second option beside the existing slot-0x82-only replacement | |
-| `pin-invalid`, `puk-invalid` | yes | The flow sent the factory codes; rejection means personalised |
-| `pin-locked`, `puk-locked` | yes | Reset is the only remedy |
-| `enrollment-partial`, quarantine | yes | `vault_enrollment_reset_required` already tells the user to reset and gives them no way to; this makes that dead end actionable |
-| `attestation-invalid` | **no** | The F9 factory chain failed: counterfeit or tampered. A reset cannot fix it, and offering one is misleading |
-| `key-already-enrolled` | **no** | It is a live vault key |
+| Code                             | Offer                                                                          | Reason                                                                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `mgmt-key-custom`                | yes                                                                            | Genuine Yubico key whose management key was rotated                                                                             |
+| `slot-occupied`                  | yes, as a heavier second option beside the existing slot-0x82-only replacement |                                                                                                                                 |
+| `pin-invalid`, `puk-invalid`     | yes                                                                            | The flow sent the factory codes; rejection means personalised                                                                   |
+| `pin-locked`, `puk-locked`       | yes                                                                            | Reset is the only remedy                                                                                                        |
+| `enrollment-partial`, quarantine | yes                                                                            | `vault_enrollment_reset_required` already tells the user to reset and gives them no way to; this makes that dead end actionable |
+| `attestation-invalid`            | **no**                                                                         | The F9 factory chain failed: counterfeit or tampered. A reset cannot fix it, and offering one is misleading                     |
+| `key-already-enrolled`           | **no**                                                                         | It is a live vault key                                                                                                          |
 
 The `reset` page states what is destroyed — every PIV credential on the key, not
 only Vault's slot — names the key by its serial tail, and gates a destructive
@@ -231,19 +231,19 @@ back to today's `Use a different key`.
 
 ## Files
 
-| File | Change |
-|---|---|
-| `packages/react-native-yubikey/src/specs/YubiKeyPiv.nitro.ts` | `resetPivApplication` |
-| `packages/react-native-yubikey/nitrogen/generated/**` | regenerated |
-| `packages/react-native-yubikey/ios/HybridYubiKeyPiv.swift` | reset impl |
-| `packages/react-native-yubikey/android/.../HybridYubiKeyPiv.kt` | reset impl |
-| `core/services/vault/driver.ts` | `VaultDriver.resetPivApplication` + native adapter |
-| `core/services/vault/pivReset.ts` | new |
-| `core/services/vault/mockYubiKey.ts` | mock reset |
-| `core/services/vault/VaultKeyService.ts` | preflight hoist; `details.serial` on four codes |
-| `core/index.ts` | export `resetPivApplication` |
-| `ui/components/vault/EnrollWizard.tsx` | page split, progress bar, generated PUK, reset page |
-| `core/i18n/translations.tsx` | ~14 new keys × 12 languages; retire the unused ones |
+| File                                                            | Change                                              |
+| --------------------------------------------------------------- | --------------------------------------------------- |
+| `packages/react-native-yubikey/src/specs/YubiKeyPiv.nitro.ts`   | `resetPivApplication`                               |
+| `packages/react-native-yubikey/nitrogen/generated/**`           | regenerated                                         |
+| `packages/react-native-yubikey/ios/HybridYubiKeyPiv.swift`      | reset impl                                          |
+| `packages/react-native-yubikey/android/.../HybridYubiKeyPiv.kt` | reset impl                                          |
+| `core/services/vault/driver.ts`                                 | `VaultDriver.resetPivApplication` + native adapter  |
+| `core/services/vault/pivReset.ts`                               | new                                                 |
+| `core/services/vault/mockYubiKey.ts`                            | mock reset                                          |
+| `core/services/vault/VaultKeyService.ts`                        | preflight hoist; `details.serial` on four codes     |
+| `core/index.ts`                                                 | export `resetPivApplication`                        |
+| `ui/components/vault/EnrollWizard.tsx`                          | page split, progress bar, generated PUK, reset page |
+| `core/i18n/translations.tsx`                                    | ~14 new keys × 12 languages; retire the unused ones |
 
 Retiring `vault_enter_pin`, `vault_enter_pin_sub`, `vault_enter_puk`,
 `vault_enter_puk_sub`, `vault_set_new_pin` and `vault_default_puk_warning`

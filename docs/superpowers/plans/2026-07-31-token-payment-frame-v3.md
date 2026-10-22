@@ -25,10 +25,12 @@
 ### Task 1: Sealed envelope in the codec
 
 **Files:**
+
 - Modify: `utils/localpay/codec.ts` (append after `decodeFrame`, ~line 128)
 - Test: `__tests__/localpayCodec.test.ts` (append a new `describe`)
 
 **Interfaces:**
+
 - Consumes: existing `encodeFrame`/`decodeFrame`, `CodecError`.
 - Produces: `SEAL_VERSION = 1`; `sealFrame(f: PaymentFrame, psk: Uint8Array): Uint8Array`; `unsealFrame(b: Uint8Array, psk: Uint8Array): PaymentFrame`. Task 5 wires these through transports; Task 2 changes the `PaymentFrame` type they carry (sealing is byte-level, so Task 2 does not change this code).
 
@@ -151,23 +153,26 @@ git commit -m "feat(pay): seal payment frames with the session PSK (AES-256-GCM 
 ### Task 2: PaymentFrame v3 — kind discriminator and token block
 
 **Files:**
+
 - Modify: `utils/localpay/codec.ts` (interface at :10-33, `encodeFrame` :102-113, `decodeFrame` :115-128, `FRAME_VERSION` :1)
 - Modify: `utils/localpay/build.ts` (frame literal ~:170-175 gains `kind: 'bsv'`)
 - Test: `__tests__/localpayCodec.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 1's seal (unchanged — it wraps whatever `encodeFrame` emits).
 - Produces:
+
   ```ts
   export const FRAME_VERSION = 3
   export type FrameKind = 'bsv' | 'token'
   export interface TokenPayment {
-    assetId: string                 // "<64-hex txid>.<vout>"
+    assetId: string // "<64-hex txid>.<vout>"
     overlayUrl: string
-    overlayIdentityKey: string      // 66-hex compressed pubkey
-    certificates: Uint8Array[]      // opaque serialized VerifiableCertificates
+    overlayIdentityKey: string // 66-hex compressed pubkey
+    certificates: Uint8Array[] // opaque serialized VerifiableCertificates
     linkage: Array<{ txid: string; payload: Uint8Array }> // per-txid MandalaLinkagePayload bytes, whole chain
-    recipientLinkage: Uint8Array    // JSON SpecificLinkage bytes, verifier = payee
+    recipientLinkage: Uint8Array // JSON SpecificLinkage bytes, verifier = payee
   }
   export interface PaymentFrame {
     version: number
@@ -176,10 +181,11 @@ git commit -m "feat(pay): seal payment frames with the session PSK (AES-256-GCM 
     outputIndex: number
     derivationPrefix: string
     derivationSuffix: string
-    token?: TokenPayment            // present iff kind === 'token'
+    token?: TokenPayment // present iff kind === 'token'
     transaction: Uint8Array
   }
   ```
+
   Task 4 (verify) and Task 5 (wiring) rely on these exact names.
 
 - [ ] **Step 1: Update existing fixtures and write the failing tests**
@@ -199,10 +205,10 @@ const tokenSample = (): PaymentFrame => ({
     certificates: [new Uint8Array([9, 9, 9]), new Uint8Array([])],
     linkage: [
       { txid: 'cd'.repeat(32), payload: new Uint8Array([1, 2, 3]) },
-      { txid: 'ef'.repeat(32), payload: new Uint8Array([4]) },
+      { txid: 'ef'.repeat(32), payload: new Uint8Array([4]) }
     ],
-    recipientLinkage: new Uint8Array([5, 6]),
-  } satisfies TokenPayment,
+    recipientLinkage: new Uint8Array([5, 6])
+  } satisfies TokenPayment
 })
 
 describe('frame v3 kinds', () => {
@@ -306,7 +312,8 @@ In `utils/localpay/codec.ts`:
        for (const cert of t.certificates) putBytes(out, cert)
        putVarint(out, t.linkage.length)
        for (const entry of t.linkage) {
-         if (entry.txid.length !== 64) throw new CodecError(`linkage txid must be 64 hex chars, got ${entry.txid.length}`)
+         if (entry.txid.length !== 64)
+           throw new CodecError(`linkage txid must be 64 hex chars, got ${entry.txid.length}`)
          for (const byte of hexToBytes(entry.txid.toLowerCase())) out.push(byte)
          putBytes(out, entry.payload)
        }
@@ -355,9 +362,14 @@ In `utils/localpay/codec.ts`:
      const transaction = getBytes(b, pos)
      if (pos.i !== b.length) throw new CodecError('trailing bytes after frame')
      return {
-       version, kind, senderIdentityKey, outputIndex, derivationPrefix, derivationSuffix,
+       version,
+       kind,
+       senderIdentityKey,
+       outputIndex,
+       derivationPrefix,
+       derivationSuffix,
        ...(token === undefined ? {} : { token }),
-       transaction,
+       transaction
      }
    }
    ```
@@ -385,15 +397,18 @@ git commit -m "feat(pay): PaymentFrame v3 — kind discriminator and BRC-92 toke
 ### Task 3: Session `asset` block and CAP_BLE
 
 **Files:**
+
 - Modify: `utils/localpay/session.ts` (constants :4-6, `Session` :10-37, `mintSession` :39-67, `encodeSession` :93-109, `decodeSession` :111-156)
 - Test: `__tests__/localpaySession.test.ts`
 
 **Interfaces:**
+
 - Produces:
+
   ```ts
   export const CAP_BLE = 0x04
   export interface SessionAsset {
-    id: string                 // "<64-hex txid>.<vout>"
+    id: string // "<64-hex txid>.<vout>"
     label?: string
     ticker?: string
     decimals?: number
@@ -403,6 +418,7 @@ git commit -m "feat(pay): PaymentFrame v3 — kind discriminator and BRC-92 toke
   // Session gains: asset?: SessionAsset  (amount is BASE UNITS of the asset when present)
   // mintSession args gain: asset?: SessionAsset
   ```
+
   Wire: `t: { i, n, s, d, u, k }` for id/label(name)/ticker(symbol)/decimals/overlayUrl/overlayIdentityKey. Session version stays 1.
 
 - [ ] **Step 1: Write the failing tests**
@@ -418,7 +434,7 @@ const asset = (): SessionAsset => ({
   ticker: 'EXD',
   decimals: 2,
   overlayUrl: 'https://overlay.issuer.example',
-  overlayIdentityKey: '03'.padEnd(66, 'b'),
+  overlayIdentityKey: '03'.padEnd(66, 'b')
 })
 
 describe('session asset block', () => {
@@ -468,7 +484,7 @@ const baseMintArgs = () => ({
   identityKey: '02'.padEnd(66, 'd'),
   derivationPrefix: 'cA',
   derivationSuffix: 'cw',
-  supportsAwdl: true,
+  supportsAwdl: true
 })
 const bytesToB64url = (b: Uint8Array) => {
   let s = ''
@@ -539,12 +555,15 @@ In `utils/localpay/session.ts`:
      if (typeof ok !== 'string' || ok.length !== 66) throw new CodecError('bad overlayIdentityKey')
      if (n !== undefined && typeof n !== 'string') throw new CodecError('bad asset label')
      if (tick !== undefined && typeof tick !== 'string') throw new CodecError('bad asset ticker')
-     if (d !== undefined && (typeof d !== 'number' || !Number.isSafeInteger(d) || d < 0)) throw new CodecError('bad asset decimals')
+     if (d !== undefined && (typeof d !== 'number' || !Number.isSafeInteger(d) || d < 0))
+       throw new CodecError('bad asset decimals')
      asset = {
-       id: ai, overlayUrl: u, overlayIdentityKey: ok,
+       id: ai,
+       overlayUrl: u,
+       overlayIdentityKey: ok,
        ...(n === undefined ? {} : { label: n }),
        ...(tick === undefined ? {} : { ticker: tick }),
-       ...(d === undefined ? {} : { decimals: d }),
+       ...(d === undefined ? {} : { decimals: d })
      }
    }
    ```
@@ -567,17 +586,18 @@ git commit -m "feat(pay): session asset block for token requests, CAP_BLE capabi
 ### Task 4: Token verify branch (`@bsv/templates`) and recipient-linkage check
 
 **Files:**
+
 - Modify: `package.json` (add dependency), `utils/localpay/verify.ts`
 - Test: `__tests__/localpayVerify.test.ts`
 
 **Interfaces:**
+
 - Consumes: `PaymentFrame`/`TokenPayment` from Task 2.
 - Produces:
+
   ```ts
   export const FT_PROTOCOL_ID: [2, string] = [2, 'mandala token']
-  export type VerifiedPayment =
-    | { kind: 'bsv'; satoshis: number }
-    | { kind: 'token'; assetId: string; amount: number }
+  export type VerifiedPayment = { kind: 'bsv'; satoshis: number } | { kind: 'token'; assetId: string; amount: number }
   // verifyFramePayment(wallet, frame, originator): Promise<VerifiedPayment>  (was { satoshis })
   export interface LinkageDecryptingWallet {
     decrypt(args: unknown, originator?: string): Promise<{ plaintext: number[] }>
@@ -624,10 +644,10 @@ const tokenFrame = (overrides: Partial<PaymentFrame> = {}): PaymentFrame => ({
     overlayIdentityKey: '03'.padEnd(66, 'b'),
     certificates: [],
     linkage: [],
-    recipientLinkage: new Uint8Array([1]),
+    recipientLinkage: new Uint8Array([1])
   },
   transaction: beefOf([{ satoshis: 1, scriptHex: tokenScript(500) }]),
-  ...overrides,
+  ...overrides
 })
 
 describe('verifyFramePayment: token kind', () => {
@@ -648,21 +668,24 @@ describe('verifyFramePayment: token kind', () => {
   it('refuses a token output locked to someone else as not_mine', async () => {
     const otherPkh = Hash.hash160(Utils.toArray('02'.padEnd(66, 'c'), 'hex'))
     const frame = tokenFrame({ transaction: beefOf([{ satoshis: 1, scriptHex: tokenScript(500, otherPkh) }]) })
-    await expect(verifyFramePayment(walletReturning(payeeKey.toString()), frame, 'test'))
-      .rejects.toMatchObject({ kind: 'not_mine' })
+    await expect(verifyFramePayment(walletReturning(payeeKey.toString()), frame, 'test')).rejects.toMatchObject({
+      kind: 'not_mine'
+    })
   })
 
   it('refuses an output whose script assetId disagrees with the frame', async () => {
     const frame = tokenFrame()
     frame.token!.assetId = 'cd'.repeat(32) + '.1'
-    await expect(verifyFramePayment(walletReturning(payeeKey.toString()), frame, 'test'))
-      .rejects.toMatchObject({ kind: 'not_mine' })
+    await expect(verifyFramePayment(walletReturning(payeeKey.toString()), frame, 'test')).rejects.toMatchObject({
+      kind: 'not_mine'
+    })
   })
 
   it('refuses a non-token script under kind token as not_mine', async () => {
     const frame = tokenFrame({ transaction: beefOf([{ satoshis: 1, scriptHex: minesScript() }]) })
-    await expect(verifyFramePayment(walletReturning(payeeKey.toString()), frame, 'test'))
-      .rejects.toMatchObject({ kind: 'not_mine' })
+    await expect(verifyFramePayment(walletReturning(payeeKey.toString()), frame, 'test')).rejects.toMatchObject({
+      kind: 'not_mine'
+    })
   })
 })
 
@@ -677,24 +700,28 @@ describe('verifyRecipientLinkage', () => {
     return Hash.hash160(Utils.toArray(derived.toString(), 'hex'))
   }
 
-  const linkageBytes = () => new TextEncoder().encode(JSON.stringify({
-    prover: senderIdentityKey,
-    verifier: payeeKey.toString(),
-    counterparty: counterpartyKey.toString(),
-    protocolID: FT_PROTOCOL_ID,
-    keyID: 'p x',
-    encryptedLinkage: [1, 2, 3],
-    encryptedLinkageProof: [0],
-    proofType: 0,
-  }))
+  const linkageBytes = () =>
+    new TextEncoder().encode(
+      JSON.stringify({
+        prover: senderIdentityKey,
+        verifier: payeeKey.toString(),
+        counterparty: counterpartyKey.toString(),
+        protocolID: FT_PROTOCOL_ID,
+        keyID: 'p x',
+        encryptedLinkage: [1, 2, 3],
+        encryptedLinkageProof: [0],
+        proofType: 0
+      })
+    )
 
   const decryptingWallet = () => ({
-    decrypt: jest.fn().mockResolvedValue({ plaintext: Array.from(scalar) }),
+    decrypt: jest.fn().mockResolvedValue({ plaintext: Array.from(scalar) })
   })
 
   it('accepts when the recovered key hashes to the expected pkh', async () => {
-    await expect(verifyRecipientLinkage(decryptingWallet(), linkageBytes(), derivedPkh(), 'test'))
-      .resolves.toBeUndefined()
+    await expect(
+      verifyRecipientLinkage(decryptingWallet(), linkageBytes(), derivedPkh(), 'test')
+    ).resolves.toBeUndefined()
   })
 
   it('decrypts under the mirrored specific-linkage-revelation protocol', async () => {
@@ -704,20 +731,22 @@ describe('verifyRecipientLinkage', () => {
       expect.objectContaining({
         protocolID: [2, 'specific linkage revelation 2 mandala token'],
         keyID: 'p x',
-        counterparty: senderIdentityKey,
+        counterparty: senderIdentityKey
       }),
       'test'
     )
   })
 
   it('refuses a pkh mismatch as not_mine', async () => {
-    await expect(verifyRecipientLinkage(decryptingWallet(), linkageBytes(), payeePkh(), 'test'))
-      .rejects.toMatchObject({ kind: 'not_mine' })
+    await expect(verifyRecipientLinkage(decryptingWallet(), linkageBytes(), payeePkh(), 'test')).rejects.toMatchObject({
+      kind: 'not_mine'
+    })
   })
 
   it('refuses unparseable linkage bytes', async () => {
-    await expect(verifyRecipientLinkage(decryptingWallet(), new Uint8Array([0xff]), derivedPkh(), 'test'))
-      .rejects.toMatchObject({ kind: 'unparseable' })
+    await expect(
+      verifyRecipientLinkage(decryptingWallet(), new Uint8Array([0xff]), derivedPkh(), 'test')
+    ).rejects.toMatchObject({ kind: 'unparseable' })
   })
 })
 ```
@@ -758,8 +787,8 @@ In `utils/localpay/verify.ts`:
        originator
      )
      const expectedPkh = Hash.hash160(Utils.toArray(publicKey, 'hex'))
-     const mine = decoded.pubKeyHash.length === expectedPkh.length &&
-       decoded.pubKeyHash.every((b, i) => b === expectedPkh[i])
+     const mine =
+       decoded.pubKeyHash.length === expectedPkh.length && decoded.pubKeyHash.every((b, i) => b === expectedPkh[i])
      if (!mine) throw new FrameVerifyError('not_mine', 'the named token output does not pay this device')
      if (!Number.isSafeInteger(decoded.amount) || decoded.amount < 1) {
        throw new FrameVerifyError('not_mine', `the named output carries no usable token amount: ${decoded.amount}`)
@@ -782,16 +811,22 @@ In `utils/localpay/verify.ts`:
      originator: string
    ): Promise<void> {
      let linkage: {
-       prover: string; counterparty: string
-       protocolID: [number, string]; keyID: string; encryptedLinkage: number[]
+       prover: string
+       counterparty: string
+       protocolID: [number, string]
+       keyID: string
+       encryptedLinkage: number[]
      }
      try {
        const parsed = JSON.parse(new TextDecoder().decode(recipientLinkage)) as Record<string, unknown>
        if (
-         typeof parsed.prover !== 'string' || typeof parsed.counterparty !== 'string' ||
-         !Array.isArray(parsed.protocolID) || typeof parsed.keyID !== 'string' ||
+         typeof parsed.prover !== 'string' ||
+         typeof parsed.counterparty !== 'string' ||
+         !Array.isArray(parsed.protocolID) ||
+         typeof parsed.keyID !== 'string' ||
          !Array.isArray(parsed.encryptedLinkage)
-       ) throw new Error('missing linkage fields')
+       )
+         throw new Error('missing linkage fields')
        linkage = parsed as typeof linkage
      } catch (e) {
        throw new FrameVerifyError('unparseable', `recipientLinkage is not a readable SpecificLinkage: ${messageOf(e)}`)
@@ -813,8 +848,8 @@ In `utils/localpay/verify.ts`:
      const curve = new Curve()
      const sum = PublicKey.fromString(linkage.counterparty).add(curve.g.mul(new BigNumber(plaintext)))
      const derivedPkh = Hash.hash160(Utils.toArray(new PublicKey(sum.x, sum.y).toString(), 'hex'))
-     const matches = derivedPkh.length === expectedPubKeyHash.length &&
-       derivedPkh.every((b, i) => b === expectedPubKeyHash[i])
+     const matches =
+       derivedPkh.length === expectedPubKeyHash.length && derivedPkh.every((b, i) => b === expectedPubKeyHash[i])
      if (!matches) throw new FrameVerifyError('not_mine', 'recipientLinkage does not control the paid output')
    }
    ```
@@ -823,6 +858,7 @@ In `utils/localpay/verify.ts`:
 
 Run: `npx tsc --noEmit`
 Expected errors where `{ satoshis }` was destructured from `verifyFramePayment`: `components/pay/NearbyFlow.tsx` (settle path, ~:583-638) and existing tests. In NearbyFlow, the result is bsv-kind by construction today — change the destructure to:
+
 ```ts
 const verified = await verifyFramePayment(...)
 if (verified.kind !== 'bsv') {
@@ -833,6 +869,7 @@ if (verified.kind !== 'bsv') {
 }
 const satoshis = verified.satoshis
 ```
+
 Update existing verify tests asserting `{ satoshis: n }` to `{ kind: 'bsv', satoshis: n }`.
 
 - [ ] **Step 6: Run tests to verify they pass**
@@ -852,6 +889,7 @@ git commit -m "feat(pay): token verify branch via @bsv/templates MandalaToken + 
 ### Task 5: Thread the seal through radios, QR, and storage envelope
 
 **Files:**
+
 - Modify: `utils/localpay/transport/socket.ts` (:2 import, :152 receive, :196 send)
 - Modify: `utils/localpay/codec.ts` (`frameToQr` :190-193 signature)
 - Modify: `components/pay/NearbyFlow.tsx` (:130-136 imports, :921 scan decode, :1069/:1076, :1099/:1105 size checks + QR set, :1189 hold payload)
@@ -859,6 +897,7 @@ git commit -m "feat(pay): token verify branch via @bsv/templates MandalaToken + 
 - Test: `__tests__/localpayTransportAwdl.test.ts`, `__tests__/localpayCodec.test.ts`
 
 **Interfaces:**
+
 - Consumes: `sealFrame`/`unsealFrame` (Task 1), `PaymentFrame` v3 (Task 2).
 - Produces: `frameToQr(f: PaymentFrame, psk: Uint8Array): string` (signature change — the stored `framePayload` envelope now contains SEALED bytes). `frameBytesFromQr` is unchanged (opaque bytes out). Transport interface types are unchanged (`send(session, frame, signal)` — sealing is internal).
 
@@ -901,6 +940,7 @@ Expected: FAIL — receive path still calls `decodeFrame` on raw bytes, so seale
 - [ ] **Step 3: Implement transport sealing**
 
 In `utils/localpay/transport/socket.ts`:
+
 - Line 2: `import { sealFrame, unsealFrame, type PaymentFrame } from '../codec'` (drop `decodeFrame, encodeFrame`).
 - Line 152: `frame = unsealFrame(fromBase64(frameBase64), session.psk)`.
 - Line 196: `toBase64(sealFrame(frame, session.psk))`.
@@ -923,6 +963,7 @@ In `__tests__/localpayCodec.test.ts`, existing `frameToQr`/`frameBytesFromQr` te
 - [ ] **Step 5: Update NearbyFlow call sites**
 
 In `components/pay/NearbyFlow.tsx`:
+
 - Imports (:130-136): replace `decodeFrame` with `unsealFrame` and add `sealFrame` (via the same `@/utils/pay/rails/nearby` barrel — see Step 6).
 - Scan handler (:921): `frame = unsealFrame(message, session.psk)` (the `session` const is bound at :904 in the same closure; the bare-catch comment stays).
 - Send QR path (:1069 and :1076): the size check measures what actually renders, and the set seals —
@@ -959,10 +1000,12 @@ git commit -m "feat(pay): sealed frames on every rung — radios, QR fountain, s
 ### Task 6: Delete the WoC error-string classification
 
 **Files:**
+
 - Modify: `services/arcadeBroadcastProvider.ts` (`createWocBroadcastService`, the classification at ~:184-192)
 - Test: `__tests__/arcadeBroadcastProvider.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing new. Produces: no API change — `PostTxResultForTxid` shape unchanged; only the mapping changes. Decision 2 from the spec: Arcade's structured `txStatus` stays the sole terminal-verdict source; a WoC body string can mark success for the idempotent same-txid case only, never `doubleSpend`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -981,7 +1024,7 @@ describe('createWocBroadcastService classification', () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: status >= 200 && status < 300,
       status,
-      text: async () => body,
+      text: async () => body
     }) as unknown as typeof fetch
     const tx = new Transaction()
     const beef = new Beef()
@@ -1070,11 +1113,13 @@ git commit -m "fix(pay): stop classifying WoC body strings as double-spends — 
 ### Task 7: Proof-collection nudge on /pay
 
 **Files:**
+
 - Create: `utils/pay/proofNudge.ts`
 - Modify: `app/pay.tsx` (one `useEffect` on mount)
 - Test: `__tests__/proofNudge.test.ts`
 
 **Interfaces:**
+
 - Consumes: `runMonitorTask(taskName: string): Promise<string>` from `useWallet()` (`context/WalletContext.tsx:159`); the Monitor task name is `'CheckForProofs'` (see the patch block at `WalletContext.tsx:~1004`).
 - Produces: `takeProofNudge(nowMs: number): boolean` (10-minute gate, module-level state), `resetProofNudgeForTests(): void`.
 

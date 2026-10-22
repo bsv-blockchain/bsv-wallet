@@ -24,12 +24,12 @@ precondition, not a prompt.
 
 ## Decisions
 
-| Question | Decision |
-|---|---|
-| What counts as backed up? | Self-attestation. No verification quiz. |
-| Which media satisfy it? | Either the phrase or printed shares. One is enough. |
-| Scope of the gate | Vault only — enrollment and deposits. Ordinary sends untouched. |
-| Legacy printed shares | Keep working, warn, offer a remedy. |
+| Question                        | Decision                                                        |
+| ------------------------------- | --------------------------------------------------------------- |
+| What counts as backed up?       | Self-attestation. No verification quiz.                         |
+| Which media satisfy it?         | Either the phrase or printed shares. One is enough.             |
+| Scope of the gate               | Vault only — enrollment and deposits. Ordinary sends untouched. |
+| Legacy printed shares           | Keep working, warn, offer a remedy.                             |
 | Existing unbacked vault holders | Not catered for. The vault is unreleased, so they cannot exist. |
 
 Self-attestation over a quiz because the person needs to be held accountable but verification
@@ -38,7 +38,7 @@ ranking them would be arbitrary.
 
 ## Part A — Share format: split the entropy, not the primary key
 
-Per [BRC-157](https://bsv.brc.dev/key-derivation/0157), shares carry the mnemonic *entropy*.
+Per [BRC-157](https://bsv.brc.dev/key-derivation/0157), shares carry the mnemonic _entropy_.
 Recovery then rebuilds the mnemonic, the seed, `m/0'/0'`, and therefore everything downstream
 including the vault. Phrase and shares become two encodings of one secret.
 
@@ -57,10 +57,10 @@ payload = entropy(16) || sha256(entropy)[0..16]
 
 Recovery left-pads to 32 unconditionally, then tests the tag:
 
-| tag matches | interpretation |
-|---|---|
-| yes | v2 — bytes 0..16 are the entropy; rebuild the mnemonic from them |
-| no | legacy primary key; use directly, warn the user |
+| tag matches | interpretation                                                   |
+| ----------- | ---------------------------------------------------------------- |
+| yes         | v2 — bytes 0..16 are the entropy; rebuild the mnemonic from them |
+| no          | legacy primary key; use directly, warn the user                  |
 
 The unconditional pad is load-bearing. `PrivateKey` is a BigNumber, so `toArray()` drops leading
 zero bytes; roughly 1 in 256 payloads begins with `0x00`. Without the pad, v2 payloads decode
@@ -73,7 +73,7 @@ Measured over 400 generated wallets: 400/400 v2 round-trips exact (2 with a lead
 
 An earlier draft validated the 16-byte branch by round-tripping entropy through
 `Mnemonic.fromEntropy` and checking the BIP39 checksum. That check is vacuous: `fromEntropy`
-*computes* the checksum, so it accepts any 16 bytes and can never reject a misclassification.
+_computes_ the checksum, so it accepts any 16 bytes and can never reject a misclassification.
 Verified empirically over 300 random inputs — zero rejections.
 
 ### 24-word phrases
@@ -133,10 +133,10 @@ The component is a sequence of guarded returns, so this is one new early-return 
 
 Layout: heading, one line of rationale, then two rows as a checklist.
 
-| Row | Action | Sets the flag when |
-|---|---|---|
-| Write down your recovery phrase | Opens a reveal sheet: the 12 words, a copy action, and an explicit "I have written these down" confirm | The user confirms |
-| Print recovery shares | Calls the existing `printRecoveryShares` | `Print.printAsync` resolves — a cancelled sheet sets nothing |
+| Row                             | Action                                                                                                 | Sets the flag when                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| Write down your recovery phrase | Opens a reveal sheet: the 12 words, a copy action, and an explicit "I have written these down" confirm | The user confirms                                            |
+| Print recovery shares           | Calls the existing `printRecoveryShares`                                                               | `Print.printAsync` resolves — a cancelled sheet sets nothing |
 
 A completed row shows a tick and stays tappable, so either medium can be added later without
 nagging. Continue enables on the first tick. The footer states that either one is enough and that

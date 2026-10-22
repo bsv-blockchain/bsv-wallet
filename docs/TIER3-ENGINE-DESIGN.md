@@ -2,25 +2,29 @@
 
 **Repo:** `/Users/johncalhoun/bsv/bsv-browser` (branch `native-crypto`) · **Engine:** `/Users/johncalhoun/bsv/bsv-rs` (path dep) · **Governing doc:** `NATIVE-CRYPTO-STANDARD.md` (gates 1–7, reality ladder, Tier-3 row) · **Provenance:** Design A (minimal-first) skeleton + grafts from Design B (engine-first), adjudicated 2026-07-21.
 
-**Design prior: MINIMAL-FIRST.** Tier-3 v1 is *not* "bsv-rs as an API." It is two batch calls that kill the two measured per-input ~0.5ms JS cost centers (sign-path sighash, verify-path sighash+Spend), plus a read-only BEEF stretch. Everything else in bsv-rs stays un-exported until a measured number demands it. The kill-test runs in week 1, before any Nitro/packaging investment.
+**Design prior: MINIMAL-FIRST.** Tier-3 v1 is _not_ "bsv-rs as an API." It is two batch calls that kill the two measured per-input ~0.5ms JS cost centers (sign-path sighash, verify-path sighash+Spend), plus a read-only BEEF stretch. Everything else in bsv-rs stays un-exported until a measured number demands it. The kill-test runs in week 1, before any Nitro/packaging investment.
 
 ---
 
 ## 1. Scoped engine surface v1
 
 ### FIRST (M5.A — sign path; the ~25ms of the 26.84ms 50-input floor)
+
 - `batch_sign_p2pkh_inputs(unsignedTx, inputsMeta) → framed unlockingScripts` — replaces the entire batch block `#8` in `patches/@bsv+sdk+2.1.6.patch` (`resolveSourceDetails` O(n²), uncached `formatBip143` O(n²) hashing, `number[]` Writer, 2 hash crossings/input, DER glue, and the ~6.5ms cooperative-slicing tax). Midstates (hashPrevouts/hashSequence/hashOutputs) computed **once** per scope-class in Rust; sign via `PrivateKey::sign` (RFC6979, forced low-S — byte-identical to SDK); output via `TransactionSignature::to_checksig_format`. One async crossing. **Native returns unlocking scripts; JS splices the tx exactly as today** — the byte-parity surface is the script bytes only, never native tx re-serialization.
 - `compute_sighash_signing_order(rawTx, inputIndex, subscript, satoshis, scope) → 32B` — conformance/debug export, never routed in prod. **Signing-order only**: bsv-rs's display-order `compute_sighash` (sighash.rs:401) never appears at the seam; only `compute_sighash_for_signing` (sighash.rs:421) does. The order-confusion sig-invalidation trap dies at the API.
 
 ### SECOND (M5.B — verify leg; consumes the proven-but-unconsumed batchEcdsaVerify debt, M3 asterisk 6)
+
 - `batch_verify_p2pkh_inputs(signedTx, prevoutsMeta) → verdict byte/input` — replaces toolbox `completeSignedTransaction.js:122-168` `verifyUnlockScripts` (fresh JS `Spend` per input + n sync ~250µs crossings). Mandatory P2PKH shape check (exactly push(sig‖scopeByte) + push(33B pubkey), hash160(pubkey)==lock pkh); any other shape → `Err(NotP2pkh{i})` and JS runs the full `Spend` interpreter on that input. Never silently weaken validation. **Rollout is shadow-mode first** (graft from B): phase 1 runs native AND JS, logs divergences, JS authoritative; phase 2 cuts over with per-input JS re-run on native failure for identical error text.
 
 ### THIRD (M5.C — stretch, read-only BEEF; do NOT sequence before M5.B)
+
 - `beef_verify_structure(beef) → [u32 count]([u32 height][32B root, display order])*` — `Beef::from_binary` + `is_valid` + `MerklePath::compute_root`, replacing `internalizeAction`'s hex-string-domain hashing (`MerklePath.js:222/265/422`). JS keeps `chainTracker.isValidRootForHeight` — a "BEEF verified" claim = structural + roots + JS-checked headers, never structural alone.
 - `beef_to_ef(beef, txid32) → efBytes` — replaces the `services/arcadeBroadcastProvider.ts:46-49` serialize→reparse→toEF round-trip (the pure-JS interim fix — `findAtomicTransaction` + `toEFUint8Array` — ships regardless). During rollout, dev builds carry a byte-equality assert vs the JS result on every call (graft from B).
 - **BEEF merge/`sortTxs`/`toBinaryAtomic` stays JS in v1.** Native never re-emits BEEF — the BRC-95/96 ordering subtleties make byte-different-but-valid re-serialization a real e2e-proof breaker. Entry criterion for a future native emit path (v2): B's `beef_roundtrip` byte-equality fuzz class (random dependency graphs, merge/sort/toBinaryAtomic byte-equal vs JS `Beef`, ≥10k green) — recorded here so v2 starts with its gate defined.
 
 ### Explicitly stays JS (enumerated, gate 6 — every path dev-logged)
+
 1. Toolbox orchestration: storage JSON-RPC `createAction`/`processAction`, dcr/vout mapping, fee/change, BRC-29 grouping (already batched via `batchBrc42DeriveChild`).
 2. Non-P2PKH `unlockingScriptTemplate` polymorphism (PushDrop, RPuzzle, custom) — mixed txs sign P2PKH inputs natively, others in JS.
 3. Fallback classes (tested, per-input): `customK`, `forceLowS !== true`, scope without SIGHASH_FORKID, SIGHASH_CHRONICLE/OTDA preimage (bsv-rs has no legacy/OTDA path; `spend.rs:1447` hard-rejects non-FORKID), missing `sourceSatoshis`/`lockingScript`, non-P2PKH lock shape.
@@ -30,6 +34,7 @@
 7. Full script-interpreter validation of arbitrary scripts (JS `Spend` authoritative for non-P2PKH; native `Spend` export is a v2 candidate after shadow-mode data).
 
 ### NOT exported in v1 (bsv-rs has it; no measured demand)
+
 General `Transaction` parse/serialize API, `Spend`, `MerklePath::combine`, BEEF merge/`to_binary_atomic`, keys/addresses (Tier-1 covers), async `Transaction::sign`/`verify` (would drag an executor into the staticlib; the sync path covers everything). Non-goals: Tier-4 key handles, legacy sighash in bsv-rs, Android, promoting the flag-parameterized node-vector census wholesale.
 
 ---
@@ -106,6 +111,7 @@ Implementation is thin composition over mature bsv-rs API: `Transaction::from_bi
 **NEW upstream vectors:** (1) `sdk/scripts/sighash-preimage.json` (~200): full BIP-143 preimage BYTES from patched SDK `formatBip143` — ALL/NONE/SINGLE × ±ANYONECANPAY × SINGLE with `inputIndex ≥ outputs.length` (the SDK's usesOtdaSingleBug constant-0x01 digest — named explicitly, graft from B) × sequence 0/max × satoshi edges. The localization tool hash-only vectors can't provide. (2) `sdk/transactions/p2pkh-sign.json`: `{unsignedTxHex, per-input meta}` → exact signed tx hex (RFC6979 determinism) — narrows the demoted createaction(90)/signaction(8) gap without the funded mock harness. (3) M5.C: BEEF_V2 round-trip + atomic-success + BEEF→roots positive corpus (only 6 BEEF vectors exist today) + `merkle-dup-txid.json` — CVE-2012-2459 duplicate-txid trees and compound-BUMP tree-height cases (graft from B).
 
 **Differential fuzz (gate 2, extend the differential-fuzz NDJSON harness; JS oracle = the app's exact patched sdk-2.1.6 dist):**
+
 - `p2pkh_sign_flow` — byte-equality on the FULL signed tx (JS assembles from returned scripts). Adversarial generator: n∈[1,64], ALL/NONE/SINGLE × ±ANYONECANPAY × FORKID, SINGLE with index≥outputs, CHRONICLE-flagged inputs that MUST Err to fallback (graft from B), sequence 0/max, satoshis {0,1,2^32,2^53−1}, duplicate outpoints. **≥100k cases, 0 unexplained mismatches** before any routing.
 - `sighash_preimage` — preimage + hash byte-equality vs `formatBip143`. ≥100k.
 - `p2pkh_verify` — mutated signed txs → verdict-equality vs JS Spend+ecdsaVerify; native must never accept what JS rejects. ≥50k.

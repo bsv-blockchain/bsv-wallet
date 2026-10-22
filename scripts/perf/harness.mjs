@@ -43,7 +43,9 @@ function bench(name, fn, iterations = 1) {
     iterations,
     ops_per_sec: Math.round((iterations / median) * 1000)
   }
-  console.log(`  ${name.padEnd(50)} ${median.toFixed(2)}ms / ${iterations} iter  (${results[name].ops_per_sec.toLocaleString()} ops/sec)`)
+  console.log(
+    `  ${name.padEnd(50)} ${median.toFixed(2)}ms / ${iterations} iter  (${results[name].ops_per_sec.toLocaleString()} ops/sec)`
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,11 +58,17 @@ function makeFakeWindowBaseline() {
   const fakeWindow = {
     __consolePatched: false,
     ReactNativeWebView: {
-      postMessage: () => { bridgeCalls++ }
+      postMessage: () => {
+        bridgeCalls++
+      }
     }
   }
   const fakeConsole = {
-    log: () => {}, warn: () => {}, error: () => {}, info: () => {}, debug: () => {}
+    log: () => {},
+    warn: () => {},
+    error: () => {},
+    info: () => {},
+    debug: () => {}
   }
   // Apply BASELINE patch (verbatim from injectedPolyfills.ts:7-46)
   if (!fakeWindow.__consolePatched) {
@@ -75,11 +83,26 @@ function makeFakeWindowBaseline() {
         fakeWindow.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'CONSOLE', method, args }))
       } catch {}
     }
-    fakeConsole.log = function (...args) { originalLog.apply(fakeConsole, args); send('log', args) }
-    fakeConsole.warn = function (...args) { originalWarn.apply(fakeConsole, args); send('warn', args) }
-    fakeConsole.error = function (...args) { originalError.apply(fakeConsole, args); send('error', args) }
-    fakeConsole.info = function (...args) { originalInfo.apply(fakeConsole, args); send('info', args) }
-    fakeConsole.debug = function (...args) { originalDebug.apply(fakeConsole, args); send('debug', args) }
+    fakeConsole.log = function (...args) {
+      originalLog.apply(fakeConsole, args)
+      send('log', args)
+    }
+    fakeConsole.warn = function (...args) {
+      originalWarn.apply(fakeConsole, args)
+      send('warn', args)
+    }
+    fakeConsole.error = function (...args) {
+      originalError.apply(fakeConsole, args)
+      send('error', args)
+    }
+    fakeConsole.info = function (...args) {
+      originalInfo.apply(fakeConsole, args)
+      send('info', args)
+    }
+    fakeConsole.debug = function (...args) {
+      originalDebug.apply(fakeConsole, args)
+      send('debug', args)
+    }
     fakeWindow.__consolePatched = true
   }
   return { fakeConsole, getBridgeCalls: () => bridgeCalls }
@@ -96,11 +119,17 @@ function makeFakeWindowImproved() {
     __consolePatched: false,
     __DEV__: false, // simulate production
     ReactNativeWebView: {
-      postMessage: () => { bridgeCalls++ }
+      postMessage: () => {
+        bridgeCalls++
+      }
     }
   }
   const fakeConsole = {
-    log: () => {}, warn: () => {}, error: () => {}, info: () => {}, debug: () => {}
+    log: () => {},
+    warn: () => {},
+    error: () => {},
+    info: () => {},
+    debug: () => {}
   }
   if (!fakeWindow.__consolePatched) {
     const originalLog = fakeConsole.log
@@ -121,10 +150,16 @@ function makeFakeWindowImproved() {
 
     fakeConsole.log = function (...args) {
       originalLog.apply(fakeConsole, args)
-      if ((++logSeq % SAMPLE_RATE) === 0) send('log', args)
+      if (++logSeq % SAMPLE_RATE === 0) send('log', args)
     }
-    fakeConsole.warn = function (...args) { originalWarn.apply(fakeConsole, args); send('warn', args) }
-    fakeConsole.error = function (...args) { originalError.apply(fakeConsole, args); send('error', args) }
+    fakeConsole.warn = function (...args) {
+      originalWarn.apply(fakeConsole, args)
+      send('warn', args)
+    }
+    fakeConsole.error = function (...args) {
+      originalError.apply(fakeConsole, args)
+      send('error', args)
+    }
     fakeConsole.info = function (...args) {
       originalInfo.apply(fakeConsole, args)
       if (isDev) send('info', args)
@@ -143,9 +178,13 @@ const consoleVariant = LABEL === 'improved' ? makeFakeWindowImproved : makeFakeW
 let consoleHarness = consoleVariant()
 let CONSOLE_BRIDGE_CALLS = 0
 
-bench('console.log x10k (typical dApp logging)', () => {
-  consoleHarness.fakeConsole.log('hello', { foo: 'bar' }, 42)
-}, 10000)
+bench(
+  'console.log x10k (typical dApp logging)',
+  () => {
+    consoleHarness.fakeConsole.log('hello', { foo: 'bar' }, 42)
+  },
+  10000
+)
 
 // Measure bridge call count
 consoleHarness = consoleVariant()
@@ -158,7 +197,9 @@ for (let i = 0; i < 10000; i++) {
 }
 CONSOLE_BRIDGE_CALLS = consoleHarness.getBridgeCalls()
 results['console.bridge_calls_for_10k_mixed'] = { count: CONSOLE_BRIDGE_CALLS }
-console.log(`  console.bridge_calls_for_10k_mixed                ${CONSOLE_BRIDGE_CALLS.toLocaleString()} postMessage calls`)
+console.log(
+  `  console.bridge_calls_for_10k_mixed                ${CONSOLE_BRIDGE_CALLS.toLocaleString()} postMessage calls`
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. Provider value identity stability (useMemo vs literal)
@@ -198,13 +239,27 @@ const PARENT_RENDERS = 1000
 const useMemoForBench = LABEL === 'improved'
 const consumerRerenders = simulateProviderRenders({ memo: useMemoForBench, parentRenders: PARENT_RENDERS })
 results['provider.consumer_rerenders_for_1000_parent_renders'] = { count: consumerRerenders }
-console.log(`  provider.consumer_rerenders                      ${consumerRerenders.toLocaleString()} (out of ${PARENT_RENDERS} parent renders)`)
+console.log(
+  `  provider.consumer_rerenders                      ${consumerRerenders.toLocaleString()} (out of ${PARENT_RENDERS} parent renders)`
+)
 
-bench('provider.value_construction x1000', () => {
-  // Simulate the per-render cost of building a SheetContext-shaped value
-  const v = { route: 'closed', params: {}, history: [], push: () => {}, pop: () => {}, close: () => {}, isOpen: false }
-  return v
-}, 1000)
+bench(
+  'provider.value_construction x1000',
+  () => {
+    // Simulate the per-render cost of building a SheetContext-shaped value
+    const v = {
+      route: 'closed',
+      params: {},
+      history: [],
+      push: () => {},
+      pop: () => {},
+      close: () => {},
+      isOpen: false
+    }
+    return v
+  },
+  1000
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. MobX root-observer storm (bookmark mutation cascade)
@@ -215,11 +270,19 @@ const { makeAutoObservable, autorun, runInAction, computed } = mobx
 
 class BookmarkStoreBench {
   bookmarks = []
-  constructor() { makeAutoObservable(this) }
-  add(b) { this.bookmarks.push(b) }
-  remove(url) { this.bookmarks = this.bookmarks.filter(b => b.url !== url) }
+  constructor() {
+    makeAutoObservable(this)
+  }
+  add(b) {
+    this.bookmarks.push(b)
+  }
+  remove(url) {
+    this.bookmarks = this.bookmarks.filter(b => b.url !== url)
+  }
   // Improved: derived isBookmarked computation lives on store, with explicit URL
-  isBookmarkedFor(url) { return this.bookmarks.some(b => b.url === url) }
+  isBookmarkedFor(url) {
+    return this.bookmarks.some(b => b.url === url)
+  }
 }
 
 function runBookmarkScenario({ isolated }) {
@@ -247,7 +310,10 @@ function runBookmarkScenario({ isolated }) {
     })
     // Combine for cleanup
     const orig = disposer
-    disposer = () => { orig(); isolatedDisposer() }
+    disposer = () => {
+      orig()
+      isolatedDisposer()
+    }
   } else {
     // BASELINE: root observer reads `bookmarkStore.bookmarks.some(...)` directly
     disposer = autorun(() => {
@@ -271,19 +337,30 @@ const isolatedForBench = LABEL === 'improved'
 const scenario = runBookmarkScenario({ isolated: isolatedForBench })
 results['bookmark.root_renders_for_500_mutations'] = { count: scenario.rootRenders }
 results['bookmark.isolated_renders_for_500_mutations'] = { count: scenario.isolatedRenders }
-console.log(`  bookmark.root_observer_renders                    ${scenario.rootRenders.toLocaleString()} (target: 1 in improved)`)
-console.log(`  bookmark.isolated_observer_renders                ${scenario.isolatedRenders.toLocaleString()} (only fires when activeUrl's bookmarked state changes)`)
+console.log(
+  `  bookmark.root_observer_renders                    ${scenario.rootRenders.toLocaleString()} (target: 1 in improved)`
+)
+console.log(
+  `  bookmark.isolated_observer_renders                ${scenario.isolatedRenders.toLocaleString()} (only fires when activeUrl's bookmarked state changes)`
+)
 
 // Timing version
-bench('bookmark.add+react x500', () => {
-  const store = new BookmarkStoreBench()
-  for (let i = 0; i < 50; i++) store.add({ url: `u${i}`, title: 't' })
-  let count = 0
-  const disp = autorun(() => { void store.bookmarks.some(b => b.url === 'target'); count++ })
-  for (let i = 0; i < 500; i++) runInAction(() => store.add({ url: `x${i}`, title: 't' }))
-  disp()
-  return count
-}, 5)
+bench(
+  'bookmark.add+react x500',
+  () => {
+    const store = new BookmarkStoreBench()
+    for (let i = 0; i < 50; i++) store.add({ url: `u${i}`, title: 't' })
+    let count = 0
+    const disp = autorun(() => {
+      void store.bookmarks.some(b => b.url === 'target')
+      count++
+    })
+    for (let i = 0; i < 500; i++) runInAction(() => store.add({ url: `x${i}`, title: 't' }))
+    disp()
+    return count
+  },
+  5
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. Tab store cap + LRU
@@ -307,7 +384,10 @@ class TabStoreBench {
       for (const t of this.tabs) {
         if (t.id === this.activeTabId) continue
         const tFocused = this.lastFocusedAt.get(t.id) || 0
-        if (tFocused < oldestTime) { oldestTime = tFocused; oldestId = t.id }
+        if (tFocused < oldestTime) {
+          oldestTime = tFocused
+          oldestId = t.id
+        }
       }
       if (oldestId !== null) {
         this.tabs = this.tabs.filter(t => t.id !== oldestId)
@@ -332,7 +412,9 @@ function runTabScenario({ withCap }) {
 const withCap = LABEL === 'improved'
 const tabScenario = runTabScenario({ withCap })
 results['tab.count_after_50_opens'] = { count: tabScenario.final_tab_count }
-console.log(`  tab.count_after_50_opens                          ${tabScenario.final_tab_count} (cap target: 8 in improved)`)
+console.log(
+  `  tab.count_after_50_opens                          ${tabScenario.final_tab_count} (cap target: 8 in improved)`
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. WalletContext-shaped value rebuild cost (35-field object on every tick)
@@ -342,49 +424,88 @@ console.log('\n[5] WalletContext value rebuild')
 function makeWalletValue() {
   // Faithful shape — 35+ fields, mix of primitives, arrays, functions
   return {
-    managers: {}, wallet: null, walletReady: true, isLoading: false, isAuthenticated: false,
-    network: 'main', balance: 0, balanceFiat: 0, currency: 'USD', exchangeRate: 1,
-    txStatusVersion: 0, basketQueue: [], certQueue: [], permissionQueue: [], spendingQueue: [],
-    autoApproveBelowSat: 0, defaultSpendingPolicies: [], updateSpending: () => {},
-    updateAutoApprove: () => {}, refreshBalance: async () => {}, signOut: async () => {},
-    createAction: async () => ({}), getPublicKey: async () => ({}), createSignature: async () => ({}),
-    verifySignature: async () => ({}), encrypt: async () => ({}), decrypt: async () => ({}),
-    listOutputs: async () => ([]), revealCounterpartyKey: async () => ({}),
-    revealSpecificKey: async () => ({}), acquireCertificate: async () => ({}),
-    proveCertificate: async () => ({}), getNetwork: () => 'main', getVersion: () => '1',
-    checkUtxoSpendability: async () => true, internalizeAction: async () => ({}),
-    abortAction: async () => ({}), listActions: async () => ([]), listCertificates: async () => ([])
+    managers: {},
+    wallet: null,
+    walletReady: true,
+    isLoading: false,
+    isAuthenticated: false,
+    network: 'main',
+    balance: 0,
+    balanceFiat: 0,
+    currency: 'USD',
+    exchangeRate: 1,
+    txStatusVersion: 0,
+    basketQueue: [],
+    certQueue: [],
+    permissionQueue: [],
+    spendingQueue: [],
+    autoApproveBelowSat: 0,
+    defaultSpendingPolicies: [],
+    updateSpending: () => {},
+    updateAutoApprove: () => {},
+    refreshBalance: async () => {},
+    signOut: async () => {},
+    createAction: async () => ({}),
+    getPublicKey: async () => ({}),
+    createSignature: async () => ({}),
+    verifySignature: async () => ({}),
+    encrypt: async () => ({}),
+    decrypt: async () => ({}),
+    listOutputs: async () => [],
+    revealCounterpartyKey: async () => ({}),
+    revealSpecificKey: async () => ({}),
+    acquireCertificate: async () => ({}),
+    proveCertificate: async () => ({}),
+    getNetwork: () => 'main',
+    getVersion: () => '1',
+    checkUtxoSpendability: async () => true,
+    internalizeAction: async () => ({}),
+    abortAction: async () => ({}),
+    listActions: async () => [],
+    listCertificates: async () => []
   }
 }
 
-bench('wallet.value_rebuild x1000', () => {
-  return makeWalletValue()
-}, 1000)
+bench(
+  'wallet.value_rebuild x1000',
+  () => {
+    return makeWalletValue()
+  },
+  1000
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 6. Thumbnail-capture scheduling cost (timer churn)
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n[6] Thumbnail capture scheduling churn')
 
-bench('thumbnail.schedule x500 (every onLoadEnd)', () => {
-  // Mimic: clearTimeout + setTimeout 800ms on every loadEnd
-  const handle = setTimeout(() => {}, 800)
-  clearTimeout(handle)
-  return handle
-}, 500)
+bench(
+  'thumbnail.schedule x500 (every onLoadEnd)',
+  () => {
+    // Mimic: clearTimeout + setTimeout 800ms on every loadEnd
+    const handle = setTimeout(() => {}, 800)
+    clearTimeout(handle)
+    return handle
+  },
+  500
+)
 
 // Improved scenario: only schedule when condition met (tabsOpen||bg), wrap with InteractionManager idle
 let scheduledCount = 0
-bench('thumbnail.schedule_gated x500', () => {
-  // simulate gate: 1/10 of loadEnd events actually need capture
-  const gate = Math.random() < 0.1
-  if (gate) {
-    scheduledCount++
-    const handle = setTimeout(() => {}, 800)
-    clearTimeout(handle)
-  }
-  return scheduledCount
-}, 500)
+bench(
+  'thumbnail.schedule_gated x500',
+  () => {
+    // simulate gate: 1/10 of loadEnd events actually need capture
+    const gate = Math.random() < 0.1
+    if (gate) {
+      scheduledCount++
+      const handle = setTimeout(() => {}, 800)
+      clearTimeout(handle)
+    }
+    return scheduledCount
+  },
+  500
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 7. Suggestions debounce (sync vs useDeferredValue-like batching)
@@ -422,13 +543,21 @@ function deferredTypingScenario(keystrokes) {
 const keystrokes = []
 for (let i = 0; i < 50; i++) keystrokes.push('hello world'.slice(0, (i % 11) + 1))
 
-bench('suggestions.sync_search_50keystrokes', () => {
-  return syncTypingScenario(keystrokes)
-}, 500)
+bench(
+  'suggestions.sync_search_50keystrokes',
+  () => {
+    return syncTypingScenario(keystrokes)
+  },
+  500
+)
 
-bench('suggestions.deferred_search_50keystrokes', () => {
-  return deferredTypingScenario(keystrokes)
-}, 500)
+bench(
+  'suggestions.deferred_search_50keystrokes',
+  () => {
+    return deferredTypingScenario(keystrokes)
+  },
+  500
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 8. FlatList getItemLayout vs measure-on-mount
@@ -437,20 +566,28 @@ console.log('\n[8] FlatList getItemLayout vs per-item measure')
 
 // Simulate the cost of computing layout for N items synchronously vs O(1).
 const N_ITEMS = 200
-bench('list.measure_each_x200', () => {
-  // Baseline: O(N) — every item needs a layout pass on first render.
-  let total = 0
-  for (let i = 0; i < N_ITEMS; i++) {
-    // Simulate measurement: tiny math + offset accumulation.
-    total += Math.floor(60 + Math.sin(i) * 0.1)
-  }
-  return total
-}, 200)
+bench(
+  'list.measure_each_x200',
+  () => {
+    // Baseline: O(N) — every item needs a layout pass on first render.
+    let total = 0
+    for (let i = 0; i < N_ITEMS; i++) {
+      // Simulate measurement: tiny math + offset accumulation.
+      total += Math.floor(60 + Math.sin(i) * 0.1)
+    }
+    return total
+  },
+  200
+)
 
-bench('list.getItemLayout_x200', () => {
-  // Improved: O(1) — derive offsets arithmetically.
-  return N_ITEMS * 60
-}, 200)
+bench(
+  'list.getItemLayout_x200',
+  () => {
+    // Improved: O(1) — derive offsets arithmetically.
+    return N_ITEMS * 60
+  },
+  200
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 9. CWI handleMessage InteractionManager gate
@@ -464,7 +601,9 @@ async function cwiPath(gated) {
     await new Promise(r => setImmediate(r))
   }
   const t0 = performance.now()
-  while (performance.now() - t0 < 3) { /* spin */ }
+  while (performance.now() - t0 < 3) {
+    /* spin */
+  }
   return performance.now() - t0
 }
 

@@ -89,8 +89,6 @@ function loadExpoRouter(): ExpoRouterModule {
 
 const HANDLE_CHECK_DEBOUNCE_MS = 400
 
-
-
 /**
  * How long the switch cover takes to leave. A removal runs under it (a Modal on
  * the Home screen underneath this one), and it is dismissed in the same tick the
@@ -101,7 +99,6 @@ const HANDLE_CHECK_DEBOUNCE_MS = 400
  */
 export const PROFILE_COVER_FADE_MS = 500
 const untilCoverGone = () => new Promise<void>(resolve => setTimeout(resolve, PROFILE_COVER_FADE_MS))
-
 
 export function ProfileScreen() {
   const { t } = useTranslation()

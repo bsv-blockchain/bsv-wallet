@@ -88,10 +88,13 @@ export function useOfflineNoticeActions(args: {
     [makeClient, storage, t]
   )
 
-  const onCopyDetails = useCallback((row: OfflineActionRow) => {
-    loadClipboard().setString(offlineActionDetails(row))
-    showToast(t('copied'), { type: 'success' })
-  }, [t])
+  const onCopyDetails = useCallback(
+    (row: OfflineActionRow) => {
+      loadClipboard().setString(offlineActionDetails(row))
+      showToast(t('copied'), { type: 'success' })
+    },
+    [t]
+  )
 
   const onDismiss = useCallback(
     async (row: OfflineActionRow) => {

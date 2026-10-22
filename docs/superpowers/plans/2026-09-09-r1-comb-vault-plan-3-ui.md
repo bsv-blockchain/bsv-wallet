@@ -30,40 +30,40 @@ Runs after Plan 1 Tasks 1–6, Plan 2 Tasks 1–11, Plan 1 Task 7, Plan 2 Task 1
 
 ## File Structure
 
-| Action | Path (under `/Users/personal/git/bsv-wallet/`) | Responsibility |
-|---|---|---|
-| Modify | `packages/expo-wallet-toolbox/core/i18n/translations.tsx` | Add the new vault keys and change the model-dependent copy in all 12 locales (Task 1); delete the dead keys in all 12 locales (Task 10) |
-| Modify | `packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts` | Allow-list the one format-only key |
-| Create | `packages/expo-wallet-toolbox/ui/components/vault/vaultErrorCopy.ts` | Single `VaultErrorCode → copy` table (merges `ERROR_COPY` + `translateVaultError`) |
-| Create | `packages/expo-wallet-toolbox/__tests__/ui/vaultErrorCopy.test.ts` | Unit tests for the table |
-| Create | `packages/expo-wallet-toolbox/ui/hooks/useExportWalletData.ts` | Shared export-wallet-data action + spinner state |
-| Create | `packages/expo-wallet-toolbox/__tests__/ui/useExportWalletData.test.ts` | Hook tests |
-| Modify | `packages/expo-wallet-toolbox/ui/screens/WalletConfigScreen.tsx` | Use the hook instead of `handleExportData`; DEV mock present-key selector |
-| Create | `packages/expo-wallet-toolbox/ui/hooks/useVaultCoverage.ts` | Reads `getVaultKeyCoverage` on mount / txStatusVersion / refresh |
-| Create | `packages/expo-wallet-toolbox/__tests__/ui/useVaultCoverage.test.ts` | Hook tests |
-| Create | `packages/expo-wallet-toolbox/ui/components/vault/KeyChooser.tsx` | Radio list of enrolled keys, `nickname · …serialTail4` |
-| Create | `packages/expo-wallet-toolbox/__tests__/ui/keyChooser.test.tsx` | Component test |
-| Rewrite | `packages/expo-wallet-toolbox/ui/components/vault/EnrollWizard.tsx` | §3.3 wizard, modes `enroll` / `add-key` |
-| Create | `packages/expo-wallet-toolbox/__tests__/ui/enrollWizard.test.tsx` | Finish gating, duplicate serial, leave-confirm, pending survives remount |
-| Modify | `packages/expo-wallet-toolbox/ui/components/vault/VaultCeremonySheet.tsx` | Progress from `state.progress`; copy via `vaultErrorCopy` |
-| Create | `packages/expo-wallet-toolbox/__tests__/ui/vaultCeremonySheet.test.tsx` | Progress line + error copy |
-| Rewrite | `packages/expo-wallet-toolbox/ui/screens/VaultScreen.tsx` | §3.4 keys list, badges, add/remove/rename/re-lock, export row, footnote, disable, four states |
-| Create | `packages/expo-wallet-toolbox/__tests__/ui/vaultScreen.test.tsx` | Re-lock badge, Add hidden at 5, remove confirmation buttons, flag-off hero |
-| Rewrite | `packages/expo-wallet-toolbox/ui/screens/VaultTransferScreen.tsx` | Key chooser, floor/fee line, remainder + first-deposit confirms, backup-off alert, post-transfer alerts |
-| Create | `packages/expo-wallet-toolbox/__tests__/ui/vaultTransferScreen.test.tsx` | Remainder confirm, chosen serial, unreachable alert |
-| Modify | `packages/expo-wallet-toolbox/ui/screens/WalletHomeScreen.tsx` | Vault button rendered only when `isVaultEnabled()` |
-| Modify | `packages/expo-wallet-toolbox/__tests__/ui/walletHomeBackup.test.tsx` | Add `isVaultEnabled` to its toolbox mock |
-| Create | `packages/expo-wallet-toolbox/__tests__/ui/walletHomeVaultGate.test.tsx` | Button hidden when flag off, shown when on |
-| Modify | `packages/expo-wallet-toolbox/ui/screens/SettingsScreen.tsx` | `/vault` row gated the same way |
-| Delete | `packages/expo-wallet-toolbox/ui/screens/VaultRecoverScreen.tsx` | Phrase recovery — no longer exists |
-| Delete | `packages/expo-wallet-toolbox/ui/components/vault/PassphraseField.tsx` | Passphrase entry — no longer exists |
-| Delete | `packages/expo-wallet-toolbox/ui/components/vault/PhraseBackupSheet.tsx` | Old wizard's phrase reveal — no longer exists |
-| Delete | `app/vault-recover.tsx` | Route stub for the deleted screen |
-| Modify | `app/_layout.tsx` | Remove `<Stack.Screen name="vault-recover" />`; pass `vaultEnabled` to `configureToolbox` |
-| Modify | `packages/expo-wallet-toolbox/ui/index.ts` | Drop `PassphraseField`, `PhraseBackupSheet`, `VaultRecoverScreen` exports; add `KeyChooser`, `vaultErrorCopy`, `useExportWalletData`, `useVaultCoverage` |
-| Modify | `packages/expo-wallet-toolbox/README.md`, `README.md` | Remove the `VaultRecoverScreen` / `vault-recover.tsx` rows |
-| Modify | `eas.json` | `EXPO_PUBLIC_VAULT_ENABLED=true` in `development` and `dev-physical` |
-| Modify | `packages/expo-wallet-toolbox/CHANGELOG.md` | UI lines under the 0.5.0 entry |
+| Action  | Path (under `/Users/personal/git/bsv-wallet/`)                            | Responsibility                                                                                                                                           |
+| ------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Modify  | `packages/expo-wallet-toolbox/core/i18n/translations.tsx`                 | Add the new vault keys and change the model-dependent copy in all 12 locales (Task 1); delete the dead keys in all 12 locales (Task 10)                  |
+| Modify  | `packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts`   | Allow-list the one format-only key                                                                                                                       |
+| Create  | `packages/expo-wallet-toolbox/ui/components/vault/vaultErrorCopy.ts`      | Single `VaultErrorCode → copy` table (merges `ERROR_COPY` + `translateVaultError`)                                                                       |
+| Create  | `packages/expo-wallet-toolbox/__tests__/ui/vaultErrorCopy.test.ts`        | Unit tests for the table                                                                                                                                 |
+| Create  | `packages/expo-wallet-toolbox/ui/hooks/useExportWalletData.ts`            | Shared export-wallet-data action + spinner state                                                                                                         |
+| Create  | `packages/expo-wallet-toolbox/__tests__/ui/useExportWalletData.test.ts`   | Hook tests                                                                                                                                               |
+| Modify  | `packages/expo-wallet-toolbox/ui/screens/WalletConfigScreen.tsx`          | Use the hook instead of `handleExportData`; DEV mock present-key selector                                                                                |
+| Create  | `packages/expo-wallet-toolbox/ui/hooks/useVaultCoverage.ts`               | Reads `getVaultKeyCoverage` on mount / txStatusVersion / refresh                                                                                         |
+| Create  | `packages/expo-wallet-toolbox/__tests__/ui/useVaultCoverage.test.ts`      | Hook tests                                                                                                                                               |
+| Create  | `packages/expo-wallet-toolbox/ui/components/vault/KeyChooser.tsx`         | Radio list of enrolled keys, `nickname · …serialTail4`                                                                                                   |
+| Create  | `packages/expo-wallet-toolbox/__tests__/ui/keyChooser.test.tsx`           | Component test                                                                                                                                           |
+| Rewrite | `packages/expo-wallet-toolbox/ui/components/vault/EnrollWizard.tsx`       | §3.3 wizard, modes `enroll` / `add-key`                                                                                                                  |
+| Create  | `packages/expo-wallet-toolbox/__tests__/ui/enrollWizard.test.tsx`         | Finish gating, duplicate serial, leave-confirm, pending survives remount                                                                                 |
+| Modify  | `packages/expo-wallet-toolbox/ui/components/vault/VaultCeremonySheet.tsx` | Progress from `state.progress`; copy via `vaultErrorCopy`                                                                                                |
+| Create  | `packages/expo-wallet-toolbox/__tests__/ui/vaultCeremonySheet.test.tsx`   | Progress line + error copy                                                                                                                               |
+| Rewrite | `packages/expo-wallet-toolbox/ui/screens/VaultScreen.tsx`                 | §3.4 keys list, badges, add/remove/rename/re-lock, export row, footnote, disable, four states                                                            |
+| Create  | `packages/expo-wallet-toolbox/__tests__/ui/vaultScreen.test.tsx`          | Re-lock badge, Add hidden at 5, remove confirmation buttons, flag-off hero                                                                               |
+| Rewrite | `packages/expo-wallet-toolbox/ui/screens/VaultTransferScreen.tsx`         | Key chooser, floor/fee line, remainder + first-deposit confirms, backup-off alert, post-transfer alerts                                                  |
+| Create  | `packages/expo-wallet-toolbox/__tests__/ui/vaultTransferScreen.test.tsx`  | Remainder confirm, chosen serial, unreachable alert                                                                                                      |
+| Modify  | `packages/expo-wallet-toolbox/ui/screens/WalletHomeScreen.tsx`            | Vault button rendered only when `isVaultEnabled()`                                                                                                       |
+| Modify  | `packages/expo-wallet-toolbox/__tests__/ui/walletHomeBackup.test.tsx`     | Add `isVaultEnabled` to its toolbox mock                                                                                                                 |
+| Create  | `packages/expo-wallet-toolbox/__tests__/ui/walletHomeVaultGate.test.tsx`  | Button hidden when flag off, shown when on                                                                                                               |
+| Modify  | `packages/expo-wallet-toolbox/ui/screens/SettingsScreen.tsx`              | `/vault` row gated the same way                                                                                                                          |
+| Delete  | `packages/expo-wallet-toolbox/ui/screens/VaultRecoverScreen.tsx`          | Phrase recovery — no longer exists                                                                                                                       |
+| Delete  | `packages/expo-wallet-toolbox/ui/components/vault/PassphraseField.tsx`    | Passphrase entry — no longer exists                                                                                                                      |
+| Delete  | `packages/expo-wallet-toolbox/ui/components/vault/PhraseBackupSheet.tsx`  | Old wizard's phrase reveal — no longer exists                                                                                                            |
+| Delete  | `app/vault-recover.tsx`                                                   | Route stub for the deleted screen                                                                                                                        |
+| Modify  | `app/_layout.tsx`                                                         | Remove `<Stack.Screen name="vault-recover" />`; pass `vaultEnabled` to `configureToolbox`                                                                |
+| Modify  | `packages/expo-wallet-toolbox/ui/index.ts`                                | Drop `PassphraseField`, `PhraseBackupSheet`, `VaultRecoverScreen` exports; add `KeyChooser`, `vaultErrorCopy`, `useExportWalletData`, `useVaultCoverage` |
+| Modify  | `packages/expo-wallet-toolbox/README.md`, `README.md`                     | Remove the `VaultRecoverScreen` / `vault-recover.tsx` rows                                                                                               |
+| Modify  | `eas.json`                                                                | `EXPO_PUBLIC_VAULT_ENABLED=true` in `development` and `dev-physical`                                                                                     |
+| Modify  | `packages/expo-wallet-toolbox/CHANGELOG.md`                               | UI lines under the 0.5.0 entry                                                                                                                           |
 
 ## Interface Contract
 
@@ -83,12 +83,12 @@ File: `core/services/vault/r1comb.ts`. Imports only `@bsv/sdk` and `@noble/curve
 ```ts
 export const COMB_ROWS = 6
 export const COMB_COLS = 43
-export const TABLE_SIZE = 32                 // entries per base point
-export const COORD_WIDTH = 33                // OP_NUM2BIN width per coordinate
+export const TABLE_SIZE = 32 // entries per base point
+export const COORD_WIDTH = 33 // OP_NUM2BIN width per coordinate
 export const SALT_BYTES = 32
-export const R1C_UNLOCK_LEN = 2560           // declared unlockingScriptLength (hard max is 2,539)
+export const R1C_UNLOCK_LEN = 2560 // declared unlockingScriptLength (hard max is 2,539)
 export const R1C_MAX_KEYS = 5
-export function R1C_LOCK_LEN(n: number): number            // 27855 for n=1; 27831 + 25n for 2<=n<=5; throws otherwise
+export function R1C_LOCK_LEN(n: number): number // 27855 for n=1; 27831 + 25n for 2<=n<=5; throws otherwise
 
 /** 65-byte SEC1 (04‖X‖Y) or 33-byte compressed hex in → 33-byte compressed, lowercase hex out. Throws VaultError('template-invalid') on anything else. */
 export function compressPubkey(sec1Hex: string): string
@@ -113,11 +113,27 @@ export function decodeDerSignature(der: number[]): { r: bigint; s: bigint }
 /** R = u1·G + u2·Q for e = LE(hash256(preimage)); returns the FULL affine x, or null if R is the point at infinity. */
 export function fullR(a: { preimage: number[]; rSig: bigint; s: bigint; pubkeyHex33: string }): bigint | null
 /** The 71-push unlocking script (spec §2.4): r, u2', u1', 64 coords, salt, s, sInv, preimage. Throws VaultError('template-invalid') if fullR is null. */
-export function buildUnlock(a: { preimage: number[]; derSig: number[]; pubkeyHex33: string; saltHex64: string }): UnlockingScript
+export function buildUnlock(a: {
+  preimage: number[]
+  derSig: number[]
+  pubkeyHex33: string
+  saltHex64: string
+}): UnlockingScript
 /** Run @bsv/sdk Spend with EXPLICIT strict flags (MINIMALDATA on, UTXO_AFTER_CHRONICLE on, SIGHASH_FORKID, STRICTENC) — returns true or throws the interpreter error. */
-export function verifyVaultInput(a: { tx: Transaction; inputIndex: number; sourceSatoshis: number; lockingScript: LockingScript; unlockingScript: UnlockingScript }): true
+export function verifyVaultInput(a: {
+  tx: Transaction
+  inputIndex: number
+  sourceSatoshis: number
+  lockingScript: LockingScript
+  unlockingScript: UnlockingScript
+}): true
 
-export interface VaultInstructionsV4 { v: 4; type: 'R1C'; salt: string /* 64 hex */; keys: string[] /* 33-byte compressed pubkeys, lowercase hex, commitment order */ }
+export interface VaultInstructionsV4 {
+  v: 4
+  type: 'R1C'
+  salt: string /* 64 hex */
+  keys: string[] /* 33-byte compressed pubkeys, lowercase hex, commitment order */
+}
 export type VaultInstructions = VaultInstructionsV4
 export function encodeVaultInstructions(i: VaultInstructionsV4): string
 /** Fails closed: null for anything not exactly v4/R1C with valid salt and 1..5 valid keys. */
@@ -133,89 +149,127 @@ Test file: `__tests__/vault/r1comb.test.ts`. Fixture path for goldens: `docs/exa
 `core/services/vault/types.ts` — `VaultErrorCode` union gains: `'not-released' | 'backup-off' | 'not-enough-keys' | 'key-already-enrolled' | 'too-many-keys' | 'last-keys' | 'relock-required' | 'key-not-committed' | 'key-cannot-cover' | 'too-small-to-relock' | 'bad-version'`; loses `'seal-corrupt' | 'bad-passphrase' | 'bad-mnemonic' | 'bad-derivation-index' | 'backup-required'`. `SealedBlob` removed. Everything else unchanged.
 
 `core/services/vault/vaultStore.ts`
+
 ```ts
-export interface VaultKeyRecord { serial: string; slot: number; pubkey: string /* 33-byte compressed lowercase hex */; nickname: string; enrolledAt: number }
-export interface VaultMetaV5 { v: 5; createdAt: number; lastUsedAt?: number; lastUsedSerial?: string; keys: VaultKeyRecord[] }
+export interface VaultKeyRecord {
+  serial: string
+  slot: number
+  pubkey: string /* 33-byte compressed lowercase hex */
+  nickname: string
+  enrolledAt: number
+}
+export interface VaultMetaV5 {
+  v: 5
+  createdAt: number
+  lastUsedAt?: number
+  lastUsedSerial?: string
+  keys: VaultKeyRecord[]
+}
 export type VaultMeta = VaultMetaV5
 export const vaultStore: {
-  isEnrolled(): Promise<boolean>                       // meta != null (meta-only)
-  getMeta(): Promise<VaultMeta | null>                 // null unless v === 5
+  isEnrolled(): Promise<boolean> // meta != null (meta-only)
+  getMeta(): Promise<VaultMeta | null> // null unless v === 5
   setMeta(m: VaultMeta): Promise<void>
-  addKey(k: VaultKeyRecord): Promise<VaultMeta>        // throws VaultError('too-many-keys') at 5, ('key-already-enrolled') on duplicate serial
-  removeKey(serial: string): Promise<VaultMeta>        // throws VaultError('last-keys') when keys.length <= 2
+  addKey(k: VaultKeyRecord): Promise<VaultMeta> // throws VaultError('too-many-keys') at 5, ('key-already-enrolled') on duplicate serial
+  removeKey(serial: string): Promise<VaultMeta> // throws VaultError('last-keys') when keys.length <= 2
   renameKey(serial: string, nickname: string): Promise<VaultMeta>
   noteLastUsed(serial: string): Promise<void>
-  migrateLegacySeal(): Promise<void>                   // SecureStore.deleteItemAsync('vault_seal_v1'), swallow errors
+  migrateLegacySeal(): Promise<void> // SecureStore.deleteItemAsync('vault_seal_v1'), swallow errors
   clear(): Promise<void>
 }
 ```
 
 `core/services/vault/VaultKeyService.ts`
+
 ```ts
 export const VAULT_SLOT = 0x82
 export const VAULT_MIN_KEYS = 2
 export const VAULT_MAX_KEYS = 5
 export type EnrollPhase = 'connecting' | 'pin-check' | 'generating' | 'done'
 export async function enrollKey(args: {
-  pendingSerials: string[]                             // serials already enrolled OR pending in this wizard run
+  pendingSerials: string[] // serials already enrolled OR pending in this wizard run
   nickname?: string
   onPhase: (p: EnrollPhase) => void
   getPin: () => Promise<string>
   requestPinChange?: (retries: number) => Promise<{ oldPin: string; newPin: string }>
-}): Promise<VaultKeyRecord>                            // one card session; generateVaultKey(0x82) with 'cached'/'once'; compressPubkey on the result; throws 'key-already-enrolled' | 'pin-locked' | 'pin-invalid' | 'no-key' | 'user-cancelled' | 'key-removed-mid-op' | 'driver-unavailable'
-export async function finalizeEnrollment(records: VaultKeyRecord[]): Promise<void>   // throws 'not-enough-keys' (<2) / 'too-many-keys' (>5); writes meta v5
-export async function addVaultKey(record: VaultKeyRecord): Promise<VaultMeta>        // vaultStore.addKey
-export async function disableVault(): Promise<void>                                  // vaultStore.clear()
+}): Promise<VaultKeyRecord> // one card session; generateVaultKey(0x82) with 'cached'/'once'; compressPubkey on the result; throws 'key-already-enrolled' | 'pin-locked' | 'pin-invalid' | 'no-key' | 'user-cancelled' | 'key-removed-mid-op' | 'driver-unavailable'
+export async function finalizeEnrollment(records: VaultKeyRecord[]): Promise<void> // throws 'not-enough-keys' (<2) / 'too-many-keys' (>5); writes meta v5
+export async function addVaultKey(record: VaultKeyRecord): Promise<VaultMeta> // vaultStore.addKey
+export async function disableVault(): Promise<void> // vaultStore.clear()
 ```
 
 `core/services/vault/session.ts` — `withKeySession` now rejects: `session-failed` → `VaultError(code === 'user-cancelled' ? 'user-cancelled' : 'no-key')`; `detached` before `work` resolves → `VaultError('key-removed-mid-op')`; attach timeout (default 65_000 ms, injectable) → `VaultError('no-key')`.
 
 `core/services/vault/driver.ts`
+
 ```ts
 export interface VaultDriver {
   isSupported(): boolean
   sessionBased: boolean
-  start(message?: string): void                        // message = localised NFC alert text (iOS); ignored elsewhere
+  start(message?: string): void // message = localised NFC alert text (iOS); ignored elsewhere
   stop(): void
   onKeyEvent(cb: (e: KeyEvent) => void): () => void
   getKeyInfo(): Promise<{ serial: string; firmwareVersion: string; pinRetries: number }>
   verifyPin(pin: string): Promise<{ ok: boolean; retriesLeft: number }>
   changePin(oldPin: string, newPin: string): Promise<{ ok: boolean; retriesLeft: number }>
-  generateVaultKey(slot: number): Promise<{ publicKey: string }>   // adapter passes 'cached', 'once'
+  generateVaultKey(slot: number): Promise<{ publicKey: string }> // adapter passes 'cached', 'once'
   readVaultPublicKey(slot: number): Promise<{ publicKey: string } | null>
   signEcdsa(slot: number, pin: string, digest: string): Promise<{ signature: string }>
 }
 // ecdh REMOVED from VaultDriver and from NativeYubiKeyPiv usage (native method may remain; unused).
 ```
+
 Native: `packages/react-native-yubikey/src/specs/YubiKeyPiv.nitro.ts` `startDiscovery(message: string): void`; Swift sets `YubiKitExternalLocalization.nfcScanAlertMessage = message` before starting; Kotlin ignores. Regenerate nitrogen output (`npx nitrogen` in the package; commit generated files).
 
 `core/services/vault/mockYubiKey.ts` — `MockYubiKey` keeps a `Map<serial, { priv: Uint8Array | null; pub: string | null; pin: string; pinRetries: number; pinVerified: boolean }>`; `insertKey(serial)` selects/creates a record; `setPin(pin)` applies to the current serial; `signEcdsa` signs with the current serial's key; `ecdh` and the `softwareEcdh` import removed; `start(message?)` accepted. `devMock.ts`: module-held instance; `setMockDriverEnabled(on)`, `setMockPresentKey(serial: 'MOCK-DEV-1' | 'MOCK-DEV-2' | 'MOCK-DEV-3')`, `getMockPresentKey()`.
 
 `core/services/vault/ceremony.ts`
+
 ```ts
 export type VaultProgress = { phase: 'preparing'; signed?: number; total?: number } | { phase: 'broadcasting' }
-export interface CeremonyState { phase: CeremonyPhase; reason?: string; error?: { code: VaultErrorCode; retriesLeft?: number }; armedUntil?: number; progress?: { signed: number; total: number } }
+export interface CeremonyState {
+  phase: CeremonyPhase
+  reason?: string
+  error?: { code: VaultErrorCode; retriesLeft?: number }
+  armedUntil?: number
+  progress?: { signed: number; total: number }
+}
 export interface VaultSigner {
   readonly serial: string
-  readonly pubkey: string                              // 33-byte compressed lowercase hex
+  readonly pubkey: string // 33-byte compressed lowercase hex
   /** Sign one 32-byte digest (64 hex). Retries in place on touch-timeout / nfc-lost / key-removed-mid-op (re-opens the session on session-based transports, re-checks serial + PIN); on session-based transports re-opens a fresh session every VAULT_INPUTS_PER_TAP calls. Throws 'key-removed-mid-op' after release(). */
-  sign(digestHex: string, progress?: { index: number; total: number }): Promise<number[]>   // DER bytes
+  sign(digestHex: string, progress?: { index: number; total: number }): Promise<number[]> // DER bytes
   release(): void
 }
-export interface CeremonyStoreView { getMeta(): Promise<{ keys: { serial: string; slot: number; pubkey: string }[] } | null> }
+export interface CeremonyStoreView {
+  getMeta(): Promise<{ keys: { serial: string; slot: number; pubkey: string }[] } | null>
+}
 export class CeremonyController {
-  constructor(deps: { getDriver: () => VaultDriver | null; store: CeremonyStoreView; retentionMs: number; attachTimeoutMs?: number; inputsPerTap?: number })
-  requestSigner(reason: string, chosenSerial: string): Promise<VaultSigner>  // 'serial-mismatch' if the tapped card is not chosenSerial; 'not-enrolled' if chosenSerial not in meta
+  constructor(deps: {
+    getDriver: () => VaultDriver | null
+    store: CeremonyStoreView
+    retentionMs: number
+    attachTimeoutMs?: number
+    inputsPerTap?: number
+  })
+  requestSigner(reason: string, chosenSerial: string): Promise<VaultSigner> // 'serial-mismatch' if the tapped card is not chosenSerial; 'not-enrolled' if chosenSerial not in meta
   noteProgress(p: VaultProgress): void
-  submitPin(pin: string): void; cancel(): void; retry(): void; notifyKeyDetached(): void; subscribe(cb): () => void
-  onArmed?: (s: VaultSigner) => void; onRelock?: (why: 'timeout' | 'detached' | 'manual') => void
+  submitPin(pin: string): void
+  cancel(): void
+  retry(): void
+  notifyKeyDetached(): void
+  subscribe(cb): () => void
+  onArmed?: (s: VaultSigner) => void
+  onRelock?: (why: 'timeout' | 'detached' | 'manual') => void
 }
 ```
+
 `core/services/vault/ceremonyHost.ts`: `export function requestVaultSigner(reason: string, chosenSerial: string): Promise<VaultSigner>`; `noteVaultProgress(p: VaultProgress)`; `VAULT_RETENTION_MS = 120_000`; `VAULT_INPUTS_PER_TAP = 16`.
 
 `core/toolboxConfig.ts`: `ToolboxConfig.vaultEnabled?: boolean` (default false); `export function isVaultEnabled(): boolean` — returns `current?.vaultEnabled ?? false`, never throws.
 
 `core/services/vault/transfers.ts`
+
 ```ts
 export const VAULT_BASKET = 'admin vault'
 export const VAULT_DEPOSIT_MIN = 100_000
@@ -244,11 +298,13 @@ export function estimateRelockFee(inputCount: number, lockLen: number, satPerKb?
 export interface VaultWallet { createAction(args: unknown, originator: string): Promise<CreateActionResult>; signAction(...); listOutputs(...); abortAction(...); listActions?(...) }
 // Kept as legacy (unchanged API): reclaimStagingOutputs, ReclaimResult, VAULT_STAGING_BASKET. Removed: sweepVaultWithHD, VaultWallet.getPublicKey, VaultWallet.createSignature is kept ONLY because reclaimStagingOutputs uses it.
 ```
+
 Withdraw internals (spec §4.2): listOutputs (limit 1000, entire transactions, includeCustomInstructions) → decode v4 → filter by chosen pubkey → sort desc → cap → per input `commitment(pubkey, salt) ∈ bakedCommitments(lock from BEEF)` else `key-not-committed` → amount checks (`key-cannot-cover`, `too-many-inputs`, `amount-exceeds-balance`) → createAction `{ version: 2, inputs: [{ outpoint, unlockingScriptLength: R1C_UNLOCK_LEN, inputDescription }], outputs (re-vault remainder ≥ VAULT_DEPOSIT_MIN with fresh salt, current keys), inputBEEF, options: { randomizeOutputs: false, acceptDelayedBroadcast: false, trustSelf: 'known' } }` → parse signable tx; assert version 2 (`bad-version` + abortAction) → preimages + `pushTxDerCheck` for each (on failure abortAction and re-create with `sequenceNumber` bumped on that input; max 8 attempts) → `requestVaultSigner(reason, chosenSerial)` → sign sequentially with progress → release → buildUnlock + verifyVaultInput per input → signAction `{ reference, spends, options: { acceptDelayedBroadcast: true } }`. On any failure before signAction: abortAction.
 
 ## Plan 3 — UI (screens, components, i18n, routes, home button)
 
 Consumes everything above. Produces:
+
 - `ui/components/vault/EnrollWizard.tsx`: `export const EnrollWizard: React.FC<{ mode: 'enroll' | 'add-key'; onDone: () => void; onCancel: () => void }>` — steps `intro | key | more | done` (add-key mode: single `key` step then done).
 - `ui/components/vault/KeyChooser.tsx`: `export const KeyChooser: React.FC<{ keys: VaultKeyRecord[]; selected?: string; onSelect: (serial: string) => void }>`.
 - `ui/components/vault/vaultErrorCopy.ts`: `export function vaultErrorCopy(code: VaultErrorCode | undefined, params?: Record<string, unknown>): string` (merges `ERROR_COPY` and `translateVaultError`).
@@ -282,6 +338,7 @@ Every component test in this plan mocks the core barrel with the same shape. Eac
 ### Task 1: i18n — new vault keys and model-dependent copy changes in all twelve locales
 
 **Files:**
+
 - Modify: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/core/i18n/translations.tsx` — en block lines 188–364 (`// ── Vault (YubiKey-gated high-value basket) ──` … `vault_deposit_blocked_dismiss`), and the matching vault block in each other locale (zh starts at 892 `// vault (machine-translated, needs native review)`, hi ~1530, es ~2191, fr ~2862, ar ~3536, pt ~4183, bn ~4852, ru ~5513, id ~6180, ja ~6850, pl ~7527 — locate each with `grep -n "vault_title:" core/i18n/translations.tsx`).
 - Modify: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts` lines 11–22 (`allowedUntranslated`).
 - Test: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts` (existing; must pass).
@@ -418,6 +475,7 @@ Then change these existing English values in place (same keys, new copy):
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts
 ```
+
 Expected: 11 failures of `zh has exactly the English key set` (…`pl has exactly the English key set`), each listing the new keys as missing (`expect(englishKeys.filter(key => !(key in translation))).toEqual([])` with an array beginning `["vault_not_released_body", "vault_intro_title", …]`), plus 11 failures of `keeps the same interpolation placeholders` naming `vault_key_section`, `vault_err_serial_mismatch`.
 
 - [ ] **Step 3: Add the same keys (translated) and the same in-place changes to zh, hi and es**
@@ -425,6 +483,7 @@ Expected: 11 failures of `zh has exactly the English key set` (…`pl has exactl
 In each locale, insert the new block right after that locale's `vault_withdraw_reason:` line and change the eleven existing values in place — including `vault_withdraw_reason` itself: prepend that locale's own "Hold your YubiKey here to sign" phrase (the substring before the separator in that locale's `vault_nfc_sign_batch`, given below) ahead of its existing `{{amount}}` clause, exactly as the English change above.
 
 **zh** — insert:
+
 ```ts
       vault_not_released_body: '暂不可用 — 此版本已关闭保险库存入。',
       vault_intro_title: '设置您的保险库',
@@ -507,7 +566,9 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
       vault_err_too_small_to_relock: '此保险库的余额不足 100,000 sats，太少而无法重新锁定。请改为取出后再存入。',
       vault_err_bad_version: '交易以错误的格式构建。尚未签名 — 请重试。',
 ```
+
 **zh** — change in place:
+
 ```ts
       vault_hero_body: '适合长期持有的存储，锁定到您自己的 YubiKey。需要两把或更多 YubiKey 5 NFC。',
       vault_unsupported_body: '需要两把或更多 YubiKey 5 NFC，以及能读取它们的手机。',
@@ -522,6 +583,7 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
 ```
 
 **hi** — insert:
+
 ```ts
       vault_not_released_body: 'अभी उपलब्ध नहीं — इस रिलीज़ में वॉल्ट जमा बंद हैं।',
       vault_intro_title: 'अपना वॉल्ट सेट करें',
@@ -604,7 +666,9 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
       vault_err_too_small_to_relock: 'इस वॉल्ट में 100,000 sats से कम है, जो री-लॉक के लिए बहुत कम है। इसे निकालें और फिर जमा करें।',
       vault_err_bad_version: 'लेन-देन गलत फ़ॉर्मैट में बना। कुछ भी हस्ताक्षरित नहीं हुआ — फिर कोशिश करें।',
 ```
+
 **hi** — change in place:
+
 ```ts
       vault_hero_body: 'लंबी अवधि के लिए कूल स्टोरेज, आपकी अपनी YubiKeys से लॉक। दो या अधिक YubiKey 5 NFC चाहिए।',
       vault_unsupported_body: 'दो या अधिक YubiKey 5 NFC, और एक फ़ोन जो उन्हें पढ़ सके।',
@@ -619,6 +683,7 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
 ```
 
 **es** — insert:
+
 ```ts
       vault_not_released_body: 'Aún no disponible: los depósitos a la caja fuerte están desactivados en esta versión.',
       vault_intro_title: 'Configura tu caja fuerte',
@@ -701,7 +766,9 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
       vault_err_too_small_to_relock: 'Esta caja fuerte tiene menos de 100,000 sats, demasiado poco para volver a bloquear. Retíralo y deposita de nuevo.',
       vault_err_bad_version: 'La transacción se construyó en un formato incorrecto. No se firmó nada: inténtalo de nuevo.',
 ```
+
 **es** — change in place:
+
 ```ts
       vault_hero_body: 'Almacenamiento en frío a largo plazo, bloqueado con tus propias YubiKeys. Requiere dos o más YubiKey 5 NFC.',
       vault_unsupported_body: 'Dos o más YubiKey 5 NFC, más un teléfono que pueda leerlas.',
@@ -718,6 +785,7 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
 - [ ] **Step 4: Add the same keys and in-place changes to fr, ar and pt**
 
 **fr** — insert:
+
 ```ts
       vault_not_released_body: 'Pas encore disponible — les dépôts dans le coffre sont désactivés dans cette version.',
       vault_intro_title: 'Configurer votre coffre',
@@ -800,7 +868,9 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
       vault_err_too_small_to_relock: 'Ce coffre contient moins de 100 000 sats, trop peu pour reverrouiller. Retirez-le plutôt et déposez à nouveau.',
       vault_err_bad_version: 'La transaction a été construite dans le mauvais format. Rien n’a été signé — réessayez.',
 ```
+
 **fr** — change in place:
+
 ```ts
       vault_hero_body: 'Stockage à froid pour le long terme, verrouillé avec vos propres YubiKeys. Nécessite deux YubiKey 5 NFC ou plus.',
       vault_unsupported_body: 'Deux YubiKey 5 NFC ou plus, et un téléphone capable de les lire.',
@@ -815,6 +885,7 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
 ```
 
 **ar** — insert:
+
 ```ts
       vault_not_released_body: 'غير متاح بعد — إيداعات الخزنة معطّلة في هذا الإصدار.',
       vault_intro_title: 'إعداد خزنتك',
@@ -897,7 +968,9 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
       vault_err_too_small_to_relock: 'تحوي هذه الخزنة أقل من 100,000 ساتوشي، وهو أقل من أن يُعاد قفله. اسحبها بدلًا من ذلك ثم أودع مجددًا.',
       vault_err_bad_version: 'بُنيت المعاملة بتنسيق خاطئ. لم يُوقَّع شيء — حاول مجددًا.',
 ```
+
 **ar** — change in place:
+
 ```ts
       vault_hero_body: 'تخزين طويل الأمد مقفل بمفاتيح YubiKey الخاصة بك. يحتاج إلى مفتاحَي YubiKey 5 NFC أو أكثر.',
       vault_unsupported_body: 'مفتاحا YubiKey 5 NFC أو أكثر، وهاتف قادر على قراءتها.',
@@ -912,6 +985,7 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
 ```
 
 **pt** — insert:
+
 ```ts
       vault_not_released_body: 'Ainda não disponível — os depósitos no cofre estão desativados nesta versão.',
       vault_intro_title: 'Configure o seu cofre',
@@ -994,7 +1068,9 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
       vault_err_too_small_to_relock: 'Este cofre tem menos de 100.000 sats, pouco demais para retrancar. Saque-o e deposite de novo.',
       vault_err_bad_version: 'A transação foi montada no formato errado. Nada foi assinado — tente de novo.',
 ```
+
 **pt** — change in place:
+
 ```ts
       vault_hero_body: 'Armazenamento a frio de longo prazo, trancado com as suas próprias YubiKeys. Requer duas ou mais YubiKey 5 NFC.',
       vault_unsupported_body: 'Duas ou mais YubiKey 5 NFC, mais um telefone que consiga lê-las.',
@@ -1011,6 +1087,7 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
 - [ ] **Step 5: Add the same keys and in-place changes to bn, ru and id**
 
 **bn** — insert:
+
 ```ts
       vault_not_released_body: 'এখনও উপলব্ধ নয় — এই রিলিজে ভল্টে জমা বন্ধ রাখা হয়েছে।',
       vault_intro_title: 'আপনার ভল্ট সেট আপ করুন',
@@ -1093,7 +1170,9 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
       vault_err_too_small_to_relock: 'এই ভল্টে ১০০,০০০ sats-এর কম আছে, যা পুনরায় লক করার জন্য খুব কম। বরং তুলে নিয়ে আবার জমা দিন।',
       vault_err_bad_version: 'লেনদেনটি ভুল ফরম্যাটে তৈরি হয়েছে। কিছুই সই হয়নি — আবার চেষ্টা করুন।',
 ```
+
 **bn** — change in place:
+
 ```ts
       vault_hero_body: 'দীর্ঘমেয়াদের জন্য কোল্ড স্টোরেজ, আপনার নিজের YubiKey দিয়ে লক করা। দুটি বা তার বেশি YubiKey 5 NFC লাগবে।',
       vault_unsupported_body: 'দুটি বা তার বেশি YubiKey 5 NFC, এবং সেগুলি পড়তে পারে এমন একটি ফোন।',
@@ -1108,6 +1187,7 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
 ```
 
 **ru** — insert:
+
 ```ts
       vault_not_released_body: 'Пока недоступно — пополнение хранилища отключено в этой версии.',
       vault_intro_title: 'Настройте хранилище',
@@ -1190,7 +1270,9 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
       vault_err_too_small_to_relock: 'В этом хранилище меньше 100 000 сат — слишком мало для перезапирания. Выведите их и пополните снова.',
       vault_err_bad_version: 'Транзакция собрана в неверном формате. Ничего не подписано — попробуйте снова.',
 ```
+
 **ru** — change in place:
+
 ```ts
       vault_hero_body: 'Холодное хранение на долгий срок, запертое вашими собственными YubiKey. Нужны два или более YubiKey 5 NFC.',
       vault_unsupported_body: 'Два или более YubiKey 5 NFC и телефон, который может их считать.',
@@ -1205,6 +1287,7 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
 ```
 
 **id** — insert:
+
 ```ts
       vault_not_released_body: 'Belum tersedia — setoran brankas dimatikan pada rilis ini.',
       vault_intro_title: 'Siapkan brankas Anda',
@@ -1287,7 +1370,9 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
       vault_err_too_small_to_relock: 'Brankas ini berisi kurang dari 100.000 sat, terlalu kecil untuk dikunci ulang. Tarik saja lalu setor lagi.',
       vault_err_bad_version: 'Transaksi dibangun dalam format yang salah. Tidak ada yang ditandatangani — coba lagi.',
 ```
+
 **id** — change in place:
+
 ```ts
       vault_hero_body: 'Penyimpanan dingin jangka panjang, dikunci dengan YubiKey milik Anda sendiri. Memerlukan dua YubiKey 5 NFC atau lebih.',
       vault_unsupported_body: 'Dua YubiKey 5 NFC atau lebih, plus ponsel yang bisa membacanya.',
@@ -1304,6 +1389,7 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
 - [ ] **Step 6: Add the same keys and in-place changes to ja and pl**
 
 **ja** — insert:
+
 ```ts
       vault_not_released_body: 'まだ利用できません — このリリースでは保管庫への入金は無効になっています。',
       vault_intro_title: '保管庫を設定する',
@@ -1386,7 +1472,9 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
       vault_err_too_small_to_relock: 'この保管庫の残高は 100,000 sats 未満で、再ロックするには少なすぎます。代わりに引き出してから再度入金してください。',
       vault_err_bad_version: 'トランザクションが誤った形式で作成されました。何も署名されていません — もう一度お試しください。',
 ```
+
 **ja** — change in place:
+
 ```ts
       vault_hero_body: '長期保有向けのコールドストレージ。あなた自身の YubiKey でロックします。YubiKey 5 NFC が 2 本以上必要です。',
       vault_unsupported_body: 'YubiKey 5 NFC が 2 本以上と、それを読み取れるスマートフォン。',
@@ -1401,6 +1489,7 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
 ```
 
 **pl** — insert:
+
 ```ts
       vault_not_released_body: 'Jeszcze niedostępne — wpłaty do sejfu są wyłączone w tym wydaniu.',
       vault_intro_title: 'Skonfiguruj swój sejf',
@@ -1483,7 +1572,9 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
       vault_err_too_small_to_relock: 'Ten sejf zawiera mniej niż 100 000 sat — za mało, by zablokować go ponownie. Zamiast tego wypłać i wpłać ponownie.',
       vault_err_bad_version: 'Transakcja została zbudowana w złym formacie. Nic nie podpisano — spróbuj ponownie.',
 ```
+
 **pl** — change in place:
+
 ```ts
       vault_hero_body: 'Zimne przechowywanie na długi termin, zablokowane Twoimi własnymi kluczami YubiKey. Wymaga dwóch lub więcej YubiKey 5 NFC.',
       vault_unsupported_body: 'Dwa lub więcej YubiKey 5 NFC oraz telefon, który potrafi je odczytać.',
@@ -1502,6 +1593,7 @@ In each locale, insert the new block right after that locale's `vault_withdraw_r
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts
 ```
+
 Expected: `Tests: 33 passed` (3 checks × 11 locales). If `has no copy left in English` fails for a key, the translation is byte-identical to English — fix the translation, do not add to the allow-list (none of the new keys is a product name or pure format string).
 
 - [ ] **Step 8: Type-check and commit**
@@ -1524,10 +1616,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 2: `vaultErrorCopy` — one `VaultErrorCode → copy` table
 
 **Files:**
+
 - Create: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/components/vault/vaultErrorCopy.ts`
 - Test: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui/vaultErrorCopy.test.ts`
 
 **Interfaces:**
+
 - Produces: `vaultErrorCopy(code: VaultErrorCode | undefined, params?: VaultErrorParams): string`, `RETRYABLE_VAULT_ERRORS: ReadonlySet<VaultErrorCode>`, `type VaultErrorParams`.
 - Consumes: `i18n`, `type VaultErrorCode` (post-Plan-2 union, 33 codes — see the contract's Plan 2 section) from the core barrel; the Task 1 keys `vault_err_*`, `vault_err_serial_mismatch_chosen`, `vault_pin_retries`.
 
@@ -1544,8 +1638,7 @@ Create `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui
  * with `{{placeholders}}` left in it), and copy that names keys or amounts
  * must degrade to param-free copy when the caller has nothing to name.
  */
-const mockT = (k: string, o?: Record<string, unknown>) =>
-  o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k
+const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
 
 // `mockT` is referenced lazily (inside an arrow) so the hoisted factory never
 // touches it before the `const` above has initialised.
@@ -1557,13 +1650,39 @@ import { vaultErrorCopy, RETRYABLE_VAULT_ERRORS } from '../../ui/components/vaul
 import type { VaultErrorCode } from '../../core/services/vault/types'
 
 const ALL_CODES: VaultErrorCode[] = [
-  'unsupported-platform', 'no-key', 'wrong-key', 'pin-required', 'pin-invalid', 'pin-locked',
-  'touch-timeout', 'key-removed-mid-op', 'mgmt-key-custom', 'slot-occupied', 'template-invalid',
-  'serial-mismatch', 'user-cancelled', 'not-enrolled', 'driver-unavailable', 'vault-empty',
-  'amount-exceeds-balance', 'below-dust', 'no-transaction', 'nfc-lost', 'too-many-inputs',
-  'requires-online', 'not-released', 'backup-off', 'not-enough-keys', 'key-already-enrolled',
-  'too-many-keys', 'last-keys', 'relock-required', 'key-not-committed', 'key-cannot-cover',
-  'too-small-to-relock', 'bad-version'
+  'unsupported-platform',
+  'no-key',
+  'wrong-key',
+  'pin-required',
+  'pin-invalid',
+  'pin-locked',
+  'touch-timeout',
+  'key-removed-mid-op',
+  'mgmt-key-custom',
+  'slot-occupied',
+  'template-invalid',
+  'serial-mismatch',
+  'user-cancelled',
+  'not-enrolled',
+  'driver-unavailable',
+  'vault-empty',
+  'amount-exceeds-balance',
+  'below-dust',
+  'no-transaction',
+  'nfc-lost',
+  'too-many-inputs',
+  'requires-online',
+  'not-released',
+  'backup-off',
+  'not-enough-keys',
+  'key-already-enrolled',
+  'too-many-keys',
+  'last-keys',
+  'relock-required',
+  'key-not-committed',
+  'key-cannot-cover',
+  'too-small-to-relock',
+  'bad-version'
 ]
 
 describe('vaultErrorCopy', () => {
@@ -1660,6 +1779,7 @@ describe('vaultErrorCopy', () => {
 ```
 npx jest packages/expo-wallet-toolbox/__tests__/ui/vaultErrorCopy.test.ts
 ```
+
 Expected: `Cannot find module '../../ui/components/vault/vaultErrorCopy'`.
 
 - [ ] **Step 3: Implement the table**
@@ -1809,6 +1929,7 @@ export function vaultErrorCopy(code: VaultErrorCode | undefined, params: VaultEr
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/vaultErrorCopy.test.ts
 ```
+
 Expected: `Tests: 11 passed`.
 
 - [ ] **Step 5: Type-check and commit**
@@ -1816,6 +1937,7 @@ Expected: `Tests: 11 passed`.
 ```
 cd /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox && npx tsc --noEmit -p tsconfig.json
 ```
+
 Expected: no errors in `ui/components/vault/vaultErrorCopy.ts`. (Errors in `VaultScreen.tsx`, `VaultTransferScreen.tsx`, `EnrollWizard.tsx`, `VaultRecoverScreen.tsx` against the Plan 2 services are expected until Tasks 6, 8, 9 and 10 land — they are the four residuals Plan 2 leaves for this plan.)
 
 ```
@@ -1836,11 +1958,13 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 3: `useExportWalletData` hook, WalletConfigScreen switched to it, DEV present-key selector
 
 **Files:**
+
 - Create: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/hooks/useExportWalletData.ts`
 - Test: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui/useExportWalletData.test.ts`
 - Modify: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/screens/WalletConfigScreen.tsx` (imports lines 5–35 and 69; state line 133; `handleExportData` lines 373–383; DEV mock toggle rows lines 786–802; export row lines 818–825)
 
 **Interfaces:**
+
 - Produces: `useExportWalletData(): { exportData: () => Promise<void>; exporting: boolean }`.
 - Consumes: `useWallet().storage`, `exportAllWalletDatabases(storage)` from `ui/exportDatabases.ts:51`; `setMockPresentKey`, `getMockPresentKey` from the core barrel (Plan 2 `devMock.ts`).
 
@@ -1953,6 +2077,7 @@ describe('useExportWalletData', () => {
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/useExportWalletData.test.ts
 ```
+
 Expected: `Cannot find module '../../ui/hooks/useExportWalletData'`.
 
 - [ ] **Step 3: Implement the hook**
@@ -2004,6 +2129,7 @@ export function useExportWalletData(): { exportData: () => Promise<void>; export
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/useExportWalletData.test.ts
 ```
+
 Expected: `Tests: 4 passed`.
 
 - [ ] **Step 5: Switch WalletConfigScreen to the hook and add the DEV present-key row**
@@ -2011,10 +2137,13 @@ Expected: `Tests: 4 passed`.
 In `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/screens/WalletConfigScreen.tsx`:
 
 (a) In the barrel import (lines 5–35), replace the line
+
 ```ts
   setMockDriverEnabled,
 ```
+
 with
+
 ```ts
   setMockDriverEnabled,
   setMockPresentKey,
@@ -2022,10 +2151,13 @@ with
 ```
 
 (b) Replace line 69
+
 ```ts
 import { exportAllWalletDatabases } from '../exportDatabases'
 ```
+
 with
+
 ```ts
 import { useExportWalletData } from '../hooks/useExportWalletData'
 ```
@@ -2043,98 +2175,119 @@ const NEXT_MOCK_KEY: Record<MockPresentKey, MockPresentKey> = {
 ```
 
 (d) Replace the state line 133
+
 ```ts
-  const [isExporting, setIsExporting] = useState(false)
+const [isExporting, setIsExporting] = useState(false)
 ```
+
 with
+
 ```ts
-  const { exportData, exporting } = useExportWalletData()
-  // Not read from getMockPresentKey() at mount: the mock is off by default and
-  // the row is hidden until the toggle turns it on, at which point it syncs.
-  const [mockPresent, setMockPresent] = useState<MockPresentKey>('MOCK-DEV-1')
+const { exportData, exporting } = useExportWalletData()
+// Not read from getMockPresentKey() at mount: the mock is off by default and
+// the row is hidden until the toggle turns it on, at which point it syncs.
+const [mockPresent, setMockPresent] = useState<MockPresentKey>('MOCK-DEV-1')
 ```
 
 (e) Delete lines 373–383 (`const handleExportData = async () => { … }` through its closing `}` and the blank line after it).
 
 (f) Replace the DEV mock toggle block (lines 786–802):
+
 ```tsx
-            {/* Vault's primary entry lives on the wallet menu (below Payments).
-                The DEV mock toggle stays here. */}
-            {__DEV__ && (
-              <ListRow
-                label={t('vault_mock_toggle')}
-                icon="bug-outline"
-                iconColor="#8E8E93"
-                showChevron={false}
-                value={vaultMockOn ? t('vault_on') : t('vault_off')}
-                onPress={() => {
-                  const next = !vaultMockOn
-                  setVaultMockOn(next)
-                  setMockDriverEnabled(next)
-                }}
-              />
-            )}
+{
+  /* Vault's primary entry lives on the wallet menu (below Payments).
+                The DEV mock toggle stays here. */
+}
+{
+  __DEV__ && (
+    <ListRow
+      label={t('vault_mock_toggle')}
+      icon="bug-outline"
+      iconColor="#8E8E93"
+      showChevron={false}
+      value={vaultMockOn ? t('vault_on') : t('vault_off')}
+      onPress={() => {
+        const next = !vaultMockOn
+        setVaultMockOn(next)
+        setMockDriverEnabled(next)
+      }}
+    />
+  )
+}
 ```
+
 with
+
 ```tsx
-            {/* Vault's primary entry lives on the wallet menu (below Payments).
-                The DEV mock toggle stays here. */}
-            {__DEV__ && (
-              <ListRow
-                label={t('vault_mock_toggle')}
-                icon="bug-outline"
-                iconColor="#8E8E93"
-                showChevron={false}
-                value={vaultMockOn ? t('vault_on') : t('vault_off')}
-                onPress={() => {
-                  const next = !vaultMockOn
-                  setVaultMockOn(next)
-                  setMockDriverEnabled(next)
-                  if (next) setMockPresent(getMockPresentKey())
-                }}
-              />
-            )}
-            {/* Which of the three mock YubiKeys is "on the phone" right now.
+{
+  /* Vault's primary entry lives on the wallet menu (below Payments).
+                The DEV mock toggle stays here. */
+}
+{
+  __DEV__ && (
+    <ListRow
+      label={t('vault_mock_toggle')}
+      icon="bug-outline"
+      iconColor="#8E8E93"
+      showChevron={false}
+      value={vaultMockOn ? t('vault_on') : t('vault_off')}
+      onPress={() => {
+        const next = !vaultMockOn
+        setVaultMockOn(next)
+        setMockDriverEnabled(next)
+        if (next) setMockPresent(getMockPresentKey())
+      }}
+    />
+  )
+}
+{
+  /* Which of the three mock YubiKeys is "on the phone" right now.
                 A 1-of-N vault enrolled with MOCK-DEV-1 and MOCK-DEV-2 is
                 exercised by switching the present key between taps. Label is a
-                DEV-only literal, like the "Debugging" row below — not user copy. */}
-            {__DEV__ && vaultMockOn && (
-              <ListRow
-                label="Mock key present (dev)"
-                icon="key-outline"
-                iconColor="#8E8E93"
-                showChevron={false}
-                value={mockPresent}
-                onPress={() => {
-                  const next = NEXT_MOCK_KEY[mockPresent]
-                  setMockPresent(next)
-                  setMockPresentKey(next)
-                }}
-              />
-            )}
+                DEV-only literal, like the "Debugging" row below — not user copy. */
+}
+{
+  __DEV__ && vaultMockOn && (
+    <ListRow
+      label="Mock key present (dev)"
+      icon="key-outline"
+      iconColor="#8E8E93"
+      showChevron={false}
+      value={mockPresent}
+      onPress={() => {
+        const next = NEXT_MOCK_KEY[mockPresent]
+        setMockPresent(next)
+        setMockPresentKey(next)
+      }}
+    />
+  )
+}
 ```
 
 (g) Replace the export row (lines 818–825):
+
 ```tsx
-            <ListRow
-              label={t('export_wallet_data')}
-              icon="share-outline"
-              iconColor="#32ADE6"
-              onPress={handleExportData}
-              showChevron={false}
-              trailing={isExporting ? <ActivityIndicator size="small" /> : undefined}
-            />
+<ListRow
+  label={t('export_wallet_data')}
+  icon="share-outline"
+  iconColor="#32ADE6"
+  onPress={handleExportData}
+  showChevron={false}
+  trailing={isExporting ? <ActivityIndicator size="small" /> : undefined}
+/>
 ```
+
 with
+
 ```tsx
-            <ListRow
-              label={t('export_wallet_data')}
-              icon="share-outline"
-              iconColor="#32ADE6"
-              onPress={() => void exportData()}
-              showChevron={false}
-              trailing={exporting ? <ActivityIndicator size="small" /> : undefined}
-            />
+<ListRow
+  label={t('export_wallet_data')}
+  icon="share-outline"
+  iconColor="#32ADE6"
+  onPress={() => void exportData()}
+  showChevron={false}
+  trailing={exporting ? <ActivityIndicator size="small" /> : undefined}
+/>
 ```
 
 - [ ] **Step 6: Verify the screen still renders under the existing test, type-check, commit**
@@ -2142,11 +2295,13 @@ with
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/walletHomeBackup.test.tsx packages/expo-wallet-toolbox/__tests__/ui/useExportWalletData.test.ts
 ```
+
 Expected: both files pass (`walletHomeBackup` renders `WalletConfigScreen` in its last test; the hook reads `storage: null` from that test's `mockWallet` and the DEV row stays hidden because `vaultMockOn` starts false, so no new mocks are needed there).
 
 ```
 cd /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox && npx tsc --noEmit -p tsconfig.json 2>&1 | grep 'WalletConfigScreen\|useExportWalletData'
 ```
+
 Expected: empty.
 
 ```
@@ -2165,10 +2320,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 4: `useVaultCoverage` hook
 
 **Files:**
+
 - Create: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/hooks/useVaultCoverage.ts`
 - Test: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui/useVaultCoverage.test.ts`
 
 **Interfaces:**
+
 - Produces: `useVaultCoverage(): { coverage: VaultKeyCoverage | null; refresh: () => void }`.
 - Consumes: `useWallet()` (`managers.permissionsManager`, `adminOriginator`, `txStatusVersion`), `useVault()` (ceremony phase), `getVaultKeyCoverage(w, adminOriginator)`, `type VaultKeyCoverage`, `type VaultWallet` from the core barrel.
 
@@ -2278,7 +2435,11 @@ describe('useVaultCoverage', () => {
 
   test('ignores a read that resolves after unmount', async () => {
     let resolve!: (c: typeof COVERAGE) => void
-    fetchCoverage.mockReturnValueOnce(new Promise(r => { resolve = r }))
+    fetchCoverage.mockReturnValueOnce(
+      new Promise(r => {
+        resolve = r
+      })
+    )
     const { result, unmount } = renderHook(() => useVaultCoverage())
     unmount()
     await act(async () => resolve(COVERAGE))
@@ -2293,6 +2454,7 @@ describe('useVaultCoverage', () => {
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/useVaultCoverage.test.ts
 ```
+
 Expected: `Cannot find module '../../ui/hooks/useVaultCoverage'`.
 
 - [ ] **Step 3: Implement**
@@ -2317,7 +2479,13 @@ Create `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/hooks/use
  * must not mistake "could not look" for "looked and saw nothing".
  */
 import { useCallback, useEffect, useState } from 'react'
-import { useWallet, useVault, getVaultKeyCoverage, type VaultKeyCoverage, type VaultWallet } from '@bsv/expo-wallet-toolbox'
+import {
+  useWallet,
+  useVault,
+  getVaultKeyCoverage,
+  type VaultKeyCoverage,
+  type VaultWallet
+} from '@bsv/expo-wallet-toolbox'
 
 export function useVaultCoverage(): { coverage: VaultKeyCoverage | null; refresh: () => void } {
   const { managers, adminOriginator, txStatusVersion } = useWallet()
@@ -2359,6 +2527,7 @@ export function useVaultCoverage(): { coverage: VaultKeyCoverage | null; refresh
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/useVaultCoverage.test.ts
 ```
+
 Expected: `Tests: 7 passed` (the `test.each` counts twice).
 
 - [ ] **Step 5: Type-check and commit**
@@ -2366,6 +2535,7 @@ Expected: `Tests: 7 passed` (the `test.each` counts twice).
 ```
 cd /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox && npx tsc --noEmit -p tsconfig.json 2>&1 | grep useVaultCoverage
 ```
+
 Expected: empty.
 
 ```
@@ -2383,10 +2553,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 5: `KeyChooser` — radio list of enrolled keys
 
 **Files:**
+
 - Create: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/components/vault/KeyChooser.tsx`
 - Test: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui/keyChooser.test.tsx`
 
 **Interfaces:**
+
 - Produces: `KeyChooser: React.FC<{ keys: VaultKeyRecord[]; selected?: string; onSelect: (serial: string) => void }>` (contract), plus the shared label helper `vaultKeyLabel(k: { nickname: string; serial: string }): string` → `` `${nickname} · …${serial.slice(-4)}` `` used by every later task.
 - Consumes: `useTheme`, `spacing`, `radii`, `typography`, `type VaultKeyRecord` from the core barrel; `PressableScale`; lazy Ionicons.
 
@@ -2450,6 +2622,7 @@ test('with no selection nothing is marked', () => {
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/keyChooser.test.tsx
 ```
+
 Expected: `Cannot find module '../../ui/components/vault/KeyChooser'`.
 
 - [ ] **Step 3: Implement**
@@ -2494,11 +2667,11 @@ export function vaultKeyLabel(k: { nickname: string; serial: string }): string {
   return `${k.nickname} · …${k.serial.slice(-4)}`
 }
 
-export const KeyChooser: React.FC<{ keys: VaultKeyRecord[]; selected?: string; onSelect: (serial: string) => void }> = ({
-  keys,
-  selected,
-  onSelect
-}) => {
+export const KeyChooser: React.FC<{
+  keys: VaultKeyRecord[]
+  selected?: string
+  onSelect: (serial: string) => void
+}> = ({ keys, selected, onSelect }) => {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
   return (
@@ -2515,7 +2688,10 @@ export const KeyChooser: React.FC<{ keys: VaultKeyRecord[]; selected?: string; o
             onPress={() => onSelect(k.serial)}
             style={[
               styles.row,
-              i < keys.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
+              i < keys.length - 1 && {
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: colors.separator
+              }
             ]}
           >
             <Ionicons
@@ -2552,6 +2728,7 @@ const styles = StyleSheet.create({
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/keyChooser.test.tsx
 ```
+
 Expected: `Tests: 3 passed`.
 
 - [ ] **Step 5: Type-check and commit**
@@ -2559,6 +2736,7 @@ Expected: `Tests: 3 passed`.
 ```
 cd /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox && npx tsc --noEmit -p tsconfig.json 2>&1 | grep KeyChooser
 ```
+
 Expected: empty.
 
 ```
@@ -2575,20 +2753,23 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 6: `EnrollWizard` rewrite — intro → key × k → more → done, and add-key mode
 
 **Files:**
+
 - Rewrite: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/components/vault/EnrollWizard.tsx` (whole file; the current 627-line K1/passphrase wizard is replaced)
 - Test: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui/enrollWizard.test.tsx`
 
 **Interfaces:**
+
 - Produces: `EnrollWizard: React.FC<{ mode: 'enroll' | 'add-key'; onDone: () => void; onCancel: () => void }>` (contract).
 - Consumes: `enrollKey`, `finalizeEnrollment`, `addVaultKey`, `vaultStore.getMeta`, `VAULT_MIN_KEYS`, `VAULT_MAX_KEYS`, `VaultError`, `isBackupPushEnabled`, `sounds`, `haptics`, `i18n`, `type VaultKeyRecord`, `type VaultErrorCode`, `type EnrollPhase` from the core barrel; `vaultErrorCopy` (Task 2); `vaultKeyLabel` (Task 5); `showAlert`, `showToast`, `PressableScale`; lazy expo-router (`router.push('/wallet-config')` when backup is off) and Ionicons.
 
 Behaviour (spec §3.3):
+
 - **intro** — copy, three bullet lines, acknowledgement checkbox, Begin enabled by the checkbox. Begin checks `isBackupPushEnabled()`; when off it shows the backup-off alert whose CTA routes to `/wallet-config` (D13) and does not advance.
 - **key k** (title `Key {{k}} of up to 5`), sub-states:
   - `pin`: PIN field (6–8 digits); when the PIN typed is the factory `123456` a second "Set a new PIN" field appears and Continue needs both. Nothing touches the card yet.
   - `tap`: one card session via `enrollKey({ pendingSerials, onPhase, getPin, requestPinChange })` where `pendingSerials` = meta serials ∪ pending serials. Phase copy uses `vault_enroll_phase_${phase.replace(/-/g, '_')}` — this fixes the `vault_enroll_phase_pin-check` key mismatch the old wizard had (spec §5.4 "fix in passing").
   - `name`: "Name this key", default `Key {{k}}`, hint. Continue records `{ ...record, nickname }`.
-  - `error`: `pin-locked` → `vault_err_pin_locked_enroll` with **Use a different YubiKey / Try again**; `key-already-enrolled` → `vault_err_key_already_enrolled` naming the duplicate (the tapped serial is read from `VaultError.details.serial`, per the DECISION that services populate structured `details` rather than encode them in `message`; it is matched against pending and enrolled records) with **Use a different YubiKey**, plus **Set it up again** when the duplicate is a *pending* key of this run (re-runs the tap with that serial removed from `pendingSerials`, then replaces the pending record); every other fault (session-failed → `user-cancelled`/`no-key`, `key-removed-mid-op`, `driver-unavailable`, …) → copy via `vaultErrorCopy` with **Try again / Cancel** (Cancel = leave, through the leave-confirm). `pin-invalid` returns to the `pin` sub-state with `Wrong PIN. {{count}} attempts left`. A `user-cancelled` (the user dismissed the NFC sheet) returns to `pin` quietly. The tap itself passes `nfcMessage: t('vault_nfc_enroll_message')` to `enrollKey` so the iOS scan sheet reads "Hold your YubiKey here to set it up" rather than the native default.
+  - `error`: `pin-locked` → `vault_err_pin_locked_enroll` with **Use a different YubiKey / Try again**; `key-already-enrolled` → `vault_err_key_already_enrolled` naming the duplicate (the tapped serial is read from `VaultError.details.serial`, per the DECISION that services populate structured `details` rather than encode them in `message`; it is matched against pending and enrolled records) with **Use a different YubiKey**, plus **Set it up again** when the duplicate is a _pending_ key of this run (re-runs the tap with that serial removed from `pendingSerials`, then replaces the pending record); every other fault (session-failed → `user-cancelled`/`no-key`, `key-removed-mid-op`, `driver-unavailable`, …) → copy via `vaultErrorCopy` with **Try again / Cancel** (Cancel = leave, through the leave-confirm). `pin-invalid` returns to the `pin` sub-state with `Wrong PIN. {{count}} attempts left`. A `user-cancelled` (the user dismissed the NFC sheet) returns to `pin` quietly. The tap itself passes `nfcMessage: t('vault_nfc_enroll_message')` to `enrollKey` so the iOS scan sheet reads "Hold your YubiKey here to set it up" rather than the native default.
 - **more** — reached after EVERY key (including key 1, so Finish can be shown disabled with `vault_more_need_two`): the pending list, **Add another key** (hidden once meta + pending = 5), **Finish** (enabled only with ≥ 2 pending; runs `finalizeEnrollment(pending)`).
 - **done** — enroll: `vault_done_body` + Done → `onDone`; add-key: `vault_add_key_done` + **Re-lock now** → `onDone` (the host screen opens the re-lock sheet; Task 8).
 - **add-key mode** — starts at `key` with `enrolled = meta.keys`, one key, `addVaultKey(record)`, toast `vault_key_added_toast`, then `done`.
@@ -2602,8 +2783,7 @@ Create `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui
 import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
 
-const mockT = (k: string, o?: Record<string, unknown>) =>
-  o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k
+const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn() }
 const mockEnrollKey = jest.fn()
 const mockFinalize = jest.fn()
@@ -2792,7 +2972,14 @@ test('a duplicate of a pending key names it and offers Set it up again', async (
 })
 
 test('a duplicate of an already-enrolled key (add-key mode) has no Set it up again', async () => {
-  mockMeta = { v: 5, createdAt: 1, keys: [{ ...record('12340001', 'a'), nickname: 'Desk' }, { ...record('12340002', 'b'), nickname: 'Safe' }] }
+  mockMeta = {
+    v: 5,
+    createdAt: 1,
+    keys: [
+      { ...record('12340001', 'a'), nickname: 'Desk' },
+      { ...record('12340002', 'b'), nickname: 'Safe' }
+    ]
+  }
   mockEnrollKey.mockRejectedValueOnce(dupError('12340002'))
   const screen = render(<EnrollWizard mode="add-key" onDone={jest.fn()} onCancel={jest.fn()} />)
   await settle()
@@ -2878,7 +3065,14 @@ test('leaving with nothing pending cancels without asking', async () => {
 })
 
 test('add-key mode runs one key step, calls addVaultKey and ends on the re-lock hint', async () => {
-  mockMeta = { v: 5, createdAt: 1, keys: [{ ...record('12340001', 'a'), nickname: 'Desk' }, { ...record('12340002', 'b'), nickname: 'Safe' }] }
+  mockMeta = {
+    v: 5,
+    createdAt: 1,
+    keys: [
+      { ...record('12340001', 'a'), nickname: 'Desk' },
+      { ...record('12340002', 'b'), nickname: 'Safe' }
+    ]
+  }
   mockEnrollKey.mockResolvedValueOnce(record('12340003', 'c'))
   const onDone = jest.fn()
   const screen = render(<EnrollWizard mode="add-key" onDone={onDone} onCancel={jest.fn()} />)
@@ -2915,6 +3109,7 @@ test('Add another key disappears once five keys are set up', async () => {
 ```
 npx jest packages/expo-wallet-toolbox/__tests__/ui/enrollWizard.test.tsx
 ```
+
 Expected: every test fails. The first failure is a render error from the old wizard's imports (`useLocalStorage is not a function` from the mocked barrel, or `Unable to find an element with text: vault_intro_ack`).
 
 - [ ] **Step 3: Rewrite the wizard**
@@ -3210,7 +3405,9 @@ export const EnrollWizard: React.FC<{ mode: 'enroll' | 'add-key'; onDone: () => 
       }
       return
     }
-    setPending(prev => (replaceIndex === null ? [...prev, record] : prev.map((p, i) => (i === replaceIndex ? record : p))))
+    setPending(prev =>
+      replaceIndex === null ? [...prev, record] : prev.map((p, i) => (i === replaceIndex ? record : p))
+    )
     setReplaceIndex(null)
     setStep('more')
   }, [fresh, busy, name, k, mode, replaceIndex])
@@ -3274,7 +3471,11 @@ export const EnrollWizard: React.FC<{ mode: 'enroll' | 'add-key'; onDone: () => 
           onPress={() => setAck(a => !a)}
           style={[styles.ackRow, { borderColor: ack ? colors.accent : colors.separator }]}
         >
-          <Ionicons name={ack ? 'checkbox' : 'square-outline'} size={24} color={ack ? colors.accent : colors.textTertiary} />
+          <Ionicons
+            name={ack ? 'checkbox' : 'square-outline'}
+            size={24}
+            color={ack ? colors.accent : colors.textTertiary}
+          />
           <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_intro_ack')}</Text>
         </PressableScale>
         <ActionButton label={t('vault_intro_begin')} enabled={ack} onPress={() => void begin()} />
@@ -3428,7 +3629,10 @@ export const EnrollWizard: React.FC<{ mode: 'enroll' | 'add-key'; onDone: () => 
               key={p.serial}
               style={[
                 styles.listRow,
-                i < pending.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
+                i < pending.length - 1 && {
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: colors.separator
+                }
               ]}
             >
               <Ionicons name="key-outline" size={20} color={colors.success} />
@@ -3590,6 +3794,7 @@ const styles = StyleSheet.create({
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/enrollWizard.test.tsx
 ```
+
 Expected: `Tests: 13 passed`.
 
 - [ ] **Step 5: Type-check and commit**
@@ -3597,6 +3802,7 @@ Expected: `Tests: 13 passed`.
 ```
 cd /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox && npx tsc --noEmit -p tsconfig.json 2>&1 | grep EnrollWizard
 ```
+
 Expected: empty. (`VaultScreen.tsx` still fails on `<EnrollWizard onDone onCancel />` lacking `mode` and on `meta?.yubiSerial` until Task 8 — expected.)
 
 ```
@@ -3618,13 +3824,16 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 7: `VaultCeremonySheet` — per-batch progress, error copy via `vaultErrorCopy`
 
 **Files:**
+
 - Modify: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/components/vault/VaultCeremonySheet.tsx` (whole file replaced below — the `ERROR_COPY` / `RETRYABLE_ERRORS` tables at lines 57–81 go, the progress line and the key-name lookup come in; everything else is kept verbatim)
 - Test: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui/vaultCeremonySheet.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `useVault().state` incl. the contract's `CeremonyState.progress?: { signed: number; total: number }`; `VAULT_INPUTS_PER_TAP` (ceremonyHost); `vaultStore.getMeta` (to name keys in `serial-mismatch` copy — `CeremonyState` deliberately carries no serial, so the sheet can only list the vault's keys, never "That's X, you chose Y"; that copy is the transfer screen's, Task 9); `vaultErrorCopy` + `RETRYABLE_VAULT_ERRORS` (Task 2); `vaultKeyLabel` (Task 5).
 
 Copy rules:
+
 - `preparing` with `progress` → subtitle `Signed {{signed}} of {{total}}` (replaces `vault_unlocking_sub` while signatures are being gathered).
 - `waiting-for-key` / `awaiting-touch` / `connecting` with `progress.signed > 0` (i.e. between batches, after the first NFC sheet dismissed) → an extra line `Hold your YubiKey here to sign — batch {{b}} of {{n}}` with `b = floor(signed / VAULT_INPUTS_PER_TAP) + 1`, `n = ceil(total / VAULT_INPUTS_PER_TAP)`, plus the `Signed … of …` line.
 - `error` → title from `vaultErrorCopy(code, { names })`; Retry only for `RETRYABLE_VAULT_ERRORS`.
@@ -3637,8 +3846,7 @@ Create `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui
 import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
 
-const mockT = (k: string, o?: Record<string, unknown>) =>
-  o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k
+const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
 let mockState: Record<string, unknown> = { phase: 'idle' }
 let mockMeta: unknown = null
 const mockRetry = jest.fn()
@@ -3656,7 +3864,10 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null, MaterialCommunityIcons: () => null }))
 jest.mock('../../ui/components/ui/Sheet', () => {
   const React = require('react')
-  return { __esModule: true, default: ({ visible, children }: any) => (visible ? React.createElement(React.Fragment, null, children) : null) }
+  return {
+    __esModule: true,
+    default: ({ visible, children }: any) => (visible ? React.createElement(React.Fragment, null, children) : null)
+  }
 })
 jest.mock('../../ui/components/ui/PressableScale', () => {
   const React = require('react')
@@ -3773,6 +3984,7 @@ test('a wrong PIN shows the attempts left under the error', async () => {
 ```
 npx jest packages/expo-wallet-toolbox/__tests__/ui/vaultCeremonySheet.test.tsx
 ```
+
 Expected: `preparing shows the signing progress line…`, `waiting for the next batch…`, `serial-mismatch names…` fail (`Unable to find an element with text: vault_sign_progress…`; the old table renders `vault_err_wrong_key` for serial-mismatch regardless of meta). The idle/armed, hard-error and retry tests pass already.
 
 - [ ] **Step 3: Replace the sheet**
@@ -3889,10 +4101,7 @@ export const VaultCeremonySheet: React.FC = () => {
   const pulse = useSharedValue(1)
   useEffect(() => {
     const active =
-      phase === 'waiting-for-key' ||
-      phase === 'awaiting-touch' ||
-      phase === 'preparing' ||
-      phase === 'broadcasting'
+      phase === 'waiting-for-key' || phase === 'awaiting-touch' || phase === 'preparing' || phase === 'broadcasting'
     if (active && !reducedMotion) {
       pulse.value = withRepeat(
         withSequence(
@@ -4143,6 +4352,7 @@ const styles = StyleSheet.create({
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/vaultCeremonySheet.test.tsx
 ```
+
 Expected: `Tests: 10 passed`.
 
 - [ ] **Step 5: Type-check and commit**
@@ -4150,6 +4360,7 @@ Expected: `Tests: 10 passed`.
 ```
 cd /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox && npx tsc --noEmit -p tsconfig.json 2>&1 | grep VaultCeremonySheet
 ```
+
 Expected: empty.
 
 ```
@@ -4168,14 +4379,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 8: `VaultScreen` rewrite — four states, key list, badges, add / rename / remove / re-lock, export, disable
 
 **Files:**
+
 - Rewrite: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/screens/VaultScreen.tsx` (whole file)
 - Test: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui/vaultScreen.test.tsx`
 
 **Interfaces:**
+
 - Produces: `VaultScreen(): JSX.Element` (unchanged export).
 - Consumes: `useVaultBalance` (unchanged), `useVaultCoverage` (Task 4), `useExportWalletData` (Task 3), `EnrollWizard` (Task 6), `KeyChooser` + `vaultKeyLabel` (Task 5), `vaultErrorCopy` (Task 2), `VaultBackdrop` (unchanged), `Sheet`, `BiometricAdvisoryModal`, `ListRow`, `GroupedSection`, `PressableScale`, `AmountDisplay`, `showAlert`, `showToast`; from the core barrel: `useWallet`, `useLocalStorage`, `vaultStore` (`getMeta`, `removeKey`, `renameKey`), `relockVault`, `orphanedIfRemoved`, `estimateRelockFee`, `R1C_LOCK_LEN`, `reclaimStagingOutputs` (legacy, kept), `getVaultDriver`, `isVaultEnabled`, `disableVault`, `getOnline`, `generateMnemonicWallet`, `backupAttestation`, `VaultError`, `VAULT_MIN_KEYS`, `VAULT_MAX_KEYS`, `haptics`, `i18n`, types `VaultMeta`, `VaultKeyRecord`, `VaultSpendResult`, `VaultWallet`.
 
 Behaviour (spec §3.4, §4.3, §5.4, §5.5):
+
 - **States.** `meta === undefined` → spinner. Wizard open → `EnrollWizard` (the header's back chevron is replaced by an empty spacer so leaving goes through the wizard's own leave-confirm). Not enrolled: flag off → hero + `vault_not_released_body` + disabled CTA; driver unsupported → hero + `vault_unsupported_*` + disabled CTA; else hero with the CTA opening the wizard in `enroll` mode. Enrolled → the full screen. An enrolled vault with the flag off keeps the enrolled view (withdrawals are never gated, §5.5) but Deposit, Add key and Re-lock are inert and the notice sits under the action row.
 - **Badges** (from `useVaultCoverage`): `missingKeys.length > 0` → `vault_badge_missing` with `count = coverage.stale` and `nickname` = the missing keys' nicknames joined with ', ' (the contract's `VaultKeyCoverage` has no per-key counts, so `stale` is the count shown); `removedKeyOutputs > 0` → `vault_badge_removed`. Either badge opens the re-lock sheet.
 - **Key rows**: `nickname · …tail4`, subtitle = enrolled date (`toLocaleDateString`). Tapping a row opens an alert menu **Rename / Remove / Cancel** (three buttons → AlertCard stacks them).
@@ -4196,8 +4410,7 @@ Create `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui
 import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
 
-const mockT = (k: string, o?: Record<string, unknown>) =>
-  o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k
+const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn() }
 const mockShowAlert = jest.fn()
 const mockShowToast = jest.fn()
@@ -4284,7 +4497,10 @@ jest.mock('../../ui/components/ui/GroupedList', () => {
 })
 jest.mock('../../ui/components/ui/Sheet', () => {
   const React = require('react')
-  return { __esModule: true, default: ({ visible, children }: any) => (visible ? React.createElement(React.Fragment, null, children) : null) }
+  return {
+    __esModule: true,
+    default: ({ visible, children }: any) => (visible ? React.createElement(React.Fragment, null, children) : null)
+  }
 })
 jest.mock('../../ui/components/wallet/AmountDisplay', () => {
   const React = require('react')
@@ -4457,7 +4673,11 @@ describe('enrolled', () => {
     const confirm = mockShowAlert.mock.calls[1][0]
     expect(confirm.title).toBe('vault_remove_title:{"nickname":"Desk"}')
     expect(confirm.message).toBe('vault_remove_body:{"nickname":"Desk","fee":"2,900"}')
-    expect(confirm.buttons.map((b: any) => b.text)).toEqual(['vault_remove_and_relock', 'vault_remove_only', 'vault_cancel'])
+    expect(confirm.buttons.map((b: any) => b.text)).toEqual([
+      'vault_remove_and_relock',
+      'vault_remove_only',
+      'vault_cancel'
+    ])
     expect(mockRemoveKey).toHaveBeenCalledWith('12340001')
     expect(mockShowToast).toHaveBeenCalledWith('vault_key_removed_toast', { type: 'info' })
     expect(screen.queryByText('vault_relock_choose')).toBeNull()
@@ -4601,6 +4821,7 @@ describe('enrolled', () => {
 ```
 npx jest packages/expo-wallet-toolbox/__tests__/ui/vaultScreen.test.tsx
 ```
+
 Expected: the `not enrolled` flag-off test fails (`Unable to find an element with text: vault_not_released_body`), every `enrolled` test fails (the old screen renders `vault_key_serial` / `meta.yubiSerial`, never a key list). The unsupported and enroll-mode tests pass already.
 
 - [ ] **Step 3: Rewrite the screen**
@@ -4802,7 +5023,9 @@ export function VaultScreen() {
     (refs: { serial?: string; pubkey: string }[]): string =>
       refs
         .map(r => {
-          const rec = metaRef.current?.keys.find(k => (r.serial !== undefined && k.serial === r.serial) || k.pubkey === r.pubkey)
+          const rec = metaRef.current?.keys.find(
+            k => (r.serial !== undefined && k.serial === r.serial) || k.pubkey === r.pubkey
+          )
           return rec ? vaultKeyLabel(rec) : `…${r.pubkey.slice(-4)}`
         })
         .join(', '),
@@ -4848,7 +5071,8 @@ export function VaultScreen() {
       do {
         result = await relockVault(w, adminOriginator, relock.reason, relockSerial, transferOpts())
         passes += 1
-        if (result.cappedInputs > 0) showToast(t('vault_relock_capped', { count: result.cappedInputs }), { type: 'info' })
+        if (result.cappedInputs > 0)
+          showToast(t('vault_relock_capped', { count: result.cappedInputs }), { type: 'info' })
       } while (result.cappedInputs > 0 && passes < MAX_RELOCK_PASSES)
       closeRelock()
       refresh()
@@ -4878,7 +5102,18 @@ export function VaultScreen() {
     } finally {
       setRelocking(false)
     }
-  }, [pm, relock, relockSerial, relocking, adminOriginator, transferOpts, closeRelock, refresh, refreshCoverage, namesFor])
+  }, [
+    pm,
+    relock,
+    relockSerial,
+    relocking,
+    adminOriginator,
+    transferOpts,
+    closeRelock,
+    refresh,
+    refreshCoverage,
+    namesFor
+  ])
 
   // ── wizard hand-offs ────────────────────────────────────────────────
   const onEnrolled = useCallback(async () => {
@@ -4943,7 +5178,11 @@ export function VaultScreen() {
       const w = pm as unknown as VaultWallet
       const orphans = await orphanedIfRemoved(w, adminOriginator, rec.pubkey)
       if (orphans > 0) {
-        await showAlert({ title, message: vaultErrorCopy('relock-required'), buttons: [{ text: t('vault_ok'), key: 'ok' }] })
+        await showAlert({
+          title,
+          message: vaultErrorCopy('relock-required'),
+          buttons: [{ text: t('vault_ok'), key: 'ok' }]
+        })
         return
       }
       const fee = estimateRelockFee(Math.max(coverage?.outputs ?? 1, 1), R1C_LOCK_LEN(m.keys.length - 1))
@@ -5060,7 +5299,15 @@ export function VaultScreen() {
     } finally {
       creatingWalletRef.current = false
     }
-  }, [managers.permissionsManager, secretsReady, walletBuilding, hasStoredIdentity, createMnemonic, buildWalletFromMnemonic, router])
+  }, [
+    managers.permissionsManager,
+    secretsReady,
+    walletBuilding,
+    hasStoredIdentity,
+    createMnemonic,
+    buildWalletFromMnemonic,
+    router
+  ])
 
   const onDeposit = useCallback(async () => {
     if (managers.permissionsManager) {
@@ -5125,7 +5372,11 @@ export function VaultScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
         {Header}
-        <EnrollWizard mode={wizard} onDone={wizard === 'enroll' ? onEnrolled : onKeyAdded} onCancel={() => setWizard(null)} />
+        <EnrollWizard
+          mode={wizard}
+          onDone={wizard === 'enroll' ? onEnrolled : onKeyAdded}
+          onCancel={() => setWizard(null)}
+        />
       </View>
     )
   }
@@ -5157,7 +5408,11 @@ export function VaultScreen() {
                   styles.primary,
                   canEnroll
                     ? { backgroundColor: colors.accent }
-                    : { backgroundColor: 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.separator }
+                    : {
+                        backgroundColor: 'transparent',
+                        borderWidth: StyleSheet.hairlineWidth,
+                        borderColor: colors.separator
+                      }
                 ]}
               >
                 <Text style={[styles.primaryLabel, { color: canEnroll ? colors.textOnAccent : colors.textTertiary }]}>
@@ -5168,13 +5423,17 @@ export function VaultScreen() {
                   so before it says anything about hardware. */}
               {!enabled && (
                 <View style={styles.heroNotice}>
-                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>{t('vault_not_released_body')}</Text>
+                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>
+                    {t('vault_not_released_body')}
+                  </Text>
                 </View>
               )}
               {enabled && !supported && (
                 <View style={styles.heroNotice}>
                   <Text style={[styles.heroNoticeTitle, { color: colors.error }]}>{t('vault_unsupported_title')}</Text>
-                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>{t('vault_unsupported_body')}</Text>
+                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>
+                    {t('vault_unsupported_body')}
+                  </Text>
                 </View>
               )}
             </View>
@@ -5230,14 +5489,20 @@ export function VaultScreen() {
             onPress={() => router.push('/vault-transfer?direction=withdraw')}
             style={[
               styles.actionBtn,
-              { backgroundColor: colors.backgroundElevated, borderColor: colors.separator, borderWidth: StyleSheet.hairlineWidth }
+              {
+                backgroundColor: colors.backgroundElevated,
+                borderColor: colors.separator,
+                borderWidth: StyleSheet.hairlineWidth
+              }
             ]}
           >
             <Ionicons name="arrow-up" size={18} color={colors.accent} />
             <Text style={[styles.actionLabel, { color: colors.accent }]}>{t('vault_withdraw_cta')}</Text>
           </PressableScale>
         </View>
-        {!enabled && <Text style={[styles.notice, { color: colors.textSecondary }]}>{t('vault_not_released_body')}</Text>}
+        {!enabled && (
+          <Text style={[styles.notice, { color: colors.textSecondary }]}>{t('vault_not_released_body')}</Text>
+        )}
 
         <GroupedSection header={t('vault_key_section', { count: meta.keys.length })} footer={t('vault_footnote')}>
           {coverage && coverage.missingKeys.length > 0 && (
@@ -5271,7 +5536,13 @@ export function VaultScreen() {
             />
           ))}
           {canAdd && (
-            <ListRow label={t('vault_add_key_row')} icon="add-circle-outline" iconColor={colors.info} onPress={openAddKey} isLast />
+            <ListRow
+              label={t('vault_add_key_row')}
+              icon="add-circle-outline"
+              iconColor={colors.info}
+              onPress={openAddKey}
+              isLast
+            />
           )}
         </GroupedSection>
 
@@ -5327,7 +5598,11 @@ export function VaultScreen() {
             onSubmitEditing={() => void saveRename()}
             autoFocus
           />
-          <PressableScale haptic="confirm" onPress={() => void saveRename()} style={[styles.primary, { backgroundColor: colors.accent }]}>
+          <PressableScale
+            haptic="confirm"
+            onPress={() => void saveRename()}
+            style={[styles.primary, { backgroundColor: colors.accent }]}
+          >
             <Text style={[styles.primaryLabel, { color: colors.textOnAccent }]}>{t('vault_rename_save')}</Text>
           </PressableScale>
           <PressableScale onPress={() => setRenaming(null)} style={styles.secondary}>
@@ -5337,7 +5612,12 @@ export function VaultScreen() {
       </Sheet>
 
       {/* Re-lock — choose the key, then one ceremony tap per pass. */}
-      <Sheet visible={relock !== null} onClose={relocking ? noop : closeRelock} title={t('vault_relock_row')} fitContent>
+      <Sheet
+        visible={relock !== null}
+        onClose={relocking ? noop : closeRelock}
+        title={t('vault_relock_row')}
+        fitContent
+      >
         <View style={styles.sheetBody}>
           {relock?.reason ? <Text style={[styles.p, { color: colors.textSecondary }]}>{relock.reason}</Text> : null}
           <Text style={[styles.sheetLabel, { color: colors.textPrimary }]}>{t('vault_relock_choose')}</Text>
@@ -5440,6 +5720,7 @@ const styles = StyleSheet.create({
 ```
 npx jest packages/expo-wallet-toolbox/__tests__/ui/vaultScreen.test.tsx
 ```
+
 Expected: `Tests: 22 passed`.
 
 - [ ] **Step 5: Type-check and commit**
@@ -5447,6 +5728,7 @@ Expected: `Tests: 22 passed`.
 ```
 cd /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox && npx tsc --noEmit -p tsconfig.json 2>&1 | grep 'ui/screens/VaultScreen'
 ```
+
 Expected: empty.
 
 ```
@@ -5467,14 +5749,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 9: `VaultTransferScreen` rewrite — floor/fee line, first-deposit and remainder confirms, key chooser, post-transfer alerts
 
 **Files:**
+
 - Rewrite: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/screens/VaultTransferScreen.tsx` (whole file)
 - Test: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui/vaultTransferScreen.test.tsx`
 
 **Interfaces:**
+
 - Produces: `VaultTransferScreen(): JSX.Element` (unchanged export).
 - Consumes: `KeyChooser` + `vaultKeyLabel` (Task 5), `vaultErrorCopy` (Task 2), `useVaultBalance`, `AmountInput` + `SEND_MAX_VALUE`, `AmountDisplay`, `PressableScale`, `showAlert`, `showToast`; from the core barrel: `useWallet`, `ExchangeRateContext`, `formatAmount`, `vaultStore.getMeta`, `depositToVault(w, o, sats, opts)`, `withdrawFromVault(w, o, amount, reason, chosenSerial, opts)`, `VAULT_DEPOSIT_MIN`, `VAULT_MAX_KEYS`, `estimateRelockFee`, `R1C_LOCK_LEN`, `isVaultEnabled`, `isBackupPushEnabled`, `getOnline`, `VaultError`, `haptics`, `i18n`, types `VaultMeta`, `VaultWallet`, `VaultSpendResult`.
 
 Behaviour (spec §4.1, §4.2, §5.4):
+
 - **Deposit.** Inline line under the amount: `vault_floor_line` with `floorDisplay = formatAmount(VAULT_DEPOSIT_MIN, …)`, `floorSats = VAULT_DEPOSIT_MIN.toLocaleString('en-US')`, `feeDisplay = formatAmount(estimateRelockFee(0, R1C_LOCK_LEN(keyCount)), …)` — the lock's own size at the toolbox rate plus its 10 % margin (≈ 3,080 sat for two keys; the funding input adds ~15 sat). `formatAmount` is the same formatter `AmountDisplay` wraps (`ui/components/wallet/AmountDisplay.tsx:39`); a component cannot be interpolated into `i18n.t`, so the string form is used. CTA inert below `VAULT_DEPOSIT_MIN`, while `!isVaultEnabled()` (with `vault_not_released_body` inline), or with no built wallet. Before running: `isBackupPushEnabled()` false → the backup-off alert (`vault_backup_off_*`, CTA pushes `/wallet-config`); `balance === 0` → the first-deposit confirm (`vault_first_deposit_*`, **Deposit / Cancel**). Then `depositToVault(w, adminOriginator, sats, { isOnline: getOnline })` — no ceremony, no reason string. `backup-off` / `not-released` thrown by the service land on the same alert / inline line.
 - **Withdraw.** `vault_choose_key` + `KeyChooser` (default `lastUsedSerial` when still enrolled, else the first key). Remainder rule: `0 < balance − amount < VAULT_DEPOSIT_MIN` → `vault_remainder_*` confirm with **Withdraw everything / Change amount**; "everything" runs with `'all'`. `withdrawFromVault(w, adminOriginator, isMax ? 'all' : sats, t('vault_withdraw_reason', { amount }), chosenSerial, { findSpendingReferences, isOnline })`. Afterwards, alerts rather than toasts: `unreachable.count > 0` → `vault_unreachable_*` (moved = the amount that did move, `count`, `amount` = unreachable sats, `names` from `unreachable.keys` resolved against meta); then `cappedInputs > 0` → `vault_withdraw_partial` under the `vault_withdraw_done` title; otherwise the `vault_withdraw_done` toast.
 - **Errors** → `vaultErrorCopy(code, params)` inline, where `params` carries the chosen key's label, the other keys, all keys, the tapped key (resolved from `VaultError.details.tapped` — the DECISION's `serial-mismatch` → `{ tapped, chosen }` shape — when it is an enrolled serial, so `serial-mismatch` can say "That's X. You chose Y") and, for `key-cannot-cover`, `reachable`/`total` likewise read from `VaultError.details` (`readErrorDetails`; formatted with `formatAmount`). When the services attach no `details`, the copy degrades exactly as Task 2 specifies.
@@ -5488,8 +5773,7 @@ Create `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui
 import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
 
-const mockT = (k: string, o?: Record<string, unknown>) =>
-  o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k
+const mockT = (k: string, o?: Record<string, unknown>) => (o && Object.keys(o).length ? `${k}:${JSON.stringify(o)}` : k)
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn() }
 const mockShowAlert = jest.fn()
 const mockShowToast = jest.fn()
@@ -5526,7 +5810,11 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     haptics: { tap: jest.fn(), confirm: jest.fn(), success: jest.fn(), warning: jest.fn(), error: jest.fn() }
   }
 })
-jest.mock('expo-router', () => ({ router: mockRouter, useLocalSearchParams: () => mockParams, useFocusEffect: () => {} }))
+jest.mock('expo-router', () => ({
+  router: mockRouter,
+  useLocalSearchParams: () => mockParams,
+  useFocusEffect: () => {}
+}))
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null, MaterialCommunityIcons: () => null }))
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }))
 jest.mock('../../ui/components/ui/PressableScale', () => {
@@ -5541,7 +5829,8 @@ jest.mock('../../ui/components/wallet/AmountInput', () => {
   const { TextInput } = require('react-native')
   return {
     SEND_MAX_VALUE: '2099999999999999',
-    AmountInput: ({ value, onChangeText }: any) => React.createElement(TextInput, { testID: 'amount', value, onChangeText })
+    AmountInput: ({ value, onChangeText }: any) =>
+      React.createElement(TextInput, { testID: 'amount', value, onChangeText })
   }
 })
 jest.mock('../../ui/components/wallet/AmountDisplay', () => {
@@ -5607,7 +5896,9 @@ describe('deposit', () => {
   test('renders the floor and fee line', async () => {
     const screen = await renderTransfer('deposit')
     expect(
-      screen.getByText('vault_floor_line:{"floorDisplay":"100,000 sats","floorSats":"100,000","feeDisplay":"3,080 sats"}')
+      screen.getByText(
+        'vault_floor_line:{"floorDisplay":"100,000 sats","floorSats":"100,000","feeDisplay":"3,080 sats"}'
+      )
     ).toBeTruthy()
     expect(screen.getByText('vault_deposit_sub')).toBeTruthy()
     expect(screen.queryByText('vault_choose_key')).toBeNull()
@@ -5631,7 +5922,11 @@ describe('deposit', () => {
       })
     )
     expect(mockDeposit).toHaveBeenCalledTimes(1)
-    expect(mockDeposit.mock.calls[0].slice(0, 3)).toEqual([mockWallet.managers.permissionsManager, 'admin.test', 150000])
+    expect(mockDeposit.mock.calls[0].slice(0, 3)).toEqual([
+      mockWallet.managers.permissionsManager,
+      'admin.test',
+      150000
+    ])
     expect(mockDeposit.mock.calls[0]).toHaveLength(4)
     expect(mockShowToast).toHaveBeenCalledWith('vault_deposit_done', { type: 'success' })
     expect(mockRefresh).toHaveBeenCalled()
@@ -5732,7 +6027,10 @@ describe('withdraw', () => {
         message: 'vault_remainder_body:{"amount":"80,000 sats","remainder":"70,000 sats"}'
       })
     )
-    expect(mockShowAlert.mock.calls[0][0].buttons.map((b: any) => b.text)).toEqual(['vault_remainder_all', 'vault_remainder_change'])
+    expect(mockShowAlert.mock.calls[0][0].buttons.map((b: any) => b.text)).toEqual([
+      'vault_remainder_all',
+      'vault_remainder_change'
+    ])
     expect(mockWithdraw.mock.calls[0][2]).toBe('all')
     expect(mockWithdraw.mock.calls[0][3]).toBe('vault_withdraw_reason:{"amount":150000}')
   })
@@ -5836,6 +6134,7 @@ describe('withdraw', () => {
 ```
 npx jest packages/expo-wallet-toolbox/__tests__/ui/vaultTransferScreen.test.tsx
 ```
+
 Expected: every test fails — the old screen renders no floor line and no chooser, calls `depositToVault` with a reason string as the 4th argument, and calls `withdrawFromVault` without a serial (`Unable to find an element with text: vault_floor_line…`, `expect(received).toEqual(expected)` on the argument lists).
 
 - [ ] **Step 3: Rewrite the screen**
@@ -6166,7 +6465,25 @@ export function VaultTransferScreen() {
     } finally {
       setBusy(false)
     }
-  }, [pm, canRun, balance, isDeposit, isMax, sats, keys.length, allNames, chosen, adminOriginator, storage, fmt, namesFor, backupOffAlert, errorParams, refresh, router])
+  }, [
+    pm,
+    canRun,
+    balance,
+    isDeposit,
+    isMax,
+    sats,
+    keys.length,
+    allNames,
+    chosen,
+    adminOriginator,
+    storage,
+    fmt,
+    namesFor,
+    backupOffAlert,
+    errorParams,
+    refresh,
+    router
+  ])
 
   return (
     <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
@@ -6270,6 +6587,7 @@ const styles = StyleSheet.create({
 ```
 npx jest packages/expo-wallet-toolbox/__tests__/ui/vaultTransferScreen.test.tsx
 ```
+
 Expected: `Tests: 20 passed`.
 
 - [ ] **Step 5: Type-check and commit**
@@ -6277,6 +6595,7 @@ Expected: `Tests: 20 passed`.
 ```
 cd /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox && npx tsc --noEmit -p tsconfig.json 2>&1 | grep 'VaultTransferScreen'
 ```
+
 Expected: empty. The only remaining `tsc` errors in the package should now be in `ui/screens/VaultRecoverScreen.tsx` (deleted in Task 10).
 
 ```
@@ -6296,6 +6615,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 10: Deletions, route, barrel exports, README rows, dead i18n keys
 
 **Files:**
+
 - Delete: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/screens/VaultRecoverScreen.tsx`, `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/components/vault/PassphraseField.tsx`, `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/components/vault/PhraseBackupSheet.tsx`, `/Users/personal/git/bsv-wallet/app/vault-recover.tsx`
 - Modify: `/Users/personal/git/bsv-wallet/app/_layout.tsx` (line 174)
 - Modify: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/index.ts` (lines 111–125)
@@ -6316,14 +6636,17 @@ git rm packages/expo-wallet-toolbox/ui/screens/VaultRecoverScreen.tsx packages/e
 - [ ] **Step 2: Remove the route registration**
 
 In `/Users/personal/git/bsv-wallet/app/_layout.tsx` delete line 174:
+
 ```tsx
-                            <Stack.Screen name="vault-recover" />
+<Stack.Screen name="vault-recover" />
 ```
+
 (`<Stack.Screen name="vault" />` and `<Stack.Screen name="vault-transfer" />` stay.)
 
 - [ ] **Step 3: Update the `ui` barrel**
 
 In `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/index.ts` replace lines 111–125:
+
 ```ts
 // Vault UI (components/vault) + vault screens (Task 23 — extracted from
 // app/vault.tsx, app/vault-recover.tsx, app/vault-transfer.tsx). Also home
@@ -6341,7 +6664,9 @@ export { VaultScreen } from './screens/VaultScreen'
 export { VaultRecoverScreen } from './screens/VaultRecoverScreen'
 export { VaultTransferScreen } from './screens/VaultTransferScreen'
 ```
+
 with:
+
 ```ts
 // Vault UI (components/vault) + vault screens (app/vault.tsx,
 // app/vault-transfer.tsx). Also home to VaultCeremonySheet, mounted at the
@@ -6365,19 +6690,25 @@ export { VaultTransferScreen } from './screens/VaultTransferScreen'
 - [ ] **Step 4: README rows**
 
 In `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/README.md` delete line 291:
+
 ```
 | `VaultRecoverScreen` | `app/vault-recover.tsx` |
 ```
 
 In `/Users/personal/git/bsv-wallet/README.md` delete line 117:
+
 ```
 │   ├── vault-recover.tsx           #   Vault recovery flow
 ```
+
 and change line 129 from
+
 ```
 │   ├── vault/                  #   Enrollment wizard, ceremony sheet, passphrase field
 ```
+
 to
+
 ```
 │   ├── vault/                  #   Enrollment wizard, ceremony sheet, key chooser
 ```
@@ -6466,12 +6797,15 @@ for (const [k, n] of Object.entries(removed)) console.log(`${k} ${n}`)
 ```
 
 Run it from the repo root:
+
 ```
 cd /Users/personal/git/bsv-wallet && node /private/tmp/claude-502/-Users-personal-git-bsv-wallet/6c152a17-eafa-44af-829b-b3e1bd439710/scratchpad/drop-dead-vault-keys.js
 ```
+
 Expected: 54 lines, every one ending in ` 12` (each key removed exactly once per locale). A key printing fewer than 12 means a locale spells it differently — find it with `grep -n "<key>" packages/expo-wallet-toolbox/core/i18n/translations.tsx` and delete by hand; a key printing more than 12 means a non-vault key shares the name — impossible for these names, but re-check with the same grep before committing.
 
 Then, in the `en` block only, delete the comment headers that introduced the removed entries (they are the only comments the script leaves orphaned; the other locales carry a single `// vault (machine-translated, needs native review)` header, which stays):
+
 - the four lines beginning `// Recovery — there are exactly two paths, and the copy must not imply a third.` through `// seed-equivalent paper.`
 - `// Passphrase step`
 - the two lines `// Backup prerequisite — a vault with no recovery path is worse than no` / `// vault, so this step gates enrollment and deposits.`
@@ -6481,9 +6815,11 @@ Then, in the `en` block only, delete the comment headers that introduced the rem
 - `// Deposit gate`
 
 Verify no live code references a removed key and that no removed key survives:
+
 ```
 cd /Users/personal/git/bsv-wallet && for k in vault_key_serial vault_deposit_reason vault_enroll_title vault_enroll_intro vault_back vault_recover_legacy_label vault_recover_passphrase_label vault_recover_passphrase_help vault_recover_passphrase_placeholder vault_recover_wrong_passphrase vault_continue_setup vault_print_shares_cta vault_requires_mnemonic vault_passphrase_no_reset vault_err_bad_passphrase vault_err_bad_mnemonic vault_err_bad_derivation_index vault_enroll_phase_adopting vault_slot_in_use_title vault_slot_in_use_body vault_use_existing_key vault_unlocking vault_err_removed vault_err_unavailable vault_err_mgmt_key vault_recover_row vault_recover_title vault_recover_sub vault_recover_placeholder vault_recover_cta vault_recover_reason vault_recover_too_short vault_recover_failed vault_recovered_toast vault_backup_title vault_backup_intro vault_backup_phrase_title vault_backup_phrase_sub vault_backup_shares_title vault_backup_shares_sub vault_backup_attest_failed vault_backup_attest_failed_printed vault_phrase_title vault_phrase_intro vault_phrase_copy vault_phrase_copied vault_phrase_warning vault_phrase_attest vault_phrase_done vault_err_backup_required vault_deposit_blocked_title vault_deposit_blocked_message vault_deposit_blocked_cta vault_deposit_blocked_dismiss; do grep -rnE "(^|[^a-zA-Z0-9_])$k([^a-zA-Z0-9_]|$)" packages/expo-wallet-toolbox/ui packages/expo-wallet-toolbox/core app scripts && echo "STILL REFERENCED: $k"; done; echo done
 ```
+
 Expected: only `done` — no `STILL REFERENCED` line (the loop prints nothing else because `translations.tsx` no longer contains the keys either).
 
 - [ ] **Step 6: Run the parity test, every ui test, and tsc**
@@ -6491,16 +6827,19 @@ Expected: only `done` — no `STILL REFERENCED` line (the loop prints nothing el
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/i18n/translationParity.test.ts
 ```
+
 Expected: `Tests: 33 passed` — the key sets shrank by 54 in lockstep.
 
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui
 ```
+
 Expected: every suite passes (the suites added in Tasks 2–9 plus the pre-existing ones).
 
 ```
 cd /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox && npx tsc --noEmit -p tsconfig.json
 ```
+
 Expected: no output — the last residual (`VaultRecoverScreen.tsx`) is gone. If Plan 2 left any other residual, it is Plan 2's to fix, not this task's.
 
 - [ ] **Step 7: Commit**
@@ -6522,6 +6861,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 11: Gate the home Vault button and the Settings row on `isVaultEnabled()`
 
 **Files:**
+
 - Modify: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/screens/WalletHomeScreen.tsx` (import list line 73; the Vault destination, lines 1219–1226)
 - Modify: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/screens/SettingsScreen.tsx` (import line 4; rows lines 130–143)
 - Modify: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui/walletHomeBackup.test.tsx` (barrel mock, after line 46)
@@ -6608,7 +6948,10 @@ jest.mock('../../ui/hooks/useOnline', () => ({ useOnline: () => false }))
 jest.mock('../../ui/hooks/useOfflineNoticeActions', () => ({ useOfflineNoticeActions: () => ({}) }))
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: jest.fn() }))
 jest.mock('../../ui/exportTransactions', () => ({ exportTransactionsAsCsv: jest.fn() }))
-jest.mock('../../ui/components/ui/ScreenGradient', () => ({ __esModule: true, default: ({ children }: any) => children }))
+jest.mock('../../ui/components/ui/ScreenGradient', () => ({
+  __esModule: true,
+  default: ({ children }: any) => children
+}))
 jest.mock('../../ui/components/ui/ScrollFade', () => ({
   __esModule: true,
   default: () => null,
@@ -6622,7 +6965,10 @@ jest.mock('../../ui/components/ui/PressableScale', () => {
 jest.mock('../../ui/components/ui/ListRow', () => {
   const React = require('react')
   const { Pressable, Text } = require('react-native')
-  return { ListRow: ({ label, onPress }: any) => React.createElement(Pressable, { onPress }, React.createElement(Text, {}, label)) }
+  return {
+    ListRow: ({ label, onPress }: any) =>
+      React.createElement(Pressable, { onPress }, React.createElement(Text, {}, label))
+  }
 })
 jest.mock('../../ui/components/ui/GroupedList', () => ({ GroupedSection: ({ children }: any) => children }))
 
@@ -6688,6 +7034,7 @@ describe('SettingsScreen', () => {
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/walletHomeVaultGate.test.tsx
 ```
+
 Expected: `has no Vault destination while the flag is off` and `has no Vault row while the flag is off` fail (`expect(received).toBeNull()` — the button and the row render unconditionally today); the two "flag on" tests pass.
 
 - [ ] **Step 3: Gate both surfaces**
@@ -6695,57 +7042,72 @@ Expected: `has no Vault destination while the flag is off` and `has no Vault row
 In `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/screens/WalletHomeScreen.tsx`:
 
 (a) In the barrel import, replace line 73
+
 ```ts
   backupAttestation,
 ```
+
 with
+
 ```ts
   backupAttestation,
   isVaultEnabled,
 ```
 
 (b) Replace the Vault destination (lines 1219–1226):
+
 ```tsx
-          <PressableScale
-            haptic="confirm"
-            onPress={() => router.push('/vault')}
-            style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
-          >
-            <MaterialCommunityIcons name="safe" size={19} color={colors.textPrimary} />
-            <Text style={[styles.destLabel, { color: colors.textPrimary }]}>{t('wallet_vault')}</Text>
-          </PressableScale>
+<PressableScale
+  haptic="confirm"
+  onPress={() => router.push('/vault')}
+  style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
+>
+  <MaterialCommunityIcons name="safe" size={19} color={colors.textPrimary} />
+  <Text style={[styles.destLabel, { color: colors.textPrimary }]}>{t('wallet_vault')}</Text>
+</PressableScale>
 ```
+
 with
+
 ```tsx
-          {/* Release-gated (spec §5.5): no Vault destination until the host
+{
+  /* Release-gated (spec §5.5): no Vault destination until the host
               turns vaultEnabled on. Plain push, not destinationPress —
               enrolment needs no wallet, and the Vault screen's own Deposit
-              button runs the lazy wallet-creation path when it comes to that. */}
-          {isVaultEnabled() && (
-            <PressableScale
-              haptic="confirm"
-              onPress={() => router.push('/vault')}
-              style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
-            >
-              <MaterialCommunityIcons name="safe" size={19} color={colors.textPrimary} />
-              <Text style={[styles.destLabel, { color: colors.textPrimary }]}>{t('wallet_vault')}</Text>
-            </PressableScale>
-          )}
+              button runs the lazy wallet-creation path when it comes to that. */
+}
+{
+  isVaultEnabled() && (
+    <PressableScale
+      haptic="confirm"
+      onPress={() => router.push('/vault')}
+      style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
+    >
+      <MaterialCommunityIcons name="safe" size={19} color={colors.textPrimary} />
+      <Text style={[styles.destLabel, { color: colors.textPrimary }]}>{t('wallet_vault')}</Text>
+    </PressableScale>
+  )
+}
 ```
+
 (`isVaultEnabled()` reads module state installed once at app entry, so the `heroHeader` `useMemo` dependency list is unchanged.)
 
 In `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/ui/screens/SettingsScreen.tsx`:
 
 (c) Replace line 4
+
 ```ts
 import { useTheme, spacing, typography, useWallet } from '@bsv/expo-wallet-toolbox'
 ```
+
 with
+
 ```ts
 import { useTheme, spacing, typography, useWallet, isVaultEnabled } from '@bsv/expo-wallet-toolbox'
 ```
 
 (d) Replace the Payments + Vault rows (lines 130–143):
+
 ```tsx
           <ListRow
             label={t('payments')}
@@ -6762,29 +7124,36 @@ import { useTheme, spacing, typography, useWallet, isVaultEnabled } from '@bsv/e
             isLast
           />
 ```
+
 with
+
 ```tsx
-          <ListRow
-            label={t('payments')}
-            icon="swap-horizontal-outline"
-            iconColor={colors.success}
-            onPress={() => router.push('/pay')}
-            isLast={!isVaultEnabled()}
-          />
-          {/* Same release gate as the home screen's Vault destination (spec §5.5). */}
-          {isVaultEnabled() && (
-            <ListRow
-              label={t('vault_row_title')}
-              icon="safe"
-              iconFamily="material-community"
-              iconColor="#30B0C7"
-              onPress={() => router.push('/vault' as any)}
-              isLast
-            />
-          )}
+;<ListRow
+  label={t('payments')}
+  icon="swap-horizontal-outline"
+  iconColor={colors.success}
+  onPress={() => router.push('/pay')}
+  isLast={!isVaultEnabled()}
+/>
+{
+  /* Same release gate as the home screen's Vault destination (spec §5.5). */
+}
+{
+  isVaultEnabled() && (
+    <ListRow
+      label={t('vault_row_title')}
+      icon="safe"
+      iconFamily="material-community"
+      iconColor="#30B0C7"
+      onPress={() => router.push('/vault' as any)}
+      isLast
+    />
+  )
+}
 ```
 
 (e) In `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/__tests__/ui/walletHomeBackup.test.tsx`, after line 46 (`    isBackupPushEnabled: async () => true,`) add:
+
 ```ts
     isVaultEnabled: () => true,
 ```
@@ -6794,6 +7163,7 @@ with
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui/walletHomeVaultGate.test.tsx packages/expo-wallet-toolbox/__tests__/ui/walletHomeBackup.test.tsx
 ```
+
 Expected: both suites pass (`walletHomeVaultGate`: 4 passed).
 
 - [ ] **Step 5: Type-check and commit**
@@ -6801,6 +7171,7 @@ Expected: both suites pass (`walletHomeVaultGate`: 4 passed).
 ```
 cd /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox && npx tsc --noEmit -p tsconfig.json
 ```
+
 Expected: clean.
 
 ```
@@ -6818,6 +7189,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 12: Host wiring — `vaultEnabled` from `EXPO_PUBLIC_VAULT_ENABLED`, eas.json profiles, changelog, final verification
 
 **Files:**
+
 - Modify: `/Users/personal/git/bsv-wallet/app/_layout.tsx` (doc comment lines 37–51; `configureToolbox` call lines 52–53)
 - Modify: `/Users/personal/git/bsv-wallet/eas.json` (`development` env lines 14–17; `dev-physical` env lines 22–25; `production` untouched)
 - Modify: `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/CHANGELOG.md` (under `## 0.5.0`)
@@ -6828,6 +7200,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - [ ] **Step 1: Pass the flag from the host**
 
 In `/Users/personal/git/bsv-wallet/app/_layout.tsx` replace lines 47–53:
+
 ```ts
  * backupUrl: null (no EXPO_PUBLIC_BACKUP_URL) disables backup entirely — that is
  * what a plain local `npm run ios` with no .env.local gets. The EAS development,
@@ -6837,7 +7210,9 @@ In `/Users/personal/git/bsv-wallet/app/_layout.tsx` replace lines 47–53:
 configureToolbox({
   backupUrl: process.env.EXPO_PUBLIC_BACKUP_URL ?? null,
 ```
+
 with
+
 ```ts
  * backupUrl: null (no EXPO_PUBLIC_BACKUP_URL) disables backup entirely — that is
  * what a plain local `npm run ios` with no .env.local gets. The EAS development,
@@ -6857,13 +7232,16 @@ configureToolbox({
 - [ ] **Step 2: Turn it on for the two dev profiles only**
 
 In `/Users/personal/git/bsv-wallet/eas.json` replace lines 14–17 (`development.env`):
+
 ```json
       "env": {
         "RCT_USE_PREBUILT_RNCORE": "0",
         "EXPO_PUBLIC_BACKUP_URL": "https://backup.bsvblockchain.tech"
       }
 ```
+
 with
+
 ```json
       "env": {
         "RCT_USE_PREBUILT_RNCORE": "0",
@@ -6871,7 +7249,9 @@ with
         "EXPO_PUBLIC_VAULT_ENABLED": "true"
       }
 ```
+
 and lines 22–25 (`dev-physical.env`) identically:
+
 ```json
       "env": {
         "RCT_USE_PREBUILT_RNCORE": "0",
@@ -6879,10 +7259,13 @@ and lines 22–25 (`dev-physical.env`) identically:
         "EXPO_PUBLIC_VAULT_ENABLED": "true"
       }
 ```
+
 The `production` and `production-apk` profiles are not touched; `preview-apk` has no env block and stays that way. Verify:
+
 ```
 cd /Users/personal/git/bsv-wallet && node -e "const e=require('./eas.json').build; console.log(['development','dev-physical','preview-apk','production'].map(p=>p+'='+(e[p].env?.EXPO_PUBLIC_VAULT_ENABLED??'unset')).join(' '))"
 ```
+
 Expected: `development=true dev-physical=true preview-apk=unset production=unset`.
 
 - [ ] **Step 3: Changelog**
@@ -6919,21 +7302,25 @@ In `/Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox/CHANGELOG.md`, P
 ```
 cd /Users/personal/git/bsv-wallet && npx jest packages/expo-wallet-toolbox/__tests__/ui packages/expo-wallet-toolbox/__tests__/i18n
 ```
+
 Expected: every suite passes — including the ten suites this plan added (`vaultErrorCopy`, `useExportWalletData`, `useVaultCoverage`, `keyChooser`, `enrollWizard`, `vaultCeremonySheet`, `vaultScreen`, `vaultTransferScreen`, `walletHomeVaultGate`, and the modified `walletHomeBackup`) and `translationParity` at `33 passed`.
 
 ```
 cd /Users/personal/git/bsv-wallet/packages/expo-wallet-toolbox && npx tsc --noEmit -p tsconfig.json
 ```
+
 Expected: no output.
 
 ```
 cd /Users/personal/git/bsv-wallet && npx tsc --noEmit -p tsconfig.json 2>&1 | grep 'app/_layout\|app/vault' ; echo "host tsc checked"
 ```
+
 Expected: only `host tsc checked` (the host's `configureToolbox` call type-checks against `ToolboxConfig.vaultEnabled`; `app/vault-recover.tsx` no longer exists to fail).
 
 ```
 cd /Users/personal/git/bsv-wallet && grep -rn 'process.env' packages/expo-wallet-toolbox/core packages/expo-wallet-toolbox/ui ; echo "no env reads in the package"
 ```
+
 Expected: only `no env reads in the package`.
 
 - [ ] **Step 5: Commit**
@@ -6955,32 +7342,33 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Spec coverage — every user-visible item in §3.3, §3.4, §4, §5.4 and §5.5, and the task that delivers it:**
 
-| Spec item | Task |
-|---|---|
-| §3.3 intro copy, three bullets, acknowledgement checkbox gating Begin, backup-off routes to settings first (D13) | 6 |
-| §3.3 key k title, PIN (and default-PIN change) before the tap, `pendingSerials` = meta ∪ pending, `key-already-enrolled` copy naming the key, "Set it up again" for a pending duplicate, `pin-locked` copy with Use a different YubiKey / Try again, session faults with Cancel / Try again, PIN errors back to the PIN field with retries | 6 |
-| §3.3 naming ("Name this key", default `Key {{k}}`, hint), `nickname · …serialTail4` everywhere | 5, 6 |
-| §3.3 more step (Add another / Finish, two keys minimum, `finalizeEnrollment`) | 6 |
-| §3.3 leave-confirm with ≥ 1 pending; pending survives backgrounding | 6 (+ 8 hides the host chevron) |
-| §3.4 coverage badges (not-yet-open / removed-key) and the Re-lock action | 4, 8 |
-| §3.4 Add key (hidden at 5), done state "Re-lock now", re-lock reason naming existing keys | 6, 8 |
-| §3.4 Remove key: refused at 2 (`last-keys`), refused with `relock-required` when `orphanedIfRemoved` reports the removal would orphan an output, confirmation "Remove and re-lock now / Remove only / Cancel" with the fee | 8 |
-| §3.4 Rename | 8 |
-| §3.4 Export wallet data row + explainer, shared handler with Settings | 3, 8 |
-| §3.4 Disable vault only at zero balance, its copy | 1, 8 |
-| §3.4 footnote always visible | 8 |
-| §4.1 not-released / backup-off / inline floor+fee / CTA disabled below the floor / first-deposit confirm / deposit needs a built wallet (lazy creation behind Deposit) | 8, 9 |
-| §4.2 step 1 key chooser defaulting to `lastUsedSerial`; step 4 remainder confirm; step 6 serial-mismatch copy naming tapped and chosen; step 8 post-transfer alerts (unreachable, capped) and per-input progress between batches | 2, 5, 7, 9 |
-| §4.3 re-lock: chooser, one pass per tap while capped, stop with the unreachable alert, `too-small-to-relock` copy | 2, 8 |
-| §4.4 one `vaultErrorCopy(code, params)` table over the whole union; model-dependent copy changes | 1, 2 |
-| §5.4 UI list (wizard, VaultScreen states, VaultTransferScreen, VaultCeremonySheet, twelve locales, `vault_enroll_phase_pin-check` fix) | 1, 6, 7, 8, 9 |
-| §5.5 flag gates the home button, the Settings row, the vault route's hero, deposit and re-lock; withdrawals never gated | 8, 9, 11, 12 |
-| §5.3 UI deletions and the `_layout` entry; `ui/index.ts`; README rows; dead keys in the same commit as their code | 10 |
-| Host wiring (`app/_layout.tsx`, `eas.json`), changelog | 12 |
+| Spec item                                                                                                                                                                                                                                                                                                                                  | Task                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
+| §3.3 intro copy, three bullets, acknowledgement checkbox gating Begin, backup-off routes to settings first (D13)                                                                                                                                                                                                                           | 6                              |
+| §3.3 key k title, PIN (and default-PIN change) before the tap, `pendingSerials` = meta ∪ pending, `key-already-enrolled` copy naming the key, "Set it up again" for a pending duplicate, `pin-locked` copy with Use a different YubiKey / Try again, session faults with Cancel / Try again, PIN errors back to the PIN field with retries | 6                              |
+| §3.3 naming ("Name this key", default `Key {{k}}`, hint), `nickname · …serialTail4` everywhere                                                                                                                                                                                                                                             | 5, 6                           |
+| §3.3 more step (Add another / Finish, two keys minimum, `finalizeEnrollment`)                                                                                                                                                                                                                                                              | 6                              |
+| §3.3 leave-confirm with ≥ 1 pending; pending survives backgrounding                                                                                                                                                                                                                                                                        | 6 (+ 8 hides the host chevron) |
+| §3.4 coverage badges (not-yet-open / removed-key) and the Re-lock action                                                                                                                                                                                                                                                                   | 4, 8                           |
+| §3.4 Add key (hidden at 5), done state "Re-lock now", re-lock reason naming existing keys                                                                                                                                                                                                                                                  | 6, 8                           |
+| §3.4 Remove key: refused at 2 (`last-keys`), refused with `relock-required` when `orphanedIfRemoved` reports the removal would orphan an output, confirmation "Remove and re-lock now / Remove only / Cancel" with the fee                                                                                                                 | 8                              |
+| §3.4 Rename                                                                                                                                                                                                                                                                                                                                | 8                              |
+| §3.4 Export wallet data row + explainer, shared handler with Settings                                                                                                                                                                                                                                                                      | 3, 8                           |
+| §3.4 Disable vault only at zero balance, its copy                                                                                                                                                                                                                                                                                          | 1, 8                           |
+| §3.4 footnote always visible                                                                                                                                                                                                                                                                                                               | 8                              |
+| §4.1 not-released / backup-off / inline floor+fee / CTA disabled below the floor / first-deposit confirm / deposit needs a built wallet (lazy creation behind Deposit)                                                                                                                                                                     | 8, 9                           |
+| §4.2 step 1 key chooser defaulting to `lastUsedSerial`; step 4 remainder confirm; step 6 serial-mismatch copy naming tapped and chosen; step 8 post-transfer alerts (unreachable, capped) and per-input progress between batches                                                                                                           | 2, 5, 7, 9                     |
+| §4.3 re-lock: chooser, one pass per tap while capped, stop with the unreachable alert, `too-small-to-relock` copy                                                                                                                                                                                                                          | 2, 8                           |
+| §4.4 one `vaultErrorCopy(code, params)` table over the whole union; model-dependent copy changes                                                                                                                                                                                                                                           | 1, 2                           |
+| §5.4 UI list (wizard, VaultScreen states, VaultTransferScreen, VaultCeremonySheet, twelve locales, `vault_enroll_phase_pin-check` fix)                                                                                                                                                                                                     | 1, 6, 7, 8, 9                  |
+| §5.5 flag gates the home button, the Settings row, the vault route's hero, deposit and re-lock; withdrawals never gated                                                                                                                                                                                                                    | 8, 9, 11, 12                   |
+| §5.3 UI deletions and the `_layout` entry; `ui/index.ts`; README rows; dead keys in the same commit as their code                                                                                                                                                                                                                          | 10                             |
+| Host wiring (`app/_layout.tsx`, `eas.json`), changelog                                                                                                                                                                                                                                                                                     | 12                             |
 
 **Owned by Plans 1–2, consumed here by contract name only:** `r1comb.ts` (`R1C_LOCK_LEN`), `types.ts` (`VaultErrorCode` union), `vaultStore` v5 (`getMeta`, `removeKey`, `renameKey`, `noteLastUsed`, `migrateLegacySeal` — called from `VaultProvider`, Plan 2), `VaultKeyService` (`enrollKey`, `finalizeEnrollment`, `addVaultKey`, `disableVault`, `VAULT_MIN_KEYS`, `VAULT_MAX_KEYS`, `EnrollPhase`), ceremony (`VaultSigner`, `CeremonyState.progress`, `requestVaultSigner`, `VAULT_INPUTS_PER_TAP`, the NFC alert text passed to `driver.start(message)` — including the `vault_nfc_enroll_message` string), transfers (`depositToVault`, `withdrawFromVault`, `relockVault`, `getVaultKeyCoverage`, `orphanedIfRemoved`, `getVaultBalance`, `estimateRelockFee`, `VaultSpendResult`, `VAULT_DEPOSIT_MIN`, `reclaimStagingOutputs` kept), `toolboxConfig` (`vaultEnabled`, `isVaultEnabled`), `devMock` (`setMockPresentKey`, `getMockPresentKey`), `core/index.ts` barrel changes, `CHANGELOG` 0.5.0 heading and package version bump.
 
 **Decisions this plan made where the spec or contract left room (each is stated at its task):**
+
 - `depositToVault` takes no reason string (contract), so `vault_deposit_reason` is dead and deleted in Task 10.
 - `VaultError` carries `code`, `message`, `retriesLeft`, plus an optional structured `details` object per the DECISION (`serial-mismatch` → `{ tapped, chosen }`, `key-already-enrolled` → `{ serial }`, `key-cannot-cover` → `{ reachable, total }`). Task 6 reads the duplicate serial from `details.serial`, Task 9 reads the tapped serial from `details.tapped` (when it equals an enrolled serial) and `reachable`/`total` from `details`; all read `details` structurally (no import of a Plan 2 type), and all degrade to the param-free copy Task 2 pins when a service omits `details`.
 - `VaultKeyCoverage` has no per-key counts — the not-yet-open badge still shows `stale` as its count with the missing keys' nicknames — but Remove no longer approximates from it: `orphanedIfRemoved(w, adminOriginator, key.pubkey)` (Plan 2 Task 11) checks the removal exactly, against each output's real committed-key set, and Remove is refused with `relock-required` only when that count is > 0.

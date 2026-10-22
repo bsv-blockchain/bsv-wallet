@@ -44,7 +44,15 @@
  */
 import { Beef, P2PKH, PrivateKey, Spend, Transaction } from '@bsv/sdk'
 import fixtures from '../native-engine-poc/fixtures/engine-sim-fixtures.json'
-import { hexToU8, u8ToHex, readVarint, writeVarint, txFromFixture, isFixtureInRange, rescaleFixtureInRange } from './engineFixtures'
+import {
+  hexToU8,
+  u8ToHex,
+  readVarint,
+  writeVarint,
+  txFromFixture,
+  isFixtureInRange,
+  rescaleFixtureInRange
+} from './engineFixtures'
 
 interface EngineNativeLike {
   version: () => string
@@ -132,9 +140,7 @@ interface EngineReport {
 
 const g = globalThis as Record<string, any>
 const now = (): number =>
-  typeof performance !== 'undefined' && typeof performance.now === 'function'
-    ? performance.now()
-    : Date.now()
+  typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()
 const r3 = (x: number): number => Math.round(x * 1000) / 1000
 
 /** Standalone ArrayBuffer copy (never a view offset) for the Nitro seam. */
@@ -145,7 +151,7 @@ const toBuf = (u: Uint8Array): ArrayBuffer => u.slice().buffer as ArrayBuffer
 // with txFromFixture and its jest coverage — see the import above).
 
 /** Parse the engine's framed reply: [u32 LE idx][u8 len][script]* → idx→script. */
-function parseFramedScripts (framed: Uint8Array): Map<number, Uint8Array> {
+function parseFramedScripts(framed: Uint8Array): Map<number, Uint8Array> {
   const map = new Map<number, Uint8Array>()
   let off = 0
   while (off < framed.length) {
@@ -161,7 +167,7 @@ function parseFramedScripts (framed: Uint8Array): Map<number, Uint8Array> {
  * Splice unlocking scripts into the unsigned skeleton (whose input scripts are
  * all empty), byte-identically to how the corpus driver / SDK serialize.
  */
-function spliceSignedTx (unsigned: Uint8Array, scripts: Map<number, Uint8Array>): Uint8Array {
+function spliceSignedTx(unsigned: Uint8Array, scripts: Map<number, Uint8Array>): Uint8Array {
   const out: number[] = []
   let off = 0
   // version
@@ -190,7 +196,7 @@ function spliceSignedTx (unsigned: Uint8Array, scripts: Map<number, Uint8Array>)
 
 // ── proof sections ───────────────────────────────────────────────────────────
 
-function runPing (native: EngineNativeLike): EngineReport['ping'] {
+function runPing(native: EngineNativeLike): EngineReport['ping'] {
   let pass = 0
   const failures: string[] = []
   const check = (label: string, ok: boolean): void => {
@@ -209,7 +215,7 @@ function runPing (native: EngineNativeLike): EngineReport['ping'] {
   return { pass, fail: failures.length, failures }
 }
 
-async function runSignFlowFixtures (native: EngineNativeLike): Promise<EngineReport['signFlow']> {
+async function runSignFlowFixtures(native: EngineNativeLike): Promise<EngineReport['signFlow']> {
   let pass = 0
   let inputsSigned = 0
   const failures: string[] = []
@@ -232,7 +238,7 @@ async function runSignFlowFixtures (native: EngineNativeLike): Promise<EngineRep
   return { pass, fail: failures.length, failures, cases: fixtures.signFlow.length, inputsSigned }
 }
 
-async function runMustErr (native: EngineNativeLike): Promise<EngineReport['mustErr']> {
+async function runMustErr(native: EngineNativeLike): Promise<EngineReport['mustErr']> {
   let pass = 0
   const failures: string[] = []
   for (const f of fixtures.mustErr) {
@@ -246,7 +252,7 @@ async function runMustErr (native: EngineNativeLike): Promise<EngineReport['must
   return { pass, fail: failures.length, failures }
 }
 
-async function runTiming50 (native: EngineNativeLike): Promise<TimingStats> {
+async function runTiming50(native: EngineNativeLike): Promise<TimingStats> {
   const unsigned = toBuf(hexToU8(fixtures.timing.unsignedTx))
   const meta = toBuf(hexToU8(fixtures.timing.inputsMeta))
   // Byte-parity first — a timing over divergent bytes would be meaningless.
@@ -289,15 +295,31 @@ const ENGINE_KEYS = ['version', 'ping', 'batchSignP2pkhInputs', 'computeSighashS
 // mirror of secpNativeProof's NATIVE_KEYS (Nitro methods are not enumerable —
 // explicit key list required for a pass-through proxy)
 const SECP_KEYS = [
-  'ecdsaSign', 'ecdsaVerify', 'pubkeyCreate', 'pubkeyTweakAdd', 'privkeyTweakAdd',
-  'ecdhSharedPoint', 'brc42DeriveChild', 'ecdsaRecover', 'ecdsaRecoveryFactor',
-  'pubkeyTweakMul', 'pubkeyCombine', 'schnorrGenerateProof', 'schnorrVerifyProof',
-  'pubkeyCreateUncompressed', 'ecdhSharedPointUncompressed', 'pubkeyTweakAddUncompressed',
-  'ecdsaRecoverUncompressed', 'brc42DeriveChildPubUncompressed',
-  'batchEcdsaSign', 'batchEcdsaVerify', 'batchBrc42DeriveChild', 'batchBrc42DeriveChildPubUncompressed'
+  'ecdsaSign',
+  'ecdsaVerify',
+  'pubkeyCreate',
+  'pubkeyTweakAdd',
+  'privkeyTweakAdd',
+  'ecdhSharedPoint',
+  'brc42DeriveChild',
+  'ecdsaRecover',
+  'ecdsaRecoveryFactor',
+  'pubkeyTweakMul',
+  'pubkeyCombine',
+  'schnorrGenerateProof',
+  'schnorrVerifyProof',
+  'pubkeyCreateUncompressed',
+  'ecdhSharedPointUncompressed',
+  'pubkeyTweakAddUncompressed',
+  'ecdsaRecoverUncompressed',
+  'brc42DeriveChildPubUncompressed',
+  'batchEcdsaSign',
+  'batchEcdsaVerify',
+  'batchBrc42DeriveChild',
+  'batchBrc42DeriveChildPubUncompressed'
 ]
 
-function countProxy (real: Record<string, any>, counts: Record<string, number>, keys: string[]): Record<string, any> {
+function countProxy(real: Record<string, any>, counts: Record<string, number>, keys: string[]): Record<string, any> {
   const proxy: Record<string, any> = {}
   for (const key of keys) {
     if (typeof real[key] !== 'function') continue
@@ -340,7 +362,7 @@ function countProxy (real: Record<string, any>, counts: Record<string, number>, 
  * `pass + fail === cases` throughout, and the per-class counters below give
  * the finer breakdown.
  */
-async function runRoutedParity (): Promise<RoutedReport['parity']> {
+async function runRoutedParity(): Promise<RoutedReport['parity']> {
   const realEngine = g.__bsvEngineNative
   const realSecp = g.__bsvSecpNative
   const counts: Record<string, number> = {}
@@ -349,9 +371,12 @@ async function runRoutedParity (): Promise<RoutedReport['parity']> {
   let pass = 0
   let inputsSigned = 0
   const failures: string[] = []
-  let inRangeCases = 0; let inRangePass = 0
-  let rejectCases = 0; let rejectPass = 0
-  let rescaledCases = 0; let rescaledPass = 0
+  let inRangeCases = 0
+  let inRangePass = 0
+  let rejectCases = 0
+  let rejectPass = 0
+  let rescaledCases = 0
+  let rescaledPass = 0
   try {
     for (const f of fixtures.signFlow) {
       if (isFixtureInRange(f.unsignedTx, f.inputsMeta)) {
@@ -361,7 +386,8 @@ async function runRoutedParity (): Promise<RoutedReport['parity']> {
           const tx = txFromFixture(f.unsignedTx, f.inputsMeta)
           await tx.sign()
           if (tx.toHex() === f.expectedSignedTx) {
-            pass++; inRangePass++
+            pass++
+            inRangePass++
             inputsSigned += f.nInputs
           } else {
             failures.push(`case ${f.caseIdx}: routed bytes differ`)
@@ -385,10 +411,13 @@ async function runRoutedParity (): Promise<RoutedReport['parity']> {
         rejected = true
       }
       const crossingsDuring = (counts.batchSignP2pkhInputs ?? 0) + (counts.batchEcdsaSign ?? 0) - crossingsBefore
-      const scriptApplied = tx != null && tx.inputs.some((i) => i.unlockingScript != null)
+      const scriptApplied = tx != null && tx.inputs.some(i => i.unlockingScript != null)
       const rejectOk = rejected && crossingsDuring === 0 && !scriptApplied
       if (rejectOk) rejectPass++
-      else failures.push(`case ${f.caseIdx}: out-of-range fixture did not reject cleanly (rejected=${String(rejected)}, crossings=${crossingsDuring}, scriptApplied=${String(scriptApplied)})`)
+      else
+        failures.push(
+          `case ${f.caseIdx}: out-of-range fixture did not reject cleanly (rejected=${String(rejected)}, crossings=${crossingsDuring}, scriptApplied=${String(scriptApplied)})`
+        )
 
       // (c) rescaled variant — must sign ROUTED and PURE-JS to identical bytes.
       rescaledCases++
@@ -439,7 +468,7 @@ async function runRoutedParity (): Promise<RoutedReport['parity']> {
 }
 
 /** Representative 50-input tx: engine-routed == pure-JS re-sign == oracle. */
-async function runJsResign (): Promise<RoutedReport['jsResign']> {
+async function runJsResign(): Promise<RoutedReport['jsResign']> {
   const realEngine = g.__bsvEngineNative
   const realSecp = g.__bsvSecpNative
   try {
@@ -466,7 +495,7 @@ async function runJsResign (): Promise<RoutedReport['jsResign']> {
 }
 
 /** Poisoned engine (always rejects) → tier-2 secp batch must carry the tx. */
-async function runFallbackPoisoned (): Promise<RoutedReport['fallbackPoisoned']> {
+async function runFallbackPoisoned(): Promise<RoutedReport['fallbackPoisoned']> {
   const realEngine = g.__bsvEngineNative
   const realSecp = g.__bsvSecpNative
   const counts: Record<string, number> = {}
@@ -499,7 +528,7 @@ async function runFallbackPoisoned (): Promise<RoutedReport['fallbackPoisoned']>
 }
 
 /** N-input P2PKH fixture built through the SDK (same shape as secpNativeProof). */
-function sdkTxFixture (nInputs: number): { build: () => Transaction } {
+function sdkTxFixture(nInputs: number): { build: () => Transaction } {
   const p2pkh = new P2PKH()
   const keys: PrivateKey[] = []
   const srcTx = new Transaction()
@@ -525,9 +554,9 @@ function sdkTxFixture (nInputs: number): { build: () => Transaction } {
   return { build }
 }
 
-const sleep = async (ms: number): Promise<void> => await new Promise((resolve) => setTimeout(resolve, ms))
+const sleep = async (ms: number): Promise<void> => await new Promise(resolve => setTimeout(resolve, ms))
 
-function msStats (samples: number[]): MsStats {
+function msStats(samples: number[]): MsStats {
   const s = [...samples].sort((a, b) => a - b)
   const mean = s.reduce((a, b) => a + b, 0) / s.length
   return {
@@ -538,7 +567,7 @@ function msStats (samples: number[]): MsStats {
   }
 }
 
-async function benchFlowMs (iters: number, run: () => Promise<void>): Promise<MsStats> {
+async function benchFlowMs(iters: number, run: () => Promise<void>): Promise<MsStats> {
   // WARMUP LAW (M5.7 device rung): busy-run the SAME flow for ~0.5s (min 3
   // runs) before sampling — 3-run warmups read 5-10x slow on A-series E-cores.
   const warmEnd = now() + 500
@@ -557,7 +586,7 @@ async function benchFlowMs (iters: number, run: () => Promise<void>): Promise<Ms
 }
 
 /** 50-input Transaction.sign: engine-routed vs secp-batched vs pure JS. */
-async function runRoutedFlowBench (): Promise<{ flows: RoutedReport['flowBench']; crossings: Record<string, number> }> {
+async function runRoutedFlowBench(): Promise<{ flows: RoutedReport['flowBench']; crossings: Record<string, number> }> {
   const realEngine = g.__bsvEngineNative
   const realSecp = g.__bsvSecpNative
   const flows: RoutedReport['flowBench'] = []
@@ -566,15 +595,33 @@ async function runRoutedFlowBench (): Promise<{ flows: RoutedReport['flowBench']
   try {
     // engine-routed (tier 1, no time-slicing on this branch) — THE GATE ROW
     // (design-doc hard gate: Release device p50 <= 10ms). >=15 iters per M5.7.
-    flows.push({ flow: '50-input Transaction.sign ENGINE-routed (ms)', iters: 16, stats: await benchFlowMs(16, async () => { await build().sign() }) })
+    flows.push({
+      flow: '50-input Transaction.sign ENGINE-routed (ms)',
+      iters: 16,
+      stats: await benchFlowMs(16, async () => {
+        await build().sign()
+      })
+    })
     // secp-batched (tier 2, cooperative slicing retained)
     delete g.__bsvEngineNative
     if (realSecp != null) {
-      flows.push({ flow: '50-input Transaction.sign secp-batched (engine off) (ms)', iters: 16, stats: await benchFlowMs(16, async () => { await build().sign() }) })
+      flows.push({
+        flow: '50-input Transaction.sign secp-batched (engine off) (ms)',
+        iters: 16,
+        stats: await benchFlowMs(16, async () => {
+          await build().sign()
+        })
+      })
     }
     // pure JS (tier 2 pure-JS branch: shared SignatureHashCache, JS ECDSA)
     delete g.__bsvSecpNative
-    flows.push({ flow: '50-input Transaction.sign pure-JS (ms)', iters: 4, stats: await benchFlowMs(4, async () => { await build().sign() }) })
+    flows.push({
+      flow: '50-input Transaction.sign pure-JS (ms)',
+      iters: 4,
+      stats: await benchFlowMs(4, async () => {
+        await build().sign()
+      })
+    })
     // counted engine-routed run (crossing evidence)
     if (realEngine != null) g.__bsvEngineNative = countProxy(realEngine, crossings, ENGINE_KEYS)
     if (realSecp != null) g.__bsvSecpNative = countProxy(realSecp, crossings, SECP_KEYS)
@@ -592,7 +639,7 @@ async function runRoutedFlowBench (): Promise<{ flows: RoutedReport['flowBench']
  * Frame harness (the M3 gate-4 instrument): rAF heartbeat while the
  * createAction-scale workload (20 BRC-42 derivations + 20-input sign) runs.
  */
-async function measureFrames (
+async function measureFrames(
   scenario: string,
   runs: number,
   frameBudgetMs: number,
@@ -635,7 +682,7 @@ async function measureFrames (
   }
 }
 
-async function runRoutedFrameHarness (): Promise<FrameScenario[]> {
+async function runRoutedFrameHarness(): Promise<FrameScenario[]> {
   const realEngine = g.__bsvEngineNative
   const realSecp = g.__bsvSecpNative
   const out: FrameScenario[] = []
@@ -657,7 +704,10 @@ async function runRoutedFrameHarness (): Promise<FrameScenario[]> {
   await sleep(600)
   raf = false
   await sleep(50)
-  const idleGaps = stamps.slice(1).map((t, i) => t - stamps[i]).sort((a, b) => a - b)
+  const idleGaps = stamps
+    .slice(1)
+    .map((t, i) => t - stamps[i])
+    .sort((a, b) => a - b)
   const frameBudgetMs = Math.max(4, idleGaps[Math.floor(idleGaps.length / 2)] ?? 16.7)
 
   const workload = async (): Promise<void> => {
@@ -678,7 +728,7 @@ async function runRoutedFrameHarness (): Promise<FrameScenario[]> {
   return out
 }
 
-async function runRouted (): Promise<RoutedReport> {
+async function runRouted(): Promise<RoutedReport> {
   const parity = await runRoutedParity()
   const jsResign = await runJsResign()
   const fallbackPoisoned = await runFallbackPoisoned()
@@ -695,7 +745,10 @@ async function runRouted (): Promise<RoutedReport> {
  * and the beef needed by the toolbox `verifyUnlockScripts`. Scope varies by
  * input when `mixScopes`.
  */
-function signedP2pkhFixture (n: number, mixScopes = false): {
+function signedP2pkhFixture(
+  n: number,
+  mixScopes = false
+): {
   build: () => Promise<{ tx: Transaction; srcTx: Transaction; beef: Beef; txid: string }>
 } {
   const p2pkh = new P2PKH()
@@ -732,7 +785,7 @@ function signedP2pkhFixture (n: number, mixScopes = false): {
 }
 
 /** 37B prevout meta [u32 idx][u64 sat][25B lock] for every input of `tx`. */
-function buildVerifyMeta (tx: Transaction): ArrayBuffer {
+function buildVerifyMeta(tx: Transaction): ArrayBuffer {
   const n = tx.inputs.length
   const meta = new Uint8Array(n * 37)
   const dv = new DataView(meta.buffer)
@@ -749,7 +802,7 @@ function buildVerifyMeta (tx: Transaction): ArrayBuffer {
 }
 
 /** JS per-input verdict via the SDK `Spend` — the toolbox verifyUnlockScripts semantics. */
-function jsVerdicts (tx: Transaction): number[] {
+function jsVerdicts(tx: Transaction): number[] {
   const out: number[] = []
   for (let i = 0; i < tx.inputs.length; i++) {
     const input = tx.inputs[i]
@@ -785,7 +838,7 @@ function jsVerdicts (tx: Transaction): number[] {
  * verdict, input-by-input. The FATAL check: engine must never return valid
  * where JS returns invalid.
  */
-async function runVerifyParity (native: EngineNativeLike): Promise<VerifyReport['parity']> {
+async function runVerifyParity(native: EngineNativeLike): Promise<VerifyReport['parity']> {
   const counts: Record<string, number> = {}
   const wrapped: EngineNativeLike = {
     ...native,
@@ -812,14 +865,30 @@ async function runVerifyParity (native: EngineNativeLike): Promise<VerifyReport[
         const nv = bitmap[i] & 1
         const jv = js[i] & 1
         if (nv === 1 && jv === 0) forbiddenAccepts++
-        if (nv !== jv) { caseOk = false; mismatches++ }
+        if (nv !== jv) {
+          caseOk = false
+          mismatches++
+        }
       }
-      if (caseOk) { pass++; inputsVerified += n } else { failures.push(`case ${c} (n=${n}): verdict mismatch`) }
+      if (caseOk) {
+        pass++
+        inputsVerified += n
+      } else {
+        failures.push(`case ${c} (n=${n}): verdict mismatch`)
+      }
     } catch (e) {
       failures.push(`case ${c}: ${String(e)}`)
     }
   }
-  return { pass, cases: 53, inputsVerified, mismatches, forbiddenAccepts, engineCrossings: counts.verify ?? 0, failures }
+  return {
+    pass,
+    cases: 53,
+    inputsVerified,
+    mismatches,
+    forbiddenAccepts,
+    engineCrossings: counts.verify ?? 0,
+    failures
+  }
 }
 
 /** Corrupt one input's sig → engine AND JS both mark that input invalid.
@@ -827,7 +896,7 @@ async function runVerifyParity (native: EngineNativeLike): Promise<VerifyReport[
  *  the live unlockingScript object does NOT propagate to tx.toBinary(). Corrupt
  *  BOTH surfaces at the same DER-body byte: the serialized bytes the engine
  *  parses AND the live chunk the JS Spend reads. */
-async function runVerifyCorrupted (native: EngineNativeLike): Promise<VerifyReport['corrupted']> {
+async function runVerifyCorrupted(native: EngineNativeLike): Promise<VerifyReport['corrupted']> {
   try {
     const { tx } = await signedP2pkhFixture(5).build()
     const sig = (tx.inputs[2].unlockingScript as any).chunks[0].data as number[] // DER‖sighashflag
@@ -849,7 +918,10 @@ async function runVerifyCorrupted (native: EngineNativeLike): Promise<VerifyRepo
     const jsRejected = js[2] === 0
     const othersOk = bitmap[0] === 1 && bitmap[1] === 1 && bitmap[3] === 1 && bitmap[4] === 1
     const ok = engineRejected && jsRejected && othersOk && js[0] === 1
-    return { pass: ok, detail: `input2 engine=${bitmap[2]} js=${js[2]} (both must be 0); others valid=${String(othersOk)}` }
+    return {
+      pass: ok,
+      detail: `input2 engine=${bitmap[2]} js=${js[2]} (both must be 0); others valid=${String(othersOk)}`
+    }
   } catch (e) {
     return { pass: false, detail: String(e) }
   }
@@ -861,7 +933,7 @@ async function runVerifyCorrupted (native: EngineNativeLike): Promise<VerifyRepo
  * counters it populated on `globalThis.__bsvEngineShadow` — divergences must
  * be 0 and every input must have agreed.
  */
-async function runVerifyShadow (): Promise<VerifyReport['shadow']> {
+async function runVerifyShadow(): Promise<VerifyReport['shadow']> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { verifyUnlockScripts } = require('@bsv/wallet-toolbox-mobile')
@@ -890,7 +962,7 @@ async function runVerifyShadow (): Promise<VerifyReport['shadow']> {
  * The second O(n²) killed: the toolbox JS `verifyUnlockScripts` (fresh `Spend`
  * per input + per-input sync ECDSA) vs ONE async engine crossing, 50 inputs.
  */
-async function runVerifyBench (native: EngineNativeLike): Promise<VerifyReport['bench']> {
+async function runVerifyBench(native: EngineNativeLike): Promise<VerifyReport['bench']> {
   const out: VerifyReport['bench'] = []
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { verifyUnlockScripts } = require('@bsv/wallet-toolbox-mobile')
@@ -899,22 +971,34 @@ async function runVerifyBench (native: EngineNativeLike): Promise<VerifyReport['
   const metaBuf = buildVerifyMeta(tx)
   // Byte/verdict parity first — timing a wrong result is meaningless.
   const bitmap = new Uint8Array(await native.batchVerifyP2pkhInputs(signedBuf, metaBuf))
-  if (!bitmap.every((b) => b === 1)) throw new Error('verify bench tx did not verify all-valid natively')
+  if (!bitmap.every(b => b === 1)) throw new Error('verify bench tx did not verify all-valid natively')
 
   // JS-only leg: the per-input Spend interpreter (engine removed for this leg).
   const realEngine = g.__bsvEngineNative
   delete g.__bsvEngineNative
   try {
-    out.push({ flow: '50-input verifyUnlockScripts JS Spend (per-input) (ms)', iters: 12, stats: await benchFlowMs(12, async () => { await verifyUnlockScripts(txid, beef) }) })
+    out.push({
+      flow: '50-input verifyUnlockScripts JS Spend (per-input) (ms)',
+      iters: 12,
+      stats: await benchFlowMs(12, async () => {
+        await verifyUnlockScripts(txid, beef)
+      })
+    })
   } finally {
     if (realEngine != null) g.__bsvEngineNative = realEngine
   }
   // Engine leg: one async batchVerifyP2pkhInputs crossing (fresh copies).
-  out.push({ flow: '50-input batchVerifyP2pkhInputs ONE crossing (ms)', iters: 12, stats: await benchFlowMs(12, async () => { await native.batchVerifyP2pkhInputs(Uint8Array.from(tx.toBinary()).buffer as ArrayBuffer, buildVerifyMeta(tx)) }) })
+  out.push({
+    flow: '50-input batchVerifyP2pkhInputs ONE crossing (ms)',
+    iters: 12,
+    stats: await benchFlowMs(12, async () => {
+      await native.batchVerifyP2pkhInputs(Uint8Array.from(tx.toBinary()).buffer as ArrayBuffer, buildVerifyMeta(tx))
+    })
+  })
   return out
 }
 
-async function runVerify (native: EngineNativeLike): Promise<VerifyReport> {
+async function runVerify(native: EngineNativeLike): Promise<VerifyReport> {
   const parity = await runVerifyParity(native)
   const corrupted = await runVerifyCorrupted(native)
   const shadow = await runVerifyShadow()
@@ -1004,7 +1088,7 @@ interface CrDeviceReport {
 }
 
 /** Engine-routed 50-input Transaction.sign p50/p95 — the A/B bench unit. */
-async function runCrRoutedSignBench (): Promise<CrDeviceReport['routedSignBench']> {
+async function runCrRoutedSignBench(): Promise<CrDeviceReport['routedSignBench']> {
   const { build } = sdkTxFixture(50)
   const ITERS = 20
   // warmup law, then sampled — same protocol both bundle ids
@@ -1024,7 +1108,7 @@ async function runCrRoutedSignBench (): Promise<CrDeviceReport['routedSignBench'
 }
 
 /** CR-4: timed thermal soak of the engine-routed 50-input sign, windowed p50/p95. */
-async function runCrSoak (): Promise<NonNullable<CrDeviceReport['soak']>> {
+async function runCrSoak(): Promise<NonNullable<CrDeviceReport['soak']>> {
   const { build } = sdkTxFixture(50)
   const inputsPerOp = 50
   // 5-minute soak by default; overridable, hard time+op caps so it always ends.
@@ -1066,7 +1150,7 @@ async function runCrSoak (): Promise<NonNullable<CrDeviceReport['soak']>> {
     cur = []
   }
   // loop until BOTH the time target and the min-op floor are met (or a hard cap)
-  while (((now() - start) < targetMs || ops < MIN_OPS) && ops < HARD_OPS && (now() - start) < HARD_MS) {
+  while ((now() - start < targetMs || ops < MIN_OPS) && ops < HARD_OPS && now() - start < HARD_MS) {
     const t0 = now()
     await build().sign()
     const dt = now() - t0
@@ -1093,7 +1177,7 @@ async function runCrSoak (): Promise<NonNullable<CrDeviceReport['soak']>> {
     firstBucketP50Ms: first,
     lastBucketP50Ms: last,
     lastOverFirstP50: first > 0 ? r3(last / first) : 0,
-    maxBucketP95Ms: r3(Math.max(...buckets.map((b) => b.p95Ms)))
+    maxBucketP95Ms: r3(Math.max(...buckets.map(b => b.p95Ms)))
   }
 }
 
@@ -1104,19 +1188,25 @@ async function runCrSoak (): Promise<NonNullable<CrDeviceReport['soak']>> {
  * stall = the max inter-frame gap inside that run's window. RUNS>=20 so the
  * longest-stall claim is a measured distribution, not a rounding rule (B6).
  */
-async function runCrFrames (): Promise<NonNullable<CrDeviceReport['frames']>> {
+async function runCrFrames(): Promise<NonNullable<CrDeviceReport['frames']>> {
   const { build } = sdkTxFixture(50)
   const RUNS = 30
 
   // measured idle frame budget (median idle rAF gap) — same as the M5.7 harness
   const idle: number[] = []
   let rafIdle = true
-  const tickIdle = (): void => { idle.push(now()); if (rafIdle) requestAnimationFrame(tickIdle) }
+  const tickIdle = (): void => {
+    idle.push(now())
+    if (rafIdle) requestAnimationFrame(tickIdle)
+  }
   requestAnimationFrame(tickIdle)
   await sleep(600)
   rafIdle = false
   await sleep(50)
-  const idleGaps = idle.slice(1).map((t, i) => t - idle[i]).sort((a, b) => a - b)
+  const idleGaps = idle
+    .slice(1)
+    .map((t, i) => t - idle[i])
+    .sort((a, b) => a - b)
   const budget60hzMs = idleGaps[Math.floor(idleGaps.length / 2)] ?? 16.667
   const frameBudgetMs = Math.max(4, budget60hzMs)
 
@@ -1126,7 +1216,10 @@ async function runCrFrames (): Promise<NonNullable<CrDeviceReport['frames']>> {
 
   const stamps: number[] = []
   let raf2 = true
-  const tick2 = (): void => { stamps.push(now()); if (raf2) requestAnimationFrame(tick2) }
+  const tick2 = (): void => {
+    stamps.push(now())
+    if (raf2) requestAnimationFrame(tick2)
+  }
   requestAnimationFrame(tick2)
   await sleep(120)
 
@@ -1167,7 +1260,7 @@ async function runCrFrames (): Promise<NonNullable<CrDeviceReport['frames']>> {
   }
   const perRunSorted = [...perRun].sort((a, b) => a - b)
   const BUDGET_1FRAME = 1000 / 60 // 16.667 ms
-  const runsUnderBudget = perRun.filter((s) => s < BUDGET_1FRAME).length
+  const runsUnderBudget = perRun.filter(s => s < BUDGET_1FRAME).length
   workloadDurations.sort((a, b) => a - b)
 
   return {
@@ -1190,29 +1283,41 @@ async function runCrFrames (): Promise<NonNullable<CrDeviceReport['frames']>> {
   }
 }
 
-function formatCrDevice (r: CrDeviceReport): string {
+function formatCrDevice(r: CrDeviceReport): string {
   const L: string[] = []
   L.push('════ CR-DEVICE (A13) — #30 CR-2 / #32 CR-4 / #34 CR-6 ════')
   L.push(`bundle-id label (inlined): ${r.bundleIdLabel ?? 'n/a'}`)
-  L.push(`engine present: ${String(r.enginePresent)} | version ${r.engineVersion ?? 'n/a'} | hermes dev: ${String(r.hermesDev)}`)
-  L.push(`routed parity (engine carries signs): ${r.parity.pass}/${r.parity.cases} | engine crossings ${r.parity.engineCrossings} (expect ${r.parity.cases}) | tier-2 batchEcdsaSign ${r.parity.secpBatchCrossings} (expect 0)`)
+  L.push(
+    `engine present: ${String(r.enginePresent)} | version ${r.engineVersion ?? 'n/a'} | hermes dev: ${String(r.hermesDev)}`
+  )
+  L.push(
+    `routed parity (engine carries signs): ${r.parity.pass}/${r.parity.cases} | engine crossings ${r.parity.engineCrossings} (expect ${r.parity.cases}) | tier-2 batchEcdsaSign ${r.parity.secpBatchCrossings} (expect 0)`
+  )
   if (r.routedSignBench != null) {
     const b = r.routedSignBench
     L.push('')
     L.push('── CR-6 A/B bench unit ──')
-    L.push(`${b.flow}: min ${b.stats.minMs} / p50 ${b.stats.p50Ms} / p95 ${b.stats.p95Ms} / mean ${b.stats.meanMs} ms over ${b.iters} iters (${b.warmups} warmups)`)
+    L.push(
+      `${b.flow}: min ${b.stats.minMs} / p50 ${b.stats.p50Ms} / p95 ${b.stats.p95Ms} / mean ${b.stats.meanMs} ms over ${b.iters} iters (${b.warmups} warmups)`
+    )
   }
   if (r.soak != null) {
     const s = r.soak
     L.push('')
     L.push('── CR-4 sustained-load / thermal soak ──')
     L.push(`unit: ${s.unit}`)
-    L.push(`total ${s.totalOps} ops (${s.totalSignatures} signatures) in ${s.elapsedSec}s | overall min ${s.overall.minMs} / p50 ${s.overall.p50Ms} / p95 ${s.overall.p95Ms} / mean ${s.overall.meanMs} ms`)
-    L.push(`first-bucket p50 ${s.firstBucketP50Ms} ms → last-bucket p50 ${s.lastBucketP50Ms} ms (last/first ${s.lastOverFirstP50}×); max bucket p95 ${s.maxBucketP95Ms} ms`)
+    L.push(
+      `total ${s.totalOps} ops (${s.totalSignatures} signatures) in ${s.elapsedSec}s | overall min ${s.overall.minMs} / p50 ${s.overall.p50Ms} / p95 ${s.overall.p95Ms} / mean ${s.overall.meanMs} ms`
+    )
+    L.push(
+      `first-bucket p50 ${s.firstBucketP50Ms} ms → last-bucket p50 ${s.lastBucketP50Ms} ms (last/first ${s.lastOverFirstP50}×); max bucket p95 ${s.maxBucketP95Ms} ms`
+    )
     L.push('| bucket | ops | min | p50 | p95 | max | mean ms |')
     L.push('|---|---|---|---|---|---|---|')
     for (const b of s.buckets) {
-      L.push(`| ${b.bucket} | ${b.opsFrom}-${b.opsTo} | ${b.minMs} | ${b.p50Ms} | ${b.p95Ms} | ${b.maxMs} | ${b.meanMs} |`)
+      L.push(
+        `| ${b.bucket} | ${b.opsFrom}-${b.opsTo} | ${b.minMs} | ${b.p50Ms} | ${b.p95Ms} | ${b.maxMs} | ${b.meanMs} |`
+      )
     }
   }
   if (r.frames != null) {
@@ -1221,14 +1326,16 @@ function formatCrDevice (r: CrDeviceReport): string {
     L.push('── CR-2 many-run frame-stall distribution ──')
     L.push(`scenario: ${f.scenario} | runs ${f.runs} | budget ${f.frameBudgetMs} ms (60Hz idle ${f.budget60hzMs} ms)`)
     L.push(`frames ${f.totalFrames} | dropped ${f.droppedFrames} | workload p50 ${f.workloadP50Ms} ms`)
-    L.push(`per-run longest JS-thread stall: p50 ${f.stallP50Ms} / p95 ${f.stallP95Ms} / max ${f.stallMaxMs} ms | runs under 16.667ms budget: ${f.runsUnderBudget}/${f.runs}`)
+    L.push(
+      `per-run longest JS-thread stall: p50 ${f.stallP50Ms} / p95 ${f.stallP95Ms} / max ${f.stallMaxMs} ms | runs under 16.667ms budget: ${f.runsUnderBudget}/${f.runs}`
+    )
     L.push(`all inter-frame gaps: p50 ${f.gapP50Ms} / p95 ${f.gapP95Ms} / p99 ${f.gapP99Ms} / max ${f.gapMaxMs} ms`)
     L.push(`per-run longest stalls (ms): ${f.perRunLongestStallMs.join(', ')}`)
   }
   return L.join('\n')
 }
 
-async function deliverCrDevice (payload: string): Promise<void> {
+async function deliverCrDevice(payload: string): Promise<void> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const FileSystem = require('expo-file-system/legacy') as typeof import('expo-file-system/legacy')
@@ -1241,7 +1348,7 @@ async function deliverCrDevice (payload: string): Promise<void> {
   }
 }
 
-export async function runCrDevice (): Promise<CrDeviceReport> {
+export async function runCrDevice(): Promise<CrDeviceReport> {
   const native = g.__bsvEngineNative as EngineNativeLike | undefined
   const report: CrDeviceReport = {
     bundleIdLabel: process.env.EXPO_PUBLIC_CR_BUNDLE_ID ?? null,
@@ -1257,7 +1364,12 @@ export async function runCrDevice (): Promise<CrDeviceReport> {
     try {
       report.engineVersion = native.version()
       const p = await runRoutedParity()
-      report.parity = { pass: p.pass, cases: p.cases, engineCrossings: p.engineCrossings, secpBatchCrossings: p.secpBatchCrossings }
+      report.parity = {
+        pass: p.pass,
+        cases: p.cases,
+        engineCrossings: p.engineCrossings,
+        secpBatchCrossings: p.secpBatchCrossings
+      }
     } catch (e) {
       console.error('[CR-DEVICE] parity failed:', e)
     }
@@ -1289,7 +1401,7 @@ export async function runCrDevice (): Promise<CrDeviceReport> {
 
 // ── report plumbing (mirrors secpNativeProof's deliverReport) ────────────────
 
-function formatReport (r: EngineReport): string {
+function formatReport(r: EngineReport): string {
   const lines: string[] = []
   lines.push('════ EngineNative M5.4 simulator smoke ════')
   lines.push(`engine module present: ${String(r.present)}  |  hermes dev mode: ${String(r.hermesDev)}`)
@@ -1333,14 +1445,18 @@ function formatReport (r: EngineReport): string {
     lines.push('| flow | iters | min / p50 / p95 / mean ms |')
     lines.push('|---|---|---|')
     for (const f of m.flowBench) {
-      lines.push(`| ${f.flow} | ${f.iters} | ${f.stats.minMs} / ${f.stats.p50Ms} / ${f.stats.p95Ms} / ${f.stats.meanMs} |`)
+      lines.push(
+        `| ${f.flow} | ${f.iters} | ${f.stats.minMs} / ${f.stats.p50Ms} / ${f.stats.p95Ms} / ${f.stats.meanMs} |`
+      )
     }
     lines.push(`routed-flow crossing counts (one counted 50-input sign): ${JSON.stringify(m.flowCrossings)}`)
     lines.push('')
     lines.push('| frame scenario | runs | budget ms | frames | dropped | longest stall ms | workload p50 ms |')
     lines.push('|---|---|---|---|---|---|---|')
     for (const fr of m.frames) {
-      lines.push(`| ${fr.scenario} | ${fr.runs} | ${fr.frameBudgetMs} | ${fr.totalFrames} | ${fr.droppedFrames} | ${fr.longestStallMs} | ${fr.workloadMsP50} |`)
+      lines.push(
+        `| ${fr.scenario} | ${fr.runs} | ${fr.frameBudgetMs} | ${fr.totalFrames} | ${fr.droppedFrames} | ${fr.longestStallMs} | ${fr.workloadMsP50} |`
+      )
     }
   }
   if (r.verify != null) {
@@ -1359,13 +1475,15 @@ function formatReport (r: EngineReport): string {
     lines.push('| verify flow | iters | min / p50 / p95 / mean ms |')
     lines.push('|---|---|---|')
     for (const f of v.bench) {
-      lines.push(`| ${f.flow} | ${f.iters} | ${f.stats.minMs} / ${f.stats.p50Ms} / ${f.stats.p95Ms} / ${f.stats.meanMs} |`)
+      lines.push(
+        `| ${f.flow} | ${f.iters} | ${f.stats.minMs} / ${f.stats.p50Ms} / ${f.stats.p95Ms} / ${f.stats.meanMs} |`
+      )
     }
   }
   return lines.join('\n')
 }
 
-async function deliverReport (payload: string): Promise<void> {
+async function deliverReport(payload: string): Promise<void> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const FileSystem = require('expo-file-system/legacy') as typeof import('expo-file-system/legacy')
@@ -1393,7 +1511,7 @@ async function deliverReport (payload: string): Promise<void> {
   }
 }
 
-export async function runEngineProof (): Promise<EngineReport> {
+export async function runEngineProof(): Promise<EngineReport> {
   const native = g.__bsvEngineNative as EngineNativeLike | undefined
   const report: EngineReport = {
     present: native != null,
@@ -1438,8 +1556,8 @@ export async function runEngineProof (): Promise<EngineReport> {
   return report
 }
 
-export function scheduleEngineProof (): void {
+export function scheduleEngineProof(): void {
   setTimeout(() => {
-    runEngineProof().catch((e) => console.error('[EngineNative] proof run failed:', e))
+    runEngineProof().catch(e => console.error('[EngineNative] proof run failed:', e))
   }, 4000)
 }

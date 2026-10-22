@@ -20,16 +20,16 @@ Several write outputs to `process.env.S`; point it anywhere writable:
 S=/tmp/r1spike node docs/example-txs/spike/gen.mjs
 ```
 
-| File | What it proves / does |
-|---|---|
-| `gen.mjs` | `buildLock({qCompressedHex, satoshis})` — regenerates the fixture lock **byte-for-byte**; `node gen.mjs` self-tests |
-| `unlock.mjs` | preimage, signer digest (`reverse(hash256(preimage))`), `pushTxDerCheck` pre-sign screen, `buildUnlock[Async]` |
-| `gen2.mjs` / `unlock2.mjs` | the generalized **1-of-N commit-to-table** variant (preimage in unlock, Q table in unlock, N hash160 commitments) |
-| `gen2-hardened.mjs` / `hardened-test.mjs` | +116 B range checks that remove third-party txid malleability (ANALYSIS §10 #1) |
-| `fuzz.mjs`, `fuzz2.mjs` | randomized positive/negative spends through the SDK `Spend` interpreter |
-| `edge.mjs`, `edge-tests.mjs` | OP_PUSH_TX DER edge classes; the 2⁻¹⁶ peel-loop abort and its predicate |
-| `adv-review.mjs` | adversarial security review harness (sections A–H) |
-| `consolidate-verify.mjs` | re-derives every number quoted in ANALYSIS.md |
-| `map-*.mjs`, `review*.mjs`, `layout2-probe.mjs`, `trace.mjs`, `recoverQ.mjs`, `comb.mjs` | dissection and independent verification probes |
-| `lock.asm.txt` | one-chunk-per-line disassembly of the fixture (`idx @byteOffset op`) |
-| `skeleton.json` | literal/template region skeleton of the fixture |
+| File                                                                                     | What it proves / does                                                                                               |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `gen.mjs`                                                                                | `buildLock({qCompressedHex, satoshis})` — regenerates the fixture lock **byte-for-byte**; `node gen.mjs` self-tests |
+| `unlock.mjs`                                                                             | preimage, signer digest (`reverse(hash256(preimage))`), `pushTxDerCheck` pre-sign screen, `buildUnlock[Async]`      |
+| `gen2.mjs` / `unlock2.mjs`                                                               | the generalized **1-of-N commit-to-table** variant (preimage in unlock, Q table in unlock, N hash160 commitments)   |
+| `gen2-hardened.mjs` / `hardened-test.mjs`                                                | +116 B range checks that remove third-party txid malleability (ANALYSIS §10 #1)                                     |
+| `fuzz.mjs`, `fuzz2.mjs`                                                                  | randomized positive/negative spends through the SDK `Spend` interpreter                                             |
+| `edge.mjs`, `edge-tests.mjs`                                                             | OP_PUSH_TX DER edge classes; the 2⁻¹⁶ peel-loop abort and its predicate                                             |
+| `adv-review.mjs`                                                                         | adversarial security review harness (sections A–H)                                                                  |
+| `consolidate-verify.mjs`                                                                 | re-derives every number quoted in ANALYSIS.md                                                                       |
+| `map-*.mjs`, `review*.mjs`, `layout2-probe.mjs`, `trace.mjs`, `recoverQ.mjs`, `comb.mjs` | dissection and independent verification probes                                                                      |
+| `lock.asm.txt`                                                                           | one-chunk-per-line disassembly of the fixture (`idx @byteOffset op`)                                                |
+| `skeleton.json`                                                                          | literal/template region skeleton of the fixture                                                                     |

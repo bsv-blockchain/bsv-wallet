@@ -13,10 +13,10 @@ export class CodecError extends Error {
 export type FrameKind = 'bsv' | 'token'
 
 export interface TokenPayment {
-  assetId: string                 // "<64-hex txid>.<vout>"
+  assetId: string // "<64-hex txid>.<vout>"
   overlayUrl: string
-  overlayIdentityKey: string      // 66-hex compressed pubkey
-  certificates: Uint8Array[]      // opaque serialized VerifiableCertificates
+  overlayIdentityKey: string // 66-hex compressed pubkey
+  certificates: Uint8Array[] // opaque serialized VerifiableCertificates
   linkage: Array<{ txid: string; payload: Uint8Array }> // per-txid MandalaLinkagePayload bytes, whole chain
   /**
    * σ_I evidence for the ancestors this frame's chain bottoms out at — the
@@ -183,7 +183,8 @@ export function encodeFrame(f: PaymentFrame): Uint8Array {
     }
     putVarint(out, t.admissions.length)
     for (const entry of t.admissions) {
-      if (entry.txid.length !== 64) throw new CodecError(`admission txid must be 64 hex chars, got ${entry.txid.length}`)
+      if (entry.txid.length !== 64)
+        throw new CodecError(`admission txid must be 64 hex chars, got ${entry.txid.length}`)
       // Same shape check the overlay key already gets: a signerKey that is not
       // a 33-byte compressed point can never verify, and one that is silently
       // truncated on the wire would verify against a DIFFERENT key on the far
@@ -258,10 +259,15 @@ export function decodeFrame(b: Uint8Array): PaymentFrame {
   const transaction = getBytes(b, pos)
   if (pos.i !== b.length) throw new CodecError('trailing bytes after frame')
   return {
-    version, kind, senderIdentityKey, outputIndex, derivationPrefix, derivationSuffix,
+    version,
+    kind,
+    senderIdentityKey,
+    outputIndex,
+    derivationPrefix,
+    derivationSuffix,
     ...(token === undefined ? {} : { token }),
     ...(note ? { note } : {}),
-    transaction,
+    transaction
   }
 }
 

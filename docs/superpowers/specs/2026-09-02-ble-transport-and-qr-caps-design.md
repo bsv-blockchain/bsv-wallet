@@ -11,7 +11,7 @@
 Three deliverables, one flow:
 
 1. **BLE becomes the third radio rung** behind the existing `LocalPaymentTransport` interface. It is implemented as a second native HybridObject, `LocalPayBleTransport`, inside `packages/react-native-localpay-transport`, with the same method shape as the AWDL/Nearby spec, so the JS wrapper in `core/localpay/transport/socket.ts` is reused unchanged in structure. BLE is the only radio that works iOS↔Android; today every cross-OS payment is a one-way animated-QR fountain with no ack.
-2. **The payee's session QR (`bsvpay1:`) carries device-hint bits** in the existing integer `c`: internet reachable, any connectivity, Wi-Fi, Bluetooth, NFC. The payer's ladder still reads only the rung bits; the hint bits drive one line of copy on the payer's confirm screen explaining *why* the pair is on the fountain floor, and are available to future rungs. Zero bytes are added for BLE pairing itself.
+2. **The payee's session QR (`bsvpay1:`) carries device-hint bits** in the existing integer `c`: internet reachable, any connectivity, Wi-Fi, Bluetooth, NFC. The payer's ladder still reads only the rung bits; the hint bits drive one line of copy on the payer's confirm screen explaining _why_ the pair is on the fountain floor, and are available to future rungs. Zero bytes are added for BLE pairing itself.
 3. **The QR is the BLE pairing step.** The BLE service UUID is derived from the session's PSK and instance name, so the payer scan-filters to exactly one advertiser. No counterparty list, no picking, no bonding prompt.
 
 ## Why now
@@ -64,12 +64,21 @@ export interface LocalPayBleTransport extends HybridObject<{ ios: 'swift'; andro
    * string as bluetoothState() once the managers settle or timeoutMs elapses.
    */
   prepare(timeoutMs: number): Promise<string>
-  startListening(instanceName: string, pskBase64: string,
-                 onFrame: (frameBase64: string) => void, onError: (message: string) => void): Promise<void>
+  startListening(
+    instanceName: string,
+    pskBase64: string,
+    onFrame: (frameBase64: string) => void,
+    onError: (message: string) => void
+  ): Promise<void>
   stopListening(): Promise<void>
   confirmFrame(accepted: boolean, reason: string): Promise<void>
-  sendFrame(instanceName: string, pskBase64: string, frameBase64: string,
-            timeoutMs: number, connectTimeoutMs: number): Promise<string>
+  sendFrame(
+    instanceName: string,
+    pskBase64: string,
+    frameBase64: string,
+    timeoutMs: number,
+    connectTimeoutMs: number
+  ): Promise<string>
 }
 ```
 
@@ -77,8 +86,7 @@ The four transport methods have signatures identical to the AWDL spec so that JS
 
 ```ts
 // core/localpay/transport/socket.ts
-export type LocalPayNative = Pick<LocalPayTransport,
-  'startListening' | 'stopListening' | 'confirmFrame' | 'sendFrame'>
+export type LocalPayNative = Pick<LocalPayTransport, 'startListening' | 'stopListening' | 'confirmFrame' | 'sendFrame'>
 
 export function makeSocketTransport(
   kind: 'awdl' | 'nearby' | 'ble',
@@ -90,7 +98,7 @@ export function makeSocketTransport(
 `awdl.ts` / `nearby.ts` pass `getLocalPayTransport` with 4 000 / 10 000. New `transport/ble.ts`:
 
 ```ts
-export const BLE_CONNECT_TIMEOUT_MS = 6_000   // scan + connect + MTU + discovery
+export const BLE_CONNECT_TIMEOUT_MS = 6_000 // scan + connect + MTU + discovery
 export const bleTransport = makeSocketTransport('ble', getLocalPayBleTransport, BLE_CONNECT_TIMEOUT_MS)
 ```
 
@@ -118,12 +126,12 @@ advertisement  serviceUUIDs: [service UUID]; localName: "BSV Pay" (advisory; iOS
 
 BLE GATT without bonding has no link security, and cross-platform bonding prompts are a UX dead end, so the link is authenticated at the message layer exactly as the Kotlin Nearby backend does. Every message is one of:
 
-| Type | Direction | Body | Authenticates |
-|---|---|---|---|
-| `HELLO_A 0x01` | central → peripheral, FRAME char | `HMAC-SHA256(psk, utf8(instanceName) ‖ 0x01)` | payer holds the PSK |
-| `HELLO_B 0x02` | peripheral → central, ACK char | `HMAC-SHA256(psk, utf8(instanceName) ‖ 0x02)` | payee holds the PSK |
-| `FRAME 0x03` | central → peripheral, FRAME char | sealed frame (AES-256-GCM under psk, `codec.ts:219-243`) | self-authenticating |
-| `ACK 0x04` | peripheral → central, ACK char | `ackJson ‖ HMAC-SHA256(psk, utf8(instanceName) ‖ 0x04 ‖ ackJson)` | ack came from the PSK holder |
+| Type           | Direction                        | Body                                                              | Authenticates                |
+| -------------- | -------------------------------- | ----------------------------------------------------------------- | ---------------------------- |
+| `HELLO_A 0x01` | central → peripheral, FRAME char | `HMAC-SHA256(psk, utf8(instanceName) ‖ 0x01)`                     | payer holds the PSK          |
+| `HELLO_B 0x02` | peripheral → central, ACK char   | `HMAC-SHA256(psk, utf8(instanceName) ‖ 0x02)`                     | payee holds the PSK          |
+| `FRAME 0x03`   | central → peripheral, FRAME char | sealed frame (AES-256-GCM under psk, `codec.ts:219-243`)          | self-authenticating          |
+| `ACK 0x04`     | peripheral → central, ACK char   | `ackJson ‖ HMAC-SHA256(psk, utf8(instanceName) ‖ 0x04 ‖ ackJson)` | ack came from the PSK holder |
 
 `ackJson` is byte-identical to AWDL/Nearby: `{"ok":true}` or `{"ok":false,"error":<reason>}` with `reason` JSON-serialized, never interpolated (Swift `declineJson`, Kotlin `jsonString`). The payer's native side verifies the HMAC in constant time, strips it, and returns `base64(ackJson)` to JS, so `parseAck` in `socket.ts:30-48` is unchanged.
 
@@ -165,17 +173,17 @@ All peripheral state is confined to one serial `DispatchQueue` (iOS, delegate ca
 
 ```ts
 // core/localpay/session.ts
-export const CAP_AWDL   = 0x01
+export const CAP_AWDL = 0x01
 export const CAP_NEARBY = 0x02
-export const CAP_BLE    = 0x04   // now advertised by this app: payee is advertising bsvpay-ble/1
+export const CAP_BLE = 0x04 // now advertised by this app: payee is advertising bsvpay-ble/1
 // 0x08..0x80 reserved for future rungs (L2CAP, NFC, Wi-Fi Aware)
-export const HINT_ONLINE       = 0x0100 // internet reachable
+export const HINT_ONLINE = 0x0100 // internet reachable
 export const HINT_ONLINE_KNOWN = 0x0200 // HINT_ONLINE is meaningful (probe answered in budget)
-export const HINT_NET          = 0x0400 // any connectivity
-export const HINT_WIFI         = 0x0800 // Android: Wi-Fi radio on. iOS: associated with a Wi-Fi network (no radio API)
-export const HINT_BT           = 0x1000 // Bluetooth authorized and powered on
-export const HINT_NFC          = 0x2000 // NFC reader available
-export const RUNG_MASK         = 0x00ff
+export const HINT_NET = 0x0400 // any connectivity
+export const HINT_WIFI = 0x0800 // Android: Wi-Fi radio on. iOS: associated with a Wi-Fi network (no radio API)
+export const HINT_BT = 0x1000 // Bluetooth authorized and powered on
+export const HINT_NFC = 0x2000 // NFC reader available
+export const RUNG_MASK = 0x00ff
 ```
 
 `mintSession` gains `supportsBle?: boolean` and `hints?: number` (already masked to `~RUNG_MASK`). `caps = rungs | (hints & ~RUNG_MASK)`. `decodeSession` is unchanged: it already accepts any number.
@@ -184,13 +192,13 @@ export const RUNG_MASK         = 0x00ff
 
 ```ts
 export interface DeviceProbe {
-  online: boolean | null          // NetInfo isInternetReachable, null = unknown in budget
-  connected: boolean | null       // NetInfo isConnected
-  wifi: boolean                   // Android isWifiEnabled; iOS type === 'wifi'
+  online: boolean | null // NetInfo isInternetReachable, null = unknown in budget
+  connected: boolean | null // NetInfo isConnected
+  wifi: boolean // Android isWifiEnabled; iOS type === 'wifi'
   bluetooth: 'poweredOn' | 'poweredOff' | 'unauthorized' | 'unsupported' | 'unknown'
   nfc: boolean
 }
-export function capsFromProbe(p: DeviceProbe): number          // pure, unit-tested
+export function capsFromProbe(p: DeviceProbe): number // pure, unit-tested
 export async function probeDeviceCaps(opts: { netBudgetMs: number }): Promise<DeviceProbe>
 ```
 
@@ -205,11 +213,11 @@ export async function probeDeviceCaps(opts: { netBudgetMs: number }): Promise<De
 ```ts
 // core/localpay/transport/select.ts
 export type TransportKind = 'awdl' | 'nearby' | 'ble' | 'qr'
-export function localSupportsBle(): boolean   // prompt-free: getLocalPayBleTransport()?.isSupported() ?? false
+export function localSupportsBle(): boolean // prompt-free: getLocalPayBleTransport()?.isSupported() ?? false
 export function selectTransport(session: Session): TransportKind {
-  if ((session.caps & CAP_AWDL)   !== 0 && localSupportsAwdl())   return 'awdl'
+  if ((session.caps & CAP_AWDL) !== 0 && localSupportsAwdl()) return 'awdl'
   if ((session.caps & CAP_NEARBY) !== 0 && localSupportsNearby()) return 'nearby'
-  if ((session.caps & CAP_BLE)    !== 0 && localSupportsBle())    return 'ble'
+  if ((session.caps & CAP_BLE) !== 0 && localSupportsBle()) return 'ble'
   return 'qr'
 }
 ```
@@ -218,14 +226,14 @@ Ladder rationale: same-OS pairs keep the higher-throughput radio they have today
 
 **`describeFloor(session, local)`** (pure, in `select.ts`) returns why a payer is on QR, evaluated only when `selectTransport` returned `'qr'`:
 
-| Reason | Condition |
-|---|---|
-| `peer_no_radio` | `session.caps & RUNG_MASK` is 0 |
-| `peer_bt_off` | peer has no `CAP_BLE`, `HINT_BT` clear, and no same-OS rung is usable locally |
-| `local_ble_denied` | peer has `CAP_BLE`, local `bluetoothState()` is `unauthorized` |
-| `local_bt_off` | peer has `CAP_BLE`, local `bluetoothState()` is `poweredOff` |
-| `cross_os_no_ble` | peer OS hint differs from local, peer lacks `CAP_BLE`, `HINT_BT` set (peer BT on but app could not advertise) |
-| `none` | everything else |
+| Reason             | Condition                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `peer_no_radio`    | `session.caps & RUNG_MASK` is 0                                                                               |
+| `peer_bt_off`      | peer has no `CAP_BLE`, `HINT_BT` clear, and no same-OS rung is usable locally                                 |
+| `local_ble_denied` | peer has `CAP_BLE`, local `bluetoothState()` is `unauthorized`                                                |
+| `local_bt_off`     | peer has `CAP_BLE`, local `bluetoothState()` is `poweredOff`                                                  |
+| `cross_os_no_ble`  | peer OS hint differs from local, peer lacks `CAP_BLE`, `HINT_BT` set (peer BT on but app could not advertise) |
+| `none`             | everything else                                                                                               |
 
 `send_confirm` renders one sentence keyed by the reason (`local_pay_floor_peer_bt_off`, `local_pay_floor_local_bt_off`, `local_pay_floor_local_ble_denied` with an Open Settings affordance, `local_pay_floor_cross_os`, `local_pay_floor_peer_no_radio`). This is the immediate, user-visible payoff of the hint bits: the person paying is told what to ask the other person to switch on, instead of watching a slow fountain in silence.
 
@@ -266,6 +274,7 @@ No builds with BLE are in the field. Older `bsvpay1:` decoders (the current app)
 ## Testing
 
 **Jest (pure and mocked).**
+
 - `deviceCaps.test.ts`: `capsFromProbe` truth table including unknown → clear and `HINT_ONLINE_KNOWN` semantics; `probeDeviceCaps` budget timeout with a stalled `NetInfo.fetch` mock.
 - `transportSelect.test.ts`: the new CASES rows; `describeFloor` table; `localSupportsBle` with a mocked accessor returning `null`.
 - `transportBle.test.ts`: `makeSocketTransport('ble', …)` over a mocked native object — abort before/after frame, single-ack latch, `decode_failed` decline on unseal failure, connect-timeout rejection string, oversize rejection propagates as a radio failure.

@@ -579,7 +579,10 @@
         }
       }
     </style>
-<script>if(localStorage.getItem('bsvb-lang')&&localStorage.getItem('bsvb-lang')!=='en')document.documentElement.classList.add('i18n-loading');</script>
+    <script>
+      if (localStorage.getItem('bsvb-lang') && localStorage.getItem('bsvb-lang') !== 'en')
+        document.documentElement.classList.add('i18n-loading')
+    </script>
   </head>
   <body>
     <!-- Hero -->
@@ -958,8 +961,9 @@
               your own secrets &mdash; the server cannot read it.
             </p>
             <p data-i18n="w.backup.private_p2">
-              Under <strong>Settings &rarr; Advanced</strong> you can switch this off, and you can erase what has already
-              been sent. The two are separate on purpose: switching off stops new copies, erasing removes the old ones.
+              Under <strong>Settings &rarr; Advanced</strong> you can switch this off, and you can erase what has
+              already been sent. The two are separate on purpose: switching off stops new copies, erasing removes the
+              old ones.
             </p>
             <div class="warning-box">
               <p data-i18n-html="w.backup.private_warning">
@@ -991,9 +995,9 @@
             </p>
             <div class="warning-box">
               <p data-i18n-html="w.backup.vault_warning">
-                <strong>The recovery phrase does not open the vault.</strong> It was never part of how vault spending
-                is authorized. A new phone needs at least one of your enrolled YubiKeys, that key's PIN, and private
-                backup switched on so the app can restore the key records it needs to recognize your keys again.
+                <strong>The recovery phrase does not open the vault.</strong> It was never part of how vault spending is
+                authorized. A new phone needs at least one of your enrolled YubiKeys, that key's PIN, and private backup
+                switched on so the app can restore the key records it needs to recognize your keys again.
               </p>
             </div>
             <p data-i18n="w.backup.vault_p3">
@@ -1169,7 +1173,9 @@
           Every line of this wallet can be read, audited, and built by anyone. You do not have to take our word for what
           it does with your keys &mdash; you can check.
         </p>
-        <p data-i18n-html="w.open_source.p2">Licensed under the <strong>Open BSV License</strong> and developed in the open on GitHub.</p>
+        <p data-i18n-html="w.open_source.p2">
+          Licensed under the <strong>Open BSV License</strong> and developed in the open on GitHub.
+        </p>
         <p>
           <a href="https://github.com/bsv-blockchain/bsv-wallet" target="_blank" rel="noopener"
             >View the source code on GitHub &rarr;</a
@@ -1231,7 +1237,7 @@
         </div>
       </div>
     </footer>
-    <link rel="stylesheet" href="i18n/lang-selector.css">
+    <link rel="stylesheet" href="i18n/lang-selector.css" />
     <script src="i18n/i18n.js"></script>
     <script src="i18n/lang-selector.js"></script>
     <script>

@@ -21,14 +21,7 @@
  *   • reject — a corrupted unlock ⇒ JS throws BEFORE the shadow (JS remains
  *              authoritative for rejects too)
  */
-import {
-  Beef,
-  LockingScript,
-  P2PKH,
-  PrivateKey,
-  Transaction,
-  UnlockingScript
-} from '@bsv/sdk'
+import { Beef, LockingScript, P2PKH, PrivateKey, Transaction, UnlockingScript } from '@bsv/sdk'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { verifyUnlockScripts } = require('@bsv/wallet-toolbox-mobile')
 
@@ -45,7 +38,7 @@ interface ShadowState {
 }
 
 /** Build a fully-signed 2-input P2PKH tx + a beef containing it and its source. */
-async function buildP2pkhBeef (): Promise<{ txid: string; beef: Beef; nInputs: number }> {
+async function buildP2pkhBeef(): Promise<{ txid: string; beef: Beef; nInputs: number }> {
   const p2pkh = new P2PKH()
   const keys = [new PrivateKey(200001), new PrivateKey(200002)]
   const srcTx = new Transaction()
@@ -70,7 +63,7 @@ async function buildP2pkhBeef (): Promise<{ txid: string; beef: Beef; nInputs: n
 }
 
 /** Signed tx mixing a P2PKH input with a non-P2PKH (OP_1) input. */
-async function buildMixedBeef (): Promise<{ txid: string; beef: Beef }> {
+async function buildMixedBeef(): Promise<{ txid: string; beef: Beef }> {
   const p2pkh = new P2PKH()
   const k = new PrivateKey(200003)
   const srcP = new Transaction()
@@ -79,8 +72,20 @@ async function buildMixedBeef (): Promise<{ txid: string; beef: Beef }> {
   srcTrue.addOutput({ lockingScript: LockingScript.fromHex('51'), satoshis: 5 }) // OP_1 — truthy, non-P2PKH
   const trueTmpl = { sign: async () => new UnlockingScript([]), estimateLength: async () => 1 }
   const spend = new Transaction()
-  spend.addInput({ sourceTransaction: srcP, sourceTXID: srcP.id('hex'), sourceOutputIndex: 0, unlockingScriptTemplate: p2pkh.unlock(k), sequence: 0xffffffff })
-  spend.addInput({ sourceTransaction: srcTrue, sourceTXID: srcTrue.id('hex'), sourceOutputIndex: 0, unlockingScriptTemplate: trueTmpl as any, sequence: 0xffffffff })
+  spend.addInput({
+    sourceTransaction: srcP,
+    sourceTXID: srcP.id('hex'),
+    sourceOutputIndex: 0,
+    unlockingScriptTemplate: p2pkh.unlock(k),
+    sequence: 0xffffffff
+  })
+  spend.addInput({
+    sourceTransaction: srcTrue,
+    sourceTXID: srcTrue.id('hex'),
+    sourceOutputIndex: 0,
+    unlockingScriptTemplate: trueTmpl as any,
+    sequence: 0xffffffff
+  })
   spend.addOutput({ lockingScript: p2pkh.lock(new PrivateKey(999).toAddress()), satoshis: 900 })
   await spend.sign()
   const beef = new Beef()
@@ -139,7 +144,11 @@ describe('M5.6 verifyUnlockScripts shadow-mode routing (issue #24)', () => {
 
   it('poison: engine rejects an eligible JS-valid tx ⇒ divergence logged, no crash (fallback)', async () => {
     const { txid, beef } = await buildP2pkhBeef()
-    g.__bsvEngineNative = { batchVerifyP2pkhInputs: async () => { throw new Error('poison') } }
+    g.__bsvEngineNative = {
+      batchVerifyP2pkhInputs: async () => {
+        throw new Error('poison')
+      }
+    }
     await expect(verifyUnlockScripts(txid, beef)).resolves.toBeDefined()
     const s = g.__bsvEngineShadow as ShadowState
     await s.pending

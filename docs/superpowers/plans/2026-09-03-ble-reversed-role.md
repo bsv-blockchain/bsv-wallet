@@ -32,33 +32,35 @@
 
 Paths: `RNLT` = `packages/react-native-localpay-transport`, `L` = `packages/expo-wallet-toolbox/core/localpay`, `T` = `packages/expo-wallet-toolbox/__tests__/localpay`, `UI` = `packages/expo-wallet-toolbox/ui`.
 
-| Path | Action | Task(s) | Responsibility |
-|---|---|---|---|
-| `RNLT/android/.../HybridLocalPayBleTransport.kt` | Modify | 0, 4, 5 | Task 0: late-MTU adoption + chunk logging (already in the working tree). Task 4: `PayerAdvertise` + `sendFrameAdvertising`. Task 5: `startScanning` (payee as central). |
-| `L/session.ts` | Modify | 1 | `CAP_BLE_SCAN`, `supportsBleScan` |
-| `T/session.test.ts` | Modify | 1 | Bit tests |
-| `L/transport/select.ts` | Modify | 2 | `BleRole`, `bleRole()` |
-| `T/transportSelect.test.ts` | Modify | 2 | `bleRole` table |
-| `RNLT/src/specs/LocalPayBleTransport.nitro.ts` | Modify | 3 | Two new methods |
-| `RNLT/nitrogen/generated/**` | Regenerate | 3 | Glue for the new methods |
-| `RNLT/ios/HybridLocalPayBleTransport.swift` | Modify | 3, 6, 7 | Task 3: forwarding shell + inert engine stubs. Task 6: `InboundScan`. Task 7: `PayerAdvertise`. |
-| `RNLT/android/src/test/.../BleGattProfileTest.kt` | Modify | 4 | `verifyAck` accepts the Swift-built ACK bytes |
-| `L/transport/socket.ts` | Modify | 8 | Export `SEND_TIMEOUT_MS`, `parseAck`, `makeConfirm`, `declineQuietly`, `toBase64`, `fromBase64` |
-| `L/transport/ble.ts` | Modify | 8 | `makeBleTransport`: dual listener on receive, role dispatch on send |
-| `T/transportBle.test.ts` | Modify | 8 | Dual-listener and role-dispatch tests |
-| `UI/components/pay/NearbyFlow.tsx` | Modify | 8, 9 | Task 8: `supportsBleScan` at mint. Task 9: remove the two `[localpay][diag]` lines. |
-| `docs/superpowers/2026-09-02-ble-hardware-log.md` | Modify | 9 | Today's two failure rows + reversed-role rows |
-| `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` | Modify | 9 | "Amended by" pointer |
+| Path                                                                    | Action     | Task(s) | Responsibility                                                                                                                                                          |
+| ----------------------------------------------------------------------- | ---------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RNLT/android/.../HybridLocalPayBleTransport.kt`                        | Modify     | 0, 4, 5 | Task 0: late-MTU adoption + chunk logging (already in the working tree). Task 4: `PayerAdvertise` + `sendFrameAdvertising`. Task 5: `startScanning` (payee as central). |
+| `L/session.ts`                                                          | Modify     | 1       | `CAP_BLE_SCAN`, `supportsBleScan`                                                                                                                                       |
+| `T/session.test.ts`                                                     | Modify     | 1       | Bit tests                                                                                                                                                               |
+| `L/transport/select.ts`                                                 | Modify     | 2       | `BleRole`, `bleRole()`                                                                                                                                                  |
+| `T/transportSelect.test.ts`                                             | Modify     | 2       | `bleRole` table                                                                                                                                                         |
+| `RNLT/src/specs/LocalPayBleTransport.nitro.ts`                          | Modify     | 3       | Two new methods                                                                                                                                                         |
+| `RNLT/nitrogen/generated/**`                                            | Regenerate | 3       | Glue for the new methods                                                                                                                                                |
+| `RNLT/ios/HybridLocalPayBleTransport.swift`                             | Modify     | 3, 6, 7 | Task 3: forwarding shell + inert engine stubs. Task 6: `InboundScan`. Task 7: `PayerAdvertise`.                                                                         |
+| `RNLT/android/src/test/.../BleGattProfileTest.kt`                       | Modify     | 4       | `verifyAck` accepts the Swift-built ACK bytes                                                                                                                           |
+| `L/transport/socket.ts`                                                 | Modify     | 8       | Export `SEND_TIMEOUT_MS`, `parseAck`, `makeConfirm`, `declineQuietly`, `toBase64`, `fromBase64`                                                                         |
+| `L/transport/ble.ts`                                                    | Modify     | 8       | `makeBleTransport`: dual listener on receive, role dispatch on send                                                                                                     |
+| `T/transportBle.test.ts`                                                | Modify     | 8       | Dual-listener and role-dispatch tests                                                                                                                                   |
+| `UI/components/pay/NearbyFlow.tsx`                                      | Modify     | 8, 9    | Task 8: `supportsBleScan` at mint. Task 9: remove the two `[localpay][diag]` lines.                                                                                     |
+| `docs/superpowers/2026-09-02-ble-hardware-log.md`                       | Modify     | 9       | Today's two failure rows + reversed-role rows                                                                                                                           |
+| `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` | Modify     | 9       | "Amended by" pointer                                                                                                                                                    |
 
 ---
 
 ### Task 0: Commit the Kotlin late-MTU adoption and chunk logging already in the working tree
 
 **Files:**
+
 - Modify (already modified, uncommitted): `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayBleTransport.kt`
 - Leave untouched for now: `packages/expo-wallet-toolbox/ui/components/pay/NearbyFlow.tsx` (its two `[localpay][diag]` lines are removed in Task 9; keep them out of this commit)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `onMtuChanged` adopts a late MTU when `writeQueue.isEmpty()`; `writeNextChunk` logs `payer: chunk write submitted bytes=… remaining=… type=… status=… at … ms`; `onCharacteristicWrite` logs `payer: chunk write confirmed status=… queued=… at … ms`; `onPhyUpdate` logs `payer: phy updated …`.
 
@@ -93,10 +95,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 1: `CAP_BLE_SCAN` in the session
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/localpay/session.ts` (constants block after `CAP_BLE`; `mintSession` args and caps expression)
 - Test: `packages/expo-wallet-toolbox/__tests__/localpay/session.test.ts`
 
 **Interfaces:**
+
 - Produces: `export const CAP_BLE_SCAN = 0x08`; `mintSession` accepts `supportsBleScan?: boolean` and mints `0x08` only when `supportsBle` is true.
 
 - [ ] **Step 1: Write the failing tests**
@@ -104,19 +108,19 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 Add to the imports of `session.test.ts`: `CAP_BLE_SCAN`. Add inside the existing `describe` that holds the `CAP_BLE` tests (near line 72):
 
 ```ts
-  it('mints the BLE scan bit only alongside the BLE rung bit', () => {
-    expect(CAP_BLE_SCAN).toBe(0x08)
-    expect(mintSession({ ...args, supportsBle: true, supportsBleScan: true }).caps & CAP_BLE_SCAN).toBe(CAP_BLE_SCAN)
-    expect(mintSession({ ...args, supportsBle: true, supportsBleScan: false }).caps & CAP_BLE_SCAN).toBe(0)
-    expect(mintSession({ ...args, supportsBle: true }).caps & CAP_BLE_SCAN).toBe(0)
-    // A scanner with no advertiser behind it would strand iOS payers: refused at the mint.
-    expect(mintSession({ ...args, supportsBle: false, supportsBleScan: true }).caps & (CAP_BLE | CAP_BLE_SCAN)).toBe(0)
-  })
+it('mints the BLE scan bit only alongside the BLE rung bit', () => {
+  expect(CAP_BLE_SCAN).toBe(0x08)
+  expect(mintSession({ ...args, supportsBle: true, supportsBleScan: true }).caps & CAP_BLE_SCAN).toBe(CAP_BLE_SCAN)
+  expect(mintSession({ ...args, supportsBle: true, supportsBleScan: false }).caps & CAP_BLE_SCAN).toBe(0)
+  expect(mintSession({ ...args, supportsBle: true }).caps & CAP_BLE_SCAN).toBe(0)
+  // A scanner with no advertiser behind it would strand iOS payers: refused at the mint.
+  expect(mintSession({ ...args, supportsBle: false, supportsBleScan: true }).caps & (CAP_BLE | CAP_BLE_SCAN)).toBe(0)
+})
 
-  it('round-trips the scan bit through the QR text', () => {
-    const s = mintSession({ ...args, supportsBle: true, supportsBleScan: true })
-    expect(decodeSession(encodeSession(s)).caps & CAP_BLE_SCAN).toBe(CAP_BLE_SCAN)
-  })
+it('round-trips the scan bit through the QR text', () => {
+  const s = mintSession({ ...args, supportsBle: true, supportsBleScan: true })
+  expect(decodeSession(encodeSession(s)).caps & CAP_BLE_SCAN).toBe(CAP_BLE_SCAN)
+})
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -182,10 +186,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 2: `bleRole()` in the ladder module
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/localpay/transport/select.ts`
 - Test: `packages/expo-wallet-toolbox/__tests__/localpay/transportSelect.test.ts`
 
 **Interfaces:**
+
 - Consumes: `CAP_BLE_SCAN` (Task 1).
 - Produces: `export type BleRole = 'central' | 'peripheral'`; `export function bleRole(session: Session): BleRole`.
 
@@ -201,12 +207,16 @@ describe('bleRole', () => {
 
   it('is peripheral only when the payee scans and this device is Android', () => {
     Platform.OS = 'android'
-    expect(bleRole(mintSession({ ...base, supportsAwdl: false, supportsBle: true, supportsBleScan: true }))).toBe('peripheral')
+    expect(bleRole(mintSession({ ...base, supportsAwdl: false, supportsBle: true, supportsBleScan: true }))).toBe(
+      'peripheral'
+    )
   })
 
   it('stays central on iOS even when the payee scans', () => {
     Platform.OS = 'ios'
-    expect(bleRole(mintSession({ ...base, supportsAwdl: false, supportsBle: true, supportsBleScan: true }))).toBe('central')
+    expect(bleRole(mintSession({ ...base, supportsAwdl: false, supportsBle: true, supportsBleScan: true }))).toBe(
+      'central'
+    )
   })
 
   it('stays central on Android when the payee does not scan', () => {
@@ -268,12 +278,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 3: Nitro surface — `startScanning` and `sendFrameAdvertising`, regenerated glue, inert native stubs
 
 **Files:**
+
 - Modify: `packages/react-native-localpay-transport/src/specs/LocalPayBleTransport.nitro.ts`
 - Regenerate: `packages/react-native-localpay-transport/nitrogen/generated/**`
 - Modify: `packages/react-native-localpay-transport/ios/HybridLocalPayBleTransport.swift` (shell class + `BleEngine` stubs)
 - Modify: `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayBleTransport.kt` (stubs)
 
 **Interfaces:**
+
 - Produces (used by Tasks 4–8):
   - `startScanning(instanceName: string, pskBase64: string, onFrame: (frameBase64: string) => void, onError: (message: string) => void): Promise<void>`
   - `sendFrameAdvertising(instanceName: string, pskBase64: string, frameBase64: string, timeoutMs: number, connectTimeoutMs: number): Promise<string>`
@@ -425,10 +437,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 4: Kotlin payer as peripheral — `PayerAdvertise` + `sendFrameAdvertising`
 
 **Files:**
+
 - Modify: `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayBleTransport.kt`
 - Test: `packages/react-native-localpay-transport/android/src/test/java/com/margelo/nitro/localpaytransport/BleGattProfileTest.kt`
 
 **Interfaces:**
+
 - Consumes: existing `ensureGattServer()`, `startAdvertising(uuid)`, `stopAdvertising()`, `Central`, `centrals`, `sendIndication(central, message, onDone)`, `onIndicationResult`, `service`, `ackCharacteristic`, `advertiseCallback`, `serverCallback`, `main`.
 - Produces: `sendFrameAdvertising` per the Nitro contract; `private var payer: PayerAdvertise?` which every `serverCallback` branch consults first.
 
@@ -773,9 +787,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 5: Kotlin payee as central — `startScanning` (symmetric implementation)
 
 **Files:**
+
 - Modify: `packages/react-native-localpay-transport/android/src/main/java/com/margelo/nitro/localpaytransport/HybridLocalPayBleTransport.kt`
 
 **Interfaces:**
+
 - Consumes: `sendFrame`'s central chain shape (scan → connect → MTU → discover → subscribe), `BleGattProfile.Reassembler`, `listenOnFrame`/`listenOnError`, `hasAccepted`.
 - Produces: `startScanning` per the Nitro contract; `confirmFrame` writes the ACK over the scan link when `scan?.pendingAck` is set.
 
@@ -1144,9 +1160,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 6: Swift payee as central — `InboundScan` + engine routing + `confirmFrame` over the scan link
 
 **Files:**
+
 - Modify: `packages/react-native-localpay-transport/ios/HybridLocalPayBleTransport.swift`
 
 **Interfaces:**
+
 - Consumes: `BleEngine.queue`, `centralManager`, `listening: ListenSession?`, `ListenSession.hasAccepted`, `armAckReaper` pattern, `OutboundSend` routing in `CBCentralManagerDelegate`.
 - Produces: `startScanning` per the Nitro contract; `ListenSession.scanPendingAck: InboundScan?`; `confirmFrame` writes the ACK via `InboundScan.writeAck(_:completion:)`.
 
@@ -1596,9 +1614,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 7: Swift payer as peripheral — `PayerAdvertise` + `sendFrameAdvertising` (symmetric implementation)
 
 **Files:**
+
 - Modify: `packages/react-native-localpay-transport/ios/HybridLocalPayBleTransport.swift`
 
 **Interfaces:**
+
 - Consumes: `peripheralManager`, `enqueueIndication`/`flushIndications`, `indicationQueue`, `CBPeripheralManagerDelegate` callbacks.
 - Produces: `sendFrameAdvertising` per the Nitro contract; `BleEngine.activePayer: PayerAdvertise?` consulted first in every peripheral-manager callback.
 
@@ -1894,12 +1914,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 8: JS — `makeBleTransport` (dual listener, role dispatch) and the payee mint
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/core/localpay/transport/socket.ts` (exports only)
 - Modify: `packages/expo-wallet-toolbox/core/localpay/transport/ble.ts`
 - Modify: `packages/expo-wallet-toolbox/ui/components/pay/NearbyFlow.tsx` (mint args)
 - Test: `packages/expo-wallet-toolbox/__tests__/localpay/transportBle.test.ts`
 
 **Interfaces:**
+
 - Consumes: `bleRole` (Task 2), `CAP_BLE_SCAN` (Task 1), Nitro methods (Task 3).
 - Produces: `export function makeBleTransport(native: () => LocalPayBleTransport | null, connectTimeoutMs: number): LocalPaymentTransport`; `export const bleTransport = makeBleTransport(getLocalPayBleTransport, BLE_CONNECT_TIMEOUT_MS)`.
 
@@ -1928,7 +1950,7 @@ describe('bleTransport reversed role', () => {
   it('send() advertises on Android when the payee scans', async () => {
     Platform.OS = 'android'
     const native = fakeNative({
-      sendFrameAdvertising: jest.fn().mockResolvedValue(toAckBase64({ ok: true })) as never,
+      sendFrameAdvertising: jest.fn().mockResolvedValue(toAckBase64({ ok: true })) as never
     })
     getLocalPayBleTransport.mockReturnValue(native)
     await expect(bleTransport.send(scanning, frame, new AbortController().signal)).resolves.toEqual({ ok: true })
@@ -1975,7 +1997,10 @@ describe('bleTransport reversed role', () => {
   it('receive() never scans on Android', async () => {
     Platform.OS = 'android'
     const startScanning = jest.fn(() => Promise.resolve())
-    const native = fakeNative({ startListening: jest.fn(() => Promise.resolve()) as never, startScanning: startScanning as never })
+    const native = fakeNative({
+      startListening: jest.fn(() => Promise.resolve()) as never,
+      startScanning: startScanning as never
+    })
     getLocalPayBleTransport.mockReturnValue(native)
     const controller = new AbortController()
     const pending = bleTransport.receive(session, controller.signal)
@@ -1994,7 +2019,7 @@ describe('bleTransport reversed role', () => {
     })
     const native = fakeNative({
       startListening: startListening as never,
-      startScanning: jest.fn().mockRejectedValue(new Error('bluetooth unavailable')) as never,
+      startScanning: jest.fn().mockRejectedValue(new Error('bluetooth unavailable')) as never
     })
     getLocalPayBleTransport.mockReturnValue(native)
     const received = await bleTransport.receive(session, new AbortController().signal)
@@ -2009,7 +2034,10 @@ describe('bleTransport reversed role', () => {
       setTimeout(() => onFrame(toBase64(sealFrame(frame, session.psk))), 0)
       return Promise.resolve()
     })
-    const native = fakeNative({ startListening: jest.fn(() => Promise.resolve()) as never, startScanning: startScanning as never })
+    const native = fakeNative({
+      startListening: jest.fn(() => Promise.resolve()) as never,
+      startScanning: startScanning as never
+    })
     getLocalPayBleTransport.mockReturnValue(native)
     const received = await bleTransport.receive(session, new AbortController().signal)
     await received.confirm(true)
@@ -2119,7 +2147,7 @@ export function makeBleTransport(
         toBase64(session.psk),
         toBase64(sealFrame(frame, session.psk)),
         SEND_TIMEOUT_MS,
-        connectTimeoutMs,
+        connectTimeoutMs
       ] as const
 
       return new Promise<Ack>((resolve, reject) => {
@@ -2153,7 +2181,7 @@ export function makeBleTransport(
           }
         )
       })
-    },
+    }
   }
 }
 
@@ -2200,6 +2228,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 9: Housekeeping, docs, and the device run
 
 **Files:**
+
 - Modify: `packages/expo-wallet-toolbox/ui/components/pay/NearbyFlow.tsx` (remove the two `// TEMP DIAG` lines and their `console.log`)
 - Modify: `docs/superpowers/2026-09-02-ble-hardware-log.md`
 - Modify: `docs/superpowers/specs/2026-09-02-ble-transport-and-qr-caps-design.md` (header pointer)
@@ -2209,15 +2238,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 Delete the two blocks in `NearbyFlow.tsx`:
 
 ```ts
-      // TEMP DIAG (remove before commit)
-      console.log(`[localpay][diag] payee minted caps=0x${session.caps.toString(16)} …`)
+// TEMP DIAG (remove before commit)
+console.log(`[localpay][diag] payee minted caps=0x${session.caps.toString(16)} …`)
 ```
 
 and
 
 ```ts
-    // TEMP DIAG (remove before commit)
-    console.log(`[localpay][diag] payer adopted caps=0x${session.caps.toString(16)} …`)
+// TEMP DIAG (remove before commit)
+console.log(`[localpay][diag] payer adopted caps=0x${session.caps.toString(16)} …`)
 ```
 
 Run: `grep -n "diag" packages/expo-wallet-toolbox/ui/components/pay/NearbyFlow.tsx` → expected no output. Run `npx jest packages/expo-wallet-toolbox/__tests__/ui/payScreen.test.tsx` → PASS.

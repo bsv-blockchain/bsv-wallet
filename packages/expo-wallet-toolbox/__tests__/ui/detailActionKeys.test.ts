@@ -57,12 +57,12 @@ describe('detailActionKeysFor: Cancel and Request confirmation from recipient', 
   })
 
   it('never offers it for an incoming payment, an unlabelled one, or one with no txid', () => {
-    expect(detailActionKeysFor({ txid: 'tx1', status: 'completed', isOutgoing: false, labels: ['peerpay'] })).not.toContain(
-      'request-confirmation'
-    )
-    expect(detailActionKeysFor({ txid: 'tx1', status: 'completed', isOutgoing: true, labels: ['other'] })).not.toContain(
-      'request-confirmation'
-    )
+    expect(
+      detailActionKeysFor({ txid: 'tx1', status: 'completed', isOutgoing: false, labels: ['peerpay'] })
+    ).not.toContain('request-confirmation')
+    expect(
+      detailActionKeysFor({ txid: 'tx1', status: 'completed', isOutgoing: true, labels: ['other'] })
+    ).not.toContain('request-confirmation')
     expect(detailActionKeysFor({ status: 'unsigned', isOutgoing: true, labels: ['peerpay'] })).not.toContain(
       'request-confirmation'
     )

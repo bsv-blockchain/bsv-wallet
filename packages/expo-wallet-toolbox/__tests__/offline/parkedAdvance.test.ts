@@ -16,11 +16,7 @@ import { Beef, Transaction } from '@bsv/sdk'
 import { MandalaToken } from '../../core/mandala/token'
 import { createTables } from '../../core/storage/schema/createTables'
 import { findOfflineActions, type OfflineActionRow } from '../../core/storage/methods/offlineActions'
-import {
-  holdSentPaymentOffline,
-  parkSentPaymentOffline,
-  releaseParkedPayment
-} from '../../core/offline/payerHold'
+import { holdSentPaymentOffline, parkSentPaymentOffline, releaseParkedPayment } from '../../core/offline/payerHold'
 import { createSettlementStore, type SettlementDb, type SqlSettlementStore } from '../../core/mandala/settlementStore'
 import {
   forgetSessionPsks,
@@ -116,7 +112,6 @@ it('a repeated confirm never duplicates the row or re-promotes a moved transacti
   expect(await drainable()).toHaveLength(1)
   expect(promoted).toEqual([['unproven', 99]])
 })
-
 
 // ─────────────────── the payer's own durability (spec §4.4, §5) ───────────────────
 //

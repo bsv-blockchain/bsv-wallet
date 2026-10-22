@@ -229,7 +229,12 @@ async function recoverOneCandidate(
 
   let salt: string
   try {
-    salt = await deriveVaultSalt(w, adminOriginator, ci.saltKeyId, ci.keys.map(key => key.serial))
+    salt = await deriveVaultSalt(
+      w,
+      adminOriginator,
+      ci.saltKeyId,
+      ci.keys.map(key => key.serial)
+    )
   } catch {
     return { kind: 'problem', reason: 'could not derive the salt for this record' }
   }
@@ -263,20 +268,25 @@ async function internalizeCandidate(
   candidate: RecoverableCandidate
 ): Promise<string | undefined> {
   try {
-    await w.internalizeAction({
-      tx: candidate.beef,
-      outputs: [{
-        outputIndex: candidate.vaultOutputIndex,
-        protocol: 'basket insertion',
-        insertionRemittance: {
-          basket: VAULT_BASKET,
-          customInstructions: encodeVaultInstructionsV7(candidate.ci),
-          tags: ['vault']
-        }
-      }],
-      description: 'Recovered vault deposit',
-      seekPermission: false
-    }, adminOriginator)
+    await w.internalizeAction(
+      {
+        tx: candidate.beef,
+        outputs: [
+          {
+            outputIndex: candidate.vaultOutputIndex,
+            protocol: 'basket insertion',
+            insertionRemittance: {
+              basket: VAULT_BASKET,
+              customInstructions: encodeVaultInstructionsV7(candidate.ci),
+              tags: ['vault']
+            }
+          }
+        ],
+        description: 'Recovered vault deposit',
+        seekPermission: false
+      },
+      adminOriginator
+    )
   } catch (e) {
     return `could not internalize the recovered output: ${(e as Error)?.message ?? 'unknown error'}`
   }
@@ -454,9 +464,13 @@ async function scanVaultChain(
       }
       inspected++
       const outcome = await recoverOneCandidate(w, adminOriginator, lookup, chain, k, markerScriptHex, txid)
-      if (outcome.kind === 'ready') { ready.push(outcome); break }
-      else if (outcome.kind === 'pending') { pending.push(outcome.ci); break }
-      else if (outcome.kind === 'problem') problems.push({ index: k, reason: outcome.reason })
+      if (outcome.kind === 'ready') {
+        ready.push(outcome)
+        break
+      } else if (outcome.kind === 'pending') {
+        pending.push(outcome.ci)
+        break
+      } else if (outcome.kind === 'problem') problems.push({ index: k, reason: outcome.reason })
       // 'spent': a superseded output (already withdrawn or re-locked) —
       // entirely normal, silently skipped; keep inspecting other candidates
       // at this index.
@@ -480,7 +494,10 @@ async function restoreScannedDeposits(
   let pendingConfirmation = 0
   let unreachable = 0
   for (const candidate of ready) {
-    if (!opensWithAny(candidate.ci, live)) { unreachable++; continue }
+    if (!opensWithAny(candidate.ci, live)) {
+      unreachable++
+      continue
+    }
     const failure = await internalizeCandidate(w, adminOriginator, candidate)
     if (failure) problems.push({ index: candidate.index, reason: failure })
     else found++
@@ -629,7 +646,14 @@ function p2pkhAddressFromScript(lockingScriptHex: string, network: 'mainnet' | '
   } catch {
     return undefined
   }
-  if (bytes.length !== 25 || bytes[0] !== 0x76 || bytes[1] !== 0xa9 || bytes[2] !== 0x14 || bytes[23] !== 0x88 || bytes[24] !== 0xac) {
+  if (
+    bytes.length !== 25 ||
+    bytes[0] !== 0x76 ||
+    bytes[1] !== 0xa9 ||
+    bytes[2] !== 0x14 ||
+    bytes[23] !== 0x88 ||
+    bytes[24] !== 0xac
+  ) {
     return undefined
   }
   const hash160 = bytes.slice(3, 23)

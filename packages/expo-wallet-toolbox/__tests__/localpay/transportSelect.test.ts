@@ -107,16 +107,13 @@ describe('transport selection', () => {
     [CAP_AWDL | CAP_BLE, 'ios', false, true, 'ble'] // AWDL native unsupported → falls to BLE
   ]
 
-  it.each(CASES)(
-    'caps=%p platform=%s socket=%p ble=%p -> %s',
-    (caps, platform, nativeSocket, nativeBle, expected) => {
-      Platform.OS = platform
-      mockIsSupported = nativeSocket
-      mockBleSupported = nativeBle
-      const session: Session = { ...mintSession({ ...base, supportsAwdl: false }), caps }
-      expect(selectTransport(session)).toBe(expected)
-    }
-  )
+  it.each(CASES)('caps=%p platform=%s socket=%p ble=%p -> %s', (caps, platform, nativeSocket, nativeBle, expected) => {
+    Platform.OS = platform
+    mockIsSupported = nativeSocket
+    mockBleSupported = nativeBle
+    const session: Session = { ...mintSession({ ...base, supportsAwdl: false }), caps }
+    expect(selectTransport(session)).toBe(expected)
+  })
 })
 
 describe('payee off Wi-Fi (hint bits)', () => {
@@ -262,12 +259,16 @@ describe('bleRole', () => {
 
   it('is peripheral only when the payee scans and this device is Android', () => {
     Platform.OS = 'android'
-    expect(bleRole(mintSession({ ...base, supportsAwdl: false, supportsBle: true, supportsBleScan: true }))).toBe('peripheral')
+    expect(bleRole(mintSession({ ...base, supportsAwdl: false, supportsBle: true, supportsBleScan: true }))).toBe(
+      'peripheral'
+    )
   })
 
   it('stays central on iOS even when the payee scans', () => {
     Platform.OS = 'ios'
-    expect(bleRole(mintSession({ ...base, supportsAwdl: false, supportsBle: true, supportsBleScan: true }))).toBe('central')
+    expect(bleRole(mintSession({ ...base, supportsAwdl: false, supportsBle: true, supportsBleScan: true }))).toBe(
+      'central'
+    )
   })
 
   it('stays central on Android when the payee does not scan', () => {

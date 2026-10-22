@@ -22,8 +22,7 @@ describe('backup key derivation', () => {
   })
 
   it('differs for a different primaryKey', () => {
-    expect(backupPseudonym(TEST_PRIMARY, 'main'))
-      .not.toBe(backupPseudonym(new PrivateKey(2).toArray('be', 32), 'main'))
+    expect(backupPseudonym(TEST_PRIMARY, 'main')).not.toBe(backupPseudonym(new PrivateKey(2).toArray('be', 32), 'main'))
   })
 
   it('differs for every pair of chains', () => {
@@ -45,12 +44,15 @@ describe('backup key derivation', () => {
     // If this fails, DO NOT update the expected values. A mismatch means derive.ts disagrees
     // with the spec — most likely the protocol tuple, the keyID, or the counterparty.
     // Changing a vector here would orphan every backup already written under it, silently.
-    expect(backupPseudonym(TEST_PRIMARY, 'main'))
-      .toBe('03078c66c5f14fdaab3ab1ec6ce0cd4efd736ad35afeed09826dff11e7ce1b1bdb')
-    expect(backupPseudonym(TEST_PRIMARY, 'test'))
-      .toBe('029a0df2fabef7479dfe7086db3f750fbc526bdac1243f75b9eb8628544a1398cd')
-    expect(backupPseudonym(TEST_PRIMARY, 'teratest'))
-      .toBe('0313989e4302d8b64975fbe2a2d16c344188a94934df028cd57f058f409bf97c5a')
+    expect(backupPseudonym(TEST_PRIMARY, 'main')).toBe(
+      '03078c66c5f14fdaab3ab1ec6ce0cd4efd736ad35afeed09826dff11e7ce1b1bdb'
+    )
+    expect(backupPseudonym(TEST_PRIMARY, 'test')).toBe(
+      '029a0df2fabef7479dfe7086db3f750fbc526bdac1243f75b9eb8628544a1398cd'
+    )
+    expect(backupPseudonym(TEST_PRIMARY, 'teratest')).toBe(
+      '0313989e4302d8b64975fbe2a2d16c344188a94934df028cd57f058f409bf97c5a'
+    )
   })
 
   it('recovers the same pseudonym from a share-restored primary key', () => {
@@ -80,10 +82,16 @@ describe('backup key derivation', () => {
     const plaintext = [1, 2, 3, 4, 5]
 
     const { ciphertext } = await w.encrypt({
-      plaintext, protocolID: BACKUP_PROTOCOL, keyID: backupKeyId('main'), counterparty: 'self',
+      plaintext,
+      protocolID: BACKUP_PROTOCOL,
+      keyID: backupKeyId('main'),
+      counterparty: 'self'
     })
     const { plaintext: out } = await w.decrypt({
-      ciphertext, protocolID: BACKUP_PROTOCOL, keyID: backupKeyId('main'), counterparty: 'self',
+      ciphertext,
+      protocolID: BACKUP_PROTOCOL,
+      keyID: backupKeyId('main'),
+      counterparty: 'self'
     })
 
     expect(out).toEqual(plaintext)
@@ -97,12 +105,20 @@ describe('backup key derivation', () => {
     const theirs = deriveBackupWallet(new PrivateKey(9).toArray('be', 32), 'main')
 
     const { ciphertext } = await mine.encrypt({
-      plaintext: [9, 9, 9], protocolID: BACKUP_PROTOCOL, keyID: backupKeyId('main'), counterparty: 'self',
+      plaintext: [9, 9, 9],
+      protocolID: BACKUP_PROTOCOL,
+      keyID: backupKeyId('main'),
+      counterparty: 'self'
     })
 
-    await expect(theirs.decrypt({
-      ciphertext, protocolID: BACKUP_PROTOCOL, keyID: backupKeyId('main'), counterparty: 'self',
-    })).rejects.toThrow()
+    await expect(
+      theirs.decrypt({
+        ciphertext,
+        protocolID: BACKUP_PROTOCOL,
+        keyID: backupKeyId('main'),
+        counterparty: 'self'
+      })
+    ).rejects.toThrow()
   })
 
   it('produces ciphertext the SAME wallet on another chain cannot read', async () => {
@@ -112,16 +128,23 @@ describe('backup key derivation', () => {
     const test = deriveBackupWallet(TEST_PRIMARY, 'test')
 
     const { ciphertext } = await main.encrypt({
-      plaintext: [1, 2, 3], protocolID: BACKUP_PROTOCOL, keyID: backupKeyId('main'), counterparty: 'self',
+      plaintext: [1, 2, 3],
+      protocolID: BACKUP_PROTOCOL,
+      keyID: backupKeyId('main'),
+      counterparty: 'self'
     })
 
-    await expect(test.decrypt({
-      ciphertext, protocolID: BACKUP_PROTOCOL, keyID: backupKeyId('test'), counterparty: 'self',
-    })).rejects.toThrow()
+    await expect(
+      test.decrypt({
+        ciphertext,
+        protocolID: BACKUP_PROTOCOL,
+        keyID: backupKeyId('test'),
+        counterparty: 'self'
+      })
+    ).rejects.toThrow()
   })
 
   it('exposes the private key behind the pseudonym', () => {
-    expect(deriveBackupKey(TEST_PRIMARY, 'main').toPublicKey().toString())
-      .toBe(backupPseudonym(TEST_PRIMARY, 'main'))
+    expect(deriveBackupKey(TEST_PRIMARY, 'main').toPublicKey().toString()).toBe(backupPseudonym(TEST_PRIMARY, 'main'))
   })
 })

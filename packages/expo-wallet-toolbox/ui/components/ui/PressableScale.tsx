@@ -20,12 +20,7 @@
 import React, { useCallback } from 'react'
 import { Pressable, StyleProp, ViewStyle, GestureResponderEvent } from 'react-native'
 import type { PressableProps } from 'react-native'
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  useReducedMotion,
-} from 'react-native-reanimated'
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, useReducedMotion } from 'react-native-reanimated'
 import { springs, haptics, type HapticName } from '@bsv/expo-wallet-toolbox'
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
@@ -67,28 +62,37 @@ export default function PressableScale({
     if (animateOpacity) {
       return {
         transform: [{ scale: 1 - (1 - scaleTo) * pressed.value }],
-        opacity: 1 - 0.15 * pressed.value,
+        opacity: 1 - 0.15 * pressed.value
       }
     }
     return {
-      transform: [{ scale: 1 - (1 - scaleTo) * pressed.value }],
+      transform: [{ scale: 1 - (1 - scaleTo) * pressed.value }]
     }
   }, [scaleTo, animateOpacity, reducedMotion])
 
-  const handlePressIn = useCallback((e: GestureResponderEvent) => {
-    pressed.value = withSpring(1, springs.snappy)
-    onPressIn?.(e)
-  }, [onPressIn, pressed])
+  const handlePressIn = useCallback(
+    (e: GestureResponderEvent) => {
+      pressed.value = withSpring(1, springs.snappy)
+      onPressIn?.(e)
+    },
+    [onPressIn, pressed]
+  )
 
-  const handlePressOut = useCallback((e: GestureResponderEvent) => {
-    pressed.value = withSpring(0, springs.snappy)
-    onPressOut?.(e)
-  }, [onPressOut, pressed])
+  const handlePressOut = useCallback(
+    (e: GestureResponderEvent) => {
+      pressed.value = withSpring(0, springs.snappy)
+      onPressOut?.(e)
+    },
+    [onPressOut, pressed]
+  )
 
-  const handlePress = useCallback((e: GestureResponderEvent) => {
-    if (haptic) haptics[haptic]()
-    onPress?.(e)
-  }, [haptic, onPress])
+  const handlePress = useCallback(
+    (e: GestureResponderEvent) => {
+      if (haptic) haptics[haptic]()
+      onPress?.(e)
+    },
+    [haptic, onPress]
+  )
 
   return (
     <AnimatedPressable

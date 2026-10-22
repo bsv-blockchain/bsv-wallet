@@ -24,10 +24,11 @@
 Create `services/vault/templateCodec.ts`.
 
 Export:
+
 - `const TEMPLATE_MARKER = 0xff`
 - `type TemplateRegion = 0x01 | 0x02`
 - `interface TemplateVersion { version: number; region: TemplateRegion; totalLength: number;
-  variableRuns: Array<{ offset: number; length: number }>; constantHash: string }`
+variableRuns: Array<{ offset: number; length: number }>; constantHash: string }`
 - `async function describeVaultTemplate(): Promise<TemplateVersion[]>` — builds the current
   template once via `buildVaultLockingScript` with throwaway inputs and derives the descriptor
   from it, so the pinned constants are checked against the library rather than transcribed.
@@ -38,6 +39,7 @@ Recognition must not allocate a second copy of a ~960 KB script per call beyond 
 unavoidable; compare in place.
 
 Tests in `__tests__/vault/templateCodec.test.ts`:
+
 - a freshly built locking script matches the descriptor
 - flipping ONE byte outside a variable run makes `matchesTemplate` false
 - flipping a byte INSIDE a variable run keeps it true
@@ -49,6 +51,7 @@ Tests in `__tests__/vault/templateCodec.test.ts`:
 Extend `services/vault/templateCodec.ts`.
 
 Export:
+
 - `async function compressScript(bytes: number[]): Promise<number[]>` — returns the compressed
   form for a recognised region-0x01 script, else the input unchanged.
 - `async function expandScript(bytes: number[]): Promise<number[]>` — detects the `0xff` header,
@@ -61,6 +64,7 @@ Export:
 Add `'template-unknown'` to `VaultErrorCode` in `services/vault/types.ts` if absent.
 
 Tests:
+
 - round trip on a freshly built script, asserted with `toEqual` over the full arrays
 - round trip on the REAL mainnet script fixture (see Task 4)
 - `compressScript` on a non-matching script returns the input unchanged and does not allocate
@@ -81,6 +85,7 @@ Extend the codec for region `0x02`.
   `@bsv/templates` ever changes, THIS test fails and names the reason.
 
 Tests:
+
 - `expand(compress(scriptCode))` byte-exact
 - 0x02 payload is 20 bytes, not 40
 - the derived 0x02 length equals `R1K1_LOCK_LEN - 60`
@@ -96,12 +101,14 @@ current template and assert the SHA-256 matches. That proves the pinned template
 reproduces the real mainnet output without storing megabytes in git.
 
 Real values, from the device database:
+
 - txid `6c947ae3825b7a7ea1c61a27b64b39c5b8b424d460677addb896285222982697`, vout 0
 - length 959632
 - commitment (offsets 17..36) and k1PublicKeyHash (offsets 959609..959628) are to be read from
   the running fixture, not invented
 
 Tests:
+
 - SHA-256 of the rebuilt script matches the recorded digest
 - the recorded digest is stable across two builds
 

@@ -7,11 +7,19 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     __esModule: true,
     default: {
       getItem: async (k: string) => store[k] ?? null,
-      setItem: async (k: string, v: string) => { store[k] = v },
-      removeItem: async (k: string) => { delete store[k] },
+      setItem: async (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: async (k: string) => {
+        delete store[k]
+      },
       getAllKeys: async () => Object.keys(store),
-      multiRemove: async (keys: string[]) => { for (const k of keys) delete store[k] },
-      clear: async () => { for (const k of Object.keys(store)) delete store[k] }
+      multiRemove: async (keys: string[]) => {
+        for (const k of keys) delete store[k]
+      },
+      clear: async () => {
+        for (const k of Object.keys(store)) delete store[k]
+      }
     }
   }
 })
@@ -31,7 +39,7 @@ const OTHER = new PrivateKey(32).toArray('be', 32)
 const PSEUDONYM = backupPseudonym(PRIMARY, 'main')
 const DEVICE = 'e'.repeat(32)
 
-function fakeClient (over: { deleteAccount?: jest.Mock } = {}): any {
+function fakeClient(over: { deleteAccount?: jest.Mock } = {}): any {
   return {
     deleteAccount: over.deleteAccount ?? jest.fn().mockResolvedValue({ deleted: 7 }),
     manifest: jest.fn(),

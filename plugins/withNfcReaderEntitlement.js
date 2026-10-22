@@ -13,8 +13,8 @@
 // provisioning profile regenerated, or codesign/App Store will reject it.
 const { withEntitlementsPlist } = require('@expo/config-plugins')
 
-module.exports = (config) =>
-  withEntitlementsPlist(config, (mod) => {
+module.exports = config =>
+  withEntitlementsPlist(config, mod => {
     mod.modResults['com.apple.developer.nfc.readersession.formats'] = ['TAG']
     return mod
   })

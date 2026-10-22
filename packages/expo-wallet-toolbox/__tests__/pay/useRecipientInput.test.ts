@@ -91,7 +91,9 @@ describe('useRecipientInput — typing', () => {
   })
 
   it('adopts an initial target and shows its text', () => {
-    const { result } = draw({ initialTarget: { kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://mb.example' } })
+    const { result } = draw({
+      initialTarget: { kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://mb.example' }
+    })
     expect(result.current.target).toEqual({ kind: 'handle', identityKey: KEY, messageBoxUrl: 'https://mb.example' })
     expect(result.current.inputText).toBe(KEY)
   })

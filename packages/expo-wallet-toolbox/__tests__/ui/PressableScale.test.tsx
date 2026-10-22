@@ -3,7 +3,7 @@ jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(() => Promise.resolve()),
   notificationAsync: jest.fn(() => Promise.resolve()),
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
-  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
+  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' }
 }))
 
 // Pulled in as a side effect of importing anything from the barrel: its
@@ -90,11 +90,7 @@ describe('PressableScale', () => {
     // The AnimatedPressable receives style=[callerStyle, animatedStyle] — the
     // animatedStyle object must have no `opacity` key.
     const { getByTestId } = render(
-      <PressableScale
-        testID="ps"
-        style={{ opacity: 0.3 }}
-        accessibilityLabel="go"
-      >
+      <PressableScale testID="ps" style={{ opacity: 0.3 }} accessibilityLabel="go">
         <Text>Go</Text>
       </PressableScale>
     )
@@ -106,9 +102,7 @@ describe('PressableScale', () => {
     const animatedStyle = styleArray[styleArray.length - 1]
     expect(animatedStyle).not.toHaveProperty('opacity')
     // The caller style must still carry opacity: 0.3
-    const callerStyle = styleArray.find(
-      (s: any) => s && typeof s === 'object' && 'opacity' in s
-    )
+    const callerStyle = styleArray.find((s: any) => s && typeof s === 'object' && 'opacity' in s)
     expect(callerStyle?.opacity).toBe(0.3)
   })
 
@@ -116,11 +110,7 @@ describe('PressableScale', () => {
     // When animateOpacity is true and not pressed (pressed.value === 0),
     // opacity should be 1 (1 - 0.15 * 0 = 1).
     const { getByTestId } = render(
-      <PressableScale
-        testID="ps2"
-        animateOpacity
-        accessibilityLabel="go"
-      >
+      <PressableScale testID="ps2" animateOpacity accessibilityLabel="go">
         <Text>Go</Text>
       </PressableScale>
     )

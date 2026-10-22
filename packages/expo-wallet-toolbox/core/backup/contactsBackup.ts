@@ -44,7 +44,7 @@ interface Row {
 }
 
 /** Every contact of a local user, removed ones included, as JSON; undefined when there are none. */
-export async function captureContacts (db: ContactsDb, userId: number): Promise<string | undefined> {
+export async function captureContacts(db: ContactsDb, userId: number): Promise<string | undefined> {
   const rows = (await db.getAllAsync(
     'SELECT identityKey, name, cachedHandle, cachedAvatarUrl, cachedCertifier, source, created_at, updated_at, favourite, removedAt FROM contacts WHERE userId = ?',
     [userId]
@@ -66,7 +66,7 @@ export async function captureContacts (db: ContactsDb, userId: number): Promise<
 }
 
 /** The contacts in a snapshot, never throwing: anything malformed is left out. */
-export function parseContacts (raw: string | undefined): BackedUpContact[] {
+export function parseContacts(raw: string | undefined): BackedUpContact[] {
   if (raw === undefined) return []
   let parsed: unknown
   try {
@@ -91,7 +91,7 @@ export function parseContacts (raw: string | undefined): BackedUpContact[] {
  * changed them last (a rename, a star or a removal made on one phone wins over the older
  * state on the other).
  */
-export function mergeContacts (a: string | undefined, b: string | undefined): string | undefined {
+export function mergeContacts(a: string | undefined, b: string | undefined): string | undefined {
   if (a === undefined) return b
   if (b === undefined) return a
   const byKey = new Map<string, BackedUpContact>()
@@ -108,13 +108,13 @@ export function mergeContacts (a: string | undefined, b: string | undefined): st
  * (label, star, removal, dates); someone already here is updated only when the backup's copy
  * is newer, so re-running an interrupted restore never rolls an edit back.
  */
-export async function applyContacts (db: ContactsDb, userId: number, raw: string | undefined): Promise<number> {
+export async function applyContacts(db: ContactsDb, userId: number, raw: string | undefined): Promise<number> {
   let written = 0
   for (const c of parseContacts(raw)) {
-    const had = (await db.getFirstAsync('SELECT updated_at FROM contacts WHERE userId = ? AND identityKey = ?', [userId, c.identityKey])) as
-      | { updated_at: string }
-      | null
-      | undefined
+    const had = (await db.getFirstAsync('SELECT updated_at FROM contacts WHERE userId = ? AND identityKey = ?', [
+      userId,
+      c.identityKey
+    ])) as { updated_at: string } | null | undefined
     const values = [
       c.name,
       c.cachedHandle ?? null,

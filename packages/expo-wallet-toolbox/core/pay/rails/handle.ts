@@ -96,8 +96,7 @@ export function bindMessageBoxNetwork<T extends object>(client: T, network: AppC
   const preset = NETWORKS[network].overlayPreset
   const target = client as unknown as { networkPreset: OverlayPreset; lookupResolver: unknown }
   target.networkPreset = preset
-  target.lookupResolver =
-    preset === 'local' ? NO_OVERLAY_RESOLVER : new LookupResolver({ networkPreset: preset })
+  target.lookupResolver = preset === 'local' ? NO_OVERLAY_RESOLVER : new LookupResolver({ networkPreset: preset })
   return client
 }
 
@@ -818,10 +817,10 @@ export async function cancelOutboxPayment(args: {
  * recipient may already hold a signed, deliverable token. A missing row must be treated
  * exactly like a row that IS delivered/delivering: refuse, rather than assume "never sent".
  */
-export function isAbortSafe (
-  action: { labels?: string[], txid?: string },
+export function isAbortSafe(
+  action: { labels?: string[]; txid?: string },
   outboxEntries: Array<Pick<OutboxEntry, 'txid' | 'delivered' | 'delivering'>>
-): { aborted: boolean, needsAbandon?: boolean } {
+): { aborted: boolean; needsAbandon?: boolean } {
   if (!action.labels?.includes('peerpay')) return { aborted: true }
   const stored = action.txid != null ? outboxEntries.find(e => e.txid === action.txid) : undefined
   if (stored == null || stored.delivered === true || stored.delivering === true) {

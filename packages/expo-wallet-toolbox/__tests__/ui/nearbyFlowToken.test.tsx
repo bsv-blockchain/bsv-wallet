@@ -35,8 +35,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }))
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, unknown>) =>
-      values ? `${key}:${Object.values(values).join('|')}` : key,
+    t: (key: string, values?: Record<string, unknown>) => (values ? `${key}:${Object.values(values).join('|')}` : key),
     i18n: { language: 'en' }
   }),
   initReactI18next: { type: '3rdParty', init: () => {} }
@@ -378,7 +377,7 @@ describe('NearbyFlow — the token path', () => {
     expect(runtime.settleNow).not.toHaveBeenCalled()
   })
 
-  it('a COVER failure at hand-over reads as the issuer\'s own refusal, not a scanning mistake', async () => {
+  it("a COVER failure at hand-over reads as the issuer's own refusal, not a scanning mistake", async () => {
     mockVerifyFramePayment.mockRejectedValue(new FrameVerifyError('not_covered', 'evidence does not cover this frame'))
 
     const s = wrap(

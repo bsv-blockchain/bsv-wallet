@@ -3,16 +3,16 @@ jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(() => Promise.resolve()),
   notificationAsync: jest.fn(() => Promise.resolve()),
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
-  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
+  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' }
 }))
 
 jest.mock('@expo/vector-icons', () => ({
-  Ionicons: 'Ionicons',
+  Ionicons: 'Ionicons'
 }))
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
-  SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children,
+  SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children
 }))
 
 // Pulled in as a side effect of importing anything from the barrel: its
@@ -44,13 +44,23 @@ jest.useFakeTimers()
 
 describe('showToast', () => {
   it('renders message, newest wins, auto-dismisses after 2s', () => {
-    const screen = render(<ThemeProvider><ToastHost /></ThemeProvider>)
-    act(() => { showToast('Copied') })
+    const screen = render(
+      <ThemeProvider>
+        <ToastHost />
+      </ThemeProvider>
+    )
+    act(() => {
+      showToast('Copied')
+    })
     expect(screen.getByText('Copied')).toBeTruthy()
-    act(() => { showToast('Exported', { type: 'success' }) })
+    act(() => {
+      showToast('Exported', { type: 'success' })
+    })
     expect(screen.queryByText('Copied')).toBeNull()
     expect(screen.getByText('Exported')).toBeTruthy()
-    act(() => { jest.advanceTimersByTime(2600) })
+    act(() => {
+      jest.advanceTimersByTime(2600)
+    })
     expect(screen.queryByText('Exported')).toBeNull()
   })
 })
