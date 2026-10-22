@@ -7,6 +7,10 @@ import {
   isRelayUrl,
   isStunUrl,
   loadDirectPaySettings,
+  MAX_LIVE_MESSAGE_BYTES,
+  MAX_LIVE_TRANSACTION_BYTES,
+  onlyOwnStun,
+  PREVIOUS_DEFAULT_STUN_URLS,
   saveDirectPaySettings
 } from '../../core/directpay'
 import type { DirectPaySettings } from '../../core/directpay'
@@ -34,12 +38,12 @@ const refusal = async (input: Partial<DirectPaySettings>) => {
 }
 
 describe('defaults', () => {
-  it('receive on, signaling through the public relay, STUN with the BSV server first', () => {
+  it('receive on, signaling through the public relay, STUN through the BSV server only', () => {
     expect(DEFAULT_DIRECT_PAY_SETTINGS).toEqual({
       receiveEnabled: true,
       signaling: 'relay',
       relayUrl: 'wss://webrtpay-relay-us-1.bsvblockchain.tech',
-      stunUrls: ['stun:stun-us-1.bsvb.tech:3478', 'stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478']
+      stunUrls: ['stun:stun-us-1.bsvb.tech:3478']
     })
     expect(DEFAULT_DIRECT_PAY_SETTINGS.relayUrl).toBe(DEFAULT_RELAY_URL)
   })
@@ -62,8 +66,42 @@ describe('loadDirectPaySettings', () => {
   it('hands out its own copy of the defaults', async () => {
     const first = await loadDirectPaySettings(fakeStorage())
     first.stunUrls.push('stun:mutated.example:3478')
-    expect(DEFAULT_DIRECT_PAY_SETTINGS.stunUrls).toHaveLength(3)
-    expect((await loadDirectPaySettings(fakeStorage())).stunUrls).toHaveLength(3)
+    expect(DEFAULT_DIRECT_PAY_SETTINGS.stunUrls).toHaveLength(1)
+    expect((await loadDirectPaySettings(fakeStorage())).stunUrls).toHaveLength(1)
+  })
+
+  it('reads a stored STUN list that is exactly the previous default as the new default, and keeps any other', async () => {
+    expect(PREVIOUS_DEFAULT_STUN_URLS).toEqual([
+      'stun:stun-us-1.bsvb.tech:3478',
+      'stun:stun.l.google.com:19302',
+      'stun:stun.cloudflare.com:3478'
+    ])
+    const storage = fakeStorage()
+    const store = (stunUrls: string[]) =>
+      storage.setKeyValue(DIRECT_PAY_SETTINGS_KEY, JSON.stringify({ receiveEnabled: false, stunUrls }))
+    await store([...PREVIOUS_DEFAULT_STUN_URLS])
+    expect(await loadDirectPaySettings(storage)).toMatchObject({
+      receiveEnabled: false,
+      stunUrls: ['stun:stun-us-1.bsvb.tech:3478']
+    })
+    await store(['stun:stun.l.google.com:19302'])
+    expect((await loadDirectPaySettings(storage)).stunUrls).toEqual(['stun:stun.l.google.com:19302'])
+    await store([...PREVIOUS_DEFAULT_STUN_URLS, 'stun:mine.example:3478'])
+    expect((await loadDirectPaySettings(storage)).stunUrls).toHaveLength(4)
+  })
+
+  it("drops the STUN servers from the relay's TURN answer, keeping its TURN servers", () => {
+    expect(
+      onlyOwnStun([
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        { urls: ['STUN:stun.cloudflare.com:3478', 'turns:turn.cloudflare.com:5349'], username: 'u', credential: 'c' }
+      ])
+    ).toEqual([{ urls: ['turns:turn.cloudflare.com:5349'], username: 'u', credential: 'c' }])
+  })
+
+  it('caps live payments at a 1 MB transaction', () => {
+    expect(MAX_LIVE_TRANSACTION_BYTES).toBe(1_000_000)
+    expect(MAX_LIVE_MESSAGE_BYTES).toBe(4 * Math.ceil(MAX_LIVE_TRANSACTION_BYTES / 3) + 4096)
   })
 
   it('reads one key and nothing else: there is nothing to migrate from', async () => {

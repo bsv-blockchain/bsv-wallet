@@ -5,8 +5,14 @@
  * `DirectPayProvider` starts it once a wallet is built and stops it when the wallet goes. While
  * a wallet is open there is always a client, so this wallet can dial others. Dialing and
  * receiving by identity key need a signaler, chosen in the device settings: a relay server (the
- * default) or the message box. Receiving is on when the user left it on and the app is in the
- * foreground; payments are taken into the wallet at once (`receive.ts`). Through a relay,
+ * default) or the message box. Receiving is on when the user left it on, the app is in the
+ * foreground and the Receive screen is showing ({@link DirectPayManager.openReceiveScreen}; the
+ * user's decision, 2026-10-21): the rest of the time this wallet answers no dial, so nobody can
+ * learn its address or that it is open, and payers use the message box. Opening and closing the
+ * screen starts and stops receiving on the same client, so a payment being sent is not cut off.
+ * Payments are taken into the wallet at once (`receive.ts`). Live sessions carry payments only
+ * (no payment request handler is given), and an authenticated peer may send at most
+ * MAX_LIVE_MESSAGE_BYTES (a 1 MB transaction). Through a relay,
  * receiving follows the relay connection, which reconnects by itself, and every connection may
  * use the short-lived TURN servers the relay hands out.
  *
@@ -45,7 +51,7 @@
 import i18n from '../i18n/translations'
 import type { KVStorage } from '../localpay/pending'
 import { classifyCreditError, type CreditFailureKind } from '../pay/creditErrors'
-import { iceServersFrom } from './settings'
+import { iceServersFrom, MAX_LIVE_MESSAGE_BYTES, onlyOwnStun } from './settings'
 import {
   receiveDirectPayment,
   retryKeptDirectPayments,
@@ -202,6 +208,14 @@ export class DirectPayManager {
   private _foreground: boolean
   /** The last relay connection failed and has not come online since (see {@link signalingDown}). */
   private _relayDown = false
+  /** Receive screens showing now (see {@link openReceiveScreen}). */
+  private _receiveScreens = 0
+  /** The current client answers dials: set by {@link _beginReceiving}, cleared by {@link _endReceiving} and teardown. */
+  private _receiving = false
+  /** Bumped whenever receiving starts or ends; a start that is no longer current changes nothing. */
+  private _receiveRun = 0
+  /** Undone when receiving ends: the relay start timer, the relay retry. */
+  private _receiveCleanups: Array<() => void> = []
 
   private readonly _deps: DirectPayManagerDeps
 
@@ -288,6 +302,24 @@ export class DirectPayManager {
     }
   }
 
+  /**
+   * The Receive screen is showing: while at least one is, receiving is on (when the settings
+   * turn it on and the app is in the foreground). Returns the function to call when it stops
+   * showing; calling it again does nothing. Works with no wallet open: receiving then starts
+   * with the wallet.
+   */
+  openReceiveScreen = (): (() => void) => {
+    this._receiveScreens++
+    if (this._receiveScreens === 1) this._receiveScreenChanged()
+    let open = true
+    return () => {
+      if (!open) return
+      open = false
+      this._receiveScreens--
+      if (this._receiveScreens === 0) this._receiveScreenChanged()
+    }
+  }
+
   /** Closes the client and signaler. The snapshot clears at once; never rejects. */
   async stop(): Promise<void> {
     this._stopRetries()
@@ -337,7 +369,7 @@ export class DirectPayManager {
         let failures = 0
         const polled = (pollError?: unknown) => {
           failures = pollError === undefined ? 0 : failures + 1
-          this._messageBoxPolled(generation, this._receives(o), failures, pollError)
+          this._messageBoxPolled(generation, failures, pollError)
         }
         signaler = new webrtpay.MessageBoxSignaler(watchingPolls(o.peerPayClient, polled), {
           host: o.messageBoxUrl || undefined,
@@ -354,6 +386,10 @@ export class DirectPayManager {
           iceServers: iceServersFrom(o.settings),
           ...(o.RTCPeerConnection !== undefined && { RTCPeerConnection: o.RTCPeerConnection })
         },
+        // Live sessions carry a payment and its ack: an authenticated peer may send this wallet
+        // no more than a payment with a 1 MB transaction (larger ones go by message box).
+        maxMessageBytes: MAX_LIVE_MESSAGE_BYTES,
+        limits: { maxMessageBytes: MAX_LIVE_MESSAGE_BYTES },
         // Once the recipient has answered, give the link 10 s (the package default is 6 s): a
         // slow STUN or TURN answer on a phone network otherwise ends a payment the recipient is
         // online for.
@@ -362,7 +398,7 @@ export class DirectPayManager {
         // client's life: it reuses live credentials.
         ...(relay &&
           !fallback && {
-            iceServersProvider: relay.turnProvider(),
+            iceServersProvider: ownStunOnly(relay.turnProvider()),
             onIceServersProviderError: (e: unknown) =>
               console.warn("[DirectPayManager] Connecting without the relay's TURN servers:", messageOf(e))
           })
@@ -388,37 +424,115 @@ export class DirectPayManager {
       background: !this._foreground
     })
     if (!receive || !client) return
+    await this._beginReceiving(generation, o, client, relay, fallback, closing)
+  }
+
+  /** Receiving is on: the user's switch, the app in the foreground, and a Receive screen showing. */
+  private _receives(o: DirectPayStartOptions): boolean {
+    return o.settings.receiveEnabled && this._foreground && this._receiveScreens > 0
+  }
+
+  /**
+   * A Receive screen opened or the last one closed: starts or stops receiving on the current
+   * client, without replacing it (a payment being sent keeps its connection).
+   */
+  private _receiveScreenChanged(): void {
+    const started = this._started
+    const client = this._snapshot.client
+    if (!started || !client) return
+    const want = this._receives(started.options)
+    if (want === this._receiving) return
+    if (!want) {
+      this._endReceiving()
+      return
+    }
+    // A setup problem (no relay address, no message box) leaves nothing to receive through.
+    if (this._snapshot.via === null || this._snapshot.notice) return
+    const fallback = this._snapshot.relayUnreachable
+    this._update({ status: 'starting', error: '' })
+    // On the message box after a fallback, `started.relay` is only the relay being retried.
+    void this._beginReceiving(
+      this._generation,
+      started.options,
+      client,
+      fallback ? null : started.relay,
+      fallback,
+      Promise.resolve()
+    )
+  }
+
+  /**
+   * Starts receiving on `client`: with the relay, the fallback to the message box when it is not
+   * online in time; on that fallback, the relay retry; then the client listens.
+   */
+  private async _beginReceiving(
+    generation: number,
+    o: DirectPayStartOptions,
+    client: DirectPayClientLike,
+    relay: RelaySignalerLike | null,
+    fallback: boolean,
+    closing: Promise<void>
+  ): Promise<void> {
+    this._receiving = true
+    const run = ++this._receiveRun
     if (relay && !fallback && o.peerPayClient) {
       // Not online through the relay in time: receive through the message box meanwhile.
       const timer = setTimeout(() => {
-        if (generation === this._generation && this._snapshot.status !== 'online') {
+        if (generation === this._generation && run === this._receiveRun && this._snapshot.status !== 'online') {
           this._fallBack(generation, o, 'it did not accept this wallet in time')
         }
       }, RELAY_START_MS)
-      this._onTeardown(() => clearTimeout(timer))
+      this._receiveCleanups.push(() => clearTimeout(timer))
     }
     if (fallback) this._retryRelayLater(generation, o)
 
     // The previous client stops listening first, so two never answer the same offer.
     await closing
-    if (generation !== this._generation) return
+    if (generation !== this._generation || run !== this._receiveRun) return
     try {
+      // onPayment only: payment requests sent over a live session are dropped unanswered.
       await client.startReceiving({
         onPayment: (p, ctx) => this._onPayment(o, p, ctx.note),
         onError: e => console.warn('[DirectPayManager] Inbound direct payment session failed:', messageOf(e))
       })
       // The status follows the relay's connection (_relayChanged) or the message box's polls
-      // (_messageBoxPolled), so it says online only once receiving works.
+      // (_messageBoxPolled), so it says online only once receiving works. A stop asked for
+      // meanwhile has already called stopReceiving, which runs after this start.
     } catch (e) {
-      if (generation === this._generation) {
+      if (generation === this._generation && run === this._receiveRun) {
         this._update({ status: 'error', error: `Direct payments cannot be received: ${messageOf(e)}` })
       }
     }
   }
 
-  /** Receiving is on: the user's switch, and the app in the foreground. */
-  private _receives(o: DirectPayStartOptions): boolean {
-    return o.settings.receiveEnabled && this._foreground
+  /**
+   * The last Receive screen closed: the client stops answering dials (sessions already open run
+   * to their end), the relay retry stops, and the status is `off`. The client stays, for sending.
+   */
+  private _endReceiving(): void {
+    if (!this._receiving) return
+    this._receiving = false
+    this._receiveRun++
+    this._runReceiveCleanups()
+    clearTimeout(this._stableTimer)
+    this._stableTimer = undefined
+    const client = this._snapshot.client
+    if (client) {
+      void client.stopReceiving().catch(e => console.warn('[DirectPayManager] Could not stop receiving:', messageOf(e)))
+    }
+    this._update({ status: 'off', error: '' })
+  }
+
+  private _runReceiveCleanups(): void {
+    const cleanups = this._receiveCleanups
+    this._receiveCleanups = []
+    for (const fn of cleanups) {
+      try {
+        fn()
+      } catch (e) {
+        console.warn('[DirectPayManager] Cleanup failed:', messageOf(e))
+      }
+    }
   }
 
   /** Receiving through the relay failed: receive through the message box, retrying the relay. */
@@ -438,10 +552,11 @@ export class DirectPayManager {
    */
   private _retryRelayLater(generation: number, o: DirectPayStartOptions): void {
     const wait = Math.min(RELAY_RETRY_FIRST_MS * 2 ** Math.max(0, this._fallbacks - 1), RELAY_RETRY_MAX_MS)
+    let retry: RelaySignalerLike | null = null
     const timer = setTimeout(() => {
       const started = this._started
       if (generation !== this._generation || !started) return
-      const retry = new this._deps.webrtpay.RelaySignaler({
+      retry = new this._deps.webrtpay.RelaySignaler({
         url: o.settings.relayUrl,
         wallet: o.wallet,
         originator: o.originator,
@@ -456,18 +571,14 @@ export class DirectPayManager {
           /* closed */
         })
     }, wait)
-    this._onTeardown(() => clearTimeout(timer))
-  }
-
-  /** Runs `fn` when the current client is torn down. */
-  private _onTeardown(fn: () => void): void {
-    const started = this._started
-    if (!started) return
-    const unsubscribe = started.unsubscribe
-    started.unsubscribe = () => {
-      fn()
-      unsubscribe()
-    }
+    // Receiving ended: the retry's relay connection (which makes this wallet look online) closes.
+    this._receiveCleanups.push(() => {
+      clearTimeout(timer)
+      const started = this._started
+      if (!retry) return
+      if (started?.relay === retry) started.relay = null
+      void retry.close().catch(() => {})
+    })
   }
 
   /** The relay being retried accepted this wallet: receiving moves back to it. */
@@ -497,7 +608,7 @@ export class DirectPayManager {
     if (generation !== this._generation) return
     if (state === 'online') this._relayDown = false
     else if (state === 'offline' && e) this._relayDown = true
-    if (!this._receives(o)) return
+    if (!this._receiving) return
     // Online long enough: the next fallback retries the relay after the shortest wait again.
     if (state === 'online' && this._stableTimer === undefined) {
       this._stableTimer = setTimeout(() => {
@@ -522,8 +633,8 @@ export class DirectPayManager {
    * worked, and `error` after {@link POLL_FAILURES_SHOWN} failures in a row (the signaler keeps
    * polling, and the status recovers by itself).
    */
-  private _messageBoxPolled(generation: number, receiving: boolean, failures: number, error: unknown): void {
-    if (generation !== this._generation || !receiving) return
+  private _messageBoxPolled(generation: number, failures: number, error: unknown): void {
+    if (generation !== this._generation || !this._receiving) return
     if (failures === 0) this._update({ status: 'online', error: '' })
     else if (failures >= POLL_FAILURES_SHOWN) {
       this._update({
@@ -702,6 +813,9 @@ export class DirectPayManager {
   /** Detaches the current client and signaler; returns their closing (never rejects). */
   private _teardown(): Promise<void> {
     this._generation++
+    this._receiving = false
+    this._receiveRun++
+    this._runReceiveCleanups()
     clearTimeout(this._stableTimer)
     this._stableTimer = undefined
     this._relayDown = false
@@ -744,6 +858,11 @@ export class DirectPayManager {
  * Mainnet keeps the package's default box, where other wallets (BSV Desktop) dial.
  */
 export const signalBox = (chain: string) => (chain === 'main' ? 'webrtpay_signals' : `webrtpay_signals_${chain}`)
+
+/** The relay's TURN servers without the STUN servers its answer names (see onlyOwnStun). */
+function ownStunOnly<T extends { urls: string | string[] }>(provider: () => Promise<T[]>): () => Promise<T[]> {
+  return async () => onlyOwnStun(await provider())
+}
 
 /**
  * The message box client as the signaler sees it: the same calls, with each listing (a poll)

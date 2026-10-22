@@ -57,6 +57,7 @@ import { markOutboxSent, saveOutboxEntry, updateOutboxEntry } from '../../peerpa
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
 import { NotSentError } from '../../directpay/payFlow'
 import { dialFailure } from '../../directpay/dialFailure'
+import { MAX_LIVE_TRANSACTION_BYTES } from '../../directpay/settings'
 import type { DirectPayClientLike, DirectPaymentAck, DirectPeer, WebRTPayModule } from '../../directpay/webrtpay'
 
 interface StorageLike {
@@ -246,10 +247,13 @@ function whyNotDeliverable(
 ): NotSentError | undefined {
   if (signal?.aborted) return new NotSentError('Cancelled', '', 'aborted')
   const bytes = token.transaction.length
-  if (bytes > webrtpay.MAX_DIRECT_TRANSACTION_BYTES) {
+  // Live payments carry at most 1 MB (MAX_LIVE_TRANSACTION_BYTES), below the package's own cap.
+  const limit = Math.min(MAX_LIVE_TRANSACTION_BYTES, webrtpay.MAX_DIRECT_TRANSACTION_BYTES)
+  if (bytes > limit) {
     return new NotSentError(
       'This payment is too large to deliver directly',
-      `${bytes} bytes; at most ${webrtpay.MAX_DIRECT_TRANSACTION_BYTES} can go over the link`
+      `${bytes} bytes; at most ${limit} can go over the link`,
+      'too_large'
     )
   }
   try {

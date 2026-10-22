@@ -3,7 +3,7 @@
  * one outbox row per payment, broadcast only after the recipient's ack, and a link that fails
  * after sending left to the outbox drain, which delivers the same token through the message box.
  */
-import { P2PKH, PrivateKey, Transaction } from '@bsv/sdk'
+import { LockingScript, P2PKH, PrivateKey, Transaction } from '@bsv/sdk'
 import { DirectDeliveryUnconfirmedError, sendViaDirect } from '../../core/pay/rails/direct'
 import { retryDelivery } from '../../core/pay/rails/handle'
 import { getOutboxEntries, unsentEntries } from '../../core/peerpay/outbox'
@@ -157,6 +157,31 @@ describe('sendViaDirect', () => {
     const err = await sendViaDirect(args({ wallet, client, storage })).catch(e => e)
     expect(err).toMatchObject({ name: 'NotSentError', failure: 'unknown' })
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
+    expect(client.sendPayment).not.toHaveBeenCalled()
+    expect(await getOutboxEntries(storage)).toEqual([])
+  })
+
+  it('a payment over the 1 MB live limit is aborted before anything is spent, and offers the message box', async () => {
+    const storage = fakeStorage()
+    const wallet = fakeWallet()
+    wallet.createAction.mockImplementationOnce(async (a: any) => {
+      const tx = new Transaction()
+      tx.addOutput({
+        lockingScript: new P2PKH().lock(PrivateKey.fromRandom().toAddress()),
+        satoshis: a.outputs[0].satoshis
+      })
+      // A second output pushes the transaction past 1 MB.
+      tx.addOutput({ lockingScript: LockingScript.fromBinary(new Array(1_000_001).fill(0x6a)), satoshis: 0 })
+      return { txid: tx.id('hex'), tx: tx.toAtomicBEEF() }
+    })
+    wallet.listActions.mockImplementation(async () => {
+      const txid = (await wallet.createAction.mock.results[0].value).txid
+      return { actions: [{ txid, reference: 'ref-big' }] }
+    })
+    const client = fakeClient()
+    const err = await sendViaDirect(args({ wallet, client, storage })).catch(e => e)
+    expect(err).toMatchObject({ name: 'NotSentError', failure: 'too_large' })
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-big' }, 'admin.com')
     expect(client.sendPayment).not.toHaveBeenCalled()
     expect(await getOutboxEntries(storage)).toEqual([])
   })

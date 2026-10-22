@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Live payments
+
+- **Answered only while the Receive screen is showing.** `DirectPayManager.openReceiveScreen()`
+  (and `useDirectPay().openReceiveScreen`) starts receiving while at least one Receive screen
+  is open, on top of the user's switch and the foreground rule; `HandleReceive` opens it while
+  focused, for BSV. The rest of the time this wallet answers no dial and holds no relay
+  socket, so nobody can learn its address or that the app is open; payers get the message box.
+  Opening and closing the screen starts and stops receiving on the same client, so a payment
+  being sent is not cut off.
+- **BSVA STUN only.** The default STUN list is `stun:stun-us-1.bsvb.tech:3478`. A stored list
+  that is exactly the previous default is read as the new one; STUN urls in the relay's TURN
+  answer are dropped (`onlyOwnStun`).
+- **1 MB live payments, payments only.** Live sessions take at most a payment with a 1 MB
+  transaction (`MAX_LIVE_TRANSACTION_BYTES`, `MAX_LIVE_MESSAGE_BYTES`, passed as the client's
+  `maxMessageBytes` and `limits.maxMessageBytes`). A larger outgoing payment is released before
+  anything is spent and fails with `failure: 'too_large'`, which `payIdentity` answers with the
+  `too_large` message box fallback (`direct_pay_fallback_too_large`).
+- **The payer is told the truth about a recipient who is not receiving live.** Most
+  recipients are now off the Receive screen, so the fallback no longer says "isn't online right
+  now" (`direct_pay_fallback_offline`, `direct_pay_failed_offline`): it says they aren't taking
+  live payments right now. The prompt title (`direct_pay_fallback_title`), also shown for the
+  link-failed and too-large prompts, is now "Can't pay live right now".
+
 ## 0.20.0
 
 ### Breaking

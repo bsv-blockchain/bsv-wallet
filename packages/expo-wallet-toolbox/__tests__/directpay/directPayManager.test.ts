@@ -15,7 +15,7 @@ import {
   type DirectPayManagerDeps,
   type DirectPayStartOptions
 } from '../../core/directpay/DirectPayManager'
-import { DEFAULT_DIRECT_PAY_SETTINGS, iceServersFrom } from '../../core/directpay/settings'
+import { DEFAULT_DIRECT_PAY_SETTINGS, iceServersFrom, MAX_LIVE_MESSAGE_BYTES } from '../../core/directpay/settings'
 import { listKeptDirectPayments } from '../../core/directpay/receive'
 import { loadWebRTPay, type WebRTPayModule } from '../../core/directpay/webrtpay'
 import type { DirectPaySettings } from '../../core/directpay/types'
@@ -58,7 +58,7 @@ function fakeModule() {
       return signaler
     }),
     RelaySignaler: jest.fn(function (this: unknown, options: Fake) {
-      const provider = async () => []
+      const provider = jest.fn(async (): Promise<Array<{ urls: string | string[] }>> => [])
       const signaler = {
         options,
         provider,
@@ -120,6 +120,9 @@ function setup(deps: Partial<DirectPayManagerDeps> = {}) {
     ...deps
   })
   managers.push(manager)
+  // Receiving runs only while a Receive screen is showing; most tests are about receiving, so
+  // one is showing (the Receive screen tests close it).
+  const closeReceiveScreen = manager.openReceiveScreen()
   const options = (
     o: Partial<DirectPayStartOptions> = {},
     settings: Partial<DirectPaySettings> = {}
@@ -133,7 +136,7 @@ function setup(deps: Partial<DirectPayManagerDeps> = {}) {
     settings: { ...DEFAULT_DIRECT_PAY_SETTINGS, stunUrls: [...DEFAULT_DIRECT_PAY_SETTINGS.stunUrls], ...settings },
     ...o
   })
-  return { ...fake, storage, onToast, manager, options, goOnline: () => online?.(true) }
+  return { ...fake, storage, onToast, manager, options, closeReceiveScreen, goOnline: () => online?.(true) }
 }
 
 afterEach(async () => {
@@ -156,7 +159,17 @@ describe('DirectPayManager', () => {
     const client = made.clients[0]
     expect(client.options).toMatchObject({ chain: 'main', signaler: made.relays[0], timeouts: { dialMs: DIAL_MS } })
     expect(client.options.rtc).toEqual({ iceServers: iceServersFrom(DEFAULT_DIRECT_PAY_SETTINGS), RTCPeerConnection })
-    expect(client.options.iceServersProvider).toBe(made.relays[0].provider)
+    // Through the relay's provider, without the STUN servers its answer names (Cloudflare's).
+    made.relays[0].provider.mockResolvedValueOnce([
+      { urls: ['stun:stun.cloudflare.com:3478'] },
+      { urls: ['turn:turn.cloudflare.com:3478', 'stun:stun.cloudflare.com:3478'], username: 'u', credential: 'c' }
+    ])
+    await expect(client.options.iceServersProvider()).resolves.toEqual([
+      { urls: ['turn:turn.cloudflare.com:3478'], username: 'u', credential: 'c' }
+    ])
+    // A peer may send at most a payment with a 1 MB transaction.
+    expect(client.options.maxMessageBytes).toBe(MAX_LIVE_MESSAGE_BYTES)
+    expect(client.options.limits).toEqual({ maxMessageBytes: MAX_LIVE_MESSAGE_BYTES })
     expect(client.startReceiving).toHaveBeenCalledTimes(1)
     expect(manager.getSnapshot()).toMatchObject({ status: 'starting', via: 'relay', client })
 
@@ -228,6 +241,70 @@ describe('DirectPayManager', () => {
     expect(retry.close).toHaveBeenCalled()
     expect(manager.getSnapshot()).toMatchObject({ via: 'relay', relayUnreachable: false })
     expect(made.clients[2].options.signaler).toBe(made.relays[2])
+  })
+
+  describe('only while a Receive screen is showing', () => {
+    it('answers no dial until the Receive screen opens, then receives on the same client, and stops when it closes', async () => {
+      const { made, manager, options, closeReceiveScreen } = setup()
+      closeReceiveScreen()
+      await manager.start(options())
+      const client = made.clients[0]
+      expect(client.startReceiving).not.toHaveBeenCalled()
+      expect(manager.getSnapshot()).toMatchObject({ status: 'off', via: 'relay', client })
+
+      const close = manager.openReceiveScreen()
+      await Promise.resolve()
+      expect(client.startReceiving).toHaveBeenCalledTimes(1)
+      made.relays[0].options.onStateChange('online')
+      expect(manager.getSnapshot()).toMatchObject({ status: 'online', via: 'relay' })
+
+      close()
+      expect(client.stopReceiving).toHaveBeenCalledTimes(1)
+      expect(manager.getSnapshot()).toMatchObject({ status: 'off', error: '', client })
+      // The client stays, for sending: nothing was rebuilt or closed.
+      expect(made.clients).toHaveLength(1)
+      expect(client.close).not.toHaveBeenCalled()
+      close()
+      expect(client.stopReceiving).toHaveBeenCalledTimes(1)
+    })
+
+    it('ignores the relay connection while the screen is closed, and never falls back', async () => {
+      jest.useFakeTimers()
+      const { made, manager, options, closeReceiveScreen } = setup()
+      closeReceiveScreen()
+      await manager.start(options())
+      made.relays[0].options.onStateChange('offline', new real.WebRTPayError('rejected', 'down'))
+      await jest.advanceTimersByTimeAsync(RELAY_START_MS + RELAY_RETRY_FIRST_MS)
+      expect(made.clients).toHaveLength(1)
+      expect(made.messageBoxes).toHaveLength(0)
+      expect(manager.getSnapshot()).toMatchObject({ status: 'off', error: '' })
+    })
+
+    it('closes the relay being retried when the screen closes on the fallback', async () => {
+      jest.useFakeTimers()
+      const { made, manager, options, closeReceiveScreen } = setup()
+      await manager.start(options())
+      await jest.advanceTimersByTimeAsync(RELAY_START_MS)
+      await jest.advanceTimersByTimeAsync(RELAY_RETRY_FIRST_MS)
+      const retry = made.relays[1]
+      expect(retry.listen).toHaveBeenCalled()
+
+      closeReceiveScreen()
+      expect(retry.close).toHaveBeenCalled()
+      expect(made.clients[1].stopReceiving).toHaveBeenCalledTimes(1)
+      expect(manager.getSnapshot()).toMatchObject({ status: 'off', via: 'messagebox' })
+      await jest.advanceTimersByTimeAsync(RELAY_RETRY_FIRST_MS * 4)
+      expect(made.relays).toHaveLength(2)
+    })
+
+    it('does not receive in the background even with the screen open, and resumes on return', async () => {
+      const { made, manager, options } = setup({ foreground: false })
+      await manager.start(options())
+      expect(made.clients[0].startReceiving).not.toHaveBeenCalled()
+      manager.setForeground(true)
+      await new Promise(r => setTimeout(r, 0))
+      expect(made.clients[1].startReceiving).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('shows the relay error when there is no message box to fall back to', async () => {

@@ -87,6 +87,10 @@ export async function payIdentity(o: {
         case 'unknown':
           if (o.messageBox) return { kind: 'ask_fallback', reason: 'link_failed' }
           return failed('no', 'direct_pay_failed_link', { name: o.name })
+        case 'too_large':
+          // Released before anything was spent: the message box carries any size.
+          if (o.messageBox) return { kind: 'ask_fallback', reason: 'too_large' }
+          return stopped(error, o.name)
         case 'unavailable':
           return failed('no', 'direct_pay_failed_network')
         case 'wrong_network':
@@ -111,7 +115,12 @@ export async function payIdentity(o: {
 /** The fallback prompt for `reason`, naming the recipient. */
 export function fallbackPrompt(reason: FallbackReason, name: string): Required<DirectPayMessage> {
   return {
-    key: reason === 'offline' ? 'direct_pay_fallback_offline' : 'direct_pay_fallback_link_failed',
+    key:
+      reason === 'offline'
+        ? 'direct_pay_fallback_offline'
+        : reason === 'too_large'
+          ? 'direct_pay_fallback_too_large'
+          : 'direct_pay_fallback_link_failed',
     params: { name }
   }
 }
