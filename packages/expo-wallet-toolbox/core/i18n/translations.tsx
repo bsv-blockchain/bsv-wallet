@@ -1220,14 +1220,15 @@ const resources = {
       pay_sent_to: 'to {{name}}',
       pay_save_as_contact: 'Save as a contact',
       direct_pay_status_on_title: 'Open to live payments',
-      direct_pay_status_on_relay: 'People can pay you directly while this app is open. Connected via relay.',
-      direct_pay_status_on_messagebox: 'People can pay you directly while this app is open. Connected via message box.',
+      direct_pay_status_on_relay: 'People can pay you directly while this screen is open. Connected via relay.',
+      direct_pay_status_on_messagebox:
+        'People can pay you directly while this screen is open. Connected via message box.',
       direct_pay_status_on_fallback:
-        'People can pay you directly while this app is open. Connected via message box (relay unreachable).',
+        'People can pay you directly while this screen is open. Connected via message box (relay unreachable).',
       direct_pay_status_connecting_title: 'Connecting…',
       direct_pay_status_connecting_body: 'Getting ready to take live payments.',
       direct_pay_status_off_title: 'Live payments are off',
-      direct_pay_status_off_body: 'Turn them on in Settings so people can pay you directly while this app is open.',
+      direct_pay_status_off_body: 'Turn them on in Settings so people can pay you directly while this screen is open.',
       direct_pay_status_not_set_up_body:
         'Live payments reach other wallets through the message box. Connect a message box in Settings, or use a relay server.',
       direct_pay_status_error_title: "Live payments aren't working right now",
@@ -1235,6 +1236,8 @@ const resources = {
       direct_pay_fallback_offline:
         "{{name}} isn't online right now. Send it to their message box? They'll get it next time they open their wallet.",
       direct_pay_fallback_link_failed: "Couldn't connect to {{name}} directly. Send it to their message box instead?",
+      direct_pay_fallback_too_large:
+        "This payment is too large to send live (over 1 MB). Send it to {{name}}'s message box instead? Nothing has been spent yet.",
       direct_pay_failed_offline:
         "{{name}} isn't online right now. Nothing was spent. Connect a message box in Settings to pay people who are offline.",
       direct_pay_failed_link: "Couldn't connect to {{name}} directly. Nothing was spent.",
@@ -2282,18 +2285,20 @@ const resources = {
       pay_sent_to: '给 {{name}}',
       pay_save_as_contact: '保存为联系人',
       direct_pay_status_on_title: '可接收实时付款',
-      direct_pay_status_on_relay: '此应用打开时，别人可以直接向你付款。已通过中继连接。',
-      direct_pay_status_on_messagebox: '此应用打开时，别人可以直接向你付款。已通过消息箱连接。',
-      direct_pay_status_on_fallback: '此应用打开时，别人可以直接向你付款。已通过消息箱连接（无法连接中继）。',
+      direct_pay_status_on_relay: '此页面打开时，别人可以直接向你付款。已通过中继连接。',
+      direct_pay_status_on_messagebox: '此页面打开时，别人可以直接向你付款。已通过消息箱连接。',
+      direct_pay_status_on_fallback: '此页面打开时，别人可以直接向你付款。已通过消息箱连接（无法连接中继）。',
       direct_pay_status_connecting_title: '正在连接…',
       direct_pay_status_connecting_body: '正在准备接收实时付款。',
       direct_pay_status_off_title: '实时付款已关闭',
-      direct_pay_status_off_body: '请在设置中开启，这样此应用打开时别人就可以直接向你付款。',
+      direct_pay_status_off_body: '请在设置中开启，这样此页面打开时别人就可以直接向你付款。',
       direct_pay_status_not_set_up_body: '实时付款通过消息箱送达其他钱包。请在设置中连接消息箱，或使用中继服务器。',
       direct_pay_status_error_title: '实时付款暂时无法使用',
       direct_pay_status_error_body: '目前无法接收实时付款。',
       direct_pay_fallback_offline: '{{name}} 目前不在线。要发送到对方的消息箱吗？对方下次打开钱包时就会收到。',
       direct_pay_fallback_link_failed: '无法直接连接 {{name}}。改为发送到对方的消息箱吗？',
+      direct_pay_fallback_too_large:
+        '这笔付款太大，无法实时发送（超过 1 MB）。改为发送到 {{name}} 的消息箱吗？目前尚未花费任何资金。',
       direct_pay_failed_offline: '{{name}} 目前不在线。未花费任何款项。请在设置中连接消息箱，以便向离线的人付款。',
       direct_pay_failed_link: '无法直接连接 {{name}}。未花费任何款项。',
       direct_pay_failed_network: '无法连接支付网络，请检查网络连接。',
@@ -3412,15 +3417,16 @@ const resources = {
       pay_sent_to: '{{name}} को',
       pay_save_as_contact: 'संपर्क के रूप में सहेजें',
       direct_pay_status_on_title: 'लाइव भुगतान के लिए खुला',
-      direct_pay_status_on_relay: 'यह ऐप खुला होने पर लोग आपको सीधे भुगतान कर सकते हैं। रिले के ज़रिए जुड़ा है।',
+      direct_pay_status_on_relay: 'यह स्क्रीन खुली होने पर लोग आपको सीधे भुगतान कर सकते हैं। रिले के ज़रिए जुड़ा है।',
       direct_pay_status_on_messagebox:
-        'यह ऐप खुला होने पर लोग आपको सीधे भुगतान कर सकते हैं। मैसेज बॉक्स के ज़रिए जुड़ा है।',
+        'यह स्क्रीन खुली होने पर लोग आपको सीधे भुगतान कर सकते हैं। मैसेज बॉक्स के ज़रिए जुड़ा है।',
       direct_pay_status_on_fallback:
-        'यह ऐप खुला होने पर लोग आपको सीधे भुगतान कर सकते हैं। मैसेज बॉक्स के ज़रिए जुड़ा है (रिले तक पहुँच नहीं हो पा रही)।',
+        'यह स्क्रीन खुली होने पर लोग आपको सीधे भुगतान कर सकते हैं। मैसेज बॉक्स के ज़रिए जुड़ा है (रिले तक पहुँच नहीं हो पा रही)।',
       direct_pay_status_connecting_title: 'कनेक्ट हो रहा है…',
       direct_pay_status_connecting_body: 'लाइव भुगतान लेने की तैयारी हो रही है।',
       direct_pay_status_off_title: 'लाइव भुगतान बंद हैं',
-      direct_pay_status_off_body: 'इन्हें सेटिंग्स में चालू करें ताकि यह ऐप खुला होने पर लोग आपको सीधे भुगतान कर सकें।',
+      direct_pay_status_off_body:
+        'इन्हें सेटिंग्स में चालू करें ताकि यह स्क्रीन खुली होने पर लोग आपको सीधे भुगतान कर सकें।',
       direct_pay_status_not_set_up_body:
         'लाइव भुगतान मैसेज बॉक्स के ज़रिए दूसरे वॉलेट तक पहुँचते हैं। सेटिंग्स में मैसेज बॉक्स जोड़ें, या रिले सर्वर इस्तेमाल करें।',
       direct_pay_status_error_title: 'लाइव भुगतान अभी काम नहीं कर रहे',
@@ -3428,6 +3434,8 @@ const resources = {
       direct_pay_fallback_offline:
         '{{name}} अभी ऑनलाइन नहीं हैं। इसे उनके मैसेज बॉक्स में भेजें? अगली बार वॉलेट खोलने पर उन्हें यह मिल जाएगा।',
       direct_pay_fallback_link_failed: '{{name}} से सीधे कनेक्ट नहीं हो सका। इसके बजाय उनके मैसेज बॉक्स में भेजें?',
+      direct_pay_fallback_too_large:
+        'यह भुगतान लाइव भेजने के लिए बहुत बड़ा है (1 MB से अधिक)। इसके बजाय {{name}} के मैसेज बॉक्स में भेजें? अभी तक कुछ भी खर्च नहीं हुआ है।',
       direct_pay_failed_offline:
         '{{name}} अभी ऑनलाइन नहीं हैं। कुछ भी खर्च नहीं हुआ। ऑफ़लाइन लोगों को भुगतान करने के लिए सेटिंग्स में मैसेज बॉक्स जोड़ें।',
       direct_pay_failed_link: '{{name}} से सीधे कनेक्ट नहीं हो सका। कुछ भी खर्च नहीं हुआ।',
@@ -4565,16 +4573,16 @@ const resources = {
       pay_save_as_contact: 'Guardar como contacto',
       direct_pay_status_on_title: 'Abierto a pagos en vivo',
       direct_pay_status_on_relay:
-        'Las personas pueden pagarte directamente mientras esta app esté abierta. Conectado mediante relé.',
+        'Las personas pueden pagarte directamente mientras esta pantalla esté abierta. Conectado mediante relé.',
       direct_pay_status_on_messagebox:
-        'Las personas pueden pagarte directamente mientras esta app esté abierta. Conectado mediante el buzón de mensajes.',
+        'Las personas pueden pagarte directamente mientras esta pantalla esté abierta. Conectado mediante el buzón de mensajes.',
       direct_pay_status_on_fallback:
-        'Las personas pueden pagarte directamente mientras esta app esté abierta. Conectado mediante el buzón de mensajes (no se puede llegar al relé).',
+        'Las personas pueden pagarte directamente mientras esta pantalla esté abierta. Conectado mediante el buzón de mensajes (no se puede llegar al relé).',
       direct_pay_status_connecting_title: 'Conectando…',
       direct_pay_status_connecting_body: 'Preparándose para recibir pagos en vivo.',
       direct_pay_status_off_title: 'Los pagos en vivo están desactivados',
       direct_pay_status_off_body:
-        'Actívalos en Ajustes para que las personas puedan pagarte directamente mientras esta app esté abierta.',
+        'Actívalos en Ajustes para que las personas puedan pagarte directamente mientras esta pantalla esté abierta.',
       direct_pay_status_not_set_up_body:
         'Los pagos en vivo llegan a otras billeteras a través del buzón de mensajes. Conecta un buzón de mensajes en Ajustes o usa un servidor de relé.',
       direct_pay_status_error_title: 'Los pagos en vivo no funcionan ahora mismo',
@@ -4583,6 +4591,8 @@ const resources = {
         '{{name}} no está en línea ahora. ¿Enviarlo a su buzón de mensajes? Lo recibirá la próxima vez que abra su billetera.',
       direct_pay_fallback_link_failed:
         'No se pudo conectar directamente con {{name}}. ¿Enviarlo a su buzón de mensajes?',
+      direct_pay_fallback_too_large:
+        'Este pago es demasiado grande para enviarlo en vivo (más de 1 MB). ¿Enviarlo al buzón de mensajes de {{name}}? Todavía no se ha gastado nada.',
       direct_pay_failed_offline:
         '{{name}} no está en línea ahora. No se gastó nada. Conecta un buzón de mensajes en Ajustes para pagar a personas sin conexión.',
       direct_pay_failed_link: 'No se pudo conectar directamente con {{name}}. No se gastó nada.',
@@ -5736,16 +5746,16 @@ const resources = {
       pay_save_as_contact: 'Enregistrer comme contact',
       direct_pay_status_on_title: 'Ouvert aux paiements en direct',
       direct_pay_status_on_relay:
-        'Les gens peuvent vous payer directement tant que cette app est ouverte. Connecté via le relais.',
+        'Les gens peuvent vous payer directement tant que cet écran est ouvert. Connecté via le relais.',
       direct_pay_status_on_messagebox:
-        'Les gens peuvent vous payer directement tant que cette app est ouverte. Connecté via la boîte aux lettres.',
+        'Les gens peuvent vous payer directement tant que cet écran est ouvert. Connecté via la boîte aux lettres.',
       direct_pay_status_on_fallback:
-        'Les gens peuvent vous payer directement tant que cette app est ouverte. Connecté via la boîte aux lettres (relais injoignable).',
+        'Les gens peuvent vous payer directement tant que cet écran est ouvert. Connecté via la boîte aux lettres (relais injoignable).',
       direct_pay_status_connecting_title: 'Connexion…',
       direct_pay_status_connecting_body: 'Préparation à la réception de paiements en direct.',
       direct_pay_status_off_title: 'Les paiements en direct sont désactivés',
       direct_pay_status_off_body:
-        'Activez-les dans les réglages pour que les gens puissent vous payer directement tant que cette app est ouverte.',
+        'Activez-les dans les réglages pour que les gens puissent vous payer directement tant que cet écran est ouvert.',
       direct_pay_status_not_set_up_body:
         'Les paiements en direct atteignent les autres portefeuilles via la boîte aux lettres. Connectez une boîte aux lettres dans les réglages, ou utilisez un serveur relais.',
       direct_pay_status_error_title: 'Les paiements en direct ne fonctionnent pas pour le moment',
@@ -5754,6 +5764,8 @@ const resources = {
         "{{name}} n'est pas en ligne pour le moment. L'envoyer dans sa boîte aux lettres ? Le paiement lui parviendra à la prochaine ouverture de son portefeuille.",
       direct_pay_fallback_link_failed:
         "Impossible de se connecter directement à {{name}}. L'envoyer plutôt dans sa boîte aux lettres ?",
+      direct_pay_fallback_too_large:
+        "Ce paiement est trop volumineux pour être envoyé en direct (plus de 1 Mo). L'envoyer plutôt dans la boîte aux lettres de {{name}} ? Rien n'a encore été dépensé.",
       direct_pay_failed_offline:
         "{{name}} n'est pas en ligne pour le moment. Rien n'a été dépensé. Connectez une boîte aux lettres dans les réglages pour payer les personnes hors ligne.",
       direct_pay_failed_link: "Impossible de se connecter directement à {{name}}. Rien n'a été dépensé.",
@@ -6831,15 +6843,15 @@ const resources = {
       pay_sent_to: 'إلى {{name}}',
       pay_save_as_contact: 'حفظ كجهة اتصال',
       direct_pay_status_on_title: 'متاح للمدفوعات المباشرة',
-      direct_pay_status_on_relay: 'يمكن للآخرين الدفع لك مباشرة طالما أن هذا التطبيق مفتوح. متصل عبر المرحّل.',
+      direct_pay_status_on_relay: 'يمكن للآخرين الدفع لك مباشرة طالما أن هذه الشاشة مفتوحة. متصل عبر المرحّل.',
       direct_pay_status_on_messagebox:
-        'يمكن للآخرين الدفع لك مباشرة طالما أن هذا التطبيق مفتوح. متصل عبر صندوق الرسائل.',
+        'يمكن للآخرين الدفع لك مباشرة طالما أن هذه الشاشة مفتوحة. متصل عبر صندوق الرسائل.',
       direct_pay_status_on_fallback:
-        'يمكن للآخرين الدفع لك مباشرة طالما أن هذا التطبيق مفتوح. متصل عبر صندوق الرسائل (تعذّر الوصول إلى المرحّل).',
+        'يمكن للآخرين الدفع لك مباشرة طالما أن هذه الشاشة مفتوحة. متصل عبر صندوق الرسائل (تعذّر الوصول إلى المرحّل).',
       direct_pay_status_connecting_title: 'جارٍ الاتصال…',
       direct_pay_status_connecting_body: 'جارٍ التحضير لاستقبال المدفوعات المباشرة.',
       direct_pay_status_off_title: 'المدفوعات المباشرة متوقفة',
-      direct_pay_status_off_body: 'فعّلها من الإعدادات ليتمكن الآخرون من الدفع لك مباشرة طالما أن هذا التطبيق مفتوح.',
+      direct_pay_status_off_body: 'فعّلها من الإعدادات ليتمكن الآخرون من الدفع لك مباشرة طالما أن هذه الشاشة مفتوحة.',
       direct_pay_status_not_set_up_body:
         'تصل المدفوعات المباشرة إلى المحافظ الأخرى عبر صندوق الرسائل. اربط صندوق رسائل من الإعدادات، أو استخدم خادم مرحّل.',
       direct_pay_status_error_title: 'المدفوعات المباشرة لا تعمل حاليًا',
@@ -6848,6 +6860,8 @@ const resources = {
         '{{name}} غير متصل بالإنترنت الآن. هل تريد إرسالها إلى صندوق رسائله؟ سيستلمها عند فتح محفظته في المرة القادمة.',
       direct_pay_fallback_link_failed:
         'تعذّر الاتصال مباشرة بـ {{name}}. هل تريد إرسالها إلى صندوق رسائله بدلًا من ذلك؟',
+      direct_pay_fallback_too_large:
+        'هذه الدفعة أكبر من أن تُرسل مباشرة (أكثر من 1 ميغابايت). هل تريد إرسالها إلى صندوق رسائل {{name}} بدلًا من ذلك؟ لم يُنفق أي شيء بعد.',
       direct_pay_failed_offline:
         '{{name}} غير متصل بالإنترنت الآن. لم يتم إنفاق أي مبلغ. اربط صندوق رسائل من الإعدادات للدفع لمن هم غير متصلين.',
       direct_pay_failed_link: 'تعذّر الاتصال مباشرة بـ {{name}}. لم يتم إنفاق أي مبلغ.',
@@ -7982,16 +7996,16 @@ const resources = {
       pay_save_as_contact: 'Salvar como contato',
       direct_pay_status_on_title: 'Aberto a pagamentos ao vivo',
       direct_pay_status_on_relay:
-        'As pessoas podem pagar você diretamente enquanto este app estiver aberto. Conectado pelo relé.',
+        'As pessoas podem pagar você diretamente enquanto esta tela estiver aberta. Conectado pelo relé.',
       direct_pay_status_on_messagebox:
-        'As pessoas podem pagar você diretamente enquanto este app estiver aberto. Conectado pela caixa de mensagens.',
+        'As pessoas podem pagar você diretamente enquanto esta tela estiver aberta. Conectado pela caixa de mensagens.',
       direct_pay_status_on_fallback:
-        'As pessoas podem pagar você diretamente enquanto este app estiver aberto. Conectado pela caixa de mensagens (relé inacessível).',
+        'As pessoas podem pagar você diretamente enquanto esta tela estiver aberta. Conectado pela caixa de mensagens (relé inacessível).',
       direct_pay_status_connecting_title: 'Conectando…',
       direct_pay_status_connecting_body: 'Preparando para receber pagamentos ao vivo.',
       direct_pay_status_off_title: 'Os pagamentos ao vivo estão desativados',
       direct_pay_status_off_body:
-        'Ative-os em Configurações para que as pessoas possam pagar você diretamente enquanto este app estiver aberto.',
+        'Ative-os em Configurações para que as pessoas possam pagar você diretamente enquanto esta tela estiver aberta.',
       direct_pay_status_not_set_up_body:
         'Os pagamentos ao vivo chegam a outras carteiras pela caixa de mensagens. Conecte uma caixa de mensagens em Configurações ou use um servidor de relé.',
       direct_pay_status_error_title: 'Os pagamentos ao vivo não estão funcionando agora',
@@ -8000,6 +8014,8 @@ const resources = {
         '{{name}} não está online agora. Enviar para a caixa de mensagens da pessoa? O pagamento chegará quando ela abrir a carteira da próxima vez.',
       direct_pay_fallback_link_failed:
         'Não foi possível conectar diretamente com {{name}}. Enviar para a caixa de mensagens da pessoa?',
+      direct_pay_fallback_too_large:
+        'Este pagamento é grande demais para ser enviado ao vivo (mais de 1 MB). Enviar para a caixa de mensagens de {{name}}? Nada foi gasto ainda.',
       direct_pay_failed_offline:
         '{{name}} não está online agora. Nada foi gasto. Conecte uma caixa de mensagens em Configurações para pagar pessoas que estão offline.',
       direct_pay_failed_link: 'Não foi possível conectar diretamente com {{name}}. Nada foi gasto.',
@@ -9115,16 +9131,17 @@ const resources = {
       pay_sent_to: '{{name}}-কে',
       pay_save_as_contact: 'পরিচিতি হিসেবে সংরক্ষণ করুন',
       direct_pay_status_on_title: 'লাইভ পেমেন্টের জন্য প্রস্তুত',
-      direct_pay_status_on_relay: 'এই অ্যাপ খোলা থাকলে মানুষ আপনাকে সরাসরি পেমেন্ট করতে পারবে। রিলের মাধ্যমে সংযুক্ত।',
+      direct_pay_status_on_relay:
+        'এই স্ক্রিন খোলা থাকলে মানুষ আপনাকে সরাসরি পেমেন্ট করতে পারবে। রিলের মাধ্যমে সংযুক্ত।',
       direct_pay_status_on_messagebox:
-        'এই অ্যাপ খোলা থাকলে মানুষ আপনাকে সরাসরি পেমেন্ট করতে পারবে। মেসেজ বক্সের মাধ্যমে সংযুক্ত।',
+        'এই স্ক্রিন খোলা থাকলে মানুষ আপনাকে সরাসরি পেমেন্ট করতে পারবে। মেসেজ বক্সের মাধ্যমে সংযুক্ত।',
       direct_pay_status_on_fallback:
-        'এই অ্যাপ খোলা থাকলে মানুষ আপনাকে সরাসরি পেমেন্ট করতে পারবে। মেসেজ বক্সের মাধ্যমে সংযুক্ত (রিলেতে পৌঁছানো যাচ্ছে না)।',
+        'এই স্ক্রিন খোলা থাকলে মানুষ আপনাকে সরাসরি পেমেন্ট করতে পারবে। মেসেজ বক্সের মাধ্যমে সংযুক্ত (রিলেতে পৌঁছানো যাচ্ছে না)।',
       direct_pay_status_connecting_title: 'সংযুক্ত হচ্ছে…',
       direct_pay_status_connecting_body: 'লাইভ পেমেন্ট নেওয়ার জন্য প্রস্তুত হচ্ছে।',
       direct_pay_status_off_title: 'লাইভ পেমেন্ট বন্ধ আছে',
       direct_pay_status_off_body:
-        'সেটিংসে এগুলো চালু করুন, যাতে এই অ্যাপ খোলা থাকলে মানুষ আপনাকে সরাসরি পেমেন্ট করতে পারে।',
+        'সেটিংসে এগুলো চালু করুন, যাতে এই স্ক্রিন খোলা থাকলে মানুষ আপনাকে সরাসরি পেমেন্ট করতে পারে।',
       direct_pay_status_not_set_up_body:
         'লাইভ পেমেন্ট মেসেজ বক্সের মাধ্যমে অন্য ওয়ালেটে পৌঁছায়। সেটিংসে একটি মেসেজ বক্স যুক্ত করুন, অথবা রিলে সার্ভার ব্যবহার করুন।',
       direct_pay_status_error_title: 'লাইভ পেমেন্ট এখন কাজ করছে না',
@@ -9132,6 +9149,8 @@ const resources = {
       direct_pay_fallback_offline:
         '{{name}} এখন অনলাইনে নেই। এটি তাদের মেসেজ বক্সে পাঠাবেন? পরের বার ওয়ালেট খুললে তারা এটি পাবেন।',
       direct_pay_fallback_link_failed: '{{name}}-এর সাথে সরাসরি সংযোগ করা যায়নি। তার বদলে তাদের মেসেজ বক্সে পাঠাবেন?',
+      direct_pay_fallback_too_large:
+        'এই পেমেন্টটি লাইভ পাঠানোর জন্য খুব বড় (1 MB-এর বেশি)। তার বদলে {{name}}-এর মেসেজ বক্সে পাঠাবেন? এখনও কিছু খরচ হয়নি।',
       direct_pay_failed_offline:
         '{{name}} এখন অনলাইনে নেই। কিছুই খরচ হয়নি। অফলাইন মানুষদের পেমেন্ট করতে সেটিংসে একটি মেসেজ বক্স যুক্ত করুন।',
       direct_pay_failed_link: '{{name}}-এর সাথে সরাসরি সংযোগ করা যায়নি। কিছুই খরচ হয়নি।',
@@ -10264,16 +10283,16 @@ const resources = {
       pay_save_as_contact: 'Сохранить как контакт',
       direct_pay_status_on_title: 'Открыт для платежей в реальном времени',
       direct_pay_status_on_relay:
-        'Пока это приложение открыто, люди могут платить вам напрямую. Подключено через ретранслятор.',
+        'Пока этот экран открыт, люди могут платить вам напрямую. Подключено через ретранслятор.',
       direct_pay_status_on_messagebox:
-        'Пока это приложение открыто, люди могут платить вам напрямую. Подключено через почтовый ящик.',
+        'Пока этот экран открыт, люди могут платить вам напрямую. Подключено через почтовый ящик.',
       direct_pay_status_on_fallback:
-        'Пока это приложение открыто, люди могут платить вам напрямую. Подключено через почтовый ящик (ретранслятор недоступен).',
+        'Пока этот экран открыт, люди могут платить вам напрямую. Подключено через почтовый ящик (ретранслятор недоступен).',
       direct_pay_status_connecting_title: 'Подключение…',
       direct_pay_status_connecting_body: 'Подготовка к приёму платежей в реальном времени.',
       direct_pay_status_off_title: 'Платежи в реальном времени отключены',
       direct_pay_status_off_body:
-        'Включите их в настройках, чтобы люди могли платить вам напрямую, пока приложение открыто.',
+        'Включите их в настройках, чтобы люди могли платить вам напрямую, пока этот экран открыт.',
       direct_pay_status_not_set_up_body:
         'Платежи в реальном времени доходят до других кошельков через почтовый ящик. Подключите почтовый ящик в настройках или используйте сервер-ретранслятор.',
       direct_pay_status_error_title: 'Платежи в реальном времени сейчас не работают',
@@ -10282,6 +10301,8 @@ const resources = {
         '{{name}} сейчас не в сети. Отправить в почтовый ящик получателя? Платёж придёт, когда получатель в следующий раз откроет кошелёк.',
       direct_pay_fallback_link_failed:
         'Не удалось напрямую подключиться к {{name}}. Отправить в почтовый ящик получателя?',
+      direct_pay_fallback_too_large:
+        'Этот платёж слишком велик для отправки напрямую (больше 1 МБ). Отправить в почтовый ящик {{name}}? Пока ничего не потрачено.',
       direct_pay_failed_offline:
         '{{name}} сейчас не в сети. Ничего не потрачено. Подключите почтовый ящик в настройках, чтобы платить тем, кто не в сети.',
       direct_pay_failed_link: 'Не удалось напрямую подключиться к {{name}}. Ничего не потрачено.',
@@ -11414,16 +11435,16 @@ const resources = {
       pay_save_as_contact: 'Simpan sebagai kontak',
       direct_pay_status_on_title: 'Terbuka untuk pembayaran langsung',
       direct_pay_status_on_relay:
-        'Orang dapat membayar Anda secara langsung selama aplikasi ini terbuka. Terhubung melalui relai.',
+        'Orang dapat membayar Anda secara langsung selama layar ini terbuka. Terhubung melalui relai.',
       direct_pay_status_on_messagebox:
-        'Orang dapat membayar Anda secara langsung selama aplikasi ini terbuka. Terhubung melalui kotak pesan.',
+        'Orang dapat membayar Anda secara langsung selama layar ini terbuka. Terhubung melalui kotak pesan.',
       direct_pay_status_on_fallback:
-        'Orang dapat membayar Anda secara langsung selama aplikasi ini terbuka. Terhubung melalui kotak pesan (relai tidak dapat dijangkau).',
+        'Orang dapat membayar Anda secara langsung selama layar ini terbuka. Terhubung melalui kotak pesan (relai tidak dapat dijangkau).',
       direct_pay_status_connecting_title: 'Menghubungkan…',
       direct_pay_status_connecting_body: 'Bersiap menerima pembayaran langsung.',
       direct_pay_status_off_title: 'Pembayaran langsung nonaktif',
       direct_pay_status_off_body:
-        'Aktifkan di Pengaturan agar orang dapat membayar Anda secara langsung selama aplikasi ini terbuka.',
+        'Aktifkan di Pengaturan agar orang dapat membayar Anda secara langsung selama layar ini terbuka.',
       direct_pay_status_not_set_up_body:
         'Pembayaran langsung sampai ke dompet lain melalui kotak pesan. Hubungkan kotak pesan di Pengaturan, atau gunakan server relai.',
       direct_pay_status_error_title: 'Pembayaran langsung sedang tidak berfungsi',
@@ -11431,6 +11452,8 @@ const resources = {
       direct_pay_fallback_offline:
         '{{name}} sedang tidak online. Kirim ke kotak pesannya? Pembayaran akan diterima saat dompetnya dibuka lagi.',
       direct_pay_fallback_link_failed: 'Tidak dapat terhubung langsung ke {{name}}. Kirim ke kotak pesannya saja?',
+      direct_pay_fallback_too_large:
+        'Pembayaran ini terlalu besar untuk dikirim langsung (lebih dari 1 MB). Kirim ke kotak pesan {{name}} saja? Belum ada yang dibelanjakan.',
       direct_pay_failed_offline:
         '{{name}} sedang tidak online. Tidak ada dana yang terpakai. Hubungkan kotak pesan di Pengaturan untuk membayar orang yang sedang offline.',
       direct_pay_failed_link: 'Tidak dapat terhubung langsung ke {{name}}. Tidak ada dana yang terpakai.',
@@ -12565,15 +12588,15 @@ const resources = {
       pay_sent_to: '{{name}} へ',
       pay_save_as_contact: '連絡先として保存',
       direct_pay_status_on_title: 'ライブ決済を受け付け中',
-      direct_pay_status_on_relay: 'このアプリを開いている間、相手があなたに直接支払えます。リレー経由で接続中です。',
+      direct_pay_status_on_relay: 'この画面を開いている間、相手があなたに直接支払えます。リレー経由で接続中です。',
       direct_pay_status_on_messagebox:
-        'このアプリを開いている間、相手があなたに直接支払えます。メッセージボックス経由で接続中です。',
+        'この画面を開いている間、相手があなたに直接支払えます。メッセージボックス経由で接続中です。',
       direct_pay_status_on_fallback:
-        'このアプリを開いている間、相手があなたに直接支払えます。メッセージボックス経由で接続中です（リレーに接続できません）。',
+        'この画面を開いている間、相手があなたに直接支払えます。メッセージボックス経由で接続中です（リレーに接続できません）。',
       direct_pay_status_connecting_title: '接続中…',
       direct_pay_status_connecting_body: 'ライブ決済を受け取る準備をしています。',
       direct_pay_status_off_title: 'ライブ決済はオフです',
-      direct_pay_status_off_body: '設定でオンにすると、このアプリを開いている間、相手があなたに直接支払えます。',
+      direct_pay_status_off_body: '設定でオンにすると、この画面を開いている間、相手があなたに直接支払えます。',
       direct_pay_status_not_set_up_body:
         'ライブ決済はメッセージボックスを通じて他のウォレットに届きます。設定でメッセージボックスを接続するか、リレーサーバーを使用してください。',
       direct_pay_status_error_title: '現在ライブ決済を利用できません',
@@ -12582,6 +12605,8 @@ const resources = {
         '{{name}}は現在オンラインではありません。相手のメッセージボックスに送りますか？次にウォレットを開いたときに受け取れます。',
       direct_pay_fallback_link_failed:
         '{{name}}に直接接続できませんでした。代わりに相手のメッセージボックスに送りますか？',
+      direct_pay_fallback_too_large:
+        'この支払いは大きすぎるため、ライブでは送れません（1 MB超）。代わりに{{name}}のメッセージボックスに送りますか？まだ何も支払われていません。',
       direct_pay_failed_offline:
         '{{name}}は現在オンラインではありません。何も使われていません。オフラインの相手に支払うには、設定でメッセージボックスを接続してください。',
       direct_pay_failed_link: '{{name}}に直接接続できませんでした。何も使われていません。',
@@ -13736,16 +13761,16 @@ const resources = {
       pay_save_as_contact: 'Zapisz jako kontakt',
       direct_pay_status_on_title: 'Otwarty na płatności na żywo',
       direct_pay_status_on_relay:
-        'Gdy ta aplikacja jest otwarta, ludzie mogą płacić Ci bezpośrednio. Połączono przez przekaźnik.',
+        'Gdy ten ekran jest otwarty, ludzie mogą płacić Ci bezpośrednio. Połączono przez przekaźnik.',
       direct_pay_status_on_messagebox:
-        'Gdy ta aplikacja jest otwarta, ludzie mogą płacić Ci bezpośrednio. Połączono przez skrzynkę wiadomości.',
+        'Gdy ten ekran jest otwarty, ludzie mogą płacić Ci bezpośrednio. Połączono przez skrzynkę wiadomości.',
       direct_pay_status_on_fallback:
-        'Gdy ta aplikacja jest otwarta, ludzie mogą płacić Ci bezpośrednio. Połączono przez skrzynkę wiadomości (przekaźnik jest nieosiągalny).',
+        'Gdy ten ekran jest otwarty, ludzie mogą płacić Ci bezpośrednio. Połączono przez skrzynkę wiadomości (przekaźnik jest nieosiągalny).',
       direct_pay_status_connecting_title: 'Łączenie…',
       direct_pay_status_connecting_body: 'Przygotowywanie do odbierania płatności na żywo.',
       direct_pay_status_off_title: 'Płatności na żywo są wyłączone',
       direct_pay_status_off_body:
-        'Włącz je w ustawieniach, aby ludzie mogli płacić Ci bezpośrednio, gdy ta aplikacja jest otwarta.',
+        'Włącz je w ustawieniach, aby ludzie mogli płacić Ci bezpośrednio, gdy ten ekran jest otwarty.',
       direct_pay_status_not_set_up_body:
         'Płatności na żywo docierają do innych portfeli przez skrzynkę wiadomości. Połącz skrzynkę wiadomości w ustawieniach lub użyj serwera przekaźnikowego.',
       direct_pay_status_error_title: 'Płatności na żywo chwilowo nie działają',
@@ -13754,6 +13779,8 @@ const resources = {
         '{{name}} jest teraz offline. Wysłać płatność do skrzynki wiadomości odbiorcy? Dotrze, gdy odbiorca następnym razem otworzy portfel.',
       direct_pay_fallback_link_failed:
         'Nie udało się połączyć bezpośrednio z {{name}}. Wysłać zamiast tego do skrzynki wiadomości odbiorcy?',
+      direct_pay_fallback_too_large:
+        'Ta płatność jest zbyt duża, by wysłać ją na żywo (ponad 1 MB). Wysłać ją zamiast tego do skrzynki wiadomości {{name}}? Nic jeszcze nie zostało wydane.',
       direct_pay_failed_offline:
         '{{name}} jest teraz offline. Nic nie wydano. Połącz skrzynkę wiadomości w ustawieniach, aby płacić osobom offline.',
       direct_pay_failed_link: 'Nie udało się połączyć bezpośrednio z {{name}}. Nic nie wydano.',

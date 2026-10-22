@@ -52,6 +52,17 @@ describe('payIdentity: the message box fallback', () => {
     }
   )
 
+  it('asks to use the message box for a payment over the 1 MB live limit, released before anything was spent', async () => {
+    const asked = await payIdentity({
+      direct: stopsBeforePaying('too_large'),
+      messageBox: async () => {},
+      name: 'Alice'
+    })
+    expect(asked).toEqual({ kind: 'ask_fallback', reason: 'too_large' })
+    const alone = await payIdentity({ direct: stopsBeforePaying('too_large'), name: 'Alice' })
+    expect(alone).toMatchObject({ kind: 'failed', spent: 'no', key: 'direct_pay_failed_not_sent' })
+  })
+
   it.each<[DialFailure, string]>([
     ['offline', 'direct_pay_failed_offline'],
     ['rejected', 'direct_pay_failed_offline'],
@@ -233,6 +244,14 @@ describe('fallbackPrompt', () => {
     const prompt = fallbackPrompt('link_failed', 'Alice')
     expect(prompt).toEqual({ key: 'direct_pay_fallback_link_failed', params: { name: 'Alice' } })
     expect(say(prompt)).toBe("Couldn't connect to Alice directly. Send it to their message box instead?")
+  })
+
+  it('asks the too-large question, naming the recipient', () => {
+    const prompt = fallbackPrompt('too_large', 'Alice')
+    expect(prompt).toEqual({ key: 'direct_pay_fallback_too_large', params: { name: 'Alice' } })
+    expect(say(prompt)).toBe(
+      "This payment is too large to send live (over 1 MB). Send it to Alice's message box instead? Nothing has been spent yet."
+    )
   })
 
   it('says in English that nothing was spent when a stop has no dial failure', async () => {

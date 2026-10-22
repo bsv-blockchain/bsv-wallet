@@ -147,6 +147,10 @@ export interface DirectPayClientOptions {
   onIceServersProviderError?: (e: unknown) => void
   chain?: string
   timeouts?: { connectMs?: number; ackMs?: number; presenceMs?: number; dialMs?: number }
+  /** Largest message a peer may send once authenticated, while this client dials. */
+  maxMessageBytes?: number
+  /** What a payee allows from peers that dial it (the package's `InboundLimits`, in part). */
+  limits?: { maxMessageBytes?: number }
 }
 
 export interface RelaySignalerOptions {

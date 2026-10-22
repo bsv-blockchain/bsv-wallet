@@ -102,7 +102,7 @@ describe('liveStatus', () => {
   it('reads as the Receive card in English', () => {
     const on = liveStatus(input({ status: 'online', via: 'relay' }))
     expect(english[on.titleKey]).toBe('Open to live payments')
-    expect(english[on.bodyKey]).toBe('People can pay you directly while this app is open. Connected via relay.')
+    expect(english[on.bodyKey]).toBe('People can pay you directly while this screen is open. Connected via relay.')
     expect(english[liveStatus(input()).titleKey]).toBe('Live payments are off')
   })
 

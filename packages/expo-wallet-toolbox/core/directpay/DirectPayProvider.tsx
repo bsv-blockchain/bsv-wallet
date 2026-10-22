@@ -71,6 +71,11 @@ export interface DirectPayContextValue {
    * `NotSentError` when it stopped before the payment was made.
    */
   sendDirect: (args: DirectPaySendArgs) => Promise<DirectSendResult>
+  /**
+   * The Receive screen is showing: live payments are answered only while it is (see
+   * `DirectPayManager.openReceiveScreen`). Returns the function to call when it stops showing.
+   */
+  openReceiveScreen: () => () => void
 }
 
 const OFF_SNAPSHOT: DirectPaySnapshot = {
@@ -88,6 +93,8 @@ const unavailable = async (): Promise<never> => {
   throw new NotSentError('Direct payments are not available', 'not configured')
 }
 
+const noReceiveScreen = () => () => {}
+
 const DirectPayContext = createContext<DirectPayContextValue>({
   available: false,
   snapshot: OFF_SNAPSHOT,
@@ -96,7 +103,8 @@ const DirectPayContext = createContext<DirectPayContextValue>({
   saveSettings: unavailable,
   reload: async () => {},
   canSendDirect: false,
-  sendDirect: unavailable
+  sendDirect: unavailable,
+  openReceiveScreen: () => () => {}
 })
 
 export const useDirectPay = (): DirectPayContextValue => useContext(DirectPayContext)
@@ -303,7 +311,8 @@ export const DirectPayProvider: React.FC<{ children: React.ReactNode; onToast?: 
       saveSettings,
       reload,
       canSendDirect,
-      sendDirect
+      sendDirect,
+      openReceiveScreen: manager ? manager.openReceiveScreen : noReceiveScreen
     }),
     [manager, snapshot, settings, saveSettings, reload, canSendDirect, sendDirect]
   )
