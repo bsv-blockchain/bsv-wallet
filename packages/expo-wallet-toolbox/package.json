@@ -38,7 +38,7 @@
     "@bsv/sdk": "^2.8.11",
     "@bsv/templates": "^2.0.0",
     "@bsv/webrtpay": "^0.2.1",
-    "@bsv/wallet-toolbox-mobile": "^2.14.3",
+    "@bsv/wallet-toolbox-mobile": "^2.14.9",
     "@expo/vector-icons": "^15.0.3",
     "@noble/curves": "^2.3.0",
     "@react-native-async-storage/async-storage": "^2.2.0",

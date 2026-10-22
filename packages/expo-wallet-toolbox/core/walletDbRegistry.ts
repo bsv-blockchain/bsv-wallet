@@ -11,6 +11,8 @@
  *   Current : wallet-<keySuffix>-<chain>net-<unix_s>.db  → timestamp = <unix_s>
  */
 
+import { APP_CHAINS } from './networks'
+
 // ── Filename parsing ────────────────────────────────────────────────────────
 
 /**
@@ -18,14 +20,14 @@
  *
  * Groups:
  *   1 – keySuffix  (8 hex chars from the end of the identityKey)
- *   2 – chain      (main | test | teratest)
+ *   2 – chain      (main | test | teratest | scaletest)
  *   3 – timestamp  (digits, optional)
  */
-const DB_FILENAME_RE = /^wallet-([a-fA-F0-9]{8})-(main|test|teratest)net(?:-(\d+))?\.db$/
+const DB_FILENAME_RE = /^wallet-([a-fA-F0-9]{8})-(main|test|teratest|scaletest)net(?:-(\d+))?\.db$/
 
 export interface ParsedDbFilename {
   keySuffix: string
-  chain: string // 'main' | 'test' | 'teratest'
+  chain: string // an AppChain
   timestamp: number // 0 for legacy files without a timestamp segment
 }
 
@@ -114,7 +116,7 @@ export async function getRegisteredDbs(keySuffix: string, chain: string): Promis
 }
 
 /** The networks a wallet database can belong to. */
-const WALLET_DB_CHAINS = ['main', 'test', 'teratest'] as const
+const WALLET_DB_CHAINS = APP_CHAINS
 
 /**
  * Every registered wallet DB filename for an identity, on every network. Unlike

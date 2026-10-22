@@ -2,6 +2,64 @@
 
 ## 0.19.1
 
+### Breaking
+
+- `AppChain` gains `'scaletest'` (the scaling teratestnet; toolbox chain
+  `'regtest'`), and `WalletChain` gains `'regtest'`. `toWalletChain` now
+  returns the toolbox's own `Chain` type. Exhaustive `Record<AppChain, …>`
+  maps in a host need an entry for it.
+- `wocConfigFor(network)` returns `undefined` for a network with no
+  WhatsOnChain (scaletest). `makeBeefRepair` accepts that and never repairs.
+- `createWocBroadcastService(woc, apiKey?)` takes the network's WhatsOnChain
+  endpoints (`NETWORKS[chain].woc`) instead of a chain string.
+- `makePeerPayClient` requires `network`. `useMessageBoxConfig(t, network)` and
+  `useOfflineNoticeActions({ …, network })` take the open network.
+- `KNOWN_ARC_URLS` is per network (`Record<AppChain, KnownArcUrl[]>`): test
+  chains no longer offer mainnet ARC presets.
+
+### Networks
+
+- `NETWORKS` (`core/networks.ts`) is the one per-network table: Arcade,
+  MessageBox, WhatsOnChain/explorer, TAAL/GorillaPool/Bitails fallbacks,
+  overlay preset, push. The ternaries that sent any unnamed network to
+  teratest's endpoints are gone.
+- **Each network has its own MessageBox server**: `messagebox-testnet`,
+  `messagebox-ttn` and `messagebox-tstn` `.bsvblockchain.tech` beside mainnet's
+  `messagebox.bsvblockchain.tech`. A saved preference equal to any network's
+  default (or the retired one) follows the open network's default; a server the
+  user chose is kept. Hosts can override a chain's default with
+  `services.<chain>.messageBoxUrl`.
+- MessageBox / PeerPay clients now look recipients up in the open network's
+  overlay (`bindMessageBoxNetwork`). `PeerPayClient` 2.5.3 does not pass
+  `networkPreset` through, so every network had been asking mainnet's overlay.
+  A network with no overlay routes only to the configured host.
+- Identity lookups use the open network's overlay (teratest had been using
+  testnet's).
+- Push registration happens only for profiles on a network whose MessageBox
+  sends push (mainnet). A test-chain profile's existing registration at
+  mainnet's box is skipped, not withdrawn.
+- Upgrading moves a testnet/teratest profile on the default server to its own
+  network's box: anything still unread in mainnet's box for that profile is no
+  longer read. Queued outbox retries keep the host recorded per entry.
+- Settings › MessageBox stores a network default (any network's) as "no
+  preference", so the screen shows the host the rails actually use.
+- Bitails is no longer registered as a broadcast / proof fallback on teratest.
+  Teratest no longer takes a TAAL key.
+- **Fix:** a teratest wallet's storage reports chain `'ttn'`, but
+  `storageMatchesNetwork` expected `'test'`, so the home screen always treated
+  a teratest wallet as the previous network's. It now compares the toolbox
+  chain.
+- Scaling teratestnet (`scaletest`) is wired through but **not available** in
+  the network picker (`NETWORKS.scaletest.available = false`). The deployed
+  chain runs Teranode regtest parameters (regtest genesis, bits `0x207fffff`),
+  so its toolbox chain is `'regtest'`, not `'tstn'`, and its header window is
+  anchored at the regtest genesis. The installed
+  `@bsv/wallet-toolbox-mobile` 2.14.x has no `'regtest'` chain and rejects
+  every header above the mainnet proof-of-work limit; `regtest` support lands
+  in 2.15.0 (bsv-blockchain/ts-stack#819). With no WhatsOnChain it also has no
+  address rail, sweep, BEEF repair or explorer link; Pay shows the address
+  option as unavailable.
+
 ### Changed
 
 - **`UniversalSend` review no longer warns about a live payment's route.**
@@ -14,6 +72,24 @@
 - **No "Not verified" line for a bare identity key.** Review shows a trust
   line only for a contact or a registered handle. `pay_trust_unverified` is
   removed.
+- **The receiving wallet broadcasts an incoming payment as it takes it in.**
+  The `@bsv/wallet-toolbox-mobile` peer is now `^2.14.9`. Up to 2.14.6,
+  `internalizeAction` was meant to post an unproven payment that is new to the
+  wallet, but the step was gated on an `isNew` flag storage never set, so it
+  never ran: the payee only queued the transaction and the payer's and
+  payee's monitors each sent it later. Now a live payment is posted before
+  it is acknowledged, and a nearby payment right after the "got it" reply.
+  Offline, `StorageExpoSQLite` still parks the post (`holdReqsOffline`), so
+  the payment is credited and sent when the device is back online.
+  - A post that no broadcaster could take is environmental:
+    `classifyCreditError` reads the `WERR_REVIEW_ACTIONS` results, so a live
+    payment is kept and acknowledged as received, an inbox payment does not
+    use up its tries, and a nearby payment does not use up its attempts. A
+    double spend is `double_spend`; an invalid transaction is `structural`.
+  - New `failedPostReason(error)` gives the reason in words for callers that
+    keep only a message.
+  - The app's `patches/@bsv+wallet-toolbox-mobile` patch is rebased onto
+    2.14.9 unchanged.
 
 ## 0.19.0
 

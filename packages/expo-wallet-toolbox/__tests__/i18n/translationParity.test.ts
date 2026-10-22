@@ -10,6 +10,7 @@ const otherLanguages = Object.keys(resources).filter(code => code !== 'en')
 // names, loanwords a language actually uses, and pure format strings.
 const allowedUntranslated: Record<string, string[]> = {
   teratest: ['*'],
+  scaletest: ['*'],
   mainnet: ['*'],
   testnet: ['*'],
   settings_version: ['*'],

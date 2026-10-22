@@ -8,10 +8,46 @@
  */
 export type CreditFailureKind = 'environmental' | 'double_spend' | 'structural'
 
+/**
+ * internalizeAction (wallet-toolbox-mobile 2.14.7 and later) posts an unproven payment
+ * itself and throws WERR_REVIEW_ACTIONS, crediting nothing, when the post fails. Its
+ * `reviewActionResults` say why: a double spend, an invalid transaction, or, when every
+ * result is a service error, no broadcaster could be reached.
+ */
+function classifyFailedPost(e: unknown): CreditFailureKind | undefined {
+  const review = e as { name?: unknown; reviewActionResults?: unknown } | null
+  if (review?.name !== 'WERR_REVIEW_ACTIONS' || !Array.isArray(review.reviewActionResults)) return undefined
+  const statuses = review.reviewActionResults.map(r => (r as { status?: unknown } | null)?.status)
+  if (statuses.length === 0) return undefined
+  if (statuses.includes('doubleSpend')) return 'double_spend'
+  if (statuses.every(s => s === 'serviceError')) return 'environmental'
+  return 'structural'
+}
+
+/**
+ * Why internalizeAction's post of a payment failed, in words, for callers that
+ * keep only a message: WERR_REVIEW_ACTIONS's own message does not say. The
+ * environmental wording is matched by `isRetriableInternalizeFailure`.
+ */
+export function failedPostReason(e: unknown): string | undefined {
+  switch (classifyFailedPost(e)) {
+    case 'environmental':
+      return 'The payment could not be broadcast: no broadcaster could be reached'
+    case 'double_spend':
+      return 'The payment could not be broadcast: the network reported a double spend'
+    case 'structural':
+      return 'The payment could not be broadcast: the network rejected the transaction'
+    default:
+      return undefined
+  }
+}
+
 export function classifyCreditError(
   e: unknown,
   ctx?: { lastMissHeight?: number; offline?: boolean }
 ): CreditFailureKind {
+  const failedPost = classifyFailedPost(e)
+  if (failedPost) return failedPost
   const message = e instanceof Error ? e.message : typeof e === 'string' ? e : ''
   if (/invalid status failed|doubleSpend|double.?spend/i.test(message)) return 'double_spend'
   // Headers behind or the device offline: any credit failure is treated as
@@ -21,7 +57,7 @@ export function classifyCreditError(
   if (ctx?.offline) return 'environmental'
   if (ctx?.lastMissHeight != null) return 'environmental'
   if (
-    /network request failed|timed? ?out|chaintracks|database is locked|database table is locked|database-locked|failed to retrieve messages|not found on refresh/i.test(
+    /network request failed|timed? ?out|chaintracks|database is locked|database table is locked|database-locked|failed to retrieve messages|not found on refresh|no broadcaster could be reached/i.test(
       message
     )
   )

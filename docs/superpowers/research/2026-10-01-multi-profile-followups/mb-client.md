@@ -180,6 +180,7 @@ All of them use the active profile's `permissionsManager` and the admin originat
    - Then call `deriveProfileKeys(hd, n)` for each profile. `profiles/discovery.ts:39-42` already derives other profiles' `primaryKey` this way without building them.
 2. Read the host with an explicit index: `AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY, n))`, then apply the same `NO_MESSAGE_BOX` and legacy-URL mapping as `readMessageBoxHost`.
 3. Build and register:
+
    ```ts
    const proto = new ProtoWallet(new PrivateKey(primaryKey))
    const mb = new MessageBoxClient({ host, walletClient: proto as never })
@@ -189,6 +190,7 @@ All of them use the active profile's `permissionsManager` and the admin originat
    - Passing `host` as `overrideHost` avoids any overlay lookup.
    - Do not call `init()` or `anointHost()`.
    - Use a fresh client each time. Each `AuthFetch` has its own session manager, so every registration does a full handshake to `${origin}/.well-known/auth` (`SDK/auth/transports/SimplifiedFetchTransport.js:88`) before the request.
+
 4. Drop the key material afterwards.
 
 **Why not to ship this as-is:** per section 0, this call would steal the token from the active profile. Any marker for it would need `profileScopedKey` plus an identity component. The server schema and the push payload would also need to change before multi-profile push can work.

@@ -216,9 +216,9 @@ AdmissionEntry {
 ```
 
 `linkage` and `admissions` are keyed by disjoint sets of txids in a
-well-formed bundle: a txid the payer has σ_I for goes in `admissions` and
+well-formed bundle: a txid the payer has σ*I for goes in `admissions` and
 needs no linkage payload forwarded (the recipient will never submit it); a
-txid the payer does _not_ have σ_I for goes in `linkage` (so a downstream
+txid the payer does \_not* have σ_I for goes in `linkage` (so a downstream
 submitter can build the /submit body for it) and its own inputs are walked
 further. A bundle MAY legitimately have neither for a purely-issued asset's
 tip (no token ancestor at all — the trivial base case).
@@ -316,8 +316,8 @@ function COVER(tip, bundle) -> { ok: true, mustSubmit: [txid...] }        // top
 
 **Proves:** every token input the recipient is being asked to accept-and-hand-
 over-goods-against, or every ancestor it will be asked to submit, is reachable
-either (a) from a σ_I the recipient can itself verify against the _session's
-own_ overlay key, over a message that names the _exact set of outputs the
+either (a) from a σ*I the recipient can itself verify against the \_session's
+own* overlay key, over a message that names the _exact set of outputs the
 overlay actually admitted_, or (b) from transaction bytes the recipient holds
 and can walk into further under the same rule. The recipient never has to
 trust an unverifiable assertion.
@@ -332,13 +332,13 @@ trust an unverifiable assertion.
   transaction was itself one of the admitted outputs." This is _exactly_ the
   phantom-coin/sibling-mint hole three independent reviews found. `Covered`
   is defined above to require `v ∈ admissions[t].outputsToAdmit` — but that
-  check is only as good as (a) σ_I actually committing to `outputsToAdmit`
+  check is only as good as (a) σ*I actually committing to `outputsToAdmit`
   (not just to `t`) and (b) the overlay's own admission decision for `t`
-  never admitting `t` as a whole while silently _not_ admitting one of its
+  never admitting `t` as a whole while silently \_not* admitting one of its
   token-shaped outputs. Both halves are FIX A; **omitting either half still
   leaves the hole**, because:
-  - Without the wallet-side vout check, a genuine σ_I(t) is (mis)read as
-    licensing _every_ token output of `t`, including one the overlay never
+  - Without the wallet-side vout check, a genuine σ*I(t) is (mis)read as
+    licensing \_every* token output of `t`, including one the overlay never
     examined.
   - Without the overlay-side reject-not-skip fix, `outputsToAdmit` for a
     submitted tx can be **wrong on the overlay's own books** — it silently
@@ -348,8 +348,8 @@ trust an unverifiable assertion.
     correct wallet-side `Covered` check would then correctly refuse output
     `1` — _if_ it ever heard about it as a separate coverage query. But the
     attack's whole shape is that the ATTACKER is the one submitting `t`
-    online and obtaining σ_I(t) legitimately; the wallet-side fix protects
-    the _next_ recipient only if the signed `outputsToAdmit` is trustworthy,
+    online and obtaining σ*I(t) legitimately; the wallet-side fix protects
+    the \_next* recipient only if the signed `outputsToAdmit` is trustworthy,
     which requires the overlay to have computed it correctly in the first
     place.
 
@@ -380,17 +380,17 @@ previous _online_ transfer; `admissionSignature`/`admissionIdentityKey` for
 (`L/overlay.ts:29-33`) and cached. Alice pays Bob offline with tip `T`
 spending `X`. Bundle: `beef={X,T}`, `linkage={}` (nothing unadmitted),
 `admissions={X: {outputsToAdmit:[…], sig, key}}`. Bob's `COVER(T)`:
-`tokenInputs(T)=[(X,v)]`; `Covered(X,v)` — true (σ_I verifies, `v` is in the
+`tokenInputs(T)=[(X,v)]`; `Covered(X,v)` — true (σ*I verifies, `v` is in the
 signed set). `walk(T)` returns true with zero recursion. `mustSubmit=[T]`.
 Bob credits, hands over goods, and — per rule 3 — is the one who submits `T`
-whenever _he_ reconnects (or Alice does, per rule 6, whichever is first;
+whenever \_he* reconnects (or Alice does, per rule 6, whichever is first;
 idempotent `/submit` makes the order irrelevant).
 
 **1-hop — Alice was herself paid offline and re-spends before reconnecting.**
-Alice received `X` offline (never submitted, no σ_I for it) and now pays Bob
+Alice received `X` offline (never submitted, no σ*I for it) and now pays Bob
 with `T` spending `X`. Bundle: `beef={G,X,T}` (`G` = the genuine
 admitted ancestor `X` itself spends, online, so `G∈admissions`), `linkage=
-{X: payload}` (Alice forwards the linkage bytes for the _not-yet-admitted_ `X`
+{X: payload}` (Alice forwards the linkage bytes for the \_not-yet-admitted* `X`
 verbatim — she cannot decrypt them, only carry them), `admissions={G:{…}}`.
 Bob's `COVER(T)`: `tokenInputs(T)=[(X,v)]`; `Covered(X,v)` — false, `X∉
 admissions`. Recurse: `parentTx=X` is present in `beef`; `walk(X)`:
@@ -428,11 +428,11 @@ for submitting that hop, but nothing in the protocol restricts _who_ may
 POST a given txid's bytes to `/submit` — admission is a function of content
 (conservation, linkage, screening), not of caller identity (see §7.4). So
 whichever of `{A,B,C,D}` reconnects first can settle the entire chain in one
-drain pass: submit `T1` (idempotent — gets σ_I(T1) whether or not anyone
+drain pass: submit `T1` (idempotent — gets σ*I(T1) whether or not anyone
 already tried), then `T2`, then `T3`, each in order, broadcasting each as
 admitted (rule 4). If instead `B` reconnects first, `B`'s own copy of the
 bundle only extends to `T1` (its own tip) — it submits and broadcasts `T1`
-and acks; `C` and `D` still need `T2`/`T3` submitted, which happens when _any_
+and acks; `C` and `D` still need `T2`/`T3` submitted, which happens when \_any*
 of `C`, `D`, or a reconnecting `A`/`B` next drains (each holds enough of the
 chain to submit at least its own frontier). The chain converges monotonically
 as devices reconnect, never regresses, and the idempotent `/submit` (FIX C)
@@ -1173,8 +1173,8 @@ same txid, because the overlay serves the same first-final-verdict to both.
 Bounded by the overlay's own admission rules (conservation, 1-satoshi rule,
 linkage-verified ownership, sanctions/access/registry gates) exactly as an
 online transfer is today — offline credit changes _when_ those rules are
-checked (by the recipient's own verified σ_I coverage instead of by a
-same-session network round trip), not _what_ they are. **Provably
+checked (by the recipient's own verified σ*I coverage instead of by a
+same-session network round trip), not \_what* they are. **Provably
 prevented, once FIX A ships on both overlays:** minting value inside a
 genuinely-admitted transaction via an un-linked sibling output. **Detected
 after the fact, not prevented:** an ordinary double spend of an admitted
@@ -1495,9 +1495,9 @@ the offline path is the single biggest scope decision here and it is named as
 one."_ New text:
 
 > **3. ~~No offline nearby token payments in v1~~ — reversed.** The
-> maintainer's settlement model (recipient submits, recursive σ_I walk-back,
+> maintainer's settlement model (recipient submits, recursive σ*I walk-back,
 > idempotent `/submit`, payer's own optional submit) makes offline nearby
-> token payments the _design center_, not a deferred feature — see the
+> token payments the \_design center*, not a deferred feature — see the
 > offline-settlement-final spec in full. What remains genuinely out of scope
 > for v1 is unchanged from the rest of this document: multi-issuer nearby
 > sessions (item 4, unchanged) and any dApp-facing story beyond the
@@ -1629,7 +1629,7 @@ repo-local-overlay change is additive to code this repo owns outright.
 
 Answers to §11, in order. All eight questions are resolved; none remain open.
 
-1. **Digest timing (§11.1).** The σ_I digest change ships in the _same_
+1. **Digest timing (§11.1).** The σ*I digest change ships in the \_same*
    change as the reject-not-skip fix. FIX A is two halves of one fix and is
    not sequenced apart.
 2. **ts-stack escalation policy (§11.2).** Repo-local wrapper first, in both

@@ -112,7 +112,7 @@ describe('parseProfilesState', () => {
     })
     expect(parseProfilesState(raw).profiles).toEqual([
       { index: 0, network: 'main', identityKey: 'ab' },
-      { index: 1, network: 'test', restorePending: ['main', 'test', 'teratest'] },
+      { index: 1, network: 'test', restorePending: ['main', 'test', 'teratest', 'scaletest'] },
       { index: 2, network: 'main' }
     ])
   })

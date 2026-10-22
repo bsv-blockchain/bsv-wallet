@@ -711,6 +711,9 @@ const RETRIABLE_INTERNALIZE_PATTERNS: readonly RegExp[] = [
   /network request failed/i,
   /timed? ?out/i,
   /econnreset|econnrefused|enotfound|fetch failed/i,
+  // internalizeAction posts an unproven payment itself (wallet-toolbox-mobile
+  // 2.14.7+); when no broadcaster answered, `failedPostReason` says so.
+  /no broadcaster could be reached/i,
   // `processPending`'s own pre-internalize settlement write (§4.2/§4.3 guard
   // #2). A failure there is a local storage fault, not a bad frame: the money
   // is real, the frame is durable, and the next tick tries the same write

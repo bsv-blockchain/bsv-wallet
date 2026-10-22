@@ -367,7 +367,7 @@ function UniversalSendInner(
   const assetStatus = useAssetStatus(asset?.assetId ?? null).status
 
   // Read-only here: the server is configured in Settings › Advanced.
-  const { messageBoxUrl } = useMessageBoxConfig(t)
+  const { messageBoxUrl } = useMessageBoxConfig(t, selectedNetwork)
   const isConfigured = !!messageBoxUrl && messageBoxUrl !== NO_MESSAGE_BOX
 
   /**
@@ -804,8 +804,14 @@ function UniversalSendInner(
   }, [])
 
   const peerPayClient = useMemo(
-    () => makePeerPayClient({ wallet: wallet as never, messageBoxUrl, originator: adminOriginator }),
-    [messageBoxUrl, wallet, adminOriginator]
+    () =>
+      makePeerPayClient({
+        wallet: wallet as never,
+        messageBoxUrl,
+        network: selectedNetwork,
+        originator: adminOriginator
+      }),
+    [messageBoxUrl, wallet, adminOriginator, selectedNetwork]
   )
 
   const loadOutbox = useCallback(async () => {
@@ -1134,7 +1140,12 @@ function UniversalSendInner(
       // of which client is used.
       const client =
         peerPayClient ??
-        makePeerPayClient({ wallet: wallet as never, messageBoxUrl: entry.messageBoxUrl, originator: adminOriginator })
+        makePeerPayClient({
+          wallet: wallet as never,
+          messageBoxUrl: entry.messageBoxUrl,
+          network: selectedNetwork,
+          originator: adminOriginator
+        })
       if (!client || !storage) {
         showToast(t('message_box_off_hint'), { type: 'error' })
         return

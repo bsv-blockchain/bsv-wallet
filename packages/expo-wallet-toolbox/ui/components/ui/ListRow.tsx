@@ -25,7 +25,7 @@ function loadIonicons(): IoniconsComponent {
 function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
   if (!materialCommunityIconsComponent) {
     materialCommunityIconsComponent = // eslint-disable-next-line @typescript-eslint/no-require-imports
-    require('@expo/vector-icons').MaterialCommunityIcons as MaterialCommunityIconsComponent
+      require('@expo/vector-icons').MaterialCommunityIcons as MaterialCommunityIconsComponent
   }
   return materialCommunityIconsComponent
 }

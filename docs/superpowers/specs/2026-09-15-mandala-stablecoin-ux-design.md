@@ -820,9 +820,9 @@ token_messagebox_mismatch       Your wallet is set to a different message box, s
 1. **No address rail for stablecoins (D4).** The output pkh is `hash160(B + kG)` — an ECDH product requiring the recipient's public identity key (`L/blinding.ts:137-143`) — and the overlay derives an output's owner from the decrypted linkage's `counterparty`, silently skipping outputs it cannot name (`OG/mandala/linkage.go:50-89`, `topic_manager.go:154-172`), which then fails conservation. Refused inline with a plain reason, never hidden.
 2. **No `?asset=` in the `peerpay:` grammar and no QR change.** BRC-125 has no asset parameter; adding one costs a parser, a validator, a spoof surface and 12 more locale entries to remove one tap the payer must take anyway. Switching the QR to a bare key would drop `?sats=` and `&url=` and regress shipped BSV plumbing.
 3. ~~No offline nearby token payments in v1~~ — reversed. The
-   maintainer's settlement model (recipient submits, recursive σ_I walk-back,
+   maintainer's settlement model (recipient submits, recursive σ*I walk-back,
    idempotent `/submit`, payer's own optional submit) makes offline nearby
-   token payments the _design center_, not a deferred feature — see the
+   token payments the \_design center*, not a deferred feature — see the
    offline-settlement-final spec in full. What remains genuinely out of scope
    for v1 is unchanged from the rest of this document: multi-issuer nearby
    sessions (item 4, unchanged) and any dApp-facing story beyond the

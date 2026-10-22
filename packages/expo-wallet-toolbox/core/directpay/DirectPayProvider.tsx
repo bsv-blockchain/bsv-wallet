@@ -26,20 +26,13 @@ import React, {
   useSyncExternalStore
 } from 'react'
 import { AppState } from 'react-native'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useWallet, useWalletManagers, useWalletStatus } from '../context/WalletContext'
 import { getDirectPayConfig } from '../toolboxConfig'
 import { getOnline, subscribeOnline } from '../net/online'
 import { makeCreditClassifier } from '../pay/creditErrors'
-import {
-  DEFAULT_MESSAGE_BOX_URL,
-  LEGACY_MESSAGE_BOX_URL,
-  MESSAGE_BOX_URL_KEY,
-  NO_MESSAGE_BOX,
-  makePeerPayClient
-} from '../pay/rails/handle'
+import type { AppChain } from '../networks'
+import { makePeerPayClient, readMessageBoxUrl } from '../pay/rails/handle'
 import { sendViaDirect, type DirectSendResult } from '../pay/rails/direct'
-import { profileScopedKey } from '../profiles/profileStore'
 import { deviceKVStorage } from './deviceStore'
 import { DirectPayManager, type DirectPaySnapshot, type DirectPayToast } from './DirectPayManager'
 import { NotSentError } from './payFlow'
@@ -108,20 +101,17 @@ const DirectPayContext = createContext<DirectPayContextValue>({
 
 export const useDirectPay = (): DirectPayContextValue => useContext(DirectPayContext)
 
-/** The message box this profile uses, or undefined when the user turned it off (as WalletContext reads it). */
-async function readMessageBoxHost(): Promise<string | undefined> {
-  const saved = await AsyncStorage.getItem(profileScopedKey(MESSAGE_BOX_URL_KEY))
-  if (saved === NO_MESSAGE_BOX) return undefined
-  return !saved || saved === LEGACY_MESSAGE_BOX_URL ? DEFAULT_MESSAGE_BOX_URL : saved
-}
-
-/** The device settings (user's, else the host's, else built-in) and this profile's message box. */
+/**
+ * The device settings (user's, else the host's, else built-in) and this
+ * profile's message box on `network` (undefined when the user turned it off).
+ */
 async function readInputs(
-  hostDefaults: DirectPayHostDefaults
+  hostDefaults: DirectPayHostDefaults,
+  network: AppChain
 ): Promise<{ settings: DirectPaySettings; messageBoxUrl: string | undefined }> {
   const [settings, messageBoxUrl] = await Promise.all([
     loadDirectPaySettings(deviceKVStorage, hostDefaults),
-    readMessageBoxHost().catch(() => undefined)
+    readMessageBoxUrl(network).catch(() => undefined)
   ])
   return { settings, messageBoxUrl }
 }
@@ -178,7 +168,7 @@ export const DirectPayProvider: React.FC<{ children: React.ReactNode; onToast?: 
   useEffect(() => {
     if (!manager) return
     let current = true
-    void readInputs(hostDefaults).then(inputs => {
+    void readInputs(hostDefaults, selectedNetwork).then(inputs => {
       if (!current) return
       setSettings(inputs.settings)
       setMessageBoxUrl(inputs.messageBoxUrl)
@@ -186,14 +176,14 @@ export const DirectPayProvider: React.FC<{ children: React.ReactNode; onToast?: 
     return () => {
       current = false
     }
-  }, [manager, hostDefaults])
+  }, [manager, hostDefaults, selectedNetwork])
 
   const reload = useCallback(async () => {
     if (!manager) return
-    const inputs = await readInputs(hostDefaults)
+    const inputs = await readInputs(hostDefaults, selectedNetwork)
     setSettings(inputs.settings)
     setMessageBoxUrl(inputs.messageBoxUrl)
-  }, [manager, hostDefaults])
+  }, [manager, hostDefaults, selectedNetwork])
 
   const wallet = managers.permissionsManager as unknown as WebRTPayWallet | undefined
   // The identity key of the wallet it was read from, so a rebuilt wallet never runs on the last one's.
@@ -219,10 +209,11 @@ export const DirectPayProvider: React.FC<{ children: React.ReactNode; onToast?: 
         ? (makePeerPayClient({
             wallet: wallet as never,
             messageBoxUrl,
+            network: selectedNetwork,
             originator: adminOriginator
           }) as MessageBoxLike | null)
         : null,
-    [wallet, messageBoxUrl, adminOriginator]
+    [wallet, messageBoxUrl, selectedNetwork, adminOriginator]
   )
 
   // Start with the wallet, follow its inputs, stop when it goes.

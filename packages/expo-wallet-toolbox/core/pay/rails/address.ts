@@ -22,6 +22,7 @@ import {
   type WalletProtocol
 } from '@bsv/sdk'
 import type { AppChain } from '../../config'
+import { NETWORKS } from '../../networks'
 import { abbreviateKey, addressLabel, FROM_ADDRESS_LABEL_PREFIX, TO_ADDRESS_LABEL_PREFIX } from '../counterparty'
 import { addressNetwork, isValidBsvAddress } from './index'
 
@@ -147,12 +148,15 @@ export interface WocConfig {
   apiKey?: string
 }
 
-export function wocConfigFor(network: AppChain): WocConfig {
-  return {
-    main: { apiBase: 'https://api.whatsonchain.com', segment: 'main', network: 'mainnet' as const },
-    test: { apiBase: 'https://api.whatsonchain.com', segment: 'test', network: 'testnet' as const },
-    teratest: { apiBase: 'https://api.woc-ttn.bsvblockchain.tech', segment: 'test', network: 'testnet' as const }
-  }[network]
+/**
+ * The WhatsOnChain API for a network, or undefined on a network that has none
+ * (the scaling teratestnet). Without it there is nothing to look an address up
+ * in, so the address rail, sweeps and BEEF repair are all off there.
+ */
+export function wocConfigFor(network: AppChain): WocConfig | undefined {
+  const woc = NETWORKS[network].woc
+  if (!woc) return undefined
+  return { apiBase: woc.apiBase, segment: woc.segment, network: network === 'main' ? 'mainnet' : 'testnet' }
 }
 
 /**
