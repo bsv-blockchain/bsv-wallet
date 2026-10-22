@@ -189,7 +189,6 @@ import {
   type SessionAsset
 } from '@bsv/expo-wallet-toolbox'
 import { useMandala } from '../../hooks/useMandala'
-import { useOnline } from '../../hooks/useOnline'
 import { formatTokenAmount, formatTokenAmountWithUnit } from '../../tokenFormat'
 import type { AmountInputAsset } from '../wallet/AmountInput'
 import type { DismissTarget } from '../../dismissTarget'
@@ -713,21 +712,6 @@ function NearbyFlow({
   const [linked, setLinked] = useState(false)
 
   /**
-   * Connectivity, read through a ref.
-   *
-   * The only thing this screen asks about signal is whether a hand-over that
-   * just landed should be followed by this device's own submit. Reading it from
-   * a ref keeps a connectivity flap — which on a screen two people are pointing
-   * at each other happens constantly — from re-creating the send callback that
-   * a payer may be halfway through.
-   */
-  const online = useOnline()
-  const onlineRef = useRef(online)
-  useEffect(() => {
-    onlineRef.current = online
-  }, [online])
-
-  /**
    * Whether this screen is still here.
    *
    * `settleAfterHandover` outlives the send callback that started it — that is
@@ -754,17 +738,20 @@ function NearbyFlow({
    * device holds a durable queue row before the overlay hears about any of it.
    * What is left is one best-effort call and one sentence.
    *
-   * Never awaited by the caller and never able to fail a payment. Offline it is
-   * not attempted at all — the drain owns every retry, and a face-to-face
-   * payment is exactly the case where there may be no signal for hours. The
-   * abort signal gates only the UI write: the settlement itself is a money
-   * decision and is allowed to finish on a screen the payer has walked away
-   * from.
+   * Never awaited by the caller and never able to fail a payment. It runs
+   * OFFLINE too, on purpose: `settleNow` names this hand-over to the module's
+   * settle, and the module persists that post-ACK intent before it submits
+   * anything (IC §2.3), so a later bare settle (the tick) retries it. Without
+   * the naming, the module never submits an own hand-over, and a payee who
+   * never submits would leave this payment unsettled for good. Offline the
+   * submit fails fast as `retry` and the receipt stays "settling". The abort
+   * signal gates only the UI write: the settlement itself is a money decision
+   * and is allowed to finish on a screen the payer has walked away from.
    */
   const settleAfterHandover = useCallback(
     async (txid: string, issuer: string, signal: AbortSignal): Promise<void> => {
       const runtime = mandala.runtime
-      if (!runtime || !onlineRef.current) return
+      if (!runtime) return
       let timer: ReturnType<typeof setTimeout> | undefined
       try {
         // W5: the payee's positive ack is the ACK; this names the hand-over
@@ -1840,9 +1827,9 @@ function NearbyFlow({
    * carries where the radio shows "25.00 USDX".
    *
    * The figure is in the asset's own units (`built.tokenAmount`, the payment
-   * — never `built.satoshis`), and the settlement sentence is "settled" only
-   * when the ack already carried a verifying σ_I; otherwise "settling", which
-   * this payer's own immediate submit (if online) may still turn into
+   * — never `built.satoshis`), and the settlement sentence opens as
+   * "settling" (`alreadySettled` is false on both rails since W5), which
+   * this payer's own immediate settle may still turn into
    * "settled" before the screen dismisses. That submit is taken now rather
    * than on the next drain tick (ux design §4.3 step 7), strictly AFTER the
    * positive ack and `finalizeDelivery`'s hold — the payee has the frame and
