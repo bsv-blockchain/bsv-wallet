@@ -172,9 +172,10 @@ export {
 export {
   abortIsBlockedBy,
   wrapAbortActionForSettlements,
-  ABORT_BLOCKED_SETTLEMENT_STATES,
+  ABORT_BLOCKED_TRANSFER_STATES,
   type AbortableManager,
-  type SettlementStoreLookup
+  type TransferJournalLookup,
+  type TokenSettlementPossible
 } from './mandala/abortGuard'
 export {
   deriveTokenEdges,
