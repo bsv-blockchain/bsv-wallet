@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.21.0
+
+### Breaking
+
+- **Live payments are received only while a Receive screen is showing.** A host that takes
+  live payments without rendering `HandleReceive` (which calls it for you) must call
+  `useDirectPay().openReceiveScreen()` while its receive UI is showing, and the function it
+  returns when that UI goes. Otherwise it no longer receives live payments; payers use the
+  message box.
 
 ### Live payments
 
