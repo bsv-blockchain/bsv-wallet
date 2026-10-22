@@ -295,6 +295,71 @@ describe('settleAll', () => {
     expect(settle).toHaveBeenCalledTimes(2)
   })
 
+  // The per-txid single flight and the settle-all one are separate, so a tick's
+  // settleAll() racing a screen's settleNow(T) makes two module calls that
+  // both cover T. Exercised interleaving: settleAll() starts first, settleNow(T)
+  // reads the row while it is still handed_over and names it, then both module
+  // calls resolve with the same verdict and both reports are applied. The
+  // journal CAS lets exactly one of them move the row.
+  describe('racing settleNow(T)', () => {
+    function gatedSettle(status: 'admitted' | 'refused') {
+      let release: () => void = () => undefined
+      const gate = new Promise<void>(resolve => {
+        release = resolve
+      })
+      const result =
+        status === 'admitted'
+          ? { txid: T, assetId: A, status, outputs: [0] }
+          : { txid: T, assetId: A, status, code: 'ERR_FROZEN' }
+      const settle = jest.fn(async () => {
+        await gate
+        return { results: [result] } as unknown as ColorSettleReport
+      })
+      return { settle: settle as unknown as SettleFn & jest.Mock, release }
+    }
+
+    async function race(status: 'admitted' | 'refused') {
+      await journal.insert(row({ state: 'handed_over' }))
+      const advance = jest.spyOn(journal, 'advance')
+      const { settle, release } = gatedSettle(status)
+      const abort = jest.fn(async () => ({ aborted: true }))
+      const onChange = jest.fn()
+      const s = createSettler({ color: { settle }, journal, abort, onChange })
+      const all = s.settleAll()
+      const now = s.settleNow(T)
+      // Let settleNow read the row and reach the module before either resolves.
+      for (let i = 0; i < 5; i++) await tick()
+      release()
+      const [changed, state] = await Promise.all([all, now])
+      const moved = (await Promise.all(advance.mock.results.map(r => r.value as Promise<boolean>))).filter(Boolean)
+      advance.mockRestore()
+      return { settle, abort, onChange, changed, state, moved }
+    }
+
+    it('moves an admitted row once', async () => {
+      const r = await race('admitted')
+      expect(r.settle).toHaveBeenCalledTimes(2)
+      expect(r.settle).toHaveBeenCalledWith()
+      expect(r.settle).toHaveBeenCalledWith({ txids: [T] })
+      expect(r.moved).toHaveLength(1)
+      expect(r.state).toBe('settled')
+      expect((await journal.get(T))!.state).toBe('settled')
+      expect(r.onChange).toHaveBeenCalledTimes(1)
+      expect(r.abort).not.toHaveBeenCalled()
+    })
+
+    it('moves a refused own hand-over once and aborts its action once', async () => {
+      const r = await race('refused')
+      expect(r.settle).toHaveBeenCalledTimes(2)
+      expect(r.moved).toHaveLength(1)
+      expect(r.state).toBe('refused')
+      expect(await journal.get(T)).toMatchObject({ state: 'refused', code: 'ERR_FROZEN' })
+      expect(r.onChange).toHaveBeenCalledTimes(1)
+      expect(r.abort).toHaveBeenCalledTimes(1)
+      expect(r.abort).toHaveBeenCalledWith('ref-T')
+    })
+  })
+
   it('a thrown settleAll rejects and frees the slot', async () => {
     const settle = jest
       .fn<ReturnType<SettleFn>, Parameters<SettleFn>>()

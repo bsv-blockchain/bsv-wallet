@@ -20,7 +20,9 @@
  *    aborted, so the abort guard (which refuses aborts of `handed_over` and
  *    `settled` rows) lets its inputs go. `settleNow` of a `refused` row
  *    retries the abort (the module never reports a refused txid again), so a
- *    crash between the two steps never strands the inputs.
+ *    crash between the two steps never strands the inputs. Within one
+ *    settler the abort is coalesced per reference (a racing `settleAll` and
+ *    `settleNow` abort once) and not repeated after it succeeded.
  *  · Every unknown answer fails closed: an unreadable admission answer is
  *    `undefined` (never `false`), and an inventory record that is offline or
  *    restricted is never journaled as `settled`.
@@ -115,9 +117,36 @@ export interface Settler {
   settleAllReport(): Promise<{ changed: number; report: ColorSettleReport }>
 }
 
-export function createSettler(d: SettleDeps): Settler {
+export function createSettler(deps: SettleDeps): Settler {
   const inFlight = new Map<string, Promise<TokenSettleState>>()
   let allInFlight: Promise<{ changed: number; report: ColorSettleReport }> | undefined
+
+  // The per-txid and settle-all single flights are separate, so a tick's
+  // `settleAll()` racing a screen's `settleNow(T)` can apply two reports that
+  // both refuse T. The journal CAS moves the row once; the abort is coalesced
+  // here: concurrent aborts of one reference share a call, and a reference
+  // already aborted by this settler is not asked again. A failed or declined
+  // abort is never remembered, so the retry paths (the next report, a
+  // `settleNow` of the refused row) still run it.
+  const abortInFlight = new Map<string, Promise<{ aborted: boolean }>>()
+  const aborted = new Set<string>()
+  const abortOnce = (reference: string): Promise<{ aborted: boolean }> => {
+    if (aborted.has(reference)) return Promise.resolve({ aborted: true })
+    const existing = abortInFlight.get(reference)
+    if (existing) return existing
+    const running = (async () => {
+      const r = await deps.abort(reference)
+      if (r?.aborted) aborted.add(reference)
+      return r
+    })()
+    abortInFlight.set(reference, running)
+    const clear = (): void => {
+      if (abortInFlight.get(reference) === running) abortInFlight.delete(reference)
+    }
+    running.then(clear, clear)
+    return running
+  }
+  const d: SettleDeps = { ...deps, abort: abortOnce }
 
   const notify = (): void => {
     try {
