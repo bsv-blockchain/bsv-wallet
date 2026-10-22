@@ -14,10 +14,10 @@
  *  · the wallet's own `color_transfers` journal, the one key the broadcast
  *    hold and the abort refusal read.
  *
- * Plan 07 Task 11 builds the reads. Settlement (Task 12), the handle rail
- * (Task 13), the nearby hooks (Tasks 15–16) and the tick (Task 17) are wired
- * by their tasks; until then each rejects with `not yet wired` rather than
- * pretending to have done something.
+ * Plan 07 Task 11 builds the reads and Task 12 settlement (`settle.ts`). The
+ * handle rail (Task 13), the nearby hooks (Tasks 15–16) and the tick (Task 17)
+ * are wired by their tasks; until then each rejects with `not yet wired`
+ * rather than pretending to have done something.
  */
 import { PublicKey, type WalletInterface } from '@bsv/sdk'
 import type { ColorOverlayProvider, ColorPermissionModule } from '@bsv/color-permission-module'
@@ -35,6 +35,13 @@ import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 import { devLog } from '../logging'
 import { createAssetMetadata, offlineUnitsOf, readAvailable, readInventory, STATE_AVAILABLE_TAG } from './assets'
 import type { WalletKv } from './kvStore'
+import {
+  createSettler,
+  isHandoverAdmitted as readIsHandoverAdmitted,
+  reconcileHeldTransfers,
+  reportIsUnreachable,
+  type Settler
+} from './settle'
 import { createTransferJournal, type JournalDb, type TransferJournal } from './transferJournal'
 import {
   COLOR_TRANSFER_STATES,
@@ -50,7 +57,8 @@ import type {
   TokenActivityStatus,
   TokenAssetInfo,
   TokenAssetStatus,
-  TokenBalance
+  TokenBalance,
+  TokenHoldingsReview
 } from './runtime'
 
 export { createMandalaKvStorage, type WalletKv as MandalaKvStorage } from './kvStore'
@@ -325,6 +333,43 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     return new Map(ids.map((id, i) => [id, infos[i]]))
   }
 
+  // ── Settlement (Task 12) ──
+  //
+  // One settler per runtime: its per-txid and settle-all single flights are
+  // what keep a drain tick and a screen from settling the same txid twice.
+  // Without the module or a database there is nothing to settle with, and
+  // every member says so rather than pretending.
+  const settler: Settler | undefined =
+    color !== undefined && db !== undefined
+      ? createSettler({
+          color,
+          journal,
+          // Through the PUBLISHED manager, so the abort guard decides; the row
+          // already reads `refused` when this runs.
+          abort: async reference => await bound.abortAction({ reference }),
+          onChange: emit
+        })
+      : undefined
+
+  const reviewTokenHoldings = async (): Promise<TokenHoldingsReview> => {
+    let unreachable = true
+    if (settler) {
+      try {
+        unreachable = reportIsUnreachable((await settler.settleAllReport()).report)
+      } catch (e) {
+        devLog('[mandala] reviewing token holdings: settle failed:', e)
+      }
+    }
+    const rows = await journal.list()
+    const count = (pred: (s: ColorTransferState) => boolean): number => rows.filter(r => pred(r.state)).length
+    return {
+      settled: count(s => s === 'settled'),
+      refused: count(s => s === 'refused'),
+      pending: count(s => !TERMINAL_TRANSFER_STATES.includes(s)),
+      unreachable
+    }
+  }
+
   const nearby: NearbyTokenDeps = {
     handover: notYetWired('nearby.handover'),
     onHandedOver: notYetWired('nearby.onHandedOver'),
@@ -425,11 +470,30 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       }
     },
 
-    settleNow: notYetWired('settleNow'),
-    settleAll: notYetWired('settleAll'),
-    reviewTokenHoldings: notYetWired('reviewTokenHoldings'),
-    isHandoverAdmitted: notYetWired('isHandoverAdmitted'),
-    reconcileHeld: notYetWired('reconcileHeld'),
+    async settleNow(txid: string) {
+      return settler ? await settler.settleNow(txid) : 'unavailable'
+    },
+
+    async settleAll() {
+      return settler ? await settler.settleAll() : 0
+    },
+
+    reviewTokenHoldings,
+
+    async isHandoverAdmitted(txid: string) {
+      if (db === undefined) return undefined
+      return await readIsHandoverAdmitted({ journal, provider }, txid)
+    },
+
+    async reconcileHeld(txids: readonly string[]) {
+      if (db === undefined || txids.length === 0) return
+      const changed = await reconcileHeldTransfers(
+        { journal, inventory: async () => await readInventory(bound, adminOriginator) },
+        txids
+      )
+      if (changed > 0) emit()
+    },
+
     sendToHandle: notYetWired('sendToHandle'),
     receiveFromInbox: notYetWired('receiveFromInbox'),
     resendTransfer: notYetWired('resendTransfer'),

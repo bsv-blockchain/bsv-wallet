@@ -409,11 +409,6 @@ describe('subscribe', () => {
 describe('members wired by later tasks', () => {
   it('reject until wired, never pretend to have done something', async () => {
     const rt = runtimeWith()
-    await expect(rt.settleNow('a1'.repeat(32))).rejects.toThrow(/not yet wired/)
-    await expect(rt.settleAll()).rejects.toThrow(/not yet wired/)
-    await expect(rt.reviewTokenHoldings()).rejects.toThrow(/not yet wired/)
-    await expect(rt.isHandoverAdmitted('a1'.repeat(32))).rejects.toThrow(/not yet wired/)
-    await expect(rt.reconcileHeld([])).rejects.toThrow(/not yet wired/)
     await expect(rt.sendToHandle({ assetId: ASSET, recipientIdentityKey: SELF, units: 1n })).rejects.toThrow(
       /not yet wired/
     )
