@@ -24,6 +24,7 @@
 import { useSyncExternalStore } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { DEFAULT_CHAIN, type AppChain } from '../config'
+import { APP_CHAINS } from '../networks'
 
 export const PROFILES_STORAGE_KEY = 'wallet_profiles_v1'
 
@@ -67,7 +68,7 @@ export interface ProfilesState {
   profiles: ProfileRecord[]
 }
 
-const CHAINS: readonly AppChain[] = ['main', 'test', 'teratest']
+const CHAINS: readonly AppChain[] = APP_CHAINS
 
 /** Known networks only, once each, in CHAINS order; undefined when none is left. */
 export function normalizeRestorePending(raw: unknown): AppChain[] | undefined {

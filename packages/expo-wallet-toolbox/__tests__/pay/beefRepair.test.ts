@@ -9,7 +9,7 @@ import { Beef, MerklePath, P2PKH, PrivateKey, Transaction, Utils } from '@bsv/sd
 import { makeBeefRepair, refetchAtomicBeef, type FetchLike } from '../../core/pay/beefRepair'
 import { wocConfigFor } from '../../core/pay/rails/address'
 
-const woc = wocConfigFor('main')
+const woc = wocConfigFor('main')!
 
 /** A payment whose parent carries a proof at `height`. */
 function paymentAt(height: number): { txid: string; beefHex: string; parentTxid: string } {

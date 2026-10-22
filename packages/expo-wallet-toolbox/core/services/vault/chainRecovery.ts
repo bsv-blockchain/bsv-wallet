@@ -507,7 +507,10 @@ async function restoreScannedDeposits(
  * which returns one row per outpoint (see outputStatus).
  */
 export function wocChainLookup(chain: AppChain): VaultChainLookup {
-  const woc: WocConfig = wocConfigFor(chain)
+  const woc: WocConfig | undefined = wocConfigFor(chain)
+  // Vault is mainnet-only, so this only fires on a misrouted call. Refuse it
+  // rather than answer "no marker": an empty answer is a genuine miss here.
+  if (!woc) throw new Error(`Vault chain recovery needs WhatsOnChain, which ${chain} does not have`)
   const base = `${woc.apiBase}/v1/bsv/${woc.segment}`
 
   return {

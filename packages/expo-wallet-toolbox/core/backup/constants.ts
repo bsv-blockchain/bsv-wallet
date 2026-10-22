@@ -4,13 +4,14 @@
  * @see docs/superpowers/specs/2026-08-14-encrypted-wallet-backup-log-design.md
  */
 import type { WalletProtocol } from '@bsv/sdk'
+import { APP_CHAINS, type AppChain } from '../networks'
 
 /**
  * The networks a wallet can run on, as WalletContext names them. Each gets its own backup
  * derivation and therefore its own server account — see backupKeyId.
  */
-export type BackupChain = 'main' | 'test' | 'teratest'
-export const BACKUP_CHAINS: readonly BackupChain[] = ['main', 'test', 'teratest'] as const
+export type BackupChain = AppChain
+export const BACKUP_CHAINS: readonly BackupChain[] = APP_CHAINS
 
 /**
  * FROZEN. Do not change the protocol tuple or the keyID scheme, ever.
