@@ -46,6 +46,18 @@ export function txHasColorOutput(rawTx: readonly number[] | Uint8Array): boolean
   } catch {
     return true
   }
+  return transactionHasColorOutput(tx)
+}
+
+/**
+ * The same predicate over an already-parsed transaction: true when any output
+ * is a 1Color output by the rule above.
+ *
+ * Exported so a rail that must never hand the hold a tx it cannot release
+ * (the nearby BSV payee, `verifyFramePayment`) refuses exactly what the hold
+ * would park, by one rule rather than a copy that could drift from it.
+ */
+export function transactionHasColorOutput(tx: Pick<Transaction, 'outputs'>): boolean {
   return tx.outputs.some(o => isColorScript(o.lockingScript))
 }
 

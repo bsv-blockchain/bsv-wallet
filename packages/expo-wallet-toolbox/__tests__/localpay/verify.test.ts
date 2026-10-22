@@ -35,6 +35,7 @@ import {
 import { PEERPAY_PROTOCOL_ID } from '../../core/localpay/pending'
 import type { PaymentFrame } from '../../core/localpay/codec'
 import { buildColorModule } from '../../core/mandala/colorModule'
+import { txHasColorOutput } from '../../core/mandala/colorGuard'
 import { openTestDb } from '../__helpers__/nodeSqlite'
 
 const payeeKey = PrivateKey.fromRandom().toPublicKey()
@@ -279,6 +280,40 @@ describe('verifyFramePayment', () => {
   it('is a FrameVerifyError, so callers can switch on kind', async () => {
     const err = await verifyFramePayment(payeeDeps(), frameFor(new Uint8Array([0])), 'admin.com').catch(e => e)
     expect(err).toBeInstanceOf(FrameVerifyError)
+  })
+
+  // The broadcast hold (`colorHeldTxids`) holds any tx with a 1Color output
+  // until its `color_transfers` row reads `settled`, and only token transfers
+  // ever get a row. A payer who adds a decoy 1Color output to an otherwise
+  // valid BSV frame would have the payee's internalize parked for good: never
+  // broadcast, while the payer stays free to double-spend the inputs. The BSV
+  // rail refuses such a frame before anything is queued, by the very
+  // predicate the hold uses.
+  it('refuses a BSV frame whose transaction also carries a 1Color output', async () => {
+    const decoy = new OneColor()
+      .lock(`${'cd'.repeat(32)}_0`, 1n, PrivateKey.fromRandom().toPublicKey().toHash() as number[])
+      .toHex()
+    const { frame, deps } = await validFrame([
+      { satoshis: 4200, scriptHex: minesScript() },
+      { satoshis: 1, scriptHex: decoy }
+    ])
+    // The same tx is one the hold would park: the two predicates are one.
+    expect(txHasColorOutput(Transaction.fromAtomicBEEF(Array.from(frame.transaction)).toBinary())).toBe(true)
+    await expect(verifyFramePayment(deps, frame, 'admin.com')).rejects.toMatchObject({
+      name: 'FrameVerifyError',
+      kind: 'not_mine'
+    })
+    // Refused before the ownership derivation: nothing about it is ours to read.
+    expect(deps.wallet.getPublicKey).not.toHaveBeenCalled()
+    expect(declineReasonFor('not_mine')).toBe('session_mismatch')
+  })
+
+  it('refuses a BSV frame whose named output is itself a 1Color output', async () => {
+    const pkh = payeeKey.toHash() as number[]
+    const { frame, deps } = await validFrame([
+      { satoshis: 1, scriptHex: new OneColor().lock(`${'cd'.repeat(32)}_0`, 5n, pkh).toHex() }
+    ])
+    await expect(verifyFramePayment(deps, frame, 'admin.com')).rejects.toMatchObject({ kind: 'not_mine' })
   })
 })
 

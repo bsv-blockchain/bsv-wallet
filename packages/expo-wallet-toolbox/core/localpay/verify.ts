@@ -2,6 +2,7 @@ import { Hash, P2PKH, PublicKey, Transaction, Utils } from '@bsv/sdk'
 import type { ChainTracker, WalletProtocol } from '@bsv/sdk'
 import { OneColor } from '@bsv/templates'
 import { ATTESTED_PROFILE_ID, MAX_UINT64, colorProtocolID, decodeToken } from '@bsv/mandala'
+import { transactionHasColorOutput } from '../mandala/colorGuard'
 import type { PaymentFrame } from './codec'
 import { PEERPAY_PROTOCOL_ID } from './pending'
 import { isRequestableAmount } from './session'
@@ -126,6 +127,19 @@ export async function verifyFramePayment(
   }
 
   if (frame.kind === 'bsv') {
+    // A BSV frame whose transaction carries ANY 1Color output is refused
+    // outright, before anything else is read. The broadcast hold
+    // (`colorHeldTxids`, W1) parks every tx with a 1Color output until its
+    // `color_transfers` row reads `settled`, and only token transfers ever get
+    // a row: internalizing this tx would queue a credit the payee could never
+    // broadcast, while the payer stayed free to double-spend its inputs. Same
+    // predicate as the hold, so the rail refuses exactly what the hold would
+    // keep. Anyone can build a 1Color envelope, so this is a payer-controlled
+    // input and not a rare shape.
+    if (transactionHasColorOutput(tx)) {
+      throw new FrameVerifyError('not_mine', 'a BSV payment frame must not carry a 1Color output')
+    }
+
     const { publicKey } = await wallet.getPublicKey(
       {
         protocolID: PEERPAY_PROTOCOL_ID,
