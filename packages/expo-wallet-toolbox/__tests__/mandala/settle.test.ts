@@ -135,6 +135,19 @@ describe('settleNow', () => {
     expect(settle).not.toHaveBeenCalled()
   })
 
+  it('retries the abort of a refused own hand-over without naming it to the module', async () => {
+    const settle = jest.fn()
+    const abort = jest.fn(async () => ({ aborted: true }))
+    const s = await settlerWith(deps({ settle: settle as never, abort, row: { state: 'refused', code: 'ERR_FROZEN' } }))
+    expect(await s.settleNow(T)).toBe('refused')
+    expect(abort).toHaveBeenCalledWith('ref-T')
+    expect(settle).not.toHaveBeenCalled()
+    // A refused receipt has no action to abort.
+    await journal.insert(row({ txid: U, role: 'received', state: 'refused', reference: undefined }))
+    expect(await s.settleNow(U)).toBe('refused')
+    expect(abort).toHaveBeenCalledTimes(1)
+  })
+
   it('settles a held receipt by name', async () => {
     const settle = jest.fn(async () => ({
       results: [{ txid: T, assetId: A, status: 'admitted' as const, outputs: [0] }]

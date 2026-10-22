@@ -18,9 +18,9 @@
  *    cancelled payment would submit what the user withdrew.
  *  · A refused own hand-over is journaled `refused` FIRST and only then
  *    aborted, so the abort guard (which refuses aborts of `handed_over` and
- *    `settled` rows) lets its inputs go. The abort is retried by any later
- *    report that names the row while it reads `refused`, so a crash between
- *    the two steps never strands the inputs.
+ *    `settled` rows) lets its inputs go. `settleNow` of a `refused` row
+ *    retries the abort (the module never reports a refused txid again), so a
+ *    crash between the two steps never strands the inputs.
  *  · Every unknown answer fails closed: an unreadable admission answer is
  *    `undefined` (never `false`), and an inventory record that is offline or
  *    restricted is never journaled as `settled`.
@@ -32,7 +32,7 @@ import { devLog } from '../logging'
 import type { InventoryRecord } from './assets'
 import type { TokenSettleState } from './runtime'
 import type { TransferJournal } from './transferJournal'
-import type { ColorTransferState } from './types'
+import type { ColorTransferRow, ColorTransferState } from './types'
 
 export interface SettleDeps {
   color: Pick<ColorPermissionModule, 'settle'>
@@ -88,17 +88,24 @@ export async function applySettleReport(
     }
     const patch = result.code !== undefined ? { code: result.code } : {}
     if (await d.journal.advance(result.txid, OPEN_STATES, 'refused', patch)) changed++
-    const now = await d.journal.get(result.txid)
-    if (now?.state === 'refused' && now.role === 'sent' && now.reference) {
-      try {
-        const r = await d.abort(now.reference)
-        if (!r?.aborted) devLog(`[mandala] settle: the refused hand-over ${result.txid} was not aborted`)
-      } catch (e) {
-        devLog(`[mandala] settle: aborting the refused hand-over ${result.txid} failed:`, e)
-      }
-    }
+    await releaseRefused(await d.journal.get(result.txid), d.abort)
   }
   return { changed, settled }
+}
+
+/**
+ * Aborts the action behind a REFUSED own hand-over so its reserved inputs come
+ * back. Only for a row that reads `refused`, so the abort guard allows it.
+ * Never throws: a failed abort is retried by the next `settleNow` of the row.
+ */
+async function releaseRefused(row: ColorTransferRow | undefined, abort: SettleDeps['abort']): Promise<void> {
+  if (row?.state !== 'refused' || row.role !== 'sent' || !row.reference) return
+  try {
+    const r = await abort(row.reference)
+    if (!r?.aborted) devLog(`[mandala] settle: the refused hand-over ${row.txid} was not aborted`)
+  } catch (e) {
+    devLog(`[mandala] settle: aborting the refused hand-over ${row.txid} failed:`, e)
+  }
 }
 
 export interface Settler {
@@ -132,6 +139,10 @@ export function createSettler(d: SettleDeps): Settler {
   const runOne = async (txid: string): Promise<TokenSettleState> => {
     const row = await d.journal.get(txid)
     if (!row) return 'unavailable'
+    // A crash between journaling a refusal and aborting its action leaves the
+    // inputs reserved, and the module never reports a refused txid again: the
+    // abort is retried from here, without naming the row to the module.
+    if (row.state === 'refused') await releaseRefused(row, d.abort)
     if (!SETTLEABLE_STATES.includes(row.state)) return row.state
     const report = await d.color.settle({ txids: [txid] })
     const { changed } = await applySettleReport(report, d)
