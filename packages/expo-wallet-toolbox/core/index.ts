@@ -156,10 +156,17 @@ export {
   type CancelParkedSettlementDeps
 } from './offline/cancelParked'
 
-// Mandala token settlement — the four evidence tables, and the
-// submit-before-broadcast drain over them.
+// 1Color transfers — the journal types, the `color_transfers` journal (the
+// one key for the broadcast hold and the abort refusal), and the one-time
+// migration off the Mandala settlement tables.
 export * from './mandala/types'
-export { createSettlementStore, type SettlementDb, type SqlSettlementStore } from './mandala/settlementStore'
+export {
+  createTransferJournal,
+  migrateMandalaToColor,
+  COLOR_MIGRATION_MARKER,
+  type JournalDb,
+  type TransferJournal
+} from './mandala/transferJournal'
 // Guard #4: an abortAction may not release the inputs of a token payment the
 // overlay already has (the 2026-09-15 incident).
 export {
@@ -223,12 +230,11 @@ export { mergeContactCache, type ContactCache } from './contacts/contactCache'
 // Local SQLite storage layer
 export { StorageExpoSQLite } from './storage/StorageExpoSQLite'
 export type { StorageExpoSQLiteOptions, TokenTransactionRepair } from './storage/StorageExpoSQLite'
-export { createTables, ensureOfflineActionsColumns, ensureTokenSettlementColumns } from './storage/schema/createTables'
+export { createTables, ensureOfflineActionsColumns } from './storage/schema/createTables'
 export { findOfflineActions, findOfflineActionByTxid, updateOfflineAction } from './storage/methods/offlineActions'
 export type { OfflineActionRow, OfflineActionStatus, BindValue } from './storage/methods/offlineActions'
 export { readWalletBalance } from './storage/methods/walletBalanceSql'
 export { processOfflineActions, type OfflineTokenDeps } from './storage/methods/processOfflineActions'
-export { createMandalaSettlementTables } from './storage/schema/createTables'
 export * from './storage/skipQueuedAncestors'
 export { prepareSqliteImageForDeserialize } from './storage/dbImage'
 

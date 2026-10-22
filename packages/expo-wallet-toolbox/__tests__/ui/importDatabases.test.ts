@@ -15,7 +15,8 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { createTables, createMandalaSettlementTables } from '../../core/storage/schema/createTables'
+import { createTables } from '../../core/storage/schema/createTables'
+import { COLOR_TRANSFERS_DDL } from '../../core/mandala/transferJournal'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 
 // The repo's jest mock for this package (jest/async-storage-mock.js) is a
@@ -475,44 +476,38 @@ describe('importWalletDatabase', () => {
     expect(await AsyncStorage.getItem(`walletDbs-${KEY_SUFFIX}-${CHAIN}net`)).toBeNull()
   })
 
-  it("XR-082: accepts a genuine backup whose token_settlements table went through the real ensureTokenSettlementColumns migration (ALTER-appended columns, not createTables()'s inline order)", async () => {
-    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
-    // Recreate token_settlements exactly as it looked on-disk BEFORE the
-    // `reference`/`relevantVout` columns existed (same remaining columns, same
-    // order, no tampering) — the real historical shape any device that had
-    // Mandala/token-settlement activity before this migration shipped still
-    // carries until it re-runs createTables().
-    raw.exec('DROP TABLE token_settlements')
-    raw.exec(`
-      CREATE TABLE token_settlements (
-        txid                  TEXT PRIMARY KEY,
-        role                  TEXT NOT NULL CHECK (role IN ('sent','received')),
-        assetId               TEXT NOT NULL,
-        state                 TEXT NOT NULL CHECK (state IN (
-                                'built','parked','handed_over','held',
-                                'submitting','admitted','broadcast','refused','orphaned')),
-        counterpartyKey       TEXT,
-        amountBaseUnits       INTEGER,
-        overlayUrl            TEXT NOT NULL,
-        overlayIdentityKey    TEXT NOT NULL,
-        admissionOutputsJson  TEXT,
-        admissionSignatureHex TEXT,
-        refusedCode           TEXT,
-        refusedPayloadHash    TEXT,
-        poisonedByTxid        TEXT,
-        createdAt             TEXT NOT NULL,
-        updatedAt             TEXT NOT NULL
-      )
-    `)
-    // Run the SAME migration entry point the real app calls on every boot —
-    // this is the shipped upgrade path, not tampering. SQLite's ALTER TABLE
-    // ADD COLUMN appends new columns at the very end of the column list when
-    // (as here) the table has no trailing table-level constraint clause, so
-    // this device's resulting sqlite_master.sql text for token_settlements
-    // permanently differs in column order from a fresh createTables() run,
-    // even though every column definition is identical.
-    await createMandalaSettlementTables(mockAdapt(raw) as never)
+  // XR-082 is pinned on `color_transfers`, a table with no table-level
+  // constraint, so SQLite's `ALTER TABLE ADD COLUMN` appends a migrated-in
+  // column at the very end of its stored `sql` — a different column ORDER from
+  // createTables()'s inline definition with no tampering involved. (These
+  // cases used `token_settlements`, which the 1Color migration drops.)
+  const COLOR_TRANSFERS_WITHOUT_SENDER = `
+    CREATE TABLE color_transfers (
+      txid              TEXT PRIMARY KEY,
+      role              TEXT NOT NULL,
+      assetId           TEXT NOT NULL,
+      units             TEXT NOT NULL,
+      outputIndex       INTEGER NOT NULL,
+      counterpartyKey   TEXT,
+      reference         TEXT,
+      rail              TEXT NOT NULL,
+      state             TEXT NOT NULL,
+      delivered         INTEGER NOT NULL DEFAULT 0,
+      code              TEXT,
+      note              TEXT,
+      derivationPrefix  TEXT,
+      derivationSuffix  TEXT,
+      createdAt         TEXT NOT NULL,
+      updatedAt         TEXT NOT NULL
+    )
+  `
 
+  it("XR-082: accepts a genuine backup whose color_transfers column went through an ALTER TABLE ADD COLUMN (appended, not createTables()'s inline order)", async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    raw.exec('DROP TABLE color_transfers')
+    raw.exec(COLOR_TRANSFERS_WITHOUT_SENDER)
+    raw.exec('ALTER TABLE color_transfers ADD COLUMN senderIdentityKey TEXT')
+    raw.exec(COLOR_TRANSFERS_DDL) // the indexes, exactly as a boot recreates them
     const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
     pickFile(name, raw)
 
@@ -521,34 +516,10 @@ describe('importWalletDatabase', () => {
     expect(result.imported).toBe(true)
   })
 
-  it('XR-082: still rejects a token_settlements table that is missing the migrated reference/relevantVout columns entirely (never ran the migration, not just reordered)', async () => {
+  it('XR-082: still rejects a color_transfers table that is missing a column entirely (a different column set, not just reordered)', async () => {
     const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
-    raw.exec('DROP TABLE token_settlements')
-    raw.exec(`
-      CREATE TABLE token_settlements (
-        txid                  TEXT PRIMARY KEY,
-        role                  TEXT NOT NULL CHECK (role IN ('sent','received')),
-        assetId               TEXT NOT NULL,
-        state                 TEXT NOT NULL CHECK (state IN (
-                                'built','parked','handed_over','held',
-                                'submitting','admitted','broadcast','refused','orphaned')),
-        counterpartyKey       TEXT,
-        amountBaseUnits       INTEGER,
-        overlayUrl            TEXT NOT NULL,
-        overlayIdentityKey    TEXT NOT NULL,
-        admissionOutputsJson  TEXT,
-        admissionSignatureHex TEXT,
-        refusedCode           TEXT,
-        refusedPayloadHash    TEXT,
-        poisonedByTxid        TEXT,
-        createdAt             TEXT NOT NULL,
-        updatedAt             TEXT NOT NULL
-      )
-    `)
-    // Deliberately never runs ensureTokenSettlementColumns/createMandalaSettlementTables:
-    // the order-independent column-set comparison must still catch a
-    // genuinely different column SET (a schema-stale device), not just
-    // tolerate reordering of an identical set.
+    raw.exec('DROP TABLE color_transfers')
+    raw.exec(COLOR_TRANSFERS_WITHOUT_SENDER)
     const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
     pickFile(name, raw)
 
@@ -557,32 +528,22 @@ describe('importWalletDatabase', () => {
     expect(result.imported).toBe(false)
   })
 
-  it('XR-082: rejects a token_settlements table whose migrated-in reference column was retyped, even though the migration reordered it to the end', async () => {
+  it('XR-082: rejects a color_transfers table whose appended column was retyped, even though it sits at the end', async () => {
     const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
-    raw.exec('DROP TABLE token_settlements')
-    raw.exec(`
-      CREATE TABLE token_settlements (
-        txid                  TEXT PRIMARY KEY,
-        role                  TEXT NOT NULL CHECK (role IN ('sent','received')),
-        assetId               TEXT NOT NULL,
-        state                 TEXT NOT NULL CHECK (state IN (
-                                'built','parked','handed_over','held',
-                                'submitting','admitted','broadcast','refused','orphaned')),
-        counterpartyKey       TEXT,
-        amountBaseUnits       INTEGER,
-        overlayUrl            TEXT NOT NULL,
-        overlayIdentityKey    TEXT NOT NULL,
-        admissionOutputsJson  TEXT,
-        admissionSignatureHex TEXT,
-        refusedCode           TEXT,
-        refusedPayloadHash    TEXT,
-        poisonedByTxid        TEXT,
-        createdAt             TEXT NOT NULL,
-        updatedAt             TEXT NOT NULL,
-        relevantVout          INTEGER,
-        reference             INTEGER
-      )
-    `)
+    raw.exec('DROP TABLE color_transfers')
+    raw.exec(COLOR_TRANSFERS_WITHOUT_SENDER)
+    raw.exec('ALTER TABLE color_transfers ADD COLUMN senderIdentityKey INTEGER')
+    const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
+    pickFile(name, raw)
+
+    const result = await importWalletDatabase(currentStorage)
+
+    expect(result.imported).toBe(false)
+  })
+
+  it('rejects a pre-1color backup that still carries a Mandala settlement table (no back-compat)', async () => {
+    const raw = await buildWalletDb(CURRENT_IDENTITY_KEY)
+    raw.exec('CREATE TABLE token_settlements (txid TEXT PRIMARY KEY)')
     const name = `wallet-${KEY_SUFFIX}-${CHAIN}net-2000.db`
     pickFile(name, raw)
 
