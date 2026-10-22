@@ -18,7 +18,7 @@ export type { ColorPromptType } from '../../../core/mandala/accessPolicy'
 export interface ColorPromptView {
   type: ColorPromptType
   title: string
-  lines: Array<{ label: string; value: string }>
+  lines: { label: string; value: string }[]
   warning?: string
 }
 

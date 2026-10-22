@@ -401,8 +401,10 @@ const PermissionSheet: React.FC = () => {
   useEffect(() => {
     if (!hasMandalaRequest || mandala === undefined) return
     let cancelled = false
-    mandala
-      .listAssets()
+    // Through Promise.resolve so a synchronous throw is caught too, never
+    // crashing the sheet while a token prompt waits.
+    Promise.resolve()
+      .then(() => mandala.listAssets())
       .then(assets => {
         if (cancelled) return
         setColorAssets(new Map(assets.map(a => [a.assetId, { ticker: a.ticker, decimals: a.decimals }])))
