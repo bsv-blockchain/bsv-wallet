@@ -46,7 +46,7 @@ import type {
   TableUser
 } from '@bsv/wallet-toolbox-mobile'
 import type { ListActionsResult, ListOutputsResult, Validation, WalletLoggerInterface } from '@bsv/sdk'
-import { Beef, Transaction } from '@bsv/sdk'
+import { Beef } from '@bsv/sdk'
 import { listActionsSql } from './methods/listActionsSql'
 import { listOutputsSql } from './methods/listOutputsSql'
 import { findUnprovenTxidsWithoutReq } from './methods/unprovenWithoutReqSql'
@@ -66,6 +66,8 @@ import {
 import { buildOfflineHoldResult, groupOfflineHolds } from '../offline/hold'
 import { getOnline } from '../net/online'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
+import { colorHeldTxids } from '../mandala/colorGuard'
+import { createTransferJournal } from '../mandala/transferJournal'
 import {
   anyAdminOutpoint,
   anyAdminTransaction,
@@ -105,23 +107,6 @@ import type {
 export interface StorageExpoSQLiteOptions extends StorageProviderOptions {
   databaseName?: string
   identityKey?: string
-}
-
-/** What `repairSettledTokenTransaction` actually changed, for the caller's log. */
-export interface TokenTransactionRepair {
-  txid: string
-  /** Transaction rows moved back to 'unproven'. */
-  transactionIds: number[]
-  /** Their statuses before the repair — 'failed', in the case this exists for. */
-  wasTxStatuses: string[]
-  /** The request's status before the repair, or undefined when there was none. */
-  wasReqStatus?: string
-  /** Coins this transaction spends that were wrongly spendable and are now spent. */
-  inputsMarkedSpent: number
-  /** This transaction's own outputs (change included) restored to spendable. */
-  outputsMadeSpendable: number
-  /** True when the request had gone and was rebuilt from the raw transaction. */
-  reqCreated: boolean
 }
 
 /** Per-connection wait before a lock contention becomes "database is locked". */
@@ -1908,141 +1893,6 @@ export class StorageExpoSQLite extends StorageProvider {
     }, args.trx)
   }
 
-  /**
-   * Put a token transaction the wallet wrongly failed back into a live state,
-   * for a caller that has independently established the transaction IS on chain.
-   *
-   * WHY THIS EXISTS RATHER THAN A CALL INTO THE TOOLBOX. Every sanctioned
-   * un-fail path in `@bsv/wallet-toolbox-mobile` is gated on something this case
-   * cannot supply:
-   *
-   *  · `updateTransactionStatus` refuses outright — "A 'failed' transaction may
-   *    not be un-failed by this method" (`StorageProvider.js`), and `reviewStatus`
-   *    only ever moves rows TOWARDS failed.
-   *  · `TaskUnFail` is the real recovery path, but its entry point demands
-   *    `services.getMerklePath(txid)` first and returns the req to `'invalid'`
-   *    when there is none. A transaction the overlay broadcast seconds ago has
-   *    no merkle path and will not have one for ten minutes, which is precisely
-   *    the window in which the wallet's own bookkeeping is wrong and its coins
-   *    are wrongly spendable.
-   *  · `unfailTransactionsForProof` — the body TaskUnFail delegates to — is the
-   *    right SHAPE (tx to 'unproven', inputs to spent, req to 'unmined'), and
-   *    the steps below are deliberately identical to it, EXCEPT that it decides
-   *    each of this transaction's own outputs by `services.isUtxo(output)`. For
-   *    a tx broadcast moments ago that probe answers "not a utxo" from services
-   *    that have not seen it yet, which would leave the change permanently
-   *    unspendable — the opposite of the repair.
-   *
-   * So the steps are written out here, through the provider's own CRUD methods
-   * (`updateTransaction`/`updateOutput`/`updateProvenTxReq`), and never as raw
-   * SQL over the tables. What it does, in one write transaction:
-   *
-   *  1. every transaction row for `txid` that is not already `'completed'`
-   *     goes to `'unproven'` — broadcast, awaiting proof;
-   *  2. every input the raw transaction spends that is one of THIS user's
-   *     outputs goes back to `spendable: false, spentBy: <this transaction>`.
-   *     This is the money-safety step: `updateTransactionStatus('failed')`
-   *     released those coins, and they are spent on chain;
-   *  3. this transaction's own outputs go back to `spendable: true`, except any
-   *     a different transaction has since spent (`spentBy` set), which are left
-   *     exactly as they are;
-   *  4. the request goes to `'unmined'` with `attempts: 0`, which is one of the
-   *     statuses `TaskCheckForProofs` polls, so the monitor proves it from here
-   *     exactly as it would any other broadcast transaction. A request that has
-   *     gone missing entirely is recreated from the transaction's own raw bytes.
-   *
-   * Returns `undefined` when there was nothing to repair (no transaction row, no
-   * raw bytes to read the inputs from, or a transaction that is already live) —
-   * the caller logs, and nothing is written.
-   */
-  async repairSettledTokenTransaction(txid: string): Promise<TokenTransactionRepair | undefined> {
-    const transactions = await this.findTransactions({ partial: { txid } })
-    if (transactions.length === 0) return undefined
-    const req = (await this.findProvenTxReqs({ partial: { txid } }))[0]
-
-    // Nothing to do unless the wallet actually believes this transaction died.
-    const damaged = transactions.some(t => t.status === 'failed') || req?.status === 'invalid'
-    if (!damaged) return undefined
-
-    const rawTx = req?.rawTx ?? transactions.find(t => t.rawTx && t.rawTx.length > 0)?.rawTx
-    if (!rawTx || rawTx.length === 0) {
-      devLog(`[StorageExpoSQLite] cannot repair ${txid}: no raw transaction to read its inputs from`)
-      return undefined
-    }
-    let parsed: Transaction
-    try {
-      parsed = Transaction.fromBinary([...rawTx])
-    } catch (e) {
-      devLog(`[StorageExpoSQLite] cannot repair ${txid}: its raw transaction will not parse:`, e)
-      return undefined
-    }
-
-    const repair: TokenTransactionRepair = {
-      txid,
-      transactionIds: [],
-      wasTxStatuses: transactions.map(t => t.status),
-      wasReqStatus: req?.status,
-      inputsMarkedSpent: 0,
-      outputsMadeSpendable: 0,
-      reqCreated: false
-    }
-
-    await this.transaction(async trx => {
-      for (const tx of transactions) {
-        if (tx.status === 'completed') continue
-        repair.transactionIds.push(tx.transactionId)
-        await this.updateTransaction(tx.transactionId, { status: 'unproven' }, trx)
-
-        for (const input of parsed.inputs) {
-          const sourceTXID = input.sourceTXID ?? input.sourceTransaction?.id('hex')
-          if (!sourceTXID || typeof input.sourceOutputIndex !== 'number') continue
-          const matches = await this.findOutputs({
-            partial: { userId: tx.userId, txid: sourceTXID, vout: input.sourceOutputIndex },
-            trx
-          })
-          for (const output of matches) {
-            if (output.outputId == null) continue
-            await this.updateOutput(output.outputId, { spendable: false, spentBy: tx.transactionId }, trx)
-            repair.inputsMarkedSpent++
-          }
-        }
-
-        const own = await this.findOutputs({ partial: { userId: tx.userId, transactionId: tx.transactionId }, trx })
-        for (const output of own) {
-          // Spent by something else since the failure: that spend is the newer
-          // fact about this coin and must not be undone by a repair.
-          if (output.outputId == null || output.spentBy != null || output.spendable) continue
-          await this.updateOutput(output.outputId, { spendable: true }, trx)
-          repair.outputsMadeSpendable++
-        }
-      }
-
-      if (req) {
-        await this.updateProvenTxReq(req.provenTxReqId, { status: 'unmined', attempts: 0 }, trx)
-      } else {
-        const now = new Date()
-        await this.insertProvenTxReq(
-          {
-            created_at: now,
-            updated_at: now,
-            provenTxReqId: 0,
-            txid,
-            status: 'unmined',
-            attempts: 0,
-            notified: false,
-            history: '{}',
-            notify: JSON.stringify({ transactionIds: repair.transactionIds }),
-            rawTx: [...rawTx]
-          } as TableProvenTxReq,
-          trx
-        )
-        repair.reqCreated = true
-      }
-    })
-
-    return repair
-  }
-
   async purgeData(_params: PurgeParams, _trx?: TrxToken): Promise<PurgeResults> {
     return { count: 0, log: '' }
   }
@@ -2131,19 +1981,18 @@ export class StorageExpoSQLite extends StorageProvider {
    * 2026-09-15 a recipient wallet raw-broadcast four just-credited token
    * transactions (one of them a known double-spend) before any `/submit`.
    * `WalletContext` calls this from its `processUnsent` patch: every request
-   * with a `token_settlements` row is held for the drain and the caller is
-   * told which ones, so it posts only the rest. Never throws.
+   * `colorHeldTxids` names (a 1Color tx whose `color_transfers` row is not
+   * `settled`) is held for the drain and the caller is told which ones, so it
+   * posts only the rest. Never throws: any fault withholds the whole batch.
    */
   async holdTokenReqsForDrain(reqApis: TableProvenTxReq[]): Promise<Set<string>> {
     try {
-      const tokenTxids = await this.tokenSettlementTxids(reqApis.map(r => r.txid))
-      if (tokenTxids.size === 0) return tokenTxids
-      const reqs = reqApis.filter(r => tokenTxids.has(r.txid)).map(r => new EntityProvenTxReq(r))
-      devLog(
-        `[StorageExpoSQLite] holding ${reqs.length} token req(s) from the monitor's retry for the settlement drain`
-      )
+      const heldTxids = await this.colorHeldTxids(reqApis.map(r => ({ txid: r.txid, rawTx: r.rawTx })))
+      if (heldTxids.size === 0) return heldTxids
+      const reqs = reqApis.filter(r => heldTxids.has(r.txid)).map(r => new EntityProvenTxReq(r))
+      devLog(`[StorageExpoSQLite] holding ${reqs.length} unsettled 1Color req(s) from the monitor's retry`)
       await this.holdTokenReqs(reqs)
-      return tokenTxids
+      return heldTxids
     } catch (e) {
       devLog('[StorageExpoSQLite] could not hold token reqs from the monitor retry; withholding them anyway:', e)
       return new Set(reqApis.map(r => r.txid))
@@ -2151,32 +2000,33 @@ export class StorageExpoSQLite extends StorageProvider {
   }
 
   /**
-   * Which of these txids the Mandala settlement drain owns — THROWS if the
-   * read itself could not be answered.
+   * Which of these requests must not be broadcast now — THROWS if the journal
+   * read could not be answered.
    *
-   * XR-045: this used to collapse "the read failed" into the same empty set as
-   * "no token requests here", which is exactly what "treat it as plain BSV"
-   * means to every caller — so a transient SQLite fault (busy/locked, a
-   * corrupt page) on a table that had just been written to successfully
-   * looked identical to "this feature does not apply", and an unadmitted token
-   * request went straight to broadcast. Never swallowed here any more: each
-   * caller already decides what a failure costs it — `holdTokenReqsForDrain`
-   * withholds its whole batch on any exception, and `attemptToPostReqsToNetwork`
-   * (guard #2, the one that can actually broadcast) does the same rather than
-   * deciding off an incomplete answer. `heldTokenTxidsIn` (guard #2's result
-   * half, reporting only) already documented "read failures propagate; the one
-   * caller decides" — this is what makes that true.
+   * A request is held when its raw tx carries a BRC-162 1Color output (or will
+   * not parse, or is missing) and its `color_transfers` row does not read
+   * `settled`; a missing row holds (plan 07 W1, IC §8.2). See
+   * `mandala/colorGuard.ts` for the predicate.
+   *
+   * XR-045: a read fault is never collapsed into "no token requests here",
+   * which is exactly what "treat it as plain BSV" means to every caller. Each
+   * caller decides what a failure costs it — `holdTokenReqsForDrain` withholds
+   * its whole batch, `attemptToPostReqsToNetwork` (the one that can actually
+   * broadcast) does the same, `processAction` omits every result, and
+   * `processOfflineActions` stalls the step. An unopened database is a fault
+   * too: it throws rather than answering "nothing held".
    */
-  private async tokenSettlementTxids(txids: string[]): Promise<Set<string>> {
-    if (txids.length === 0 || !this.db) return new Set()
+  async colorHeldTxids(reqs: readonly { txid: string; rawTx?: readonly number[] }[]): Promise<Set<string>> {
+    if (reqs.length === 0) return new Set()
     try {
-      const rows = (await this.db.getAllAsync(
-        `SELECT txid FROM token_settlements WHERE txid IN (${txids.map(() => '?').join(',')})`,
-        txids
-      )) as { txid: string }[]
-      return new Set(rows.map(r => r.txid))
+      return await colorHeldTxids(reqs, {
+        statesOf: async txids => {
+          if (!this.db) throw new Error('the database is not open; cannot read color_transfers')
+          return await createTransferJournal(this.db).statesOf(txids)
+        }
+      })
     } catch (e) {
-      devLog('[StorageExpoSQLite] could not read token_settlements:', e)
+      devLog('[StorageExpoSQLite] could not read color_transfers:', e)
       throw e
     }
   }
@@ -2187,11 +2037,11 @@ export class StorageExpoSQLite extends StorageProvider {
    * The all-or-nothing refusal `groupOfflineHolds` offers is right for the BSV
    * path — refusing there falls back to the ordinary broadcast. For a token req
    * that fallback is precisely the harm this guard exists to prevent, so an
-   * ungroupable token req is simply not broadcast: it keeps its
-   * `token_settlements` row, which the drain owns independently of any queue
-   * bookkeeping (FIX I) and which `listStuckSettlements` surfaces if it never
-   * moves. The failure is loud in the log and recoverable; a premature
-   * broadcast is neither.
+   * ungroupable token req is simply not broadcast: it stays unsent, its
+   * `color_transfers` row (or the module's `color_offline` record, which the
+   * runtime's held reconcile journals) keeps it visible as pending, and every
+   * later post attempt meets this same guard. The failure is loud in the log
+   * and recoverable; a premature broadcast is neither.
    */
   private async holdTokenReqs(reqs: EntityProvenTxReq[]): Promise<void> {
     const holds = groupOfflineHolds(await this.resolveHoldPairs(reqs))
@@ -2216,21 +2066,26 @@ export class StorageExpoSQLite extends StorageProvider {
    * directly (`monitor/tasks/TaskSendWaiting.js:180`), so the monitor's
    * ordinary broadcast retries are deliberately NOT intercepted.
    *
-   * **Token guard (offline-settlement spec §4.3, guard #2).** A transaction
-   * with a `token_settlements` row may only be broadcast by `postTokenStep`,
-   * after the issuer's overlay has admitted it and every unadmitted token
-   * ancestor it spends. Holding "only when offline" left the common shop case
-   * wide open — payee has Wi-Fi, payer none — because the payee's own
-   * `internalizeAction` then reached a real, unmediated broadcast. So token
-   * reqs are split off and held unconditionally, and the online branch is taken
-   * only for what is left. The result still covers every txid the caller handed
-   * in: reporting on a subset would make `internalizeAction` roll back a
-   * payment that was in fact accepted for delivery.
+   * **Token guard (guard #2; plan 07 W1, IC §8.2).** A transaction with a
+   * BRC-162 1Color output may be broadcast only once its `color_transfers` row
+   * reads `settled`, i.e. after the color module's `settle` got a verified
+   * admission from the Mandala overlay (which itself broadcasts what it
+   * admits). A missing row holds. Holding "only when offline" left the common
+   * shop case wide open — payee has Wi-Fi, payer none, or ARC reachable while
+   * the overlay is not — because the payee's own `internalizeAction` then
+   * reached a real, unmediated broadcast. So unsettled 1Color reqs are split
+   * off and held unconditionally, and the online branch is taken only for what
+   * is left. The result still covers every txid the caller handed in:
+   * reporting on a subset would make `internalizeAction` roll back a payment
+   * that was in fact accepted for delivery. The module's own post-admission
+   * `sendWith:[txid]` (IC D24) lands here too; when the journal has not caught
+   * up yet it is held, and `processOfflineActions` releases it on the next
+   * pass after the row reads `settled`.
    *
-   * Guard #3 follows from this one: because a token req is never handed to
-   * `sendWith` outside `postTokenStep`, it never reaches `unsent`/`sending`,
-   * which is all that keeps `TaskSendWaiting` — which bypasses this override
-   * entirely — from broadcasting it out from under the drain.
+   * Guard #3 follows from this one: because an unsettled 1Color req only ever
+   * reaches this override, which parks it at `nosend`, it never reaches
+   * `unsent`/`sending`, which is all that keeps `TaskSendWaiting` — which
+   * bypasses this override entirely — from broadcasting it before settlement.
    *
    * Narrower than "offline means hold" on the BSV side: only requests whose
    * transaction is already in a hold-safe status are parked, so in practice
@@ -2266,10 +2121,11 @@ export class StorageExpoSQLite extends StorageProvider {
    * is not telling you it went out", which is the truth and which no caller can
    * mistake for delivery.
    *
-   * Scoped as narrowly as it can be: only txids that have a `token_settlements`
-   * row AND whose request is still parked at `'nosend'`. Once `postTokenStep`
-   * has really broadcast the tip its request is past `'nosend'` and its results
-   * pass through exactly as before, and a plain BSV action is never looked at.
+   * Scoped as narrowly as it can be: only txids whose request is still parked
+   * at `'nosend'` AND that `colorHeldTxids` names (an unsettled 1Color tx).
+   * Once a settled tx has really been broadcast its request is past `'nosend'`
+   * and its results pass through exactly as before, and a plain BSV action is
+   * never held.
    *
    * `internalizeAction` is unaffected — it calls `shareReqsWithWorld` directly
    * rather than through `processAction` — which is what keeps the receiver's
@@ -2303,26 +2159,26 @@ export class StorageExpoSQLite extends StorageProvider {
 
     devLog(
       `[StorageExpoSQLite] omitting ${heldTokenTxids.size} held token req(s) from sendWithResults; ` +
-        'the settlement drain owns their broadcast'
+        'they are released once settled'
     )
     return { ...r, sendWithResults: swr.filter(s => !heldTokenTxids.has(s.txid)) }
   }
 
   /**
-   * Of these txids, the ones that both have a `token_settlements` row and are
-   * still parked at request status `'nosend'` — i.e. held by guard #2 and not
-   * yet broadcast by the drain. Read failures propagate; the one caller decides
-   * what a failure means.
+   * Of these txids, the ones whose request is still parked at `'nosend'` and
+   * that `colorHeldTxids` names — i.e. held by guard #2 and not yet released.
+   * The request is read first because the classification needs its raw tx. A
+   * `'nosend'` request without bytes is held by `colorHeldTxids` (fail
+   * closed), so it is omitted from the results. Read failures propagate; the
+   * one caller decides what a failure means.
    */
   private async heldTokenTxidsIn(txids: string[]): Promise<Set<string>> {
-    const tokenTxids = await this.tokenSettlementTxids(txids)
-    if (tokenTxids.size === 0) return new Set()
-    const held = new Set<string>()
-    for (const txid of tokenTxids) {
+    const parked: { txid: string; rawTx?: number[] }[] = []
+    for (const txid of new Set(txids)) {
       const req = (await this.findProvenTxReqs({ partial: { txid } }))[0]
-      if (req?.status === 'nosend') held.add(txid)
+      if (req?.status === 'nosend') parked.push({ txid, rawTx: req.rawTx })
     }
-    return held
+    return await this.colorHeldTxids(parked)
   }
 
   async attemptToPostReqsToNetwork(
@@ -2334,25 +2190,22 @@ export class StorageExpoSQLite extends StorageProvider {
 
     let tokenTxids: Set<string>
     try {
-      tokenTxids = await this.tokenSettlementTxids(reqs.map(r => r.txid))
+      tokenTxids = await this.colorHeldTxids(reqs.map(r => ({ txid: r.txid, rawTx: r.rawTx })))
     } catch (e) {
       // XR-045: the read could not be answered, so this call does not know
-      // which of `reqs` are token requests — and "I could not tell" must never
-      // resolve to "post them", the exact fail-open this guard exists to
-      // prevent. Hold the WHOLE batch, as if every txid in it needed the
-      // drain: a plain BSV req held this way is not lost, only delayed until
-      // `processOfflineActions` (or a later, healthy read) finds no settlement
-      // row for it and posts it normally.
-      devLog('[StorageExpoSQLite] could not read token_settlements; holding the whole batch rather than guessing:', e)
+      // which of `reqs` are unsettled token requests — and "I could not tell"
+      // must never resolve to "post them", the exact fail-open this guard
+      // exists to prevent. Hold the WHOLE batch: a plain BSV req held this way
+      // is not lost, only delayed until `processOfflineActions` (or a later,
+      // healthy read) finds no 1Color output in it and posts it normally.
+      devLog('[StorageExpoSQLite] could not read color_transfers; holding the whole batch rather than guessing:', e)
       tokenTxids = new Set(reqs.map(r => r.txid))
     }
     const tokenReqs = tokenTxids.size > 0 ? reqs.filter(r => tokenTxids.has(r.txid)) : []
     const rest = tokenTxids.size > 0 ? reqs.filter(r => !tokenTxids.has(r.txid)) : reqs
 
     if (tokenReqs.length > 0) {
-      devLog(
-        `[StorageExpoSQLite] holding ${tokenReqs.length} token req(s) for the settlement drain, regardless of connectivity`
-      )
+      devLog(`[StorageExpoSQLite] holding ${tokenReqs.length} unsettled 1Color req(s), regardless of connectivity`)
       await this.holdTokenReqs(tokenReqs)
       // Nothing else in the call: answer for the whole call without ever
       // asking whether we are online, because the answer could not change it.

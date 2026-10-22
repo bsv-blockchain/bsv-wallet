@@ -229,12 +229,13 @@ export { mergeContactCache, type ContactCache } from './contacts/contactCache'
 
 // Local SQLite storage layer
 export { StorageExpoSQLite } from './storage/StorageExpoSQLite'
-export type { StorageExpoSQLiteOptions, TokenTransactionRepair } from './storage/StorageExpoSQLite'
+export type { StorageExpoSQLiteOptions } from './storage/StorageExpoSQLite'
 export { createTables, ensureOfflineActionsColumns } from './storage/schema/createTables'
 export { findOfflineActions, findOfflineActionByTxid, updateOfflineAction } from './storage/methods/offlineActions'
 export type { OfflineActionRow, OfflineActionStatus, BindValue } from './storage/methods/offlineActions'
 export { readWalletBalance } from './storage/methods/walletBalanceSql'
-export { processOfflineActions, type OfflineTokenDeps } from './storage/methods/processOfflineActions'
+export { processOfflineActions } from './storage/methods/processOfflineActions'
+export { colorHeldTxids, txHasColorOutput } from './mandala/colorGuard'
 export * from './storage/skipQueuedAncestors'
 export { prepareSqliteImageForDeserialize } from './storage/dbImage'
 
