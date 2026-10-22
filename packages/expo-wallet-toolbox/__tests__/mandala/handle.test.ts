@@ -11,8 +11,11 @@
  *    second payment), `notified: false`, and the tick redelivers it.
  *  · Redelivery rebuilds the §7.2 body from the row's custody fields, the
  *    module's `handoffEvidence` and the AtomicBEEF; never from the overlay.
- *  · Inbox credits are journaled `held` when offline and `settled` when
- *    admitted; an unreadable box is `incomplete`, never "nothing there".
+ *  · Every inbox credit is journaled `held`; only the module inventory
+ *    (`reconcileHeld`) settles it, so an unknown offline state never reads
+ *    as admitted. An unreadable box is `incomplete`, never "nothing there".
+ *  · A resend checks everything it needs BEFORE it hands a parked payment
+ *    over: a failed or offline resend leaves the row as it found it.
  *
  * Every lib call is mocked; the journal is real SQLite.
  */
@@ -39,6 +42,8 @@ import {
   type HandleDeps,
   type MandalaMessageBox
 } from '../../core/mandala/handle'
+import type { InventoryRecord } from '../../core/mandala/assets'
+import { reconcileHeldTransfers } from '../../core/mandala/settle'
 import { createTransferJournal, type JournalDb, type TransferJournal } from '../../core/mandala/transferJournal'
 import type { ColorTransferRow } from '../../core/mandala/types'
 import { openTestDb } from '../__helpers__/nodeSqlite'
@@ -61,6 +66,16 @@ const BEEF = [1, 1, 1, 1, 0xab]
 
 let raw: DatabaseSync
 let journal: TransferJournal
+/** The module's `p color assets` view, as `reconcileHeld` reads it. */
+let inventory: jest.Mock<Promise<InventoryRecord[]>, []>
+
+const record = (txid: string, tags: string[]): InventoryRecord => ({
+  outpoint: `${txid}.0`,
+  assetId: A,
+  role: 'value',
+  units: MAX_U64,
+  tags
+})
 
 function handover(over: Partial<HandoverResult> = {}): HandoverResult {
   return {
@@ -126,6 +141,10 @@ function deps(over: Partial<HandleDeps> = {}): HandleDeps & { abortAction: jest.
     processed: new Set<string>(),
     now: () => new Date(NOW),
     recipientRefusal: (r: string) => (/^(02|03)[0-9a-f]{64}$/i.test(r) ? null : 'not an identity key'),
+    // The runtime's own reconcile, over the real journal and the mocked view.
+    reconcileHeld: jest.fn(async (txids: readonly string[]) => {
+      await reconcileHeldTransfers({ journal, inventory: async () => await inventory() }, txids)
+    }),
     abortAction,
     ...over
   }
@@ -156,6 +175,7 @@ beforeEach(async () => {
   let db
   ;({ raw, db } = await openTestDb())
   journal = createTransferJournal(db as JournalDb, () => new Date(NOW))
+  inventory = jest.fn(async () => [])
   sendHandoverMock.mockImplementation(async () => {
     order.push('sendHandover')
     return handover()
@@ -367,6 +387,16 @@ describe('sendToHandle', () => {
     expect(d.abortAction).toHaveBeenCalledWith({ reference: 'ref-T' })
   })
 
+  it('a txid journaled for another transfer is never delivered, and the unseen action is released', async () => {
+    const d = deps()
+    await journal.insert(row({ role: 'received', state: 'held', reference: undefined }))
+    const r = await sendToHandle(d, { assetId: A, recipientIdentityKey: B, units: 1n })
+    expect(r).toMatchObject({ kind: 'unavailable' })
+    expect(deliverHandoverMock).not.toHaveBeenCalled()
+    expect(d.abortAction).toHaveBeenCalledWith({ reference: 'ref-T' })
+    expect(await journal.get(T)).toMatchObject({ role: 'received', state: 'held' })
+  })
+
   it('a send to self owes no delivery: journaled delivered, settled', async () => {
     const d = deps()
     sendHandoverMock.mockImplementationOnce(async () => {
@@ -413,14 +443,24 @@ describe('redeliverPending', () => {
     expect(d.settleNow).toHaveBeenCalledWith(T)
   })
 
-  it('leaves delivered, nearby, received and settled rows alone', async () => {
+  it('leaves delivered, received, settled and not-yet-handed-over rows alone', async () => {
     const d = deps()
     await journal.insert(row({ txid: 'c1'.repeat(32), delivered: true }))
-    await journal.insert(row({ txid: 'c2'.repeat(32), rail: 'nearby' }))
+    await journal.insert(row({ txid: 'c2'.repeat(32), rail: 'nearby', delivered: true }))
     await journal.insert(row({ txid: 'c3'.repeat(32), role: 'received', state: 'held', reference: undefined }))
     await journal.insert(row({ txid: 'c4'.repeat(32), state: 'settled' }))
+    await journal.insert(row({ txid: 'c5'.repeat(32), rail: 'nearby', state: 'parked' }))
     expect(await redeliverPending(d)).toBe(0)
     expect(deliverHandoverMock).not.toHaveBeenCalled()
+  })
+
+  it('redelivers an undelivered hand-over whatever rail it first took', async () => {
+    // A parked nearby payment a resend handed over, whose delivery then failed.
+    const d = deps()
+    await journal.insert(row({ rail: 'nearby' }))
+    expect(await redeliverPending(d)).toBe(1)
+    expect(deliverHandoverMock).toHaveBeenCalledWith(expect.objectContaining({ recipientKey: B }))
+    expect((await journal.get(T))!.delivered).toBe(true)
   })
 
   it('a row whose bytes cannot be had stays undelivered for the next tick', async () => {
@@ -496,6 +536,82 @@ describe('resendTransfer', () => {
     })
     expect(await resendTransfer(d, T)).toBe('resent')
     expect(order).toContain('deliverHandover@handed_over')
+    expect(await journal.get(T)).toMatchObject({ state: 'handed_over', delivered: true })
+  })
+
+  describe('a resend that cannot deliver leaves a parked payment parked', () => {
+    it('with no evidence', async () => {
+      const d = deps()
+      await journal.insert(row({ rail: 'nearby', state: 'parked' }))
+      ;(d.color.handoffEvidence as jest.Mock).mockResolvedValueOnce(undefined)
+      expect(await resendTransfer(d, T)).toBe('not-found')
+      expect((await journal.get(T))!.state).toBe('parked')
+    })
+
+    it('with evidence for another txid', async () => {
+      const d = deps()
+      await journal.insert(row({ rail: 'nearby', state: 'parked' }))
+      ;(d.color.handoffEvidence as jest.Mock).mockResolvedValueOnce({ version: 1, txid: U, profileData: PROFILE_DATA })
+      expect(await resendTransfer(d, T)).toBe('not-found')
+      expect((await journal.get(T))!.state).toBe('parked')
+    })
+
+    it('with no custody fields', async () => {
+      const d = deps()
+      await journal.insert(row({ rail: 'nearby', state: 'parked', derivationPrefix: undefined }))
+      expect(await resendTransfer(d, T)).toBe('not-found')
+      expect((await journal.get(T))!.state).toBe('parked')
+    })
+
+    it('with no bytes', async () => {
+      const d = deps({ refetch: jest.fn(async () => undefined) })
+      await journal.insert(row({ rail: 'nearby', state: 'parked' }))
+      expect(await resendTransfer(d, T)).toBe('unavailable')
+      expect((await journal.get(T))!.state).toBe('parked')
+    })
+
+    it('when the evidence read throws', async () => {
+      const d = deps()
+      await journal.insert(row({ rail: 'nearby', state: 'parked' }))
+      ;(d.color.handoffEvidence as jest.Mock).mockRejectedValueOnce(new Error('locked'))
+      expect(await resendTransfer(d, T)).toBe('unavailable')
+      expect((await journal.get(T))!.state).toBe('parked')
+    })
+
+    it('with a MessageBox that cannot be opened', async () => {
+      const d = deps({
+        messageBox: async () => {
+          throw new Error('no network')
+        }
+      })
+      await journal.insert(row({ rail: 'nearby', state: 'parked' }))
+      expect(await resendTransfer(d, T)).toBe('unavailable')
+      expect((await journal.get(T))!.state).toBe('parked')
+      expect(deliverHandoverMock).not.toHaveBeenCalled()
+    })
+  })
+
+  it('a delivery that fails after the hand-over stays handed_over for the tick, never parked again', async () => {
+    // The bytes may have landed (a lost response): the abort guard must keep refusing.
+    const d = deps()
+    await journal.insert(row({ rail: 'nearby', state: 'parked' }))
+    deliverHandoverMock.mockRejectedValueOnce(new Error('502'))
+    expect(await resendTransfer(d, T)).toBe('unavailable')
+    expect(await journal.get(T)).toMatchObject({ state: 'handed_over', delivered: false })
+    expect(await redeliverPending(d)).toBe(1)
+    expect((await journal.get(T))!.delivered).toBe(true)
+  })
+
+  it('a payment cancelled while the resend prepared is not delivered', async () => {
+    const d = deps()
+    await journal.insert(row({ rail: 'nearby', state: 'parked' }))
+    ;(d.color.handoffEvidence as jest.Mock).mockImplementationOnce(async (txid: string) => {
+      await journal.advance(txid, ['parked'], 'cancelled')
+      return { version: 1, txid, profileData: PROFILE_DATA }
+    })
+    expect(await resendTransfer(d, T)).toBe('not-found')
+    expect(deliverHandoverMock).not.toHaveBeenCalled()
+    expect((await journal.get(T))!.state).toBe('cancelled')
   })
 })
 
@@ -509,13 +625,15 @@ describe('receiveFromInbox', () => {
     offline
   })
 
-  it('journals inbox credits as held when offline and settled when admitted', async () => {
+  it('journals every inbox credit held; only the module inventory settles it', async () => {
     const d = deps()
+    inventory.mockResolvedValue([record(T, ['color_offline']), record(U, ['color_state_available'])])
     receiveHandoversMock.mockResolvedValueOnce({
       accepted: [accepted(T, true), accepted(U, false)],
       failed: [{ messageId: 'bad', error: new Error('x'), code: 'ERR_SHAPE' }]
     })
     expect(await receiveFromInbox(d)).toEqual({ credited: 2, failed: 1 })
+    expect(d.reconcileHeld).toHaveBeenCalledWith([T, U])
     expect(receiveHandoversMock).toHaveBeenCalledWith(expect.objectContaining({ processed: d.processed }))
     expect(await journal.get(T)).toMatchObject({
       role: 'received',
@@ -550,12 +668,51 @@ describe('receiveFromInbox', () => {
     expect(d.rememberDeploy).toHaveBeenCalledWith(DEPLOY_HEX)
   })
 
-  it('a replayed credit that was journaled held moves to settled once admitted', async () => {
+  it('a credit the lib reports online stays held when the inventory cannot be read', async () => {
+    // The lib reports `offline: false` when its own view read fails: not proof of admission.
     const d = deps()
-    await journal.insert(row({ role: 'received', state: 'held', reference: undefined, rail: 'external' }))
+    inventory.mockRejectedValue(new Error('p color assets: view unavailable'))
     receiveHandoversMock.mockResolvedValueOnce({ accepted: [accepted(T, false)], failed: [] })
     expect(await receiveFromInbox(d)).toEqual({ credited: 1, failed: 0 })
+    expect((await journal.get(T))!.state).toBe('held')
+  })
+
+  it('a credit the inventory does not list yet stays held', async () => {
+    const d = deps()
+    receiveHandoversMock.mockResolvedValueOnce({ accepted: [accepted(T, false)], failed: [] })
+    expect(await receiveFromInbox(d)).toEqual({ credited: 1, failed: 0 })
+    expect((await journal.get(T))!.state).toBe('held')
+  })
+
+  it('an offline credit stays held even when the lib and the view agree it is offline', async () => {
+    const d = deps()
+    inventory.mockResolvedValue([record(T, ['color_offline'])])
+    receiveHandoversMock.mockResolvedValueOnce({ accepted: [accepted(T, true)], failed: [] })
+    await receiveFromInbox(d)
+    expect((await journal.get(T))!.state).toBe('held')
+  })
+
+  it('a replayed credit that was journaled held moves to settled once the inventory admits it', async () => {
+    const d = deps()
+    await journal.insert(row({ role: 'received', state: 'held', reference: undefined, rail: 'external' }))
+    receiveHandoversMock.mockResolvedValue({ accepted: [accepted(T, false)], failed: [] })
+    inventory.mockRejectedValueOnce(new Error('view unavailable'))
+    expect(await receiveFromInbox(d)).toEqual({ credited: 1, failed: 0 })
+    expect((await journal.get(T))!.state).toBe('held')
+    inventory.mockResolvedValueOnce([record(T, ['color_state_available'])])
+    expect(await receiveFromInbox(d)).toEqual({ credited: 1, failed: 0 })
     expect((await journal.get(T))!.state).toBe('settled')
+  })
+
+  it('a reconcile that throws is logged, never thrown, and leaves the credit held', async () => {
+    const d = deps({
+      reconcileHeld: jest.fn(async () => {
+        throw new Error('database is locked')
+      })
+    })
+    receiveHandoversMock.mockResolvedValueOnce({ accepted: [accepted(T, false)], failed: [] })
+    expect(await receiveFromInbox(d)).toEqual({ credited: 1, failed: 0 })
+    expect((await journal.get(T))!.state).toBe('held')
   })
 
   it('an unreadable box is incomplete, never an empty one', async () => {

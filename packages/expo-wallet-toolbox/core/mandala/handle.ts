@@ -26,7 +26,14 @@
  *
  * Redelivery and resend rebuild the §7.2 body from the row (custody fields
  * written at send time), `handoffEvidence` (profileData) and the AtomicBEEF
- * from `refetch`. They never contact the overlay.
+ * from `refetch`. They never contact the overlay. A resend gathers all of it,
+ * and opens the box, BEFORE it hands a parked payment over: a resend that
+ * cannot deliver leaves the row exactly as it found it.
+ *
+ * Receive journals every credit `held`. Only `reconcileHeld`, reading the
+ * module's inventory, moves it to `settled`: the lib's `offline: false` is
+ * also what it reports when its own view read failed, so it is never proof
+ * the overlay admitted the credit (design anti-goal; IC §6, D5).
  */
 import type { WalletInterface } from '@bsv/sdk'
 import type { ColorPermissionModule } from '@bsv/color-permission-module'
@@ -66,6 +73,12 @@ export interface HandleDeps {
   now: () => Date
   /** Plain reason a recipient cannot receive tokens, or null. */
   recipientRefusal: (recipient: string) => string | null
+  /**
+   * Moves `held` receipts to `settled` when the module inventory shows no
+   * unsettled record for them (the runtime's `reconcileHeld`). A view fault
+   * leaves them held.
+   */
+  reconcileHeld: (txids: readonly string[]) => Promise<void>
   /** Journal or delivery state changed. */
   onChange?: () => void
   /** How long a send waits for its own settle before returning. Default 8 000 ms. */
@@ -251,6 +264,7 @@ async function runSend(
         // journaled before; anything else is not ours to deliver.
         const existing = await d.journal.get(h.txid)
         if (existing?.role !== 'sent' || existing.reference !== h.reference) {
+          await releaseUnseen(d, h.reference)
           return { kind: 'unavailable', message: `color_transfers already holds ${h.txid} for another transfer` }
         }
       }
@@ -302,11 +316,22 @@ const UNHANDED_STATES: readonly ColorTransferState[] = ['built', 'parked']
 
 type DeliverOutcome = 'resent' | 'not-found' | 'unavailable'
 
+/** Everything a (re)delivery needs, gathered before anything is changed. */
+interface PreparedDelivery {
+  recipientKey: string
+  handover: HandoverResult
+  box: MandalaMessageBox
+}
+
 /**
- * Rebuilds the §7.2 hand-over of a sent row and delivers it. The row's
- * custody fields, the module's evidence and the bytes must all be present.
+ * Rebuilds the §7.2 hand-over of a sent row and opens the box. Reads only:
+ * the row's custody fields, the module's evidence and the bytes must all be
+ * present, and the box must open, or nothing is to be delivered.
  */
-async function deliverRow(d: HandleDeps, row: ColorTransferRow): Promise<DeliverOutcome> {
+async function prepareRow(
+  d: HandleDeps,
+  row: ColorTransferRow
+): Promise<PreparedDelivery | 'not-found' | 'unavailable'> {
   const { txid } = row
   if (
     row.role !== 'sent' ||
@@ -332,42 +357,66 @@ async function deliverRow(d: HandleDeps, row: ColorTransferRow): Promise<Deliver
     devLog(`[mandala] handle: fetching the bytes of ${txid} failed:`, e)
   }
   if (!tx || tx.length === 0) return 'unavailable'
-
-  const handover: HandoverResult = {
-    txid,
-    tx,
-    reference: row.reference ?? '',
-    outputIndex: row.outputIndex,
-    receipt: {
-      version: 1,
-      assetId: row.assetId,
-      derivationPrefix: row.derivationPrefix,
-      derivationSuffix: row.derivationSuffix,
-      senderIdentityKey: row.senderIdentityKey,
-      profileData: evidence.profileData as Record<string, unknown>
-    },
-    // Not part of the §7.2 body.
-    offChainValues: []
+  let box: MandalaMessageBox
+  try {
+    box = await d.messageBox()
+  } catch (e) {
+    devLog(`[mandala] handle: the MessageBox for ${txid} could not be opened:`, e)
+    return 'unavailable'
   }
+
+  return {
+    recipientKey: row.counterpartyKey,
+    box,
+    handover: {
+      txid,
+      tx,
+      reference: row.reference ?? '',
+      outputIndex: row.outputIndex,
+      receipt: {
+        version: 1,
+        assetId: row.assetId,
+        derivationPrefix: row.derivationPrefix,
+        derivationSuffix: row.derivationSuffix,
+        senderIdentityKey: row.senderIdentityKey,
+        profileData: evidence.profileData as Record<string, unknown>
+      },
+      // Not part of the §7.2 body.
+      offChainValues: []
+    }
+  }
+}
+
+/** Delivers a prepared hand-over and journals the ACK. */
+async function deliverPrepared(d: HandleDeps, row: ColorTransferRow, p: PreparedDelivery): Promise<DeliverOutcome> {
   try {
     await deliverHandover({
-      messageBoxClient: await d.messageBox(),
-      recipientKey: row.counterpartyKey,
-      handover,
+      messageBoxClient: p.box,
+      recipientKey: p.recipientKey,
+      handover: p.handover,
       ...(row.note !== undefined ? { note: row.note } : {})
     })
   } catch (e) {
-    devLog(`[mandala] handle: redelivering ${txid} failed:`, e)
+    devLog(`[mandala] handle: redelivering ${row.txid} failed:`, e)
     return 'unavailable'
   }
-  await markDelivered(d, txid)
+  await markDelivered(d, row.txid)
   return 'resent'
 }
 
+async function deliverRow(d: HandleDeps, row: ColorTransferRow): Promise<DeliverOutcome> {
+  const prepared = await prepareRow(d, row)
+  return typeof prepared === 'string' ? prepared : await deliverPrepared(d, row, prepared)
+}
+
 /**
- * Redelivers every `handle` hand-over whose delivery is not known to have
- * happened. Single-flight per runtime; never throws. Returns how many were
- * delivered. Each one delivered is then named to `settleNow` (post-ACK).
+ * Redelivers every sent hand-over whose delivery is not known to have
+ * happened, whatever rail it first took: a parked nearby payment a resend
+ * handed over, then failed to deliver, is owed a delivery too. (The nearby
+ * rail journals a hand-over it confirmed over BLE `delivered: true`, so this
+ * never re-sends one the recipient acknowledged.) Single-flight per runtime;
+ * never throws. Returns how many were delivered. Each one delivered is then
+ * named to `settleNow` (post-ACK).
  */
 export function redeliverPending(d: HandleDeps): Promise<number> {
   const existing = redeliverFlights.get(d)
@@ -383,7 +432,7 @@ export function redeliverPending(d: HandleDeps): Promise<number> {
     const delivering = setOf(deliveringTxids, d)
     let count = 0
     for (const row of rows) {
-      if (row.rail !== 'handle' || row.delivered || delivering.has(row.txid)) continue
+      if (row.delivered || delivering.has(row.txid)) continue
       delivering.add(row.txid)
       try {
         if ((await deliverRow(d, row)) === 'resent') {
@@ -408,8 +457,16 @@ export function redeliverPending(d: HandleDeps): Promise<number> {
 
 /**
  * Re-delivers one sent hand-over over MessageBox, whatever rail it first took.
- * A payment not yet handed over (`built`/`parked`) is journaled `handed_over`
- * first, so the abort guard refuses from the moment the bytes may leave.
+ *
+ * Everything the delivery needs (custody fields, evidence, bytes, an open
+ * box) is gathered first; a resend that cannot have them returns without
+ * touching the row, so a parked payment stays parked and cancellable. Only
+ * then is a payment not yet handed over (`built`/`parked`) journaled
+ * `handed_over` (a compare-and-set: a concurrent cancel wins and nothing is
+ * delivered), so the abort guard refuses from the moment the bytes may leave.
+ * A delivery that fails after that stays `handed_over`, undelivered, for
+ * `redeliverPending`: its bytes may have landed, so it is never parked again.
+ *
  * Received rows and final refusals are `'not-found'`: there is nothing to
  * deliver. Never contacts the overlay.
  */
@@ -422,21 +479,37 @@ export async function resendTransfer(d: HandleDeps, txid: string): Promise<'rese
     return 'unavailable'
   }
   if (!row || row.role !== 'sent') return 'not-found'
-  if (UNHANDED_STATES.includes(row.state)) {
-    try {
-      if (await d.journal.advance(txid, UNHANDED_STATES, 'handed_over')) notify(d)
-      row = await d.journal.get(txid)
-    } catch (e) {
-      devLog(`[mandala] handle: handing over ${txid} for a resend failed:`, e)
-      return 'unavailable'
-    }
-    if (!row) return 'not-found'
-  }
-  if (!DELIVERABLE_STATES.includes(row.state)) return 'not-found'
+  const unhanded = UNHANDED_STATES.includes(row.state)
+  if (!unhanded && !DELIVERABLE_STATES.includes(row.state)) return 'not-found'
   const delivering = setOf(deliveringTxids, d)
   delivering.add(txid)
   try {
-    return await deliverRow(d, row)
+    const prepared = await prepareRow(d, row)
+    if (typeof prepared === 'string') return prepared
+    if (unhanded) {
+      let moved: boolean
+      try {
+        moved = await d.journal.advance(txid, UNHANDED_STATES, 'handed_over')
+      } catch (e) {
+        devLog(`[mandala] handle: handing over ${txid} for a resend failed:`, e)
+        return 'unavailable'
+      }
+      if (!moved) {
+        // Moved under us (a cancel, a release, a refusal): re-read and decide again.
+        let now: ColorTransferRow | undefined
+        try {
+          now = await d.journal.get(txid)
+        } catch (e) {
+          devLog(`[mandala] handle: re-reading ${txid} for a resend failed:`, e)
+          return 'unavailable'
+        }
+        if (!now || !DELIVERABLE_STATES.includes(now.state)) return 'not-found'
+        row = now
+      } else {
+        notify(d)
+      }
+    }
+    return await deliverPrepared(d, row, prepared)
   } finally {
     delivering.delete(txid)
   }
@@ -480,8 +553,8 @@ function readListed(message: unknown): [string, ListedMessage] | undefined {
 
 /**
  * Drains the `mandala-color` box through lib `receiveHandovers` and journals
- * each credit: `held` when it was accepted offline (`color_offline`),
- * `settled` when the overlay admitted it. Single-flight per runtime.
+ * each credit `held`, then asks `reconcileHeld` to settle the ones the module
+ * inventory shows admitted. Single-flight per runtime.
  *
  * `incomplete: true` means the box could not be read at all, which is never
  * the same answer as an empty box. A journal fault after a credit is logged:
@@ -529,21 +602,24 @@ async function runReceive(d: HandleDeps): Promise<{ credited: number; failed: nu
   for (const credit of result.accepted) {
     const seen = listed.get(String(credit.messageId))
     try {
-      const wrote = await d.journal.insert({
-        txid: credit.txid,
-        role: 'received',
-        assetId: credit.assetId,
-        units: credit.amount,
-        outputIndex: credit.outputIndex,
-        rail: 'handle',
-        state: credit.offline ? 'held' : 'settled',
-        delivered: false,
-        ...(seen?.sender !== undefined ? { counterpartyKey: seen.sender } : {})
-      })
-      if (wrote) changed = true
-      // A replay of a credit already journaled `held` (a crash before the
-      // ack, or reconcileHeld got there first) that is now admitted.
-      else if (!credit.offline && (await d.journal.advance(credit.txid, ['held'], 'settled'))) changed = true
+      // Always `held`, whatever `credit.offline` says: the lib reports
+      // `offline: false` when it could not read its view at all. Only the
+      // module inventory, below, settles a credit.
+      if (
+        await d.journal.insert({
+          txid: credit.txid,
+          role: 'received',
+          assetId: credit.assetId,
+          units: credit.amount,
+          outputIndex: credit.outputIndex,
+          rail: 'handle',
+          state: 'held',
+          delivered: false,
+          ...(seen?.sender !== undefined ? { counterpartyKey: seen.sender } : {})
+        })
+      ) {
+        changed = true
+      }
     } catch (e) {
       devLog(`[mandala] handle: journaling the inbox credit ${credit.txid} failed:`, e)
     }
@@ -556,5 +632,14 @@ async function runReceive(d: HandleDeps): Promise<{ credited: number; failed: nu
     }
   }
   if (changed) notify(d)
+  if (result.accepted.length > 0) {
+    // Promotes each credit (new, or a replay journaled `held` earlier) the
+    // inventory shows settled; a view fault leaves it held for the next tick.
+    try {
+      await d.reconcileHeld(result.accepted.map(c => c.txid))
+    } catch (e) {
+      devLog('[mandala] handle: reconciling inbox credits failed; they stay held:', e)
+    }
+  }
   return { credited: result.accepted.length, failed: result.failed.length }
 }

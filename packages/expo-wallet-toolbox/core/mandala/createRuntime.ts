@@ -374,6 +374,16 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     }
   }
 
+  /** Settles `held` receipts the module inventory shows admitted (shared by the runtime and the inbox). */
+  async function reconcileHeld(txids: readonly string[]): Promise<void> {
+    if (db === undefined || txids.length === 0) return
+    const changed = await reconcileHeldTransfers(
+      { journal, inventory: async () => await readInventory(bound, adminOriginator) },
+      txids
+    )
+    if (changed > 0) emit()
+  }
+
   // ── Handle rail (Task 13) ──
   //
   // One deps object per runtime: the per-asset send latch, the in-delivery set
@@ -399,6 +409,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           processed: new Set<string>(),
           now,
           recipientRefusal: recipientRefusalOf,
+          reconcileHeld,
           onChange: emit
         }
       : undefined
@@ -518,14 +529,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       return await readIsHandoverAdmitted({ journal, provider }, txid)
     },
 
-    async reconcileHeld(txids: readonly string[]) {
-      if (db === undefined || txids.length === 0) return
-      const changed = await reconcileHeldTransfers(
-        { journal, inventory: async () => await readInventory(bound, adminOriginator) },
-        txids
-      )
-      if (changed > 0) emit()
-    },
+    reconcileHeld,
 
     async sendToHandle(a) {
       if (!handleDeps) return { kind: 'unavailable', message: 'Stablecoins are not available on this network' }
