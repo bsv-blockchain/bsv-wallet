@@ -67,7 +67,8 @@ versions below 6, session version 1 and MessageBox bodies v1/v2 are all gone.
   number-shaped `amount` is 0 and `fixedAmount` is undefined there, and
   `NearbyDone.amount` is 0 on a token payment. `NearbyConfirm.holding` is a
   bigint, and `setAmount` takes a bigint (token base units) or a number
-  (satoshis).
+  (satoshis). Hosts gate Send on `canSend` and read the payee's figure from
+  `fixedUnits` on a token session, never from `amount` / `fixedAmount`.
 
 ### Added
 
