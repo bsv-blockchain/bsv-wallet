@@ -19,6 +19,11 @@
   `maxMessageBytes` and `limits.maxMessageBytes`). A larger outgoing payment is released before
   anything is spent and fails with `failure: 'too_large'`, which `payIdentity` answers with the
   `too_large` message box fallback (`direct_pay_fallback_too_large`).
+- **The payer is told the truth about a recipient who is not receiving live.** Most
+  recipients are now off the Receive screen, so the fallback no longer says "isn't online right
+  now" (`direct_pay_fallback_offline`, `direct_pay_failed_offline`): it says they aren't taking
+  live payments right now. The prompt title (`direct_pay_fallback_title`), also shown for the
+  link-failed and too-large prompts, is now "Can't pay live right now".
 
 ## 0.20.0
 

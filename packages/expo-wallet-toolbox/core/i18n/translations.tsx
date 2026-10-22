@@ -1234,12 +1234,12 @@ const resources = {
       direct_pay_status_error_title: "Live payments aren't working right now",
       direct_pay_status_error_body: 'Live payments cannot be received right now.',
       direct_pay_fallback_offline:
-        "{{name}} isn't online right now. Send it to their message box? They'll get it next time they open their wallet.",
+        "{{name}} isn't taking live payments right now. Send it to their message box instead? It reaches their wallet when they next open it.",
       direct_pay_fallback_link_failed: "Couldn't connect to {{name}} directly. Send it to their message box instead?",
       direct_pay_fallback_too_large:
         "This payment is too large to send live (over 1 MB). Send it to {{name}}'s message box instead? Nothing has been spent yet.",
       direct_pay_failed_offline:
-        "{{name}} isn't online right now. Nothing was spent. Connect a message box in Settings to pay people who are offline.",
+        "{{name}} isn't taking live payments right now. Nothing was spent. Connect a message box in Settings to pay them anyway.",
       direct_pay_failed_link: "Couldn't connect to {{name}} directly. Nothing was spent.",
       direct_pay_failed_network: "Couldn't reach the payment network — check your connection.",
       direct_pay_failed_wrong_network: '{{name}} is on a different network. Nothing was spent.',
@@ -1248,7 +1248,7 @@ const resources = {
         'Your payment to {{name}} may already have been sent. Check Activity before paying again.',
       direct_pay_failed_not_sent: 'The payment could not be sent. Nothing was spent.',
       direct_pay_failed_no_message_box: 'Connect your message box in Settings to pay a wallet identity.',
-      direct_pay_fallback_title: 'Not online right now',
+      direct_pay_fallback_title: "Can't pay live right now",
       direct_pay_fallback_send: 'Send to message box',
       direct_pay_fallback_host: 'Their message box: {{host}}',
       direct_pay_sent_live: "Paid live: it's already in their wallet.",
@@ -2295,11 +2295,13 @@ const resources = {
       direct_pay_status_not_set_up_body: '实时付款通过消息箱送达其他钱包。请在设置中连接消息箱，或使用中继服务器。',
       direct_pay_status_error_title: '实时付款暂时无法使用',
       direct_pay_status_error_body: '目前无法接收实时付款。',
-      direct_pay_fallback_offline: '{{name}} 目前不在线。要发送到对方的消息箱吗？对方下次打开钱包时就会收到。',
+      direct_pay_fallback_offline:
+        '{{name}} 目前没有接收实时付款。要改为发送到对方的消息箱吗？对方下次打开钱包时就会收到。',
       direct_pay_fallback_link_failed: '无法直接连接 {{name}}。改为发送到对方的消息箱吗？',
       direct_pay_fallback_too_large:
         '这笔付款太大，无法实时发送（超过 1 MB）。改为发送到 {{name}} 的消息箱吗？目前尚未花费任何资金。',
-      direct_pay_failed_offline: '{{name}} 目前不在线。未花费任何款项。请在设置中连接消息箱，以便向离线的人付款。',
+      direct_pay_failed_offline:
+        '{{name}} 目前没有接收实时付款。未花费任何款项。请在设置中连接消息箱，以便照常向对方付款。',
       direct_pay_failed_link: '无法直接连接 {{name}}。未花费任何款项。',
       direct_pay_failed_network: '无法连接支付网络，请检查网络连接。',
       direct_pay_failed_wrong_network: '{{name}} 在另一个网络上。未花费任何款项。',
@@ -2307,7 +2309,7 @@ const resources = {
       direct_pay_failed_maybe_sent: '你向 {{name}} 的付款可能已经发出。再次付款前，请先查看“活动”。',
       direct_pay_failed_not_sent: '无法发送付款。未花费任何款项。',
       direct_pay_failed_no_message_box: '请在设置中连接消息箱，以便向钱包身份付款。',
-      direct_pay_fallback_title: '对方当前不在线',
+      direct_pay_fallback_title: '暂时无法实时付款',
       direct_pay_fallback_send: '发送到消息箱',
       direct_pay_fallback_host: '对方的消息箱：{{host}}',
       direct_pay_sent_live: '已实时付款：款项已到对方钱包。',
@@ -3432,12 +3434,12 @@ const resources = {
       direct_pay_status_error_title: 'लाइव भुगतान अभी काम नहीं कर रहे',
       direct_pay_status_error_body: 'अभी लाइव भुगतान प्राप्त नहीं किए जा सकते।',
       direct_pay_fallback_offline:
-        '{{name}} अभी ऑनलाइन नहीं हैं। इसे उनके मैसेज बॉक्स में भेजें? अगली बार वॉलेट खोलने पर उन्हें यह मिल जाएगा।',
+        '{{name}} अभी लाइव भुगतान नहीं ले रहे हैं। इसके बजाय इसे उनके मैसेज बॉक्स में भेजें? अगली बार वॉलेट खोलने पर उन्हें यह मिल जाएगा।',
       direct_pay_fallback_link_failed: '{{name}} से सीधे कनेक्ट नहीं हो सका। इसके बजाय उनके मैसेज बॉक्स में भेजें?',
       direct_pay_fallback_too_large:
         'यह भुगतान लाइव भेजने के लिए बहुत बड़ा है (1 MB से अधिक)। इसके बजाय {{name}} के मैसेज बॉक्स में भेजें? अभी तक कुछ भी खर्च नहीं हुआ है।',
       direct_pay_failed_offline:
-        '{{name}} अभी ऑनलाइन नहीं हैं। कुछ भी खर्च नहीं हुआ। ऑफ़लाइन लोगों को भुगतान करने के लिए सेटिंग्स में मैसेज बॉक्स जोड़ें।',
+        '{{name}} अभी लाइव भुगतान नहीं ले रहे हैं। कुछ भी खर्च नहीं हुआ। फिर भी उन्हें भुगतान करने के लिए सेटिंग्स में मैसेज बॉक्स जोड़ें।',
       direct_pay_failed_link: '{{name}} से सीधे कनेक्ट नहीं हो सका। कुछ भी खर्च नहीं हुआ।',
       direct_pay_failed_network: 'भुगतान नेटवर्क तक नहीं पहुँच सके — अपना कनेक्शन जाँचें।',
       direct_pay_failed_wrong_network: '{{name}} किसी दूसरे नेटवर्क पर हैं। कुछ भी खर्च नहीं हुआ।',
@@ -3447,7 +3449,7 @@ const resources = {
       direct_pay_failed_not_sent: 'भुगतान भेजा नहीं जा सका। कुछ भी खर्च नहीं हुआ।',
       direct_pay_failed_no_message_box:
         'किसी वॉलेट आइडेंटिटी को भुगतान करने के लिए सेटिंग्स में अपना मैसेज बॉक्स जोड़ें।',
-      direct_pay_fallback_title: 'अभी ऑनलाइन नहीं',
+      direct_pay_fallback_title: 'अभी लाइव भुगतान नहीं हो सकता',
       direct_pay_fallback_send: 'मैसेज बॉक्स में भेजें',
       direct_pay_fallback_host: 'उनका मैसेज बॉक्स: {{host}}',
       direct_pay_sent_live: 'लाइव भुगतान हो गया: यह पहले से उनके वॉलेट में है।',
@@ -4588,13 +4590,13 @@ const resources = {
       direct_pay_status_error_title: 'Los pagos en vivo no funcionan ahora mismo',
       direct_pay_status_error_body: 'Ahora mismo no se pueden recibir pagos en vivo.',
       direct_pay_fallback_offline:
-        '{{name}} no está en línea ahora. ¿Enviarlo a su buzón de mensajes? Lo recibirá la próxima vez que abra su billetera.',
+        '{{name}} no está recibiendo pagos en vivo ahora. ¿Enviarlo a su buzón de mensajes? Lo recibirá la próxima vez que abra su billetera.',
       direct_pay_fallback_link_failed:
         'No se pudo conectar directamente con {{name}}. ¿Enviarlo a su buzón de mensajes?',
       direct_pay_fallback_too_large:
         'Este pago es demasiado grande para enviarlo en vivo (más de 1 MB). ¿Enviarlo al buzón de mensajes de {{name}}? Todavía no se ha gastado nada.',
       direct_pay_failed_offline:
-        '{{name}} no está en línea ahora. No se gastó nada. Conecta un buzón de mensajes en Ajustes para pagar a personas sin conexión.',
+        '{{name}} no está recibiendo pagos en vivo ahora. No se gastó nada. Conecta un buzón de mensajes en Ajustes para pagarle de todos modos.',
       direct_pay_failed_link: 'No se pudo conectar directamente con {{name}}. No se gastó nada.',
       direct_pay_failed_network: 'No se pudo llegar a la red de pagos. Revisa tu conexión.',
       direct_pay_failed_wrong_network: '{{name}} está en otra red. No se gastó nada.',
@@ -4604,7 +4606,7 @@ const resources = {
       direct_pay_failed_not_sent: 'No se pudo enviar el pago. No se gastó nada.',
       direct_pay_failed_no_message_box:
         'Conecta tu buzón de mensajes en Ajustes para pagar a una identidad de billetera.',
-      direct_pay_fallback_title: 'No está en línea ahora',
+      direct_pay_fallback_title: 'No se puede pagar en vivo ahora',
       direct_pay_fallback_send: 'Enviar al buzón de mensajes',
       direct_pay_fallback_host: 'Su buzón de mensajes: {{host}}',
       direct_pay_sent_live: 'Pagado en vivo: ya está en su billetera.',
@@ -5761,13 +5763,13 @@ const resources = {
       direct_pay_status_error_title: 'Les paiements en direct ne fonctionnent pas pour le moment',
       direct_pay_status_error_body: 'Impossible de recevoir des paiements en direct pour le moment.',
       direct_pay_fallback_offline:
-        "{{name}} n'est pas en ligne pour le moment. L'envoyer dans sa boîte aux lettres ? Le paiement lui parviendra à la prochaine ouverture de son portefeuille.",
+        "{{name}} n'accepte pas de paiements en direct pour le moment. L'envoyer plutôt dans sa boîte aux lettres ? Le paiement lui parviendra à la prochaine ouverture de son portefeuille.",
       direct_pay_fallback_link_failed:
         "Impossible de se connecter directement à {{name}}. L'envoyer plutôt dans sa boîte aux lettres ?",
       direct_pay_fallback_too_large:
         "Ce paiement est trop volumineux pour être envoyé en direct (plus de 1 Mo). L'envoyer plutôt dans la boîte aux lettres de {{name}} ? Rien n'a encore été dépensé.",
       direct_pay_failed_offline:
-        "{{name}} n'est pas en ligne pour le moment. Rien n'a été dépensé. Connectez une boîte aux lettres dans les réglages pour payer les personnes hors ligne.",
+        "{{name}} n'accepte pas de paiements en direct pour le moment. Rien n'a été dépensé. Connectez une boîte aux lettres dans les réglages pour le payer quand même.",
       direct_pay_failed_link: "Impossible de se connecter directement à {{name}}. Rien n'a été dépensé.",
       direct_pay_failed_network: 'Impossible de joindre le réseau de paiement — vérifiez votre connexion.',
       direct_pay_failed_wrong_network: "{{name}} est sur un autre réseau. Rien n'a été dépensé.",
@@ -5777,7 +5779,7 @@ const resources = {
       direct_pay_failed_not_sent: "Le paiement n'a pas pu être envoyé. Rien n'a été dépensé.",
       direct_pay_failed_no_message_box:
         'Connectez votre boîte aux lettres dans les réglages pour payer une identité de portefeuille.',
-      direct_pay_fallback_title: 'Pas en ligne pour le moment',
+      direct_pay_fallback_title: 'Paiement en direct impossible pour le moment',
       direct_pay_fallback_send: 'Envoyer à la boîte aux lettres',
       direct_pay_fallback_host: 'Sa boîte aux lettres : {{host}}',
       direct_pay_sent_live: "Payé en direct : c'est déjà dans son portefeuille.",
@@ -6857,13 +6859,13 @@ const resources = {
       direct_pay_status_error_title: 'المدفوعات المباشرة لا تعمل حاليًا',
       direct_pay_status_error_body: 'تعذّر استقبال المدفوعات المباشرة حاليًا.',
       direct_pay_fallback_offline:
-        '{{name}} غير متصل بالإنترنت الآن. هل تريد إرسالها إلى صندوق رسائله؟ سيستلمها عند فتح محفظته في المرة القادمة.',
+        '{{name}} لا يستقبل المدفوعات المباشرة الآن. هل تريد إرسالها إلى صندوق رسائله بدلًا من ذلك؟ سيستلمها عند فتح محفظته في المرة القادمة.',
       direct_pay_fallback_link_failed:
         'تعذّر الاتصال مباشرة بـ {{name}}. هل تريد إرسالها إلى صندوق رسائله بدلًا من ذلك؟',
       direct_pay_fallback_too_large:
         'هذه الدفعة أكبر من أن تُرسل مباشرة (أكثر من 1 ميغابايت). هل تريد إرسالها إلى صندوق رسائل {{name}} بدلًا من ذلك؟ لم يُنفق أي شيء بعد.',
       direct_pay_failed_offline:
-        '{{name}} غير متصل بالإنترنت الآن. لم يتم إنفاق أي مبلغ. اربط صندوق رسائل من الإعدادات للدفع لمن هم غير متصلين.',
+        '{{name}} لا يستقبل المدفوعات المباشرة الآن. لم يتم إنفاق أي مبلغ. اربط صندوق رسائل من الإعدادات للدفع له على أي حال.',
       direct_pay_failed_link: 'تعذّر الاتصال مباشرة بـ {{name}}. لم يتم إنفاق أي مبلغ.',
       direct_pay_failed_network: 'تعذّر الوصول إلى شبكة الدفع — تحقق من اتصالك.',
       direct_pay_failed_wrong_network: '{{name}} على شبكة مختلفة. لم يتم إنفاق أي مبلغ.',
@@ -6871,7 +6873,7 @@ const resources = {
       direct_pay_failed_maybe_sent: 'ربما تم إرسال دفعتك إلى {{name}} بالفعل. تحقق من النشاط قبل الدفع مرة أخرى.',
       direct_pay_failed_not_sent: 'تعذّر إرسال الدفعة. لم يتم إنفاق أي مبلغ.',
       direct_pay_failed_no_message_box: 'اربط صندوق رسائلك من الإعدادات للدفع إلى هوية محفظة.',
-      direct_pay_fallback_title: 'غير متصل الآن',
+      direct_pay_fallback_title: 'لا يمكن الدفع المباشر الآن',
       direct_pay_fallback_send: 'أرسل إلى صندوق الرسائل',
       direct_pay_fallback_host: 'صندوق رسائله: {{host}}',
       direct_pay_sent_live: 'تم الدفع مباشرة: المبلغ في محفظته بالفعل.',
@@ -8011,13 +8013,13 @@ const resources = {
       direct_pay_status_error_title: 'Os pagamentos ao vivo não estão funcionando agora',
       direct_pay_status_error_body: 'Não é possível receber pagamentos ao vivo agora.',
       direct_pay_fallback_offline:
-        '{{name}} não está online agora. Enviar para a caixa de mensagens da pessoa? O pagamento chegará quando ela abrir a carteira da próxima vez.',
+        '{{name}} não está recebendo pagamentos ao vivo agora. Enviar para a caixa de mensagens da pessoa? O pagamento chegará quando ela abrir a carteira da próxima vez.',
       direct_pay_fallback_link_failed:
         'Não foi possível conectar diretamente com {{name}}. Enviar para a caixa de mensagens da pessoa?',
       direct_pay_fallback_too_large:
         'Este pagamento é grande demais para ser enviado ao vivo (mais de 1 MB). Enviar para a caixa de mensagens de {{name}}? Nada foi gasto ainda.',
       direct_pay_failed_offline:
-        '{{name}} não está online agora. Nada foi gasto. Conecte uma caixa de mensagens em Configurações para pagar pessoas que estão offline.',
+        '{{name}} não está recebendo pagamentos ao vivo agora. Nada foi gasto. Conecte uma caixa de mensagens em Configurações para pagar mesmo assim.',
       direct_pay_failed_link: 'Não foi possível conectar diretamente com {{name}}. Nada foi gasto.',
       direct_pay_failed_network: 'Não foi possível alcançar a rede de pagamentos — verifique sua conexão.',
       direct_pay_failed_wrong_network: '{{name}} está em outra rede. Nada foi gasto.',
@@ -8027,7 +8029,7 @@ const resources = {
       direct_pay_failed_not_sent: 'Não foi possível enviar o pagamento. Nada foi gasto.',
       direct_pay_failed_no_message_box:
         'Conecte sua caixa de mensagens em Configurações para pagar uma identidade de carteira.',
-      direct_pay_fallback_title: 'Não está online agora',
+      direct_pay_fallback_title: 'Não é possível pagar ao vivo agora',
       direct_pay_fallback_send: 'Enviar para a caixa de mensagens',
       direct_pay_fallback_host: 'Caixa de mensagens da pessoa: {{host}}',
       direct_pay_sent_live: 'Pago ao vivo: já está na carteira da pessoa.',
@@ -9147,12 +9149,12 @@ const resources = {
       direct_pay_status_error_title: 'লাইভ পেমেন্ট এখন কাজ করছে না',
       direct_pay_status_error_body: 'এই মুহূর্তে লাইভ পেমেন্ট গ্রহণ করা যাচ্ছে না।',
       direct_pay_fallback_offline:
-        '{{name}} এখন অনলাইনে নেই। এটি তাদের মেসেজ বক্সে পাঠাবেন? পরের বার ওয়ালেট খুললে তারা এটি পাবেন।',
+        '{{name}} এখন লাইভ পেমেন্ট নিচ্ছেন না। এর বদলে তাদের মেসেজ বক্সে পাঠাবেন? পরের বার ওয়ালেট খুললে তারা এটি পাবেন।',
       direct_pay_fallback_link_failed: '{{name}}-এর সাথে সরাসরি সংযোগ করা যায়নি। তার বদলে তাদের মেসেজ বক্সে পাঠাবেন?',
       direct_pay_fallback_too_large:
         'এই পেমেন্টটি লাইভ পাঠানোর জন্য খুব বড় (1 MB-এর বেশি)। তার বদলে {{name}}-এর মেসেজ বক্সে পাঠাবেন? এখনও কিছু খরচ হয়নি।',
       direct_pay_failed_offline:
-        '{{name}} এখন অনলাইনে নেই। কিছুই খরচ হয়নি। অফলাইন মানুষদের পেমেন্ট করতে সেটিংসে একটি মেসেজ বক্স যুক্ত করুন।',
+        '{{name}} এখন লাইভ পেমেন্ট নিচ্ছেন না। কিছুই খরচ হয়নি। তবুও পেমেন্ট করতে সেটিংসে একটি মেসেজ বক্স যুক্ত করুন।',
       direct_pay_failed_link: '{{name}}-এর সাথে সরাসরি সংযোগ করা যায়নি। কিছুই খরচ হয়নি।',
       direct_pay_failed_network: 'পেমেন্ট নেটওয়ার্কে পৌঁছানো যায়নি — আপনার সংযোগ পরীক্ষা করুন।',
       direct_pay_failed_wrong_network: '{{name}} অন্য একটি নেটওয়ার্কে আছেন। কিছুই খরচ হয়নি।',
@@ -9161,7 +9163,7 @@ const resources = {
         '{{name}}-এর কাছে আপনার পেমেন্ট হয়তো ইতিমধ্যে পাঠানো হয়ে গেছে। আবার পেমেন্ট করার আগে কার্যকলাপ দেখুন।',
       direct_pay_failed_not_sent: 'পেমেন্ট পাঠানো যায়নি। কিছুই খরচ হয়নি।',
       direct_pay_failed_no_message_box: 'ওয়ালেট আইডেন্টিটিকে পেমেন্ট করতে সেটিংসে আপনার মেসেজ বক্স যুক্ত করুন।',
-      direct_pay_fallback_title: 'এখন অনলাইনে নেই',
+      direct_pay_fallback_title: 'এখন লাইভ পেমেন্ট করা যাচ্ছে না',
       direct_pay_fallback_send: 'মেসেজ বক্সে পাঠান',
       direct_pay_fallback_host: 'তাদের মেসেজ বক্স: {{host}}',
       direct_pay_sent_live: 'সরাসরি পেমেন্ট হয়েছে: এটি ইতিমধ্যে তাদের ওয়ালেটে আছে।',
@@ -10298,13 +10300,13 @@ const resources = {
       direct_pay_status_error_title: 'Платежи в реальном времени сейчас не работают',
       direct_pay_status_error_body: 'Сейчас невозможно принимать платежи в реальном времени.',
       direct_pay_fallback_offline:
-        '{{name}} сейчас не в сети. Отправить в почтовый ящик получателя? Платёж придёт, когда получатель в следующий раз откроет кошелёк.',
+        '{{name}} сейчас не принимает прямые платежи. Отправить в почтовый ящик получателя? Платёж придёт, когда получатель в следующий раз откроет кошелёк.',
       direct_pay_fallback_link_failed:
         'Не удалось напрямую подключиться к {{name}}. Отправить в почтовый ящик получателя?',
       direct_pay_fallback_too_large:
         'Этот платёж слишком велик для отправки напрямую (больше 1 МБ). Отправить в почтовый ящик {{name}}? Пока ничего не потрачено.',
       direct_pay_failed_offline:
-        '{{name}} сейчас не в сети. Ничего не потрачено. Подключите почтовый ящик в настройках, чтобы платить тем, кто не в сети.',
+        '{{name}} сейчас не принимает прямые платежи. Ничего не потрачено. Подключите почтовый ящик в настройках, чтобы всё равно заплатить.',
       direct_pay_failed_link: 'Не удалось напрямую подключиться к {{name}}. Ничего не потрачено.',
       direct_pay_failed_network: 'Не удалось связаться с платёжной сетью — проверьте подключение.',
       direct_pay_failed_wrong_network: '{{name}} находится в другой сети. Ничего не потрачено.',
@@ -10314,7 +10316,7 @@ const resources = {
       direct_pay_failed_not_sent: 'Не удалось отправить платёж. Ничего не потрачено.',
       direct_pay_failed_no_message_box:
         'Подключите почтовый ящик в настройках, чтобы платить по идентификатору кошелька.',
-      direct_pay_fallback_title: 'Сейчас не в сети',
+      direct_pay_fallback_title: 'Сейчас нельзя заплатить напрямую',
       direct_pay_fallback_send: 'Отправить в почтовый ящик',
       direct_pay_fallback_host: 'Почтовый ящик получателя: {{host}}',
       direct_pay_sent_live: 'Оплачено напрямую: деньги уже в кошельке получателя.',
@@ -11450,12 +11452,12 @@ const resources = {
       direct_pay_status_error_title: 'Pembayaran langsung sedang tidak berfungsi',
       direct_pay_status_error_body: 'Pembayaran langsung tidak dapat diterima saat ini.',
       direct_pay_fallback_offline:
-        '{{name}} sedang tidak online. Kirim ke kotak pesannya? Pembayaran akan diterima saat dompetnya dibuka lagi.',
+        '{{name}} sedang tidak menerima pembayaran langsung. Kirim ke kotak pesannya saja? Pembayaran akan diterima saat dompetnya dibuka lagi.',
       direct_pay_fallback_link_failed: 'Tidak dapat terhubung langsung ke {{name}}. Kirim ke kotak pesannya saja?',
       direct_pay_fallback_too_large:
         'Pembayaran ini terlalu besar untuk dikirim langsung (lebih dari 1 MB). Kirim ke kotak pesan {{name}} saja? Belum ada yang dibelanjakan.',
       direct_pay_failed_offline:
-        '{{name}} sedang tidak online. Tidak ada dana yang terpakai. Hubungkan kotak pesan di Pengaturan untuk membayar orang yang sedang offline.',
+        '{{name}} sedang tidak menerima pembayaran langsung. Tidak ada dana yang terpakai. Hubungkan kotak pesan di Pengaturan untuk tetap membayarnya.',
       direct_pay_failed_link: 'Tidak dapat terhubung langsung ke {{name}}. Tidak ada dana yang terpakai.',
       direct_pay_failed_network: 'Tidak dapat menjangkau jaringan pembayaran — periksa koneksi Anda.',
       direct_pay_failed_wrong_network: '{{name}} berada di jaringan lain. Tidak ada dana yang terpakai.',
@@ -11464,7 +11466,7 @@ const resources = {
         'Pembayaran Anda ke {{name}} mungkin sudah terkirim. Periksa Aktivitas sebelum membayar lagi.',
       direct_pay_failed_not_sent: 'Pembayaran tidak dapat dikirim. Tidak ada dana yang terpakai.',
       direct_pay_failed_no_message_box: 'Hubungkan kotak pesan Anda di Pengaturan untuk membayar identitas dompet.',
-      direct_pay_fallback_title: 'Sedang tidak online',
+      direct_pay_fallback_title: 'Tidak bisa membayar langsung sekarang',
       direct_pay_fallback_send: 'Kirim ke kotak pesan',
       direct_pay_fallback_host: 'Kotak pesannya: {{host}}',
       direct_pay_sent_live: 'Dibayar langsung: sudah masuk ke dompet mereka.',
@@ -12602,13 +12604,13 @@ const resources = {
       direct_pay_status_error_title: '現在ライブ決済を利用できません',
       direct_pay_status_error_body: '現在、ライブ決済を受け取れません。',
       direct_pay_fallback_offline:
-        '{{name}}は現在オンラインではありません。相手のメッセージボックスに送りますか？次にウォレットを開いたときに受け取れます。',
+        '{{name}}は現在ライブ支払いを受け付けていません。代わりに相手のメッセージボックスに送りますか？次にウォレットを開いたときに受け取れます。',
       direct_pay_fallback_link_failed:
         '{{name}}に直接接続できませんでした。代わりに相手のメッセージボックスに送りますか？',
       direct_pay_fallback_too_large:
         'この支払いは大きすぎるため、ライブでは送れません（1 MB超）。代わりに{{name}}のメッセージボックスに送りますか？まだ何も支払われていません。',
       direct_pay_failed_offline:
-        '{{name}}は現在オンラインではありません。何も使われていません。オフラインの相手に支払うには、設定でメッセージボックスを接続してください。',
+        '{{name}}は現在ライブ支払いを受け付けていません。何も使われていません。それでも支払うには、設定でメッセージボックスを接続してください。',
       direct_pay_failed_link: '{{name}}に直接接続できませんでした。何も使われていません。',
       direct_pay_failed_network: '支払いネットワークに接続できませんでした。接続を確認してください。',
       direct_pay_failed_wrong_network: '{{name}}は別のネットワークにいます。何も使われていません。',
@@ -12617,7 +12619,7 @@ const resources = {
         '{{name}}への支払いはすでに送信されている可能性があります。もう一度支払う前に、アクティビティを確認してください。',
       direct_pay_failed_not_sent: '支払いを送信できませんでした。何も使われていません。',
       direct_pay_failed_no_message_box: 'ウォレットIDに支払うには、設定でメッセージボックスを接続してください。',
-      direct_pay_fallback_title: '現在オンラインではありません',
+      direct_pay_fallback_title: '現在ライブで支払えません',
       direct_pay_fallback_send: 'メッセージボックスに送る',
       direct_pay_fallback_host: '相手のメッセージボックス：{{host}}',
       direct_pay_sent_live: 'ライブで支払い済み：すでに相手のウォレットに入っています。',
@@ -13776,13 +13778,13 @@ const resources = {
       direct_pay_status_error_title: 'Płatności na żywo chwilowo nie działają',
       direct_pay_status_error_body: 'W tej chwili nie można odbierać płatności na żywo.',
       direct_pay_fallback_offline:
-        '{{name}} jest teraz offline. Wysłać płatność do skrzynki wiadomości odbiorcy? Dotrze, gdy odbiorca następnym razem otworzy portfel.',
+        '{{name}} nie przyjmuje teraz płatności na żywo. Wysłać płatność do skrzynki wiadomości odbiorcy? Dotrze, gdy odbiorca następnym razem otworzy portfel.',
       direct_pay_fallback_link_failed:
         'Nie udało się połączyć bezpośrednio z {{name}}. Wysłać zamiast tego do skrzynki wiadomości odbiorcy?',
       direct_pay_fallback_too_large:
         'Ta płatność jest zbyt duża, by wysłać ją na żywo (ponad 1 MB). Wysłać ją zamiast tego do skrzynki wiadomości {{name}}? Nic jeszcze nie zostało wydane.',
       direct_pay_failed_offline:
-        '{{name}} jest teraz offline. Nic nie wydano. Połącz skrzynkę wiadomości w ustawieniach, aby płacić osobom offline.',
+        '{{name}} nie przyjmuje teraz płatności na żywo. Nic nie wydano. Połącz skrzynkę wiadomości w ustawieniach, aby mimo to zapłacić.',
       direct_pay_failed_link: 'Nie udało się połączyć bezpośrednio z {{name}}. Nic nie wydano.',
       direct_pay_failed_network: 'Nie udało się połączyć z siecią płatności — sprawdź połączenie.',
       direct_pay_failed_wrong_network: '{{name}} jest w innej sieci. Nic nie wydano.',
@@ -13792,7 +13794,7 @@ const resources = {
       direct_pay_failed_not_sent: 'Nie udało się wysłać płatności. Nic nie wydano.',
       direct_pay_failed_no_message_box:
         'Połącz swoją skrzynkę wiadomości w ustawieniach, aby płacić tożsamości portfela.',
-      direct_pay_fallback_title: 'Teraz nie jest online',
+      direct_pay_fallback_title: 'Nie można teraz zapłacić na żywo',
       direct_pay_fallback_send: 'Wyślij do skrzynki wiadomości',
       direct_pay_fallback_host: 'Skrzynka wiadomości odbiorcy: {{host}}',
       direct_pay_sent_live: 'Zapłacono na żywo: środki są już w jego portfelu.',

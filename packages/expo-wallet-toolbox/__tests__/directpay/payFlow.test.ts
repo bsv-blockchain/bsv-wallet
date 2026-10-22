@@ -236,7 +236,7 @@ describe('fallbackPrompt', () => {
     const prompt = fallbackPrompt('offline', 'Alice')
     expect(prompt).toEqual({ key: 'direct_pay_fallback_offline', params: { name: 'Alice' } })
     expect(say(prompt)).toBe(
-      "Alice isn't online right now. Send it to their message box? They'll get it next time they open their wallet."
+      "Alice isn't taking live payments right now. Send it to their message box instead? It reaches their wallet when they next open it."
     )
   })
 
@@ -262,7 +262,7 @@ describe('fallbackPrompt', () => {
   it('is what the failures without a message box say, in English', async () => {
     const offline = await payIdentity({ direct: stopsBeforePaying('offline'), name: 'Alice' })
     expect(say(offline as DirectPayMessage)).toBe(
-      "Alice isn't online right now. Nothing was spent. Connect a message box in Settings to pay people who are offline."
+      "Alice isn't taking live payments right now. Nothing was spent. Connect a message box in Settings to pay them anyway."
     )
   })
 })
