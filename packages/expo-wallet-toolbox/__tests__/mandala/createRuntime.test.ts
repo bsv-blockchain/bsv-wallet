@@ -409,13 +409,24 @@ describe('subscribe', () => {
 describe('members wired by later tasks', () => {
   it('reject until wired, never pretend to have done something', async () => {
     const rt = runtimeWith()
-    await expect(rt.sendToHandle({ assetId: ASSET, recipientIdentityKey: SELF, units: 1n })).rejects.toThrow(
-      /not yet wired/
-    )
-    await expect(rt.receiveFromInbox()).rejects.toThrow(/not yet wired/)
-    await expect(rt.resendTransfer('a1'.repeat(32))).rejects.toThrow(/not yet wired/)
     await expect(rt.tick()).rejects.toThrow(/not yet wired/)
     await expect(rt.nearby.onHandedOver('a1'.repeat(32), 'parked')).rejects.toThrow(/not yet wired/)
+  })
+})
+
+describe('the handle rail members (Task 13)', () => {
+  it('without the module, a send is unavailable and nothing is built or journaled', async () => {
+    const rt = runtimeWith({ color: null })
+    expect(await rt.sendToHandle({ assetId: ASSET, recipientIdentityKey: SELF, units: 1n })).toMatchObject({
+      kind: 'unavailable'
+    })
+    expect(await rt.resendTransfer('a1'.repeat(32))).toBe('unavailable')
+    expect(await rt.receiveFromInbox()).toEqual({ credited: 0, failed: 0, incomplete: true })
+  })
+
+  it('a runtime with no MessageBox reads the inbox as incomplete, never as empty', async () => {
+    const rt = runtimeWith()
+    expect(await rt.receiveFromInbox()).toEqual({ credited: 0, failed: 0, incomplete: true })
   })
 })
 

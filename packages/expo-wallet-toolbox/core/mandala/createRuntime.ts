@@ -14,27 +14,29 @@
  *  · the wallet's own `color_transfers` journal, the one key the broadcast
  *    hold and the abort refusal read.
  *
- * Plan 07 Task 11 builds the reads and Task 12 settlement (`settle.ts`). The
- * handle rail (Task 13), the nearby hooks (Tasks 15–16) and the tick (Task 17)
- * are wired by their tasks; until then each rejects with `not yet wired`
- * rather than pretending to have done something.
+ * Plan 07 Task 11 builds the reads, Task 12 settlement (`settle.ts`) and
+ * Task 13 the handle rail (`handle.ts`). The nearby hooks (Tasks 15–16) and
+ * the tick (Task 17) are wired by their tasks; until then each rejects with
+ * `not yet wired` rather than pretending to have done something.
  */
 import { PublicKey, type WalletInterface } from '@bsv/sdk'
 import type { ColorOverlayProvider, ColorPermissionModule } from '@bsv/color-permission-module'
-import {
-  fetchRegistry,
-  registryIsLive,
-  type MessageBoxLike,
-  type MessageBoxSender,
-  type OverlayRegistryRow
-} from '@bsv/mandala'
+import { fetchRegistry, registryIsLive, type OverlayRegistryRow } from '@bsv/mandala'
 import { resolveAssetState, type AssetAdminStateView } from '@bsv/mandala/adminState'
 import type { AppChain } from '../config'
 import type { MandalaEndpointConfig } from '../toolboxConfig'
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 import { devLog } from '../logging'
+import { makeResendBeef, type LocalBeefStorage } from '../peerpay/resendBeef'
 import { createAssetMetadata, offlineUnitsOf, readAvailable, readInventory, STATE_AVAILABLE_TAG } from './assets'
 import type { WalletKv } from './kvStore'
+import {
+  receiveFromInbox as receiveHandleInbox,
+  resendTransfer as resendHandle,
+  sendToHandle as sendHandle,
+  type HandleDeps,
+  type MandalaMessageBox
+} from './handle'
 import {
   createSettler,
   isHandoverAdmitted as readIsHandoverAdmitted,
@@ -63,8 +65,7 @@ import type {
 
 export { createMandalaKvStorage, type WalletKv as MandalaKvStorage } from './kvStore'
 
-/** The MessageBox surface the hand-over send and receive need, as one structural type. */
-export type MandalaMessageBox = MessageBoxSender & MessageBoxLike
+export type { MandalaMessageBox } from './handle'
 
 export interface CreateMandalaRuntimeArgs {
   /** The PUBLISHED permissions manager. Every call is bound to `adminOriginator` (see `bindOriginator`). */
@@ -80,7 +81,11 @@ export interface CreateMandalaRuntimeArgs {
   provider: ColorOverlayProvider | undefined
   /** Built lazily on first use so constructing a runtime does no I/O and needs no network. */
   messageBox?: () => Promise<MandalaMessageBox>
-  /** AtomicBEEF of a txid, for a hand-over resend (Task 13). */
+  /**
+   * AtomicBEEF of a txid from the network, for a hand-over resend (Task 13).
+   * This device's own stored copy is the fallback (`makeResendBeef`): a
+   * hand-over that was never broadcast is known to no service.
+   */
   refetchBeef?: (txid: string) => Promise<number[] | undefined>
   /** Whether this device has signal; decides whether a send takes its own settle now (Task 13). */
   isOnline?: () => Promise<boolean>
@@ -230,7 +235,6 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     })
     return await messageBoxPromise
   }
-  void messageBox
 
   // Lazy identity key; a failed read is retried on the next call.
   let identityKeyPromise: Promise<string> | undefined
@@ -370,6 +374,35 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     }
   }
 
+  // ── Handle rail (Task 13) ──
+  //
+  // One deps object per runtime: the per-asset send latch, the in-delivery set
+  // and the redeliver/receive single flights hang off it.
+  const handleDeps: HandleDeps | undefined =
+    color !== undefined && db !== undefined
+      ? {
+          wallet: bound,
+          identityKey,
+          journal,
+          color,
+          messageBox,
+          settleNow: async txid => (settler ? await settler.settleNow(txid) : 'unavailable'),
+          isOnline: args.isOnline ?? (async () => true),
+          rememberDeploy: async hex => {
+            await metadata.remember(hex)
+            emit()
+          },
+          refetch: makeResendBeef({
+            refetch: args.refetchBeef ?? (async () => undefined),
+            storage: storage as unknown as LocalBeefStorage
+          }),
+          processed: new Set<string>(),
+          now,
+          recipientRefusal: recipientRefusalOf,
+          onChange: emit
+        }
+      : undefined
+
   const nearby: NearbyTokenDeps = {
     handover: notYetWired('nearby.handover'),
     onHandedOver: notYetWired('nearby.onHandedOver'),
@@ -494,9 +527,21 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       if (changed > 0) emit()
     },
 
-    sendToHandle: notYetWired('sendToHandle'),
-    receiveFromInbox: notYetWired('receiveFromInbox'),
-    resendTransfer: notYetWired('resendTransfer'),
+    async sendToHandle(a) {
+      if (!handleDeps) return { kind: 'unavailable', message: 'Stablecoins are not available on this network' }
+      return await sendHandle(handleDeps, a)
+    },
+
+    async receiveFromInbox() {
+      if (!handleDeps) return { credited: 0, failed: 0, incomplete: true }
+      return await receiveHandleInbox(handleDeps)
+    },
+
+    async resendTransfer(txid: string) {
+      if (!handleDeps) return 'unavailable'
+      return await resendHandle(handleDeps, txid)
+    },
+
     tick: notYetWired('tick'),
     nearby
   }

@@ -227,7 +227,7 @@ describe('PayScreen', () => {
     const form = draw().UNSAFE_getByType('UniversalSend' as never)
     expect(form.props.initialTarget).toEqual({ kind: 'handle', identityKey: KEY })
     expect(form.props.initialSats).toBeUndefined()
-    expect(form.props.initialTokenAmount).toEqual({ assetId: ASSET, baseUnits: 2500 })
+    expect(form.props.initialTokenAmount).toEqual({ assetId: ASSET, baseUnits: 2500n })
     expect(form.props.selectedAssetId).toBe(ASSET)
     expect(form.props.initialNotice).toBeNull()
   })
@@ -258,7 +258,7 @@ describe('PayScreen', () => {
     )
     const form = s.UNSAFE_getByType('UniversalSend' as never)
     expect(form.props.selectedAssetId).toBe(ASSET)
-    expect(form.props.initialTokenAmount).toEqual({ assetId: ASSET, baseUnits: 2500 })
+    expect(form.props.initialTokenAmount).toEqual({ assetId: ASSET, baseUnits: 2500n })
     // The user overrides the link's money in the picker: that choice stands…
     const OTHER = 'cd'.repeat(32) + '_0'
     act(() => s.UNSAFE_getByType('UniversalSend' as never).props.onSelectAsset(OTHER))
@@ -299,7 +299,7 @@ describe('PayScreen', () => {
     )
     const form = s.UNSAFE_getByType('UniversalSend' as never)
     expect(form.props.selectedAssetId).toBe(ASSET)
-    expect(form.props.initialTokenAmount).toEqual({ assetId: ASSET, baseUnits: 3000 })
+    expect(form.props.initialTokenAmount).toEqual({ assetId: ASSET, baseUnits: 3000n })
   })
 
   it('adopts neither money from a link that mixes sats with a token request', () => {

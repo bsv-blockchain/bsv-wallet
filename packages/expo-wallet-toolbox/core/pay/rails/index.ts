@@ -25,7 +25,7 @@ export type RailId = 'nearby' | 'handle' | 'address'
 /**
  * How a counterparty was identified. Each variant carries only what its rail
  * needs. A handle may carry a figure in exactly one money: `sats` (BSV), or
- * `asset` (a token's genesis outpoint) with `amount` in its base units —
+ * `asset` (a token id, `<64 hex>_0`) with `amount` in its exact base units —
  * `asset` alone is an open token request.
  */
 export type PayTarget =
@@ -35,7 +35,8 @@ export type PayTarget =
       identityKey: string
       sats?: number
       asset?: string
-      amount?: number
+      /** Exact token base units (1..2^64-1). */
+      amount?: bigint
       messageBoxUrl?: string
       note?: string
     }
@@ -144,7 +145,8 @@ export type RecipientInput =
       identityKey: string
       sats?: number
       asset?: string
-      amount?: number
+      /** Exact token base units (1..2^64-1). */
+      amount?: bigint
       messageBoxUrl?: string
       note?: string
     }

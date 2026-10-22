@@ -1112,15 +1112,19 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         const decryptMetadata = makeMetadataDecryptor(pm, adminOriginator)
         // Every resend goes over the message box, whatever rail the payment
         // first took. What differs is the body: a token row re-sends the
-        // Mandala transfer notification (the runtime rebuilds it from the
-        // blinding journal and the payee output's marker); a BSV row rebuilds
+        // §7.2 hand-over (the runtime rebuilds it from its journal row, the
+        // color module's evidence and this device's bytes); a BSV row rebuilds
         // its BRC-29 PeerPay token. Identification is by LABEL, like every
         // other token decision on this screen.
         const isToken = actions.find(a => a.txid === txid)?.labels?.includes('mandala') ?? false
         let outcome: Awaited<ReturnType<typeof resendPaymentDetails>>
         if (isToken) {
           if (!mandalaRuntime) throw new Error(t('unknown_error'))
-          outcome = await mandalaRuntime.resendTransfer(txid, { refetch, decryptMetadata })
+          const resent = await mandalaRuntime.resendTransfer(txid)
+          outcome =
+            resent === 'resent'
+              ? { ok: true }
+              : { ok: false, reason: resent === 'not-found' ? 'no_record' : 'no_transaction' }
         } else {
           const url = await readMessageBoxUrl(selectedNetwork)
           if (!url) {

@@ -303,7 +303,7 @@ describe('classifyScan — token requests', () => {
       kind: 'handle',
       identityKey: KEY,
       asset: ASSET,
-      amount: 2500
+      amount: 2500n
     })
   })
 
@@ -326,7 +326,7 @@ describe('classifyRecipientInput — token requests', () => {
       kind: 'handle',
       identityKey: KEY,
       asset: ASSET,
-      amount: 99
+      amount: 99n
     })
   })
 
