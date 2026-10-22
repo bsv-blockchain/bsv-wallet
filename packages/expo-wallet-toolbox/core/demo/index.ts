@@ -15,7 +15,7 @@ export {
   demoSendBsv,
   demoSendToken,
   demoTokenActivity,
-  demoTokenBaseUnits,
+  demoTokenUnits,
   resetDemoLedger,
   subscribeDemoLedger,
   type DemoAction

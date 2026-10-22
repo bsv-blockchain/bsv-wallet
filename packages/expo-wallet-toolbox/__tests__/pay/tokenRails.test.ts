@@ -17,7 +17,13 @@
  */
 import { PrivateKey } from '@bsv/sdk'
 import { addressRailAvailability } from '../../core/pay/rails/address'
-import { drainMandalaInbox, sendTokenViaHandle, type HandleTokenRuntime } from '../../core/pay/rails/handle'
+import {
+  drainMandalaInbox,
+  peerPayLinkFor,
+  sendTokenViaHandle,
+  type HandleTokenRuntime
+} from '../../core/pay/rails/handle'
+import { parsePeerPayURI } from '../../core/parsePeerPayURI'
 import type { TokenSendResult } from '../../core/mandala/runtime'
 
 const IDENTITY = new PrivateKey(13).toPublicKey().toString()
@@ -32,7 +38,9 @@ function fakeRuntime(over: Partial<HandleTokenRuntime> = {}): HandleTokenRuntime
   return {
     available: true,
     recipientRefusal: (recipient: string) => (recipient === IDENTITY ? null : LIB_REFUSAL),
-    sendToHandle: jest.fn(async () => ({ kind: 'sent', txid: 'ab'.repeat(32), settled: true }) as TokenSendResult),
+    sendToHandle: jest.fn(
+      async () => ({ kind: 'sent', txid: 'ab'.repeat(32), settled: true, notified: true }) as TokenSendResult
+    ),
     receiveFromInbox: jest.fn(async () => ({ credited: 2, failed: 1 })),
     ...over
   } as HandleTokenRuntime
@@ -69,18 +77,18 @@ describe('the address rail (D4)', () => {
 describe('the handle rail’s token path', () => {
   it('sends through the runtime once the recipient is an identity key', async () => {
     const runtime = fakeRuntime()
-    const result = await sendTokenViaHandle({ runtime, recipient: IDENTITY, assetId: ASSET_ID, baseUnits: 250 })
-    expect(result).toEqual({ kind: 'sent', txid: 'ab'.repeat(32), settled: true })
+    const result = await sendTokenViaHandle({ runtime, recipient: IDENTITY, assetId: ASSET_ID, units: 250n })
+    expect(result).toEqual({ kind: 'sent', txid: 'ab'.repeat(32), settled: true, notified: true })
     expect(runtime.sendToHandle).toHaveBeenCalledWith({
       assetId: ASSET_ID,
       recipientIdentityKey: IDENTITY,
-      baseUnits: 250
+      units: 250n
     })
   })
 
   it('refuses an address before the runtime is asked to send anything', async () => {
     const runtime = fakeRuntime()
-    const result = await sendTokenViaHandle({ runtime, recipient: ADDRESS, assetId: ASSET_ID, baseUnits: 1 })
+    const result = await sendTokenViaHandle({ runtime, recipient: ADDRESS, assetId: ASSET_ID, units: 1n })
     expect(result).toMatchObject({ kind: 'refused', code: 'ERR_RECIPIENT', message: LIB_REFUSAL })
     expect(runtime.sendToHandle).not.toHaveBeenCalled()
   })
@@ -88,7 +96,7 @@ describe('the handle rail’s token path', () => {
   it('is unavailable with no runtime at all, and with one that is off on this chain', async () => {
     const off = fakeRuntime({ available: false })
     for (const runtime of [undefined, off]) {
-      const result = await sendTokenViaHandle({ runtime, recipient: IDENTITY, assetId: ASSET_ID, baseUnits: 1 })
+      const result = await sendTokenViaHandle({ runtime, recipient: IDENTITY, assetId: ASSET_ID, units: 1n })
       expect(result.kind).toBe('unavailable')
     }
     expect(off.sendToHandle).not.toHaveBeenCalled()
@@ -98,11 +106,27 @@ describe('the handle rail’s token path', () => {
     const runtime = fakeRuntime({
       sendToHandle: jest.fn(async () => ({ kind: 'refused', code: 'ERR_FROZEN', message: 'frozen' }) as TokenSendResult)
     })
-    expect(await sendTokenViaHandle({ runtime, recipient: IDENTITY, assetId: ASSET_ID, baseUnits: 1 })).toEqual({
+    expect(await sendTokenViaHandle({ runtime, recipient: IDENTITY, assetId: ASSET_ID, units: 1n })).toEqual({
       kind: 'refused',
       code: 'ERR_FROZEN',
       message: 'frozen'
     })
+  })
+})
+
+describe('a token request link', () => {
+  it('carries the figure as an exact decimal string, even at 2^64-1', () => {
+    const link = peerPayLinkFor(IDENTITY, undefined, undefined, { assetId: ASSET_ID, units: 18446744073709551615n })
+    expect(link).toContain('amount=18446744073709551615')
+    expect(link).toContain(`asset=${ASSET_ID}`)
+    // …and reads back exactly on the payer's side.
+    expect(parsePeerPayURI(link)).toMatchObject({ asset: ASSET_ID, amount: 18446744073709551615n })
+  })
+
+  it('emits no figure for an open request or a non-positive one', () => {
+    for (const units of [undefined, 0n, -5n]) {
+      expect(peerPayLinkFor(IDENTITY, undefined, undefined, { assetId: ASSET_ID, units })).not.toContain('amount=')
+    }
   })
 })
 

@@ -101,7 +101,7 @@ import { announceEviction, evictionsFrom } from '../components/wallet/tokenEvict
 import { SEEN_EVICTIONS_KEY, useSeenSet } from '../tokenSeen'
 import { profileScopedKey, useActiveProfileIndex } from '../../core/profiles/profileStore'
 import { tokenRowStatusView } from '../tokenStatus'
-import { formatTokenAmount, tokenAmountParts } from '../tokenFormat'
+import { formatTokenAmount, tokenAmountParts, tokenBalanceSplit } from '../tokenFormat'
 import AssetSwitcherDropdown, { BSV_LABEL } from '../components/wallet/AssetSwitcherDropdown'
 import { exportTransactionsAsCsv } from '../exportTransactions'
 import {
@@ -623,7 +623,9 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
             return
           }
           const { totalOutputs } = await pm.listOutputs({ basket: sdk.specOpWalletBalance }, adminOriginator)
-          total = totalOutputs ?? 0
+          // sdk 4 types `totalOutputs` as number | DecimalString (BRC-112 module
+          // balances); the satoshi wallet balance is always a safe integer.
+          total = Number(totalOutputs ?? 0)
         }
         setBalance(total)
         await AsyncStorage.setItem(balanceCacheKey, String(total))
@@ -1112,15 +1114,19 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         const decryptMetadata = makeMetadataDecryptor(pm, adminOriginator)
         // Every resend goes over the message box, whatever rail the payment
         // first took. What differs is the body: a token row re-sends the
-        // Mandala transfer notification (the runtime rebuilds it from the
-        // blinding journal and the payee output's marker); a BSV row rebuilds
+        // §7.2 hand-over (the runtime rebuilds it from its journal row, the
+        // color module's evidence and this device's bytes); a BSV row rebuilds
         // its BRC-29 PeerPay token. Identification is by LABEL, like every
         // other token decision on this screen.
         const isToken = actions.find(a => a.txid === txid)?.labels?.includes('mandala') ?? false
         let outcome: Awaited<ReturnType<typeof resendPaymentDetails>>
         if (isToken) {
           if (!mandalaRuntime) throw new Error(t('unknown_error'))
-          outcome = await mandalaRuntime.resendTransfer(txid, { refetch, decryptMetadata })
+          const resent = await mandalaRuntime.resendTransfer(txid)
+          outcome =
+            resent === 'resent'
+              ? { ok: true }
+              : { ok: false, reason: resent === 'not-found' ? 'no_record' : 'no_transaction' }
         } else {
           const url = await readMessageBoxUrl(selectedNetwork)
           if (!url) {
@@ -1150,11 +1156,17 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           // too, instead of leaving it looking like it never went anywhere.
           if (storage && offlineByTxid.get(txid)?.status === 'parked') {
             try {
-              // XR-036 review follow-up: `isToken` (derived above from the
-              // action's own 'mandala' label) is the only signal
-              // `releaseParkedPayment` has for whether this txid needs a
-              // durable token_settlements row before it may be promoted.
-              await releaseParkedPayment({ storage, txid, isTokenHold: isToken })
+              // `isToken` (derived above from the action's own 'mandala'
+              // label) tells `releaseParkedPayment` this park is released
+              // through the journal: the runtime's hook confirms the row is
+              // handed over (the resend above already moved it) before the
+              // queue row is promoted.
+              await releaseParkedPayment({
+                storage,
+                txid,
+                isTokenHold: isToken,
+                ...(isToken && mandalaRuntime ? { onHandedOver: mandalaRuntime.nearby.onHandedOver } : {})
+              })
             } catch (e) {
               console.warn('[localpay] resent but could not release:', e instanceof Error ? e.message : e)
             }
@@ -1476,8 +1488,8 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     const actionByTxid = new Map(actions.filter(a => a.txid).map(a => [a.txid as string, a]))
     const map = new Map<string, NonNullable<React.ComponentProps<typeof ActivityRow>['token']>>()
     for (const [txid, row] of tokenByTxid) {
-      const signedBaseUnits = row.role === 'sent' ? -row.baseUnits : row.baseUnits
-      const figure = formatTokenAmount(signedBaseUnits, row.asset.decimals, {
+      const signedUnits = row.role === 'sent' ? -row.units : row.units
+      const figure = formatTokenAmount(signedUnits, row.asset.decimals, {
         showPlus: row.role === 'received'
       })
       const action = actionByTxid.get(txid)
@@ -1488,7 +1500,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           labels: action?.labels,
           description: action?.description,
           assetId: row.asset.assetId,
-          baseUnits: row.baseUnits,
+          units: row.units,
           t
         }),
         amount: figure ? { value: figure, unit: row.asset.ticker } : undefined,
@@ -1703,8 +1715,15 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
    * up. Everything below them still scrolls with the activity it describes.
    */
   /** The hero figure: the token on screen, or the BSV balance. `null` is UNKNOWN. */
-  const heroParts = heldAsset ? tokenAmountParts(heldAsset.baseUnits, heldAsset.asset) : balanceParts
+  const heroParts = heldAsset ? tokenAmountParts(heldAsset.units, heldAsset.asset) : balanceParts
   const heroText = heroParts ? `${heroParts.value} ${heroParts.unit}`.trim() : undefined
+  /**
+   * W10: the hero figure is everything spendable, offline credits included.
+   * When part of it is not yet settled with the issuer, the line under it says
+   * how much is pending and how much is settled — never folded together, and
+   * never summed (the pending part is already inside the figure).
+   */
+  const heroPending = useMemo(() => (heldAsset ? tokenBalanceSplit(heldAsset, t) : null), [heldAsset, t])
 
   const pinnedHeader = useMemo(
     () => (
@@ -1762,6 +1781,12 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
                 <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>
                   {heldAsset.asset.label || heldAsset.asset.issuerName || ''}
                 </Text>
+              ) : null}
+              {heroPending ? (
+                <>
+                  <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>{heroPending.pending}</Text>
+                  <Text style={[styles.balanceContext, { color: colors.textSecondary }]}>{heroPending.settled}</Text>
+                </>
               ) : null}
             </>
           )}
@@ -1825,6 +1850,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       hasVaultMeta,
       hasTokens,
       heldAsset,
+      heroPending,
       payDestination,
       destinationPress,
       MaterialCommunityIcons

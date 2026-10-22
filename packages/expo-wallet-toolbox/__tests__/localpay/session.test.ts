@@ -16,6 +16,7 @@ import {
   HINT_BT,
   HINT_NFC,
   RUNG_MASK,
+  isRequestableUnits,
   type SessionAsset
 } from '../../core/localpay/session'
 import { CodecError } from '../../core/localpay/codec'
@@ -47,6 +48,11 @@ function decodeQR(qr: string): Record<string, unknown> {
 }
 
 describe('localpay session', () => {
+  it('is version 2', () => {
+    expect(SESSION_VERSION).toBe(2)
+    expect(decodeQR(encodeSession(mintSession(args))).v).toBe(2)
+  })
+
   it('mints 16-byte sessionId and 32-byte psk', () => {
     const s = mintSession(args)
     expect(s.sessionId.length).toBe(16)
@@ -375,6 +381,8 @@ describe('localpay session', () => {
 
 // ── Session asset block (token requests) ──
 
+const ASSET = 'cd'.repeat(32) + '_0'
+
 const baseMintArgs = () => ({
   identityKey: '02'.padEnd(66, 'd'),
   derivationPrefix: 'cA',
@@ -397,24 +405,108 @@ const asset = (): SessionAsset => ({
   id: 'ab'.repeat(32) + '_0',
   label: 'Example Dollar',
   ticker: 'EXD',
-  decimals: 2,
-  overlayUrl: 'https://overlay.issuer.example',
-  overlayIdentityKey: '03'.padEnd(66, 'b')
+  decimals: 2
 })
 
+const rawBody = (qr: string): Record<string, unknown> =>
+  JSON.parse(new TextDecoder().decode(b64urlToBytes(qr.slice('bsvpay1:'.length))))
+const reencode = (raw: Record<string, unknown>) =>
+  'bsvpay1:' + bytesToB64url(new TextEncoder().encode(JSON.stringify(raw)))
+
 describe('session asset block', () => {
-  it('round-trips a token request with amount in base units', () => {
-    const s = mintSession({ ...baseMintArgs(), amount: 12345, asset: asset() })
+  it('round-trips a token request with units in base units', () => {
+    const s = mintSession({ ...baseMintArgs(), units: 12345n, asset: asset() })
     const decoded = decodeSession(encodeSession(s))
     expect(decoded.asset).toEqual(asset())
-    expect(decoded.amount).toBe(12345)
-    expect(decoded.version).toBe(1)
+    expect(decoded.units).toBe(12345n)
+    expect(decoded.amount).toBeUndefined()
+    expect(decoded.version).toBe(2)
   })
 
-  it('round-trips an asset without optional display fields', () => {
-    const bare = { id: asset().id, overlayUrl: asset().overlayUrl, overlayIdentityKey: asset().overlayIdentityKey }
+  it('round-trips 18446744073709551615 through a v2 token session', () => {
+    const s = mintSession({
+      ...baseMintArgs(),
+      units: 18446744073709551615n,
+      asset: { id: ASSET, ticker: 'TUSD', decimals: 2 }
+    })
+    const back = decodeSession(encodeSession(s))
+    expect(back.units).toBe(18446744073709551615n)
+    expect(back.amount).toBeUndefined()
+    expect(back.asset).toEqual({ id: ASSET, ticker: 'TUSD', decimals: 2 })
+    expect(rawBody(encodeSession(s)).a).toBe('18446744073709551615')
+    expect(back).toEqual(s)
+  })
+
+  it('round-trips an asset without optional display fields, as an open token request', () => {
+    const bare = { id: asset().id }
     const s = mintSession({ ...baseMintArgs(), asset: bare })
-    expect(decodeSession(encodeSession(s)).asset).toEqual(bare)
+    const back = decodeSession(encodeSession(s))
+    expect(back.asset).toEqual(bare)
+    expect(back.units).toBeUndefined()
+    expect('a' in rawBody(encodeSession(s))).toBe(false)
+  })
+
+  it('drops the overlay url and key from the asset block', () => {
+    const s = mintSession({ ...baseMintArgs(), units: 1n, asset: asset() })
+    const t = rawBody(encodeSession(s)).t as Record<string, unknown>
+    expect('u' in t).toBe(false)
+    expect('k' in t).toBe(false)
+    // A newer peer's extra asset keys are ignored, never surfaced.
+    const raw = rawBody(encodeSession(s))
+    ;(raw.t as Record<string, unknown>).u = 'https://overlay.example'
+    expect(decodeSession(reencode(raw)).asset).toEqual(asset())
+  })
+
+  it('refuses a v1 session and a numeric token amount', () => {
+    const s = mintSession({ ...baseMintArgs(), units: 5n, asset: asset() })
+    const v1 = rawBody(encodeSession(s))
+    v1.v = 1
+    expect(() => decodeSession(reencode(v1))).toThrow(CodecError)
+    expect(() => decodeSession(reencode(v1))).toThrow(/unsupported session version 1/)
+    const numeric = rawBody(encodeSession(s))
+    numeric.a = 5
+    expect(() => decodeSession(reencode(numeric))).toThrow(CodecError)
+    expect(() => decodeSession(reencode(numeric))).toThrow(/bad token amount/)
+  })
+
+  it.each(['0', '01', '+1', '-1', ' 1', '1.5', '1e3', '', '18446744073709551616', null, true])(
+    'refuses a non-canonical or out-of-range token amount %p at decode',
+    a => {
+      const raw = rawBody(encodeSession(mintSession({ ...baseMintArgs(), units: 5n, asset: asset() })))
+      raw.a = a
+      expect(() => decodeSession(reencode(raw))).toThrow(/bad token amount/)
+    }
+  )
+
+  it('refuses a decimal-string amount on a BSV session', () => {
+    const raw = rawBody(encodeSession(mintSession({ ...baseMintArgs(), amount: 5000 })))
+    raw.a = '5000'
+    expect(() => decodeSession(reencode(raw))).toThrow(/bad amount/)
+  })
+
+  it('mints units for a token request and amount otherwise; never both', () => {
+    expect(() => mintSession({ ...baseMintArgs(), amount: 5, units: 5n, asset: asset() })).toThrow(CodecError)
+    expect(() => mintSession({ ...baseMintArgs(), amount: 5, units: 5n })).toThrow(CodecError)
+    // satoshis on a token request, and units with no asset, are both refused at mint
+    expect(() => mintSession({ ...baseMintArgs(), amount: 5, asset: asset() })).toThrow(CodecError)
+    expect(() => mintSession({ ...baseMintArgs(), units: 5n })).toThrow(CodecError)
+  })
+
+  it('refuses out-of-range units at mint', () => {
+    expect(() => mintSession({ ...baseMintArgs(), units: 0n, asset: asset() })).toThrow(CodecError)
+    expect(() => mintSession({ ...baseMintArgs(), units: -1n, asset: asset() })).toThrow(CodecError)
+    expect(() => mintSession({ ...baseMintArgs(), units: 18446744073709551616n, asset: asset() })).toThrow(CodecError)
+    expect(() => mintSession({ ...baseMintArgs(), units: 5 as unknown as bigint, asset: asset() })).toThrow(CodecError)
+  })
+
+  it('isRequestableUnits accepts 1..MAX_UINT64 bigints only', () => {
+    expect(isRequestableUnits(1n)).toBe(true)
+    expect(isRequestableUnits(18446744073709551615n)).toBe(true)
+    expect(isRequestableUnits(0n)).toBe(false)
+    expect(isRequestableUnits(-1n)).toBe(false)
+    expect(isRequestableUnits(18446744073709551616n)).toBe(false)
+    expect(isRequestableUnits(1)).toBe(false)
+    expect(isRequestableUnits('1')).toBe(false)
   })
 
   it('omits t entirely for a BSV session', () => {
@@ -426,7 +518,7 @@ describe('session asset block', () => {
   it('refuses a malformed asset at decode', () => {
     const s = mintSession({ ...baseMintArgs(), asset: asset() })
     const raw = JSON.parse(new TextDecoder().decode(b64urlToBytes(encodeSession(s).slice('bsvpay1:'.length))))
-    raw.t.k = 'short'
+    raw.t.n = 5
     const forged = 'bsvpay1:' + bytesToB64url(new TextEncoder().encode(JSON.stringify(raw)))
     expect(() => decodeSession(forged)).toThrow(CodecError)
   })
@@ -461,15 +553,16 @@ describe('session asset block', () => {
     expect(() => mintSession({ ...baseMintArgs(), asset: { ...asset(), decimals: 2.5 } })).toThrow(CodecError)
   })
 
-  // The old check (`length < 66 && includes('.')`) accepted this: 66 chars,
-  // has a dot, but the 64-char half is not hex — not a real "<txid>.<vout>".
-  it('refuses a 66-char assetId that is not a valid txid.vout shape', () => {
-    const s = mintSession({ ...baseMintArgs(), asset: asset() })
-    const raw = JSON.parse(new TextDecoder().decode(b64urlToBytes(encodeSession(s).slice('bsvpay1:'.length))))
-    raw.t.i = 'z'.repeat(64) + '.0'
-    const forged = 'bsvpay1:' + bytesToB64url(new TextEncoder().encode(JSON.stringify(raw)))
-    expect(() => decodeSession(forged)).toThrow(CodecError)
-  })
+  // An asset id is `<64 lowercase hex>_0` (IC §0). The dot form is an
+  // outpoint, never an id; a non-hex 64-char half is not a txid at all.
+  it.each(['z'.repeat(64) + '.0', 'ab'.repeat(32) + '.0', 'AB'.repeat(32) + '_0', 'ab'.repeat(32) + '_1'])(
+    'refuses assetId %p at decode',
+    id => {
+      const raw = rawBody(encodeSession(mintSession({ ...baseMintArgs(), asset: asset() })))
+      ;(raw.t as Record<string, unknown>).i = id
+      expect(() => decodeSession(reencode(raw))).toThrow(CodecError)
+    }
+  )
 
   it('CAP_BLE is allocated and unknown-to-us bits survive decode', () => {
     expect(CAP_BLE).toBe(0x04)

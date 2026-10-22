@@ -123,7 +123,7 @@ describe('validatePeerPayURI — asset and amount', () => {
   it('reads asset and amount together, base units untouched', () => {
     const r = validatePeerPayURI(`peerpay:${KEY}?asset=${ASSET}&amount=2500`)
     expect(r.asset).toBe(ASSET)
-    expect(r.amount).toBe(2500)
+    expect(r.amount).toBe(2500n)
     expect(r.sats).toBeUndefined()
     expect(r.errors).toEqual({})
   })
@@ -168,8 +168,17 @@ describe('validatePeerPayURI — asset and amount', () => {
     expect(parsePeerPayURI(`peerpay:${KEY}?asset=${ASSET}&amount=7`)).toEqual({
       identityKey: KEY,
       asset: ASSET,
-      amount: 7
+      amount: 7n
     })
+  })
+
+  it('reads a token figure exactly, up to 2^64-1, and refuses one above it', () => {
+    expect(validatePeerPayURI(`peerpay:${KEY}?asset=${ASSET}&amount=18446744073709551615`).amount).toBe(
+      18446744073709551615n
+    )
+    expect(validatePeerPayURI(`peerpay:${KEY}?asset=${ASSET}&amount=9007199254740993`).amount).toBe(9007199254740993n)
+    expect(validatePeerPayURI(`peerpay:${KEY}?asset=${ASSET}&amount=18446744073709551616`).errors.amount).toBeTruthy()
+    expect(validatePeerPayURI(`peerpay:${KEY}?asset=${ASSET}&amount=0012`).errors.amount).toBeTruthy()
   })
 
   it('joins asset and amount errors into the message', () => {

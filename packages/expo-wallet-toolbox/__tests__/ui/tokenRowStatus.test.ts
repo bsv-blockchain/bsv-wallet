@@ -9,7 +9,7 @@ describe('tokenRowStatusView', () => {
 
   it('keeps its own word and colour only where the holder may need to act', () => {
     expect(tokenRowStatusView('refused', false)).toEqual({ key: 'token_status_refused', tone: 'failed' })
-    expect(tokenRowStatusView('reversed', true)).toEqual({ key: 'token_status_reversed', tone: 'failed' })
+    expect(tokenRowStatusView('refused', true)).toEqual({ key: 'token_status_refused', tone: 'failed' })
     expect(tokenRowStatusView('stuck', false)).toEqual({ key: 'token_status_stuck', tone: 'attention' })
   })
 })

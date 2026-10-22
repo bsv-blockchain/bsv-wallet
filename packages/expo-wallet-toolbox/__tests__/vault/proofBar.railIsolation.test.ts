@@ -24,14 +24,14 @@
  * `buildLock`/`commitment`) is indistinguishable from a live deposit's.
  *
  * WHAT THIS FILE DOES NOT EXERCISE, AND WHY:
- *  - `buildTokenPaymentFrame` (core/localpay/build.ts) end to end: it calls
- *    `assembleBundle`/`mintTipLinkage`/`deps.lockToPayee`, which need a live
- *    Mandala overlay. What IS exercised for real, against the real wallet, is
- *    its actual coin-selection machinery: `listOutputs({basket, ...})`
- *    (basket-scoped discovery) composed with `MandalaToken.decode` (script-
- *    shape filtering) — see the "Mandala" describe block below. Both halves
- *    are proven to exclude the Vault independently, so bypassing either one
- *    alone would not be enough to select it.
+ *  - The nearby token build end to end: the color module selects and signs
+ *    token inputs inside lib `sendHandover`, which needs a live Mandala
+ *    overlay. What IS exercised for real, against the real wallet, is the
+ *    shape of that selection: `listOutputs` scoped to the per-asset
+ *    `p color <assetTag>` basket (basket-scoped discovery) composed with
+ *    `decodeToken` (script-shape filtering) — see the "Mandala" describe
+ *    block below. Both halves are proven to exclude the Vault independently,
+ *    so bypassing either one alone would not be enough to select it.
  *  - A full BLE/native-radio nearby transport, or a live MessageBox/overlay
  *    server: `sendViaHandle` is driven for real up to and including its
  *    `createAction`/`signAction`/broadcast calls, with a stub `PeerPayClient`
@@ -98,7 +98,8 @@ import {
   type WalletInterface
 } from '@bsv/sdk'
 import { Wallet, WalletPermissionsManager, WalletSigner, WalletStorageManager } from '@bsv/wallet-toolbox-mobile'
-import { MandalaToken } from '../../core/mandala/token'
+import { OneColor } from '@bsv/templates'
+import { colorBasket, decodeToken } from '@bsv/mandala'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { buildPaymentFrame } from '../../core/localpay/build'
 import { mintSession } from '../../core/localpay/session'
@@ -109,7 +110,6 @@ import { sendToAddress } from '../../core/pay/rails/address'
 import { getOutboxEntries } from '../../core/peerpay/outbox'
 import { guardVaultAccess, VaultAccessDenied } from '../../core/services/vault/guard'
 import { buildLock, commitment, R1C_UNLOCK_LEN } from '../../core/services/vault/r1comb'
-import { MANDALA_BASKET } from '../../core/mandala/bundle'
 
 // Not imported from core/services/vault/transfers.ts: that module transitively
 // pulls in ceremonyHost.ts -> vaultStore.ts -> `expo-secure-store`, a native
@@ -314,9 +314,9 @@ async function fundGeneralBasket(
   return { outpoint: `${txid}.0`, inputBEEF: beef.toBinary() }
 }
 
-async function fundMandalaToken(wallet: Wallet, assetId: string, amount: number): Promise<string> {
+async function fundMandalaToken(wallet: Wallet, assetId: string, amount: bigint): Promise<string> {
   const tx = new Transaction()
-  tx.addOutput({ satoshis: 1, lockingScript: new MandalaToken().lock(assetId, amount, new Array(20).fill(7)) })
+  tx.addOutput({ satoshis: 1, lockingScript: new OneColor().lock(assetId, amount, new Array(20).fill(7)) })
   asMined(tx)
   const beef = new Beef()
   beef.mergeTransaction(tx)
@@ -329,14 +329,14 @@ async function fundMandalaToken(wallet: Wallet, assetId: string, amount: number)
           outputIndex: 0,
           protocol: 'basket insertion',
           insertionRemittance: {
-            basket: MANDALA_BASKET,
+            basket: colorBasket(assetId),
             customInstructions: JSON.stringify({
-              protocolID: [2, 'p mandala token'],
-              keyID: 'k',
-              counterparty: 'self',
-              direction: 'received'
-            }),
-            tags: ['mandala', 'received', assetId]
+              version: 1,
+              assetId,
+              derivationPrefix: 'cHJlZml4',
+              derivationSuffix: 'c3VmZml4',
+              senderIdentityKey: 'self'
+            })
           }
         }
       ],
@@ -487,14 +487,13 @@ describe("I3: the Mandala/token spend path's input-selection never touches the V
     const { wallet } = await makeWallet(107)
     const vault = await fundVault(wallet, VAULT_SATS, 7)
     const assetId = `${'ab'.repeat(32)}_0`
-    const tokenOutpoint = await fundMandalaToken(wallet, assetId, 250)
+    const tokenOutpoint = await fundMandalaToken(wallet, assetId, 250n)
 
-    // Exactly the query `listTokenBasket` (core/localpay/build.ts, used by
-    // buildTokenPaymentFrame's coin selection) issues, scoped to the real
-    // Mandala basket.
+    // Token discovery is scoped to the asset's own `p color <assetTag>`
+    // basket, the only place the color module keeps its value outputs.
     const listed = (await wallet.listOutputs(
       {
-        basket: MANDALA_BASKET,
+        basket: colorBasket(assetId),
         include: 'entire transactions',
         includeCustomInstructions: true,
         limit: 10,
@@ -507,20 +506,20 @@ describe("I3: the Mandala/token spend path's input-selection never touches the V
     expect(outpoints).not.toContain(vault.outpoint) // negative: basket-scoping excludes the Vault coin
   })
 
-  it('I3: MandalaToken.decode rejects the exact Vault R1C lock even if basket scoping were bypassed (defense in depth)', async () => {
+  it('I3: decodeToken rejects the exact Vault R1C lock even if basket scoping were bypassed (defense in depth)', async () => {
     const { wallet } = await makeWallet(108)
     const vault = await fundVault(wallet, VAULT_SATS, 8)
 
     // Positive control: decode succeeds for a real Mandala token script —
     // proves the assertion below is a real rejection, not a broken decoder.
-    const realTokenScript = new MandalaToken().lock(`${'cd'.repeat(32)}_0`, 99, new Array(20).fill(3))
-    expect(() => MandalaToken.decode(realTokenScript)).not.toThrow()
+    const realTokenScript = new OneColor().lock(`${'cd'.repeat(32)}_0`, 99n, new Array(20).fill(3))
+    expect(decodeToken(realTokenScript)).toMatchObject({ role: 'value', amount: 99n })
 
     // Negative: the coin-selection loop in `buildTokenPaymentFrame`
     // (core/localpay/build.ts) wraps this exact call in try/catch and skips
     // any output that throws — so even a `listOutputs` result that somehow
     // included the Vault's exact lock could never become a selected coin.
-    expect(() => MandalaToken.decode(LockingScript.fromHex(vault.lockHex))).toThrow()
+    expect(decodeToken(LockingScript.fromHex(vault.lockHex))).toBeNull()
   })
 })
 
@@ -531,14 +530,14 @@ describe('I3: the offline pending-payment queue never credits into the Vault bas
 
     const assetId = `${'ef'.repeat(32)}_0`
     const tx = new Transaction()
-    tx.addOutput({ satoshis: 1, lockingScript: new MandalaToken().lock(assetId, 500, new Array(20).fill(5)) })
+    tx.addOutput({ satoshis: 1, lockingScript: new OneColor().lock(assetId, 500n, new Array(20).fill(5)) })
     asMined(tx)
     const beef = new Beef()
     beef.mergeTransaction(tx)
 
-    // `internalizeOutput` (core/localpay/pending.ts) hardcodes
-    // `basket: MANDALA_BASKET` into the insertionRemittance it builds — no
-    // field of PaymentFrame maps to a basket name. These values are as
+    // `receiptInternalizeOutput` (core/mandala/receipt.ts) derives the basket
+    // from the frame's asset id alone (`colorBasket`) — no other field of
+    // PaymentFrame maps to a basket name. These values are as
     // adversarial as the type allows, to demonstrate that none of them can
     // reach the basket decision.
     const frame: PaymentFrame = {
@@ -550,11 +549,8 @@ describe('I3: the offline pending-payment queue never credits into the Vault bas
       derivationSuffix: Utils.toBase64(Utils.toArray('admin', 'utf8')),
       token: {
         assetId,
-        overlayUrl: 'https://overlay.invalid',
-        overlayIdentityKey: PrivateKey.fromRandom().toPublicKey().toString(),
         certificates: [],
-        linkage: [],
-        admissions: []
+        profileData: JSON.stringify({ basket: VAULT_BASKET })
       },
       transaction: new Uint8Array(beef.toBinaryAtomic(tx.id('hex')))
     }
@@ -564,7 +560,7 @@ describe('I3: the offline pending-payment queue never credits into the Vault bas
     const results = await processPending(wallet as never, kv, ADMIN)
     expect(results).toEqual([{ id: expect.any(String), success: true }])
 
-    const mandala = (await wallet.listOutputs({ basket: MANDALA_BASKET, limit: 10, offset: 0 } as never, ADMIN)) as {
+    const mandala = (await wallet.listOutputs({ basket: colorBasket(assetId), limit: 10, offset: 0 } as never, ADMIN)) as {
       outputs: { outpoint: string }[]
     }
     expect(mandala.outputs.length).toBeGreaterThan(0) // positive control: the queue mechanism does credit real coins

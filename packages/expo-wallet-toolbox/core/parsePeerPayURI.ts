@@ -6,12 +6,12 @@ import { trimTrailingSlashes } from './net/trimTrailingSlashes'
  *
  *   peerpay-URI  = "peerpay:" identity-key [ "?" query ]
  *   sats-param   = "sats=" 1*DIGIT
- *   asset-param  = "asset=" 64HEXDIG "." 1*DIGIT      ; the asset's genesis outpoint
- *   amount-param = "amount=" 1*DIGIT                   ; BASE UNITS of that asset
+ *   asset-param  = "asset=" 64HEXDIG "_0"              ; the BRC-162 token id
+ *   amount-param = "amount=" ("0" / %x31-39 *DIGIT)    ; BASE UNITS of that asset, ≤ 2^64-1
  *
- * `sats` is the BSV selector. `asset` names a token by its genesis outpoint —
- * the one identifier every issuer's asset already has — and `amount` is a
- * figure in that token's own base units, so it only means anything beside an
+ * `sats` is the BSV selector. `asset` names a token by its BRC-162 id — the
+ * one identifier every issuer's asset already has — and `amount` is an exact
+ * figure (a `bigint`) in that token's own base units, so it only means anything beside an
  * `asset`. Both are optional: `asset` alone is an open token request, where
  * the payer chooses the figure. A link mixing `sats` with either is refused
  * rather than read in one money or the other (maintainer decision, 2026-09-15).
@@ -42,10 +42,10 @@ export function cleanPeerPayNote(raw: string | null | undefined): string | undef
 export interface PeerPayParams {
   identityKey: string
   sats?: number
-  /** The token's genesis outpoint, `txid.vout`, lowercased. */
+  /** The token id, `<64 hex>_0`, lowercased. */
   asset?: string
-  /** Base units of `asset`. Never present without it. */
-  amount?: number
+  /** Exact base units of `asset` (1..2^64-1). Never present without it. */
+  amount?: bigint
   messageBoxUrl?: string
   /** What it's for, as the payee wrote it (the `note` extension). */
   note?: string
@@ -56,7 +56,7 @@ export interface PeerPayValidationResult {
   identityKey?: string
   sats?: number
   asset?: string
-  amount?: number
+  amount?: bigint
   /** Present only when the link carried a usable https `url` extension. */
   messageBoxUrl?: string
   /** Present only when the link carried a non-empty `note` extension. */
@@ -122,7 +122,7 @@ export function validatePeerPayURI(uri: string): PeerPayValidationResult {
 
   let sats: number | undefined
   let asset: string | undefined
-  let amount: number | undefined
+  let amount: bigint | undefined
   let messageBoxUrl: string | undefined
   let note: string | undefined
   if (queryPart) {
@@ -138,10 +138,10 @@ export function validatePeerPayURI(uri: string): PeerPayValidationResult {
       else errors.asset = 'PeerPay link names an invalid asset'
     }
     if (params.has('amount')) {
-      const figure = wholeFigure(params.get('amount') ?? '')
+      const figure = tokenFigure(params.get('amount') ?? '')
       if (figure === null) errors.amount = 'PeerPay link contains an invalid amount'
       else if (!params.has('asset')) errors.amount = 'PeerPay link names an amount without an asset'
-      else if (figure > 0) amount = figure
+      else if (figure > 0n) amount = figure
     }
     // Two selectors for two different monies: refused, never read as either.
     if (params.has('sats') && (params.has('asset') || params.has('amount'))) {
@@ -170,6 +170,19 @@ export function peerPayValidationMessage(result: PeerPayValidationResult | null)
   const { identityKey, sats, asset, amount } = result.errors
   const messages = [identityKey, sats, asset, amount].filter(Boolean)
   return messages.length ? messages.join('. ') : null
+}
+
+/** 2^64-1: the largest amount one token output can carry (BRC-162). */
+const MAX_TOKEN_FIGURE = 18446744073709551615n
+
+/**
+ * An exact token figure from a query value: a canonical decimal string (IC §0)
+ * no larger than 2^64-1, or null for anything else. Never through a float.
+ */
+function tokenFigure(text: string): bigint | null {
+  if (!WHOLE_FIGURE_REGEX.test(text)) return null
+  const figure = BigInt(text)
+  return figure <= MAX_TOKEN_FIGURE ? figure : null
 }
 
 /** A whole safe integer from a query value, or null for anything else. */

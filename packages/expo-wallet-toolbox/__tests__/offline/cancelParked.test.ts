@@ -1,4 +1,8 @@
-import { cancelParkedPayment as realCancelParkedPayment, runCancelParkedFlow } from '../../core/offline/cancelParked'
+import {
+  cancelParkedPayment as realCancelParkedPayment,
+  mandalaSettlementDeps,
+  runCancelParkedFlow
+} from '../../core/offline/cancelParked'
 import { updateOfflineAction } from '../../core/storage/methods/offlineActions'
 
 jest.mock('../../core/storage/methods/offlineActions', () => ({
@@ -140,27 +144,40 @@ describe('the BSV-rail chain-status check', () => {
  * is asked first.
  */
 describe('a token payment', () => {
-  const OVERLAY = 'https://overlay.issuer.example'
+  type Row = { txid: string; state: string }
 
+  /** The journal slice cancel reads, with a CAS that records every transition. */
   function settlementDeps(
     opts: {
-      row?: { overlayUrl: string } | undefined
-      verdict?: unknown
+      row?: Row | null
+      admitted?: boolean | undefined | 'throws'
       online?: boolean
-      throws?: 'probe' | 'fetch'
+      throws?: 'probe' | 'journal'
     } = {}
   ) {
-    const fetchAdmission = jest.fn(async () => {
-      if (opts.throws === 'fetch') throw new Error('overlay unreachable')
-      return opts.verdict as never
+    let row: Row | undefined = opts.row === null ? undefined : (opts.row ?? { txid: TXID, state: 'parked' })
+    const transitions: string[] = []
+    const isHandoverAdmitted = jest.fn(async () => {
+      if (opts.admitted === 'throws') throw new Error('overlay unreachable')
+      return opts.admitted
     })
+    const journal = {
+      get: jest.fn(async (txid: string) => {
+        if (opts.throws === 'journal') throw new Error('SQLITE_BUSY')
+        return (row && row.txid === txid ? { ...row } : undefined) as never
+      }),
+      advance: jest.fn(async (txid: string, from: readonly string[], to: string) => {
+        if (!row || row.txid !== txid || !from.includes(row.state)) return false
+        transitions.push(`${row.state}→${to}`)
+        row = { ...row, state: to }
+        return true
+      })
+    }
     return {
-      fetchAdmission,
+      transitions,
       deps: {
-        settlements: {
-          getSettlement: jest.fn(async () => (opts.row === undefined ? { overlayUrl: OVERLAY } : opts.row) as never)
-        },
-        fetchAdmission,
+        isHandoverAdmitted,
+        journal,
         isOnline: jest.fn(async () => {
           if (opts.throws === 'probe') throw new Error('netinfo blew up')
           return opts.online ?? true
@@ -169,52 +186,94 @@ describe('a token payment', () => {
     }
   }
 
-  it('refuses the cancel when the overlay already admitted it', async () => {
+  it('cancel of a parked token payment the overlay already admitted reports already-sent', async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
-    const { deps } = settlementDeps({ verdict: { kind: 'admitted', outputsToAdmit: [0] } })
+    const { deps, transitions } = settlementDeps({ admitted: true })
 
     const outcome = await cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })
 
     expect(outcome).toBe('already-sent')
-    expect(deps.fetchAdmission).toHaveBeenCalledWith(OVERLAY, TXID)
+    expect(deps.isHandoverAdmitted).toHaveBeenCalledWith(TXID)
     expect(wallet.abortAction).not.toHaveBeenCalled()
     expect(mockedUpdate).not.toHaveBeenCalled()
+    // The overlay has it: the journal now says so, so the abort guard refuses.
+    expect(transitions).toEqual(['parked→handed_over'])
   })
 
-  it('cancels when the overlay has never seen the txid', async () => {
+  it('cancels, then journals cancelled, when the overlay has not admitted it', async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
-    const { deps } = settlementDeps({ verdict: undefined })
+    const { deps, transitions } = settlementDeps({ admitted: false })
+    const order: string[] = []
+    wallet.abortAction.mockImplementation(async () => {
+      order.push('abort')
+      return { aborted: true }
+    })
+    deps.journal.advance.mockImplementationOnce(async () => {
+      order.push('journal')
+      transitions.push('parked→cancelled')
+      return true
+    })
 
     await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('cancelled')
-    expect(wallet.abortAction).toHaveBeenCalled()
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, undefined)
+    expect(order).toEqual(['abort', 'journal'])
+    expect(deps.journal.advance).toHaveBeenCalledWith(TXID, ['built', 'parked'], 'cancelled')
+    expect(transitions).toEqual(['parked→cancelled'])
+    expect(mockedUpdate).toHaveBeenCalledWith({}, TXID, { status: 'acknowledged' })
   })
 
-  it('cancels when the overlay reports a refusal rather than an admission', async () => {
+  it('cancels a built row the payee never received the same way', async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
-    const { deps } = settlementDeps({ verdict: { kind: 'refused', code: 'ERR_SHAPE' } })
+    const { deps, transitions } = settlementDeps({ row: { txid: TXID, state: 'built' }, admitted: false })
 
     await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('cancelled')
+    expect(transitions).toEqual(['built→cancelled'])
   })
 
-  // XR-100: a settlement row genuinely present means this txid WAS handed
-  // over — silently treating "cannot verify" as "not admitted" is exactly
-  // the fail-open the finding describes. `never polls when offline` used to
-  // assert this fell straight through to `cancelled`; it now has to route
-  // through the same acknowledgedUnverifiable gate the BSV-rail check uses.
-  it('XR-100: refuses to cancel silently when the settlement probe is offline and a row exists to protect', async () => {
+  it('a journal fault after the abort landed still reports cancelled', async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
-    const { deps } = settlementDeps({ online: false, verdict: { kind: 'admitted', outputsToAdmit: [0] } })
+    const { deps } = settlementDeps({ admitted: false })
+    deps.journal.advance.mockRejectedValueOnce(new Error('SQLITE_BUSY'))
+
+    await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('cancelled')
+    expect(mockedUpdate).toHaveBeenCalled()
+  })
+
+  it.each([['handed_over'], ['settled']])(
+    'refuses a row the journal already reads %s, without asking the overlay or the wallet',
+    async state => {
+      const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
+      const { deps } = settlementDeps({ row: { txid: TXID, state }, admitted: false })
+
+      await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('already-sent')
+      expect(deps.isHandoverAdmitted).not.toHaveBeenCalled()
+      expect(wallet.abortAction).not.toHaveBeenCalled()
+    }
+  )
+
+  it("refuses to cancel silently when the overlay cannot answer — 'undefined' is not 'not admitted'", async () => {
+    const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
+    const { deps } = settlementDeps({ admitted: undefined })
 
     const outcome = await cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })
 
     expect(outcome).toBe('unverifiable-offline')
-    expect(deps.fetchAdmission).not.toHaveBeenCalled()
     expect(wallet.abortAction).not.toHaveBeenCalled()
   })
 
-  it('XR-100: cancels once the offline settlement probe is acknowledged', async () => {
+  it('a throwing admission probe is the same unanswerable answer', async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
-    const { deps } = settlementDeps({ online: false, verdict: { kind: 'admitted', outputsToAdmit: [0] } })
+    const { deps } = settlementDeps({ admitted: 'throws' })
+
+    await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe(
+      'unverifiable-offline'
+    )
+    expect(wallet.abortAction).not.toHaveBeenCalled()
+  })
+
+  it('cancels an unanswerable admission once acknowledged, and journals it cancelled', async () => {
+    const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
+    const { deps, transitions } = settlementDeps({ admitted: undefined })
 
     const outcome = await cancelParkedPayment({
       storage,
@@ -225,37 +284,23 @@ describe('a token payment', () => {
     })
 
     expect(outcome).toBe('cancelled')
-    expect(deps.fetchAdmission).not.toHaveBeenCalled()
+    expect(transitions).toEqual(['parked→cancelled'])
   })
 
-  it('never polls for a txid with no settlement row', async () => {
+  it('refuses to cancel silently while offline when a row exists to protect', async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
-    const { deps } = settlementDeps({ row: undefined as never, verdict: undefined })
-    deps.settlements.getSettlement = jest.fn(async () => undefined as never)
-
-    await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('cancelled')
-    expect(deps.fetchAdmission).not.toHaveBeenCalled()
-  })
-
-  // XR-100: the real runtime's `fetchAdmission` never throws — an unreachable
-  // overlay comes back as a distinct `{ kind: 'unavailable' }` verdict — but
-  // whatever the shape, "the overlay could not be asked" must not be read as
-  // "the overlay says no". This mock throws to simulate a caller/dependency
-  // that fails outright; `fetchAdmissionSafely` folds that into the same
-  // 'unavailable' signal `cancelParkedPayment` now refuses to cancel on.
-  it("XR-100: refuses to cancel silently when the overlay cannot be reached — 'unavailable' is not 'not admitted'", async () => {
-    const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
-    const { deps } = settlementDeps({ throws: 'fetch' })
+    const { deps } = settlementDeps({ online: false, admitted: true })
 
     const outcome = await cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })
 
     expect(outcome).toBe('unverifiable-offline')
+    expect(deps.isHandoverAdmitted).not.toHaveBeenCalled()
     expect(wallet.abortAction).not.toHaveBeenCalled()
   })
 
-  it('XR-100: cancels an unreachable-overlay decline once acknowledged', async () => {
+  it('cancels while offline once acknowledged', async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
-    const { deps } = settlementDeps({ throws: 'fetch' })
+    const { deps } = settlementDeps({ online: false, admitted: true })
 
     const outcome = await cancelParkedPayment({
       storage,
@@ -266,23 +311,61 @@ describe('a token payment', () => {
     })
 
     expect(outcome).toBe('cancelled')
+    expect(deps.isHandoverAdmitted).not.toHaveBeenCalled()
   })
 
-  it('XR-100: refuses to cancel silently when the settlement connectivity probe throws', async () => {
+  it('refuses to cancel silently when the settlement connectivity probe throws', async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
     const { deps } = settlementDeps({ throws: 'probe' })
 
-    const outcome = await cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })
+    await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe(
+      'unverifiable-offline'
+    )
+    expect(deps.isHandoverAdmitted).not.toHaveBeenCalled()
+  })
 
-    expect(outcome).toBe('unverifiable-offline')
-    expect(deps.fetchAdmission).not.toHaveBeenCalled()
+  it('never asks the overlay for a txid with no journal row', async () => {
+    const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
+    const { deps } = settlementDeps({ row: null })
+
+    await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('cancelled')
+    expect(deps.isHandoverAdmitted).not.toHaveBeenCalled()
+    expect(deps.journal.advance).not.toHaveBeenCalled()
+  })
+
+  it('a journal read fault refuses the cancel rather than reading as no row', async () => {
+    const { storage, wallet } = stubs({ reference: 'ref-1', status: 'nosend' })
+    const { deps } = settlementDeps({ throws: 'journal' })
+
+    await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).rejects.toThrow('SQLITE_BUSY')
+    expect(wallet.abortAction).not.toHaveBeenCalled()
   })
 
   it('still refuses a transaction that has left nosend, admitted or not', async () => {
     const { storage, wallet } = stubs({ reference: 'ref-1', status: 'unproven' })
-    const { deps } = settlementDeps({ verdict: undefined })
+    const { deps } = settlementDeps({ admitted: false })
 
     await expect(cancelParkedPayment({ storage, wallet, txid: TXID, settlement: deps })).resolves.toBe('already-sent')
+  })
+})
+
+describe('mandalaSettlementDeps', () => {
+  it('is undefined while Mandala is unavailable, so a BSV cancel is untouched', () => {
+    expect(mandalaSettlementDeps(undefined)).toBeUndefined()
+    expect(
+      mandalaSettlementDeps({ available: false, isHandoverAdmitted: jest.fn(), journal: {} as never })
+    ).toBeUndefined()
+  })
+
+  it('reads admission and the journal straight off the runtime', async () => {
+    const isHandoverAdmitted = jest.fn(async () => true)
+    const journal = { get: jest.fn(), advance: jest.fn() }
+    const isOnline = async () => true
+    const deps = mandalaSettlementDeps({ available: true, isHandoverAdmitted, journal: journal as never }, isOnline)
+    expect(deps?.journal).toBe(journal)
+    expect(deps?.isOnline).toBe(isOnline)
+    await expect(deps?.isHandoverAdmitted(TXID)).resolves.toBe(true)
+    expect(isHandoverAdmitted).toHaveBeenCalledWith(TXID)
   })
 })
 

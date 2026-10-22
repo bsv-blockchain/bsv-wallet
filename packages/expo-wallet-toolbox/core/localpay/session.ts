@@ -1,7 +1,14 @@
 import { Random } from '@bsv/sdk'
+import { MAX_UINT64, parseDecimalAmount } from '@bsv/mandala'
 import { CodecError } from './codec'
 
-export const SESSION_VERSION = 1
+/**
+ * 2: a token request's figure `a` is a canonical decimal string of base units
+ * (1..2^64-1, IC §0), and the asset block no longer carries the issuer's
+ * overlay url/key — the payer uses its own configured overlay (IC §7.3). A v1
+ * session is refused outright; there is no back-compat.
+ */
+export const SESSION_VERSION = 2
 
 /**
  * The capability word `c` in the session QR.
@@ -55,21 +62,20 @@ export type SessionOs = 'ios' | 'android'
 export const MAX_TOKEN_DECIMALS = 18
 
 /**
- * The asset a token request names. When present on a Session, `amount` is
- * BASE UNITS of this asset, not satoshis, and remains a binding term.
- * label/ticker/decimals are payee-supplied display hints; overlayUrl and
- * overlayIdentityKey are the issuer endpoints a payer needs to mint
- * linkage blobs and (later) submit the transfer — no per-asset discovery
- * protocol exists, so the request carries them.
+ * The asset a token request names (`<64 lowercase hex>_0`, IC §0). When
+ * present on a Session, the binding figure is `units` (BASE UNITS of this
+ * asset) and `amount` is absent. label/ticker/decimals are payee-supplied
+ * display hints only. The issuer overlay is NOT carried: the payer settles
+ * against its own configured overlay (IC §7.3), so a QR cannot steer it.
  */
 export interface SessionAsset {
   id: string
   label?: string
   ticker?: string
   decimals?: number
-  overlayUrl: string
-  overlayIdentityKey: string
 }
+
+const ASSET_ID_RE = /^[0-9a-f]{64}_0$/
 
 export interface Session {
   /** Verified host display metadata; never encoded into the base pairing QR. */
@@ -96,6 +102,13 @@ export interface Session {
    * frame belongs to this request, and they apply either way.
    */
   amount?: number
+  /**
+   * TOKEN SESSIONS ONLY: the base units the payee is asking for, exact
+   * (1..2^64-1). Same binding/open semantics as `amount`; never present
+   * beside it. On the wire it is a canonical decimal string, never a JSON
+   * number, so a figure above 2^53 survives the QR exactly.
+   */
+  units?: bigint
   asset?: SessionAsset
   derivationPrefix: string
   derivationSuffix: string
@@ -109,8 +122,10 @@ export interface Session {
 
 export function mintSession(args: {
   identityKey: string
-  /** Omit for an open request — the payer enters the amount. */
+  /** Satoshis, BSV requests only. Omit for an open request — the payer enters the amount. */
   amount?: number
+  /** Base units, token requests (`asset` present) only. Omit for an open token request. */
+  units?: bigint
   asset?: SessionAsset
   derivationPrefix: string
   derivationSuffix: string
@@ -131,11 +146,26 @@ export function mintSession(args: {
   // Validated at the mint too, not only at decode: an invalid figure minted
   // here would render on the payee's own screen and be echoed to the payer as
   // an authentic request before any decoder ever saw it.
+  if (args.amount !== undefined && args.units !== undefined) {
+    throw new CodecError('a session carries amount (satoshis) or units (token), never both')
+  }
   if (args.amount !== undefined && !isRequestableAmount(args.amount)) {
     throw new CodecError('bad amount')
   }
-  if (args.asset !== undefined && args.asset.overlayIdentityKey.length !== 66) {
-    throw new CodecError('bad asset overlayIdentityKey')
+  // A satoshi figure on a token request would encode as a JSON number beside
+  // `t` and every decoder would refuse it; units without an asset name no
+  // asset. Both are refused here, where there is still a payee to tell.
+  if (args.asset !== undefined && args.amount !== undefined) {
+    throw new CodecError('a token request carries units, not a satoshi amount')
+  }
+  if (args.units !== undefined && args.asset === undefined) {
+    throw new CodecError('units require an asset')
+  }
+  if (args.units !== undefined && !isRequestableUnits(args.units)) {
+    throw new CodecError('bad token amount')
+  }
+  if (args.asset !== undefined && (typeof args.asset.id !== 'string' || !ASSET_ID_RE.test(args.asset.id))) {
+    throw new CodecError('bad assetId')
   }
   // XR-043: same bound `decodeSession` enforces below, checked here too for
   // the same reason `amount` is — an out-of-range figure minted on THIS
@@ -159,7 +189,8 @@ export function mintSession(args: {
     psk: new Uint8Array(Random(32)),
     identityKey: args.identityKey,
     ...(args.amount === undefined ? {} : { amount: args.amount }),
-    ...(args.asset === undefined ? {} : { asset: args.asset }),
+    ...(args.units === undefined ? {} : { units: args.units }),
+    ...(args.asset === undefined ? {} : { asset: assetOf(args.asset) }),
     derivationPrefix: args.derivationPrefix,
     derivationSuffix: args.derivationSuffix,
     ...(args.os === undefined ? {} : { os: args.os })
@@ -174,6 +205,24 @@ export function mintSession(args: {
  */
 export function isRequestableAmount(a: unknown): a is number {
   return typeof a === 'number' && Number.isSafeInteger(a) && a > 0
+}
+
+/**
+ * Token base units: a bigint in the per-output domain 1..2^64-1 (0162:143).
+ * Never a JS number — a figure above 2^53 is not representable as one.
+ */
+export function isRequestableUnits(u: unknown): u is bigint {
+  return typeof u === 'bigint' && u >= 1n && u <= MAX_UINT64
+}
+
+/** Only the four known fields, so a caller's extra keys never reach the wire or the Session. */
+function assetOf(a: SessionAsset): SessionAsset {
+  return {
+    id: a.id,
+    ...(a.label === undefined ? {} : { label: a.label }),
+    ...(a.ticker === undefined ? {} : { ticker: a.ticker }),
+    ...(a.decimals === undefined ? {} : { decimals: a.decimals })
+  }
 }
 
 // Base64url, no padding — QR alphanumeric-safe and dependency-free.
@@ -194,6 +243,22 @@ export function encodeSession(s: Session): string {
   // `a` is omitted entirely for an open request rather than written as null.
   // JSON.stringify already drops an undefined value, so this is explicit only
   // to make the wire shape obvious: absent key === payer chooses.
+  //
+  // A token request writes `a` as a canonical decimal string (IC §0); a BSV
+  // request keeps the JSON number. The figure is chosen by `asset`, never by
+  // which field happens to be set, so a malformed Session cannot put a JSON
+  // number beside `t` or a string on a BSV request.
+  let a: number | string | undefined
+  if (s.asset !== undefined) {
+    if (s.amount !== undefined) throw new CodecError('a token request carries units, not a satoshi amount')
+    if (s.units !== undefined) {
+      if (!isRequestableUnits(s.units)) throw new CodecError('bad token amount')
+      a = s.units.toString()
+    }
+  } else {
+    if (s.units !== undefined) throw new CodecError('units require an asset')
+    a = s.amount
+  }
   const body = JSON.stringify({
     v: s.version,
     c: s.caps,
@@ -201,7 +266,7 @@ export function encodeSession(s: Session): string {
     k: toB64url(s.psk),
     i: s.identityKey,
     ...(s.os === undefined ? {} : { o: s.os === 'ios' ? 'i' : 'a' }),
-    ...(s.amount === undefined ? {} : { a: s.amount }),
+    ...(a === undefined ? {} : { a }),
     ...(s.asset === undefined
       ? {}
       : {
@@ -209,9 +274,7 @@ export function encodeSession(s: Session): string {
             i: s.asset.id,
             ...(s.asset.label === undefined ? {} : { n: s.asset.label }),
             ...(s.asset.ticker === undefined ? {} : { s: s.asset.ticker }),
-            ...(s.asset.decimals === undefined ? {} : { d: s.asset.decimals }),
-            u: s.asset.overlayUrl,
-            k: s.asset.overlayIdentityKey
+            ...(s.asset.decimals === undefined ? {} : { d: s.asset.decimals })
           }
         }),
     p: s.derivationPrefix,
@@ -241,8 +304,22 @@ export function decodeSession(text: string): Session {
   // other value is a figure the payee is asserting, and a bad one must be
   // refused rather than quietly reinterpreted as "any amount" — that would turn
   // a corrupt 0 into an open request with a live Send button under it.
+  //
+  // Which figure `a` is depends on `t`: a token request's `a` is base units as
+  // a canonical decimal string (a JSON number is refused — above 2^53 it has
+  // already lost precision in JSON.parse); a BSV request's `a` is satoshis as
+  // a JSON number.
   const open = a === undefined
-  if (!open && !isRequestableAmount(a)) throw new CodecError('bad amount')
+  let units: bigint | undefined
+  if (t !== undefined) {
+    if (!open) {
+      const parsedUnits = typeof a === 'string' ? parseDecimalAmount(a) : null
+      if (parsedUnits === null || !isRequestableUnits(parsedUnits)) throw new CodecError('bad token amount')
+      units = parsedUnits
+    }
+  } else if (!open && !isRequestableAmount(a)) {
+    throw new CodecError('bad amount')
+  }
   if (typeof s !== 'string') throw new CodecError('bad sessionId encoding')
   if (typeof k !== 'string') throw new CodecError('bad psk encoding')
   if (typeof p !== 'string') throw new CodecError('bad derivationPrefix encoding')
@@ -257,18 +334,15 @@ export function decodeSession(text: string): Session {
   let asset: SessionAsset | undefined
   if (t !== undefined) {
     if (typeof t !== 'object' || t === null) throw new CodecError('bad asset block')
-    const { i: ai, n, s: tick, d, u, k: ok } = t as Record<string, unknown>
-    if (typeof ai !== 'string' || !/^[0-9a-f]{64}_0$/.test(ai)) throw new CodecError('bad assetId')
-    if (typeof u !== 'string' || u.length === 0) throw new CodecError('bad overlayUrl')
-    if (typeof ok !== 'string' || ok.length !== 66) throw new CodecError('bad overlayIdentityKey')
+    // Unknown keys (a v1 builder's `u`/`k`, a newer peer's hints) are ignored.
+    const { i: ai, n, s: tick, d } = t as Record<string, unknown>
+    if (typeof ai !== 'string' || !ASSET_ID_RE.test(ai)) throw new CodecError('bad assetId')
     if (n !== undefined && typeof n !== 'string') throw new CodecError('bad asset label')
     if (tick !== undefined && typeof tick !== 'string') throw new CodecError('bad asset ticker')
     if (d !== undefined && (typeof d !== 'number' || !Number.isSafeInteger(d) || d < 0 || d > MAX_TOKEN_DECIMALS))
       throw new CodecError('bad asset decimals')
     asset = {
       id: ai,
-      overlayUrl: u,
-      overlayIdentityKey: ok,
       ...(n === undefined ? {} : { label: n }),
       ...(tick === undefined ? {} : { ticker: tick }),
       ...(d === undefined ? {} : { decimals: d })
@@ -280,7 +354,7 @@ export function decodeSession(text: string): Session {
     sessionId,
     psk,
     identityKey: i,
-    ...(open ? {} : { amount: a }),
+    ...(open ? {} : asset === undefined ? { amount: a as number } : { units }),
     ...(asset === undefined ? {} : { asset }),
     derivationPrefix: p,
     derivationSuffix: x,

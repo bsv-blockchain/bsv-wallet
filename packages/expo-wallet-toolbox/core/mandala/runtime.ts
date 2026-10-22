@@ -2,361 +2,199 @@
  * MandalaRuntime — the single object the UI layer consumes for stablecoin
  * features. Constructed once in WalletContext (core wiring), exposed via
  * `useMandala()`. Pure types here; the implementation lives in
- * core/mandala/createRuntime.ts (integration) and the hook in
- * core/hooks/useMandala.ts.
+ * core/mandala/createRuntime.ts and the hook in ui/hooks/useMandala.ts.
  *
- * Design rule (ux §1): the UI never talks to the overlay or the lib directly;
- * everything goes through this surface so failure copy, journaling and
- * state live in one place.
+ * Design rule (ux §1): the UI never talks to the overlay, the color module or
+ * the lib directly; everything goes through this surface so failure copy,
+ * journaling and state live in one place.
+ *
+ * Since 1Color (plan 07): the color permission module holds every token and
+ * all evidence; the runtime is a thin host over the module (`settle`,
+ * `handoffEvidence`), `@bsv/mandala` (hand-over send/receive, deploy reads)
+ * and the wallet's own `color_transfers` journal. Token amounts are exact
+ * `bigint` everywhere on this surface (IC §0).
  */
-import type {
-  AdmissionVerifier,
-  CoverResult,
-  FetchAdmissionFn,
-  SettlementStore,
-  TokenHandedOverHook,
-  TokenHeldHook,
-  TokenSettlementRow,
-  TokenSettlementState
-} from './types'
-import type { LockToPayee, TokenBuildDeps } from '../localpay/build'
-import type { CoverVerifier } from './bundle'
-import type { VerifyAdmissionFn } from '../localpay/settlementAck'
-import type { TokenCreditedHook } from '../localpay/pending'
-import type { OfflineTokenDeps } from '../storage/methods/processOfflineActions'
+import type { HandoverResult } from '@bsv/mandala'
 import type { MandalaEndpointConfig } from '../toolboxConfig'
-import type { TokenResendOutcome } from './resendTransfer'
+import type { TransferJournal } from './transferJournal'
+import type { ColorTransferRail, ColorTransferRole, ColorTransferRow, ColorTransferState } from './types'
+
+/** Display metadata of one asset, from its deploy tx (W7). Untrusted display data: the full `assetId` is always available. */
+export interface TokenAssetInfo {
+  assetId: string
+  label: string // e.g. "Acme Dollar"; the short asset id when unresolved
+  ticker: string // e.g. "USDX"; '' when unresolved
+  decimals: number // 0..18; 0 when unresolved
+  issuerName?: string
+  /** The deploy was read and names this wallet's overlay. False means every field above is a fallback. */
+  resolved: boolean
+}
+
+/**
+ * One held asset's figures (W10).
+ *
+ * `units` is the exact `p color balance <assetTag>` sum: everything available
+ * to spend, INCLUDING offline credits (0207:396-404). `offlineUnits` is the
+ * part of it the inventory tags `color_offline` — accepted, spendable, but not
+ * yet settled with the issuer's overlay. It is never more than `units`; the
+ * settled part is `units - offlineUnits`. Never sum the two.
+ */
+export interface TokenBalance {
+  asset: TokenAssetInfo
+  units: bigint
+  offlineUnits: bigint
+}
+
+/**
+ * How a journal row reads on the activity list. `settling` covers every
+ * non-terminal state; `stuck` is a non-terminal row older than STUCK_AFTER_MS.
+ * A cancelled send never appears (the money never moved).
+ */
+export type TokenActivityStatus = 'settling' | 'settled' | 'refused' | 'stuck'
+
+export interface TokenActivityRow {
+  txid: string
+  role: ColorTransferRole
+  asset: TokenAssetInfo
+  units: bigint
+  counterpartyKey?: string
+  status: TokenActivityStatus
+  at: string // ISO
+  refusedCode?: string
+  rail: ColorTransferRail
+}
 
 /**
  * Regulatory/registry facts about one asset, for the UI's remaining copy
  * (paused banners, frozen-balance notices, access-mode refusals, admission
- * status). Everything here is best-effort and short-lived (~10s cache in the
- * implementation) — a stale or unreachable overlay reads as the least
- * alarming answer (`false`/`undefined`), never as a thrown error, because
- * this is display copy, not a gate anything transacts against.
+ * status). Everything here is best-effort and short-lived (~10s cache): a
+ * stale or unreachable overlay reads as the least alarming answer
+ * (`false`/`undefined`), never as a thrown error, because this is display
+ * copy, not a gate anything transacts against.
  */
 export interface TokenAssetStatus {
   /** The issuer has paused this asset. */
   paused: boolean
-  /** Sum of amounts across the asset's frozen outpoints, per the overlay's admin state. */
-  frozenBaseUnits: number
+  /** Exact sum of amounts across the asset's frozen outpoints, per the overlay's admin state. */
+  frozenUnits: bigint
   /** 'allowlist' | 'denylist', when the overlay reports one. */
   accessMode?: string
-  /** This wallet's own identity key, admitted under the asset's issuer registry.
-   * `undefined` when the registry is inactive (no membership gate in effect) or unknown. */
+  /** This wallet's own identity key, admitted under the issuer registry; `undefined` when no gate is live or unknown. */
   selfAdmitted: boolean | undefined
   /** Same question for another identity key — e.g. a recipient before a send. */
   recipientAdmitted(identityKey: string): Promise<boolean | undefined>
-  /** Whether the asset's on-chain label/ticker/decimals resolved (registry lookup + SPV). */
+  /** Whether the asset's on-chain label/ticker/decimals resolved. */
   metadataResolved: boolean
   /** The MessageBox host this deployment's handle rail uses. */
   messageBoxUrl: string
 }
 
-export interface TokenAssetInfo {
-  assetId: string
-  label: string // e.g. "Acme Dollar"
-  ticker: string // e.g. "USDX"
-  decimals: number
-  issuerName?: string // e.g. "Acme Bank" — used in every failure/settling copy
-  overlayUrl: string
-  overlayIdentityKey: string
-}
-
-export interface TokenBalance {
-  asset: TokenAssetInfo
-  /** Spendable base units (sum of unspent outputs in the token basket). */
-  baseUnits: number
-  /** Base units in rows whose settlement is not yet 'broadcast' (received offline). */
-  unsettledBaseUnits: number
-}
-
-export interface TokenHoldingsReview {
-  settled: number
-  removed: number
-  unattested: number
-  unreachable: boolean
-}
-
-export type TokenActivityStatus = 'settling' | 'settled' | 'refused' | 'reversed' | 'stuck'
-
-export interface TokenActivityRow {
-  txid: string
-  role: 'sent' | 'received'
-  asset: TokenAssetInfo
-  baseUnits: number
-  counterpartyKey?: string
-  status: TokenActivityStatus
-  at: string // ISO
-  refusedCode?: string
-  /** `payloadHash` of the linkage bytes this refusal was recorded against (amendment §9.1/§9.3). */
-  refusedPayloadHash?: string
-}
-
-/** Handle (MessageBox) rail results — mirror the wallet's existing rail result shapes. */
+/** Handle (MessageBox) rail results. */
 export type TokenSendResult =
-  | {
-      kind: 'sent'
-      txid: string
-      /**
-       * The issuer's overlay has this transaction (`admitted`, or `broadcast`
-       * on top of it) — because a hand-over that landed while this device had
-       * signal is followed straight away by the payer's own submit
-       * (`settleNow`). False is not a failure and never a reason to retry the
-       * SEND: the money moved at hand-over, and the drain finishes the
-       * settlement on its next tick.
-       */
-      settled: boolean
-      /**
-       * False when the transaction committed but the recipient's MessageBox
-       * notification did not go out (the lib's `TransferResult.notified`).
-       *
-       * The money is sent either way — the notify is journaled by the lib and
-       * retried by `reconcileNotifications` on the next drain tick — but until
-       * it lands the recipient has an output nothing has told them to
-       * internalize. The UI says "recipient notification pending" rather than
-       * implying either that the payment failed (it did not) or that the payee
-       * can already see it (they cannot). NEVER a reason to retry the send: a
-       * second send would be a second payment.
-       */
-      notified: boolean
-    }
+  /**
+   * The hand-over is built and journaled. `settled`: the overlay admitted it
+   * before the call returned. `notified: false`: the MessageBox delivery did
+   * not go through; the tick redelivers it. Neither is ever a reason to send
+   * again — a second send is a second payment.
+   */
+  | { kind: 'sent'; txid: string; settled: boolean; notified: boolean }
   | { kind: 'refused'; code: string; message: string }
   | { kind: 'unavailable'; message: string }
 
-/**
- * Where one row stood when `settleNow` let go of it.
- *
- * Every `TokenSettlementState` can come back, because the answer is simply the
- * row's state re-read after the step: `'admitted'`/`'broadcast'` are the two
- * that mean settled, `'refused'`/`'orphaned'` are the overlay's final word, and
- * an unchanged `'handed_over'`/`'held'` means the step stalled and the ordinary
- * drain will try again. `'unavailable'` is the one addition — no such row, no
- * database, or no Mandala deployment on this chain — and is never a verdict
- * about the money.
- */
-export type TokenSettleState = TokenSettlementState | 'unavailable'
+/** Where one row stood when `settleNow` let go of it; `'unavailable'` is no row/database/deployment, never a verdict. */
+export type TokenSettleState = ColorTransferState | 'unavailable'
+
+export interface TokenHoldingsReview {
+  settled: number
+  refused: number
+  pending: number
+  /** The overlay could not be asked; nothing was decided. */
+  unreachable: boolean
+}
+
+/** What the nearby rail (localpay build, payer hold, payee pending) is handed by the runtime. */
+export interface NearbyTokenDeps {
+  /** PAYER: build and sign the module hand-over bound to the session's remittance (Task 15). */
+  handover(a: {
+    assetId: string
+    units: bigint
+    recipientKey: string
+    derivationPrefix: string
+    derivationSuffix: string
+    note?: string
+  }): Promise<HandoverResult>
+  /** PAYER: the frame was handed over (or parked) (Task 15). */
+  onHandedOver(txid: string, state: 'parked' | 'handed_over'): Promise<void>
+  /** PAYEE: the receipt internalize settled either way (Task 16). */
+  onReceived(
+    a: {
+      txid: string
+      assetId: string
+      units: bigint
+      counterpartyKey: string
+      outputIndex: number
+      declarationTx?: string
+    },
+    outcome: { ok: true } | { ok: false; code: string; final: boolean }
+  ): Promise<void>
+}
 
 export interface MandalaRuntime {
-  /** Chain gate: mainnet-only in v1 (ux §2). */
+  /** Endpoints, the color module, its provider and a wallet database are all present. */
   available: boolean
   /**
-   * THIS DEVICE's configured Mandala deployment — the §9.10 trust anchor, in
-   * the shape every call site that has to state one wants (`verifyFramePayment`'s
-   * `opts.asset`, a session's own `asset` block).
-   *
-   * Exposed because the alternative is each call site reaching for whatever
-   * overlay facts are nearest to hand, and the nearest ones are on the incoming
-   * FRAME. A frame's `overlayUrl`/`overlayIdentityKey` are the payer's claim;
-   * verifying a payer's σ_I against the payer's own key is not a check at all.
-   * Every field is `''` when this chain has no Mandala deployment
-   * (`available === false`), which no frame can ever equal.
+   * THIS DEVICE's configured Mandala deployment. Every field is `''` when this
+   * chain has none (`available === false`), which no frame can ever equal.
    */
   endpoints: MandalaEndpointConfig
-  store: SettlementStore
-  /** Assets this wallet currently holds or has ever received. */
+  /**
+   * The `color_transfers` journal: the one key for the broadcast hold and the
+   * abort refusal. Without a database every method rejects; it never reads as
+   * "no row".
+   */
+  journal: TransferJournal
+
+  /** Assets this wallet holds (any inventory record) or has ever journaled. */
   listAssets(): Promise<TokenAssetInfo[]>
+  /** One row per asset with a value record in the inventory. Rejects (never a partial figure) when a read fails. */
   balances(): Promise<TokenBalance[]>
+  /** Journal rows, newest first, cancelled sends omitted. */
   activity(limit?: number): Promise<TokenActivityRow[]>
-  /** Non-terminal rows older than STUCK_AFTER_MS (FIX M). */
-  stuck(): Promise<TokenSettlementRow[]>
-  /** Handle rail: send to an identity key over MessageBox (lib transferTokens). */
-  sendToHandle(args: {
-    assetId: string
-    recipientIdentityKey: string
-    baseUnits: number
-    /** The sender's own note — becomes the recipient's action description in
-     * place of the lib's fixed "Receive N of assetId" wording. */
-    note?: string
-  }): Promise<TokenSendResult>
-  /**
-   * Handle rail: drain the MessageBox inbox (lib receiveTokens), credit, journal.
-   * `incomplete` is set when the drain could not run at all (the MessageBox could
-   * not be opened or read), which is not the same as an inbox with nothing in it:
-   * what was waiting there is still waiting.
-   */
-  receiveFromInbox(): Promise<{ credited: number; failed: number; incomplete?: true }>
-  /** Nearby rail: the blinded payee lock the localpay token build needs (lib prepareBlindedPayment). */
-  lockToPayee: LockToPayee
-  /** Pure COVER verifier over local evidence (lib cover), for verify.ts at hand-over. */
-  cover(tipTxid: string): Promise<CoverResult>
-  /** Run one settlement drain pass now (submit-then-broadcast). */
-  drainNow(): Promise<void>
-  /**
-   * ONE row's settlement step, taken now rather than on the next drain tick
-   * (2026-09-15 maintainer refinement to §4.3's "payer's optional submit").
-   *
-   * Hand-over is still first and still unconditional — this is only ever called
-   * AFTER the payee has the bytes (a MessageBox post accepted, a nearby
-   * positive ack) — but once the hand-over has landed and this device has
-   * signal, there is no reason to make the holder wait a drain interval for
-   * their own money to reach the issuer. So this runs exactly what the drain
-   * would have run for this txid: COVER, `/submit` parents-first, and a
-   * broadcast of the tip only once every ancestor is admitted.
-   *
-   * **Never a failure path.** It reports where the row ended up; it does not
-   * throw, and a caller that cannot reach the overlay simply gets the state it
-   * started with back, because the drain still owns the retry. The two states
-   * the USER owns (`'built'`, `'parked'`) are returned untouched — FIX F: a
-   * payment the payer deliberately withheld is not settled by anybody's
-   * optimisation.
-   *
-   * **Safe to race with the tick drain.** Every advance is a CAS
-   * (`advanceSettlement`) and `/submit` is idempotent (FIX C), so the worst a
-   * lost race costs is one duplicate submit that returns the same admission.
-   * Two overlapping `settleNow` calls for the same txid are coalesced onto one
-   * in-flight run and get the same answer.
-   */
-  settleNow(txid: string): Promise<TokenSettleState>
-
-  /**
-   * The token Resend: re-deliver a sent transfer's notification over the
-   * message box, whichever rail it first went out on. The body is rebuilt from
-   * what this device holds (blinding journal or the payee output's marker, the
-   * bytes `refetch` finds, any cached σ_I) and is the same body `transferTokens`
-   * sends, so the recipient's inbox needs nothing new. Never contacts the
-   * overlay and never moves the transaction's own status — a delivery, not a
-   * payment. See `core/mandala/resendTransfer.ts`.
-   */
-  resendTransfer(
-    txid: string,
-    deps: {
-      /** AtomicBEEF for the txid — `makeResendBeef` in the app. */
-      refetch: (txid: string) => Promise<number[] | undefined>
-      /** Unwraps metadata the permissions manager encrypted on its way to storage. */
-      decryptMetadata?: (value: string) => Promise<string>
-    }
-  ): Promise<TokenResendOutcome>
-
-  /**
-   * Step every drain-owned `sent` row once (`handed_over`/`submitting`/
-   * `admitted`), exactly as `settleNow` would. The handle rail writes no queue
-   * row, so without this a hand-over whose immediate submit did not settle
-   * had no retry at all (2026-09-15). Rides the drain tick. Never throws;
-   * returns how many rows changed state.
-   */
-  settlePendingSends(): Promise<number>
-
-  /**
-   * Fetch and cache a verified σ_I for every spendable token coin whose txid
-   * has none, so an offline hand-over always carries its ancestors' admissions.
-   * Rides the drain tick. Never throws; returns how many were fetched.
-   */
-  ensureAdmissionsForHoldings(): Promise<number>
-  /**
-   * Drives the LIB's own durable journals once: `reconcileWallet` (retryable
-   * refusals, overlay-accepted-but-unbroadcast txs, pending aborts, the stuck
-   * `nosend` sweep) and `reconcileNotifications` (recipient notifications a
-   * crashed or offline send never delivered).
-   *
-   * Separate from `drainNow`'s settlement pass because it recovers the HANDLE
-   * rail's half-finished state, which has no `token_settlements` row of its
-   * own to drain — and it rides the same tick because both are "what this
-   * device owes after a reconnect". Best-effort in every direction: never
-   * throws, and an unreachable overlay or MessageBox simply leaves the entries
-   * journaled for the next pass.
-   */
-  reconcileJournals(): Promise<void>
-  /** Plain reason a recipient string cannot receive tokens, or null (D4 / ux §5.4). */
-  recipientRefusal(recipient: string): string | null
-  /** Subscribe to changes (balances/activity/settlement state). Returns unsubscribe. */
-  subscribe(listener: () => void): () => void
-  /**
-   * GET /admin/admission/:txid, mapped and FIX-H-verified against this
-   * session's overlay identity key (an unverifiable 'admitted' answer counts
-   * as absent). Used by `cancelParkedPayment`'s overlay-authoritative cancel
-   * (FIX J) and by `recoverStaleAdmissions`' own recovery pass.
-   */
-  fetchAdmission: FetchAdmissionFn
-  /**
-   * FIX C recovery: advances any `handed_over`/`held` row older than one
-   * drain interval with no local admission by asking the overlay once per
-   * pass. Returns the number of rows advanced. Never throws.
-   */
-  recoverStaleAdmissions(): Promise<number>
-  /**
-   * Repair the wallet's own view of a token transaction it wrongly failed.
-   *
-   * A `token_settlements` row reading `admitted`/`broadcast` beside a wallet
-   * transaction reading `failed` (and a request reading `invalid`) is the
-   * 2026-09-15 fingerprint: the overlay admitted — and therefore broadcast —
-   * the transaction, and an abort a moment later released its input coin as
-   * spendable although it was spent on chain. For every such row where the
-   * transaction is independently confirmed to exist (the chain, or an admission
-   * the overlay still holds), this puts the transaction back to a live status,
-   * re-marks its inputs spent, restores its own outputs to spendable and
-   * repairs the request so the monitor proves it.
-   *
-   * Rides the drain tick, returns the number of transactions repaired, and
-   * never throws. Never acts on the settlement row alone.
-   */
-  repairAdmittedAborted(): Promise<number>
-  /**
-   * The Check Wallet pass over token state, on demand rather than on the tick.
-   *
-   * Every non-terminal settlement row the drain owns takes one `settleNow`
-   * step; whatever is still not settled is put to the overlay. Every spendable
-   * token coin without a verified σ_I covering its vout is put to the overlay
-   * too. Only the overlay's OWN final verdict writes anything: a refused or
-   * evicted transaction is failed locally (its row closed, its inputs freed,
-   * its outputs made unspendable), and a coin the overlay admitted for other
-   * outputs is made unspendable. A row or coin the overlay has never heard of
-   * is counted as `unattested` and left exactly as it was — the drain still
-   * owns it, and removing it on absence would be removing it on a guess.
-   * `unreachable` is true when the overlay could not be asked; nothing was
-   * decided in that case. Never throws.
-   */
-  reviewTokenHoldings(): Promise<TokenHoldingsReview>
-  /**
-   * Sweeps abandoned nearby-blinding reservations (a `lockToPayee` call whose
-   * payment was never built/committed) older than 24h. Returns the number
-   * removed. Never throws.
-   */
-  pruneBlindingReservations(): Promise<number>
+  /** Non-terminal journal rows older than STUCK_AFTER_MS. */
+  stuck(): Promise<ColorTransferRow[]>
   /** Regulatory/registry facts about `assetId`, from the ~10s cache. */
   assetStatus(assetId: string): Promise<TokenAssetStatus>
   /** Same as `assetStatus`, forcing a fresh read past the cache. */
   refreshAssetStatus(assetId: string): Promise<TokenAssetStatus>
+  /** Caches a received receipt's attested deploy tx for offline metadata reads (W7). Never throws. */
+  rememberDeploy(declarationTxHex: string): Promise<void>
+  /** Plain reason a recipient string cannot receive tokens, or null. Sending to self is allowed. */
+  recipientRefusal(recipient: string): string | null
+  /** Subscribe to changes (balances/activity/settlement state). Returns unsubscribe. */
+  subscribe(listener: () => void): () => void
 
-  // ── Injection points ──
-  //
-  // Everything above is something a screen asks the runtime to DO. Everything
-  // below is something the runtime hands to machinery that already exists —
-  // the release drain, the nearby build, the frame verifier, the pending
-  // queue — so that each of those keeps its own single call site instead of
-  // growing a second, Mandala-shaped one. They are on this interface rather
-  // than on a wider "wallet runtime" type because the UI assembles some of
-  // them (NearbyFlow's build deps) and the wallet shell the rest, and both
-  // read the same `useWallet().mandala`.
-
-  /** Token deps for `processOfflineActions`, passed on every drain tick (§4.3). */
-  tokenDeps: OfflineTokenDeps
-  /** What `buildPaymentFrame` needs for a nearby token payment: `{ store, lockToPayee }`. */
-  tokenBuildDeps: TokenBuildDeps
-  /** The pure COVER verifier `coverFromFrame` injects when a frame is handed over. */
-  coverVerifier: CoverVerifier
-  /** FIX H: verifies a counterparty-supplied σ_I (a settlement ack) before it gates anything. */
-  verifyAdmissionEntry: VerifyAdmissionFn
-  /**
-   * The same check, curried onto THIS session's configured overlay identity
-   * key — the shape the drain and the frame verifier inject (`AdmissionVerifier`).
-   * A caller cannot name the key it wants an entry checked against, which is
-   * the point: §9.10's expected signer is configuration, never frame data.
-   */
-  verifyAdmission: AdmissionVerifier
-  /** `processPending`'s token hook: journal a credited frame's settlement row and evidence. */
-  onTokenCredited: TokenCreditedHook
-  /**
-   * RECEIVER, BEFORE `internalizeAction`: writes the `'held'` row and the
-   * frame's evidence, so the broadcast guard has something to read the moment
-   * the credit forces a broadcast attempt.
-   */
-  onTokenHeld: TokenHeldHook
-  /**
-   * PAYER, at park/hold: writes the `'parked'`/`'handed_over'` row and the
-   * evidence from the still-PLAINTEXT frame, which is the only moment this
-   * device can — `offline_actions.framePayload` is sealed with an in-memory
-   * session key a restart forgets.
-   */
-  onTokenHandedOver: TokenHandedOverHook
+  /** One row's settlement through `color.settle({ txids })`; built/parked rows are returned untouched (Task 12). */
+  settleNow(txid: string): Promise<TokenSettleState>
+  /** Bare `color.settle()`, single-flight; returns how many journal rows changed (Task 12). */
+  settleAll(): Promise<number>
+  /** `settleAll` plus a count of where every row stands (Task 12). */
+  reviewTokenHoldings(): Promise<TokenHoldingsReview>
+  /** Whether the overlay already admitted this hand-over; `undefined` when it cannot be asked (Task 12). */
+  isHandoverAdmitted(txid: string): Promise<boolean | undefined>
+  /** Journals held 1Color receipts that have no row (held when `color_offline`, else settled) (Task 12). */
+  reconcileHeld(txids: readonly string[]): Promise<void>
+  /** Handle rail: hand over to an identity key and deliver over MessageBox (Task 13). */
+  sendToHandle(a: {
+    assetId: string
+    recipientIdentityKey: string
+    units: bigint
+    note?: string
+  }): Promise<TokenSendResult>
+  /** Handle rail: drain the `mandala-color` box. `incomplete`: the box could not be read (Task 13). */
+  receiveFromInbox(): Promise<{ credited: number; failed: number; incomplete?: true }>
+  /** Re-deliver a sent hand-over over MessageBox. Never contacts the overlay (Task 13). */
+  resendTransfer(txid: string): Promise<'resent' | 'not-found' | 'unavailable'>
+  /** One drain pass: redeliver, settle, reconcile held. Never throws (Task 17). */
+  tick(): Promise<void>
+  nearby: NearbyTokenDeps
 }
