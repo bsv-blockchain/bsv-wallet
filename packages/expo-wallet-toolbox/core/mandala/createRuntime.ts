@@ -373,11 +373,30 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     }
   }
 
+  /**
+   * Of `txids`, the ones that are this wallet's own outgoing actions (the
+   * toolbox's `transactions.isOutgoing`: set by `createAction`, never by an
+   * `internalizeAction` of a receipt). A read fault propagates, so reconcile
+   * writes nothing rather than guess a receipt.
+   */
+  async function ownSends(txids: readonly string[]): Promise<ReadonlySet<string>> {
+    const out = new Set<string>()
+    if (db === undefined || txids.length === 0) return out
+    // Chunked under SQLite's bound-parameter limit.
+    for (let i = 0; i < txids.length; i += 500) {
+      const chunk = txids.slice(i, i + 500)
+      const sql = `SELECT DISTINCT txid FROM transactions WHERE isOutgoing = 1 AND txid IN (${chunk.map(() => '?').join(',')})`
+      const rows = await (db as unknown as OfflineDb).getAllAsync(sql, chunk)
+      for (const r of rows as { txid?: unknown }[]) if (typeof r.txid === 'string') out.add(r.txid)
+    }
+    return out
+  }
+
   /** Settles `held` receipts the module inventory shows admitted (shared by the runtime and the inbox). */
   async function reconcileHeld(txids: readonly string[]): Promise<void> {
     if (db === undefined || txids.length === 0) return
     const changed = await reconcileHeldTransfers(
-      { journal, inventory: async () => await readInventory(bound, adminOriginator) },
+      { journal, inventory: async () => await readInventory(bound, adminOriginator), ownSends },
       txids
     )
     if (changed > 0) emit()

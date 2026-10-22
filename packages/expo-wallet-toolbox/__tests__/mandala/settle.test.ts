@@ -672,6 +672,38 @@ describe('runtime: reconcileHeld', () => {
     expect((await journal.get(U))!.state).toBe('held')
   })
 
+  // A third-party originator's token action (published, or BRC-177) is this
+  // wallet's own send: the storage hold parks it with no journal row, and the
+  // inventory then holds only its token CHANGE. Journaling that as a
+  // `received`/`external` credit would show the sender's own change as an
+  // incoming payment, so an own-funded txid (an outgoing action) is skipped.
+  // Its release is the overlay's broadcast on admission (design §21), as for
+  // an exact spend with no change; see the report's contract gaps.
+  it('never journals an own outgoing action’s change as a receipt', async () => {
+    raw
+      .prepare(
+        `INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (1, '2026-10-22', '2026-10-22', ?)`
+      )
+      .run('02'.padEnd(66, 'a'))
+    raw
+      .prepare(
+        `INSERT INTO transactions (created_at, updated_at, userId, status, reference, isOutgoing, satoshis, txid)
+         VALUES ('2026-10-22', '2026-10-22', 1, 'nosend', 'ref-ext', 1, -1, ?)`
+      )
+      .run(T)
+    raw
+      .prepare(
+        `INSERT INTO transactions (created_at, updated_at, userId, status, reference, isOutgoing, satoshis, txid)
+         VALUES ('2026-10-22', '2026-10-22', 1, 'unproven', 'ref-in', 0, 1, ?)`
+      )
+      .run(U)
+    const wallet = fakeWallet([rec({ outpoint: `${T}.1`, units: 7n }), rec({ outpoint: `${U}.0`, units: 9n })])
+    await runtimeWith({ wallet }).reconcileHeld([T, U])
+    expect(await journal.get(T)).toBeUndefined()
+    // An internalized receipt is still journaled as one.
+    expect((await journal.get(U))!).toMatchObject({ role: 'received', rail: 'external', units: 9n, state: 'settled' })
+  })
+
   it('is a no-op for an empty list, and propagates an inventory fault', async () => {
     const wallet = fakeWallet()
     await runtimeWith({ wallet }).reconcileHeld([])

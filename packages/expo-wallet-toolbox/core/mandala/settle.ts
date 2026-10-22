@@ -303,13 +303,24 @@ const voutOf = (outpoint: string): number => Number(outpoint.slice(outpoint.last
  *  · A `held` row whose records are all present and none offline or
  *    restricted: `settled` (the module drops `color_offline` only once the tx
  *    has a settled record). No records: it stays `held`.
+ *  · No row, but `ownSends` names the txid (an action this wallet funded,
+ *    e.g. a third-party originator's token send): skipped. Its records are
+ *    the sender's own token CHANGE, and a `received` row would show that
+ *    change as an incoming credit. It stays held here; an admitted one is
+ *    broadcast by the overlay (design §21), as an exact spend with no change
+ *    always was. A fault answering `ownSends` propagates (nothing written).
  *
  * Only the named txids are reconciled. Inserts are INSERT OR IGNORE and the
  * advance is a CAS, so a concurrent writer of the same row always wins.
  * Returns how many rows were written or moved.
  */
 export async function reconcileHeldTransfers(
-  d: { journal: TransferJournal; inventory: () => Promise<InventoryRecord[]> },
+  d: {
+    journal: TransferJournal
+    inventory: () => Promise<InventoryRecord[]>
+    /** Of `txids`, the ones this wallet funded (its own outgoing actions). */
+    ownSends?: (txids: readonly string[]) => Promise<ReadonlySet<string>>
+  },
   txids: readonly string[]
 ): Promise<number> {
   const wanted = [...new Set(txids)]
@@ -326,6 +337,9 @@ export async function reconcileHeldTransfers(
     else byTxid.set(txid, [r])
   }
 
+  const unjournaled = candidates.filter(t => !states.has(t) && byTxid.has(t))
+  const own = unjournaled.length > 0 && d.ownSends ? await d.ownSends(unjournaled) : new Set<string>()
+
   let changed = 0
   for (const txid of candidates) {
     const records = (byTxid.get(txid) ?? []).slice().sort((a, b) => voutOf(a.outpoint) - voutOf(b.outpoint))
@@ -335,6 +349,7 @@ export async function reconcileHeldTransfers(
       if (!unsettled && (await d.journal.advance(txid, ['held'], 'settled'))) changed++
       continue
     }
+    if (own.has(txid)) continue
     const first = records[0]
     const units = records.filter(r => r.assetId === first.assetId).reduce((sum, r) => sum + r.units, 0n)
     const wrote = await d.journal.insert({
