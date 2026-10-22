@@ -16,9 +16,8 @@
  *
  * Plan 07 Task 11 builds the reads, Task 12 settlement (`settle.ts`) and
  * Task 13 the handle rail (`handle.ts`), Task 15 the nearby payer hooks
- * (`nearby.ts`), Task 16 the nearby payee hook (`nearby.onReceived`). The
- * tick (Task 17) is wired by its task; until then it rejects with `not yet
- * wired` rather than pretending to have done something.
+ * (`nearby.ts`), Task 16 the nearby payee hook (`nearby.onReceived`), and
+ * Task 17 the drain tick (`tick`).
  */
 import { PublicKey, type WalletInterface } from '@bsv/sdk'
 import type { ColorOverlayProvider, ColorPermissionModule } from '@bsv/color-permission-module'
@@ -29,10 +28,12 @@ import type { MandalaEndpointConfig } from '../toolboxConfig'
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 import { devLog } from '../logging'
 import { makeResendBeef, type LocalBeefStorage } from '../peerpay/resendBeef'
+import { findOfflineActions, type OfflineDb } from '../storage/methods/offlineActions'
 import { createAssetMetadata, offlineUnitsOf, readAvailable, readInventory, STATE_AVAILABLE_TAG } from './assets'
 import type { WalletKv } from './kvStore'
 import {
   receiveFromInbox as receiveHandleInbox,
+  redeliverPending,
   resendTransfer as resendHandle,
   sendToHandle as sendHandle,
   type HandleDeps,
@@ -166,10 +167,6 @@ function unavailableJournal(): TransferJournal {
     setDelivered: refuse,
     statesOf: refuse
   }
-}
-
-const notYetWired = (member: string) => async (): Promise<never> => {
-  throw new Error(`MandalaRuntime.${member}: not yet wired`)
 }
 
 const RECIPIENT_REFUSAL =
@@ -489,6 +486,67 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
     }
   }
 
+  // ── Drain tick (Task 17) ──
+
+  /**
+   * Txids of queued release rows (`offline_actions` `queued`/`posting`, where
+   * the broadcast hold parks a token req) that the hold still names: a 1Color
+   * tx whose journal row is not `settled`. A plain BSV row is dropped by the
+   * bytes alone, so it never costs an inventory read. Every fault propagates;
+   * the tick turns it into "reconcile nothing this pass".
+   */
+  const heldColorTxids = async (): Promise<string[]> => {
+    if (db === undefined) return []
+    const rows = await findOfflineActions(db as unknown as OfflineDb, { status: ['queued', 'posting'] })
+    if (rows.length === 0) return []
+    const reqs: { txid: string; rawTx?: number[] }[] = []
+    for (const r of rows) {
+      const req = (await storage.findProvenTxReqs({ partial: { txid: r.txid } }))[0]
+      reqs.push({ txid: r.txid, rawTx: req?.rawTx })
+    }
+    return [...(await storage.colorHeldTxids(reqs))]
+  }
+
+  /**
+   * One drain pass, in this order, each step on its own:
+   *  1. redeliver every hand-over whose MessageBox delivery is not known to
+   *     have happened (W4), each one then named to `settleNow`;
+   *  2. the bare module settle (IC §8.2), which moves journal rows the overlay
+   *     admitted or refused;
+   *  3. journal the held 1Color receipts the release queue carries (Review
+   *     Focus 4): `held` while any record is `color_offline`, else `settled`.
+   *
+   * Never throws: a step that fails is logged and the next one still runs,
+   * because each is independently useful and the caller (the monitor task)
+   * must go on to the release pass. Concurrent callers coalesce below this
+   * (the redeliver and settle-all single flights; INSERT OR IGNORE and CAS
+   * journal writes), so a tick racing a screen moves each row once.
+   */
+  const tick = async (): Promise<void> => {
+    if (handleDeps) {
+      try {
+        await redeliverPending(handleDeps)
+      } catch (e) {
+        devLog('[mandala] tick: redelivery failed:', e)
+      }
+    }
+    if (settler) {
+      try {
+        await settler.settleAll()
+      } catch (e) {
+        devLog('[mandala] tick: settle failed:', e)
+      }
+    }
+    if (db !== undefined) {
+      try {
+        await reconcileHeld(await heldColorTxids())
+      } catch (e) {
+        devLog('[mandala] tick: reconciling held receipts failed; they stay as journaled:', e)
+      }
+    }
+    emit()
+  }
+
   const nearby: NearbyTokenDeps = {
     handover: nearbyPayer && color !== undefined ? nearbyPayer.handover : nearbyUnavailable,
     onHandedOver: nearbyPayer ? nearbyPayer.onHandedOver : nearbyUnavailable,
@@ -621,7 +679,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
       return await resendHandle(handleDeps, txid)
     },
 
-    tick: notYetWired('tick'),
+    tick,
     nearby
   }
 

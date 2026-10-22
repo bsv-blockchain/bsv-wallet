@@ -406,10 +406,114 @@ describe('subscribe', () => {
   })
 })
 
-describe('members wired by later tasks', () => {
-  it('reject until wired, never pretend to have done something', async () => {
-    const rt = runtimeWith()
-    await expect(rt.tick()).rejects.toThrow(/not yet wired/)
+describe('tick (Task 17)', () => {
+  const SENT = 'f1'.repeat(32)
+  const QUEUED_COLOR = 'f2'.repeat(32)
+  const QUEUED_PLAIN = 'f3'.repeat(32)
+
+  /**
+   * A storage stub over the real test database, with the two request reads
+   * the tick's held-receipt step makes. `colorHeldTxids` names only the 1Color
+   * one, as the real guard does for a plain-BSV queue row.
+   */
+  function tickStorage(calls: string[], o: { heldError?: Error } = {}) {
+    const findProvenTxReqs = jest.fn(async (a: { partial: { txid: string } }) => [
+      { txid: a.partial.txid, rawTx: [1, 2, 3] }
+    ])
+    const colorHeldTxids = jest.fn(async (reqs: readonly { txid: string }[]) => {
+      calls.push(`held:${reqs.map(r => r.txid.slice(0, 2)).join(',')}`)
+      if (o.heldError) throw o.heldError
+      return new Set(reqs.map(r => r.txid).filter(t => t === QUEUED_COLOR))
+    })
+    return {
+      stub: {
+        ...(storage as object),
+        findProvenTxReqs,
+        colorHeldTxids
+      } as unknown as CreateMandalaRuntimeArgs['storage'],
+      colorHeldTxids
+    }
+  }
+
+  async function seedTickRows(): Promise<void> {
+    await journal.insert(
+      row({
+        txid: SENT,
+        delivered: false,
+        counterpartyKey: SELF,
+        derivationPrefix: 'cHJl',
+        derivationSuffix: 'c3Vm',
+        senderIdentityKey: SELF
+      })
+    )
+    raw.prepare(`INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (1,'n','n','k')`).run()
+    for (const [i, txid] of [QUEUED_COLOR, QUEUED_PLAIN].entries()) {
+      raw
+        .prepare(
+          `INSERT INTO offline_actions (created_at, updated_at, userId, txid, seq, role, status)
+           VALUES ('n','n',1,?,?, 'received', 'queued')`
+        )
+        .run(txid, i + 1)
+    }
+  }
+
+  const heldCredit = () => rec({ outpoint: `${QUEUED_COLOR}.0`, tags: ['color_state_available', 'color_offline'] })
+
+  it("tick() runs redeliver → settle → reconcileHeld and swallows each step's error", async () => {
+    await seedTickRows()
+    const calls: string[] = []
+    const color = {
+      handoffEvidence: jest.fn(async () => {
+        calls.push('redeliver')
+        return undefined
+      }),
+      settle: jest.fn(async () => {
+        calls.push('settle')
+        return { results: [] }
+      })
+    }
+    const { stub } = tickStorage(calls)
+    const rt = runtimeWith({ storage: stub, color: color as never, inventory: [heldCredit()] })
+    const listener = jest.fn()
+    rt.subscribe(listener)
+
+    await expect(rt.tick()).resolves.toBeUndefined()
+    expect(calls).toEqual(['redeliver', 'settle', 'held:f2,f3'])
+    // Only the 1Color queue row is reconciled, and an offline credit stays held.
+    expect(await rt.journal.get(QUEUED_COLOR)).toMatchObject({ role: 'received', rail: 'external', state: 'held' })
+    expect(await rt.journal.get(QUEUED_PLAIN)).toBeUndefined()
+    expect(listener).toHaveBeenCalled()
+
+    // Every step throws: the tick still runs the next one and still resolves.
+    calls.length = 0
+    const failing = {
+      handoffEvidence: jest.fn(async () => {
+        calls.push('redeliver')
+        throw new Error('evidence store down')
+      }),
+      settle: jest.fn(async () => {
+        calls.push('settle')
+        throw new Error('overlay down')
+      })
+    }
+    const broken = tickStorage(calls, { heldError: new Error('journal unreadable') })
+    const rt2 = runtimeWith({ storage: broken.stub, color: failing as never, inventoryError: new Error('view down') })
+    await expect(rt2.tick()).resolves.toBeUndefined()
+    expect(calls).toEqual(['redeliver', 'settle', 'held:f2,f3'])
+  })
+
+  it('a held-txid read fault reconciles nothing rather than guessing', async () => {
+    await seedTickRows()
+    const calls: string[] = []
+    const { stub } = tickStorage(calls, { heldError: new Error('journal unreadable') })
+    const rt = runtimeWith({ storage: stub, inventory: [heldCredit()] })
+    await expect(rt.tick()).resolves.toBeUndefined()
+    expect(await rt.journal.get(QUEUED_COLOR)).toBeUndefined()
+  })
+
+  it('without the module or a database, a tick is a quiet no-op', async () => {
+    await expect(runtimeWith({ color: null }).tick()).resolves.toBeUndefined()
+    await expect(runtimeWith({ storage: { sqliteDb: undefined } as never }).tick()).resolves.toBeUndefined()
   })
 })
 
@@ -477,7 +581,11 @@ describe('the nearby payee member (Task 16)', () => {
       'a2781c68747470733a2f2f6272632e6465762f3230372f6174746573746564a266706172616d73a26974727573744d6f6465686964656e746974796b6964656e746974794b657978423032373938623831393531613661386337656638626564613039623036613233303331643765666166333762363633323635653031383861623337383132343034366776657273696f6e01785068747470733a2f2f6769746875622e636f6d2f6273762d626c6f636b636861696e2f6d616e64616c612f626c6f622f6d61737465722f646f63732f70726f66696c65732f6973737565722d76312e6d64a266706172616d73a16b6964656e746974794b657978423032373938623831393531613661386337656638626564613039623036613233303331643765666166333762363633323635653031383861623337383132343034366776657273696f6e01'
     const PAYLOAD_HEX = `a4636465630263726571${REQ_HEX}6373796d6454555344656c6162656c6b5465737420446f6c6c6172`
     const deploy = new Transaction()
-    deploy.addInput({ sourceTXID: '11'.repeat(32), sourceOutputIndex: 0, unlockingScript: UnlockingScript.fromHex('00') })
+    deploy.addInput({
+      sourceTXID: '11'.repeat(32),
+      sourceOutputIndex: 0,
+      unlockingScript: UnlockingScript.fromHex('00')
+    })
     deploy.addOutput({
       satoshis: 1,
       lockingScript: LockingScript.fromHex(

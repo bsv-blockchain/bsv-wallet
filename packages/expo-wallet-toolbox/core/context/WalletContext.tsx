@@ -178,7 +178,7 @@ import {
   createWocBroadcastService
 } from '../services/arcadeBroadcastProvider'
 import { getExchangeRate } from '../services/exchangeRate'
-import { logWithTimestamp } from '../logging'
+import { devLog, logWithTimestamp } from '../logging'
 import { recoverMnemonicWallet } from '../mnemonicWallet'
 import { backupProbe, discoverProfiles, registerDiscoveredProfile } from '../profiles/discovery'
 import {
@@ -722,6 +722,20 @@ type BtmsRequest = {
 }
 
 /** Same shape as BtmsRequest — the color module's consent queue item (via createColorAccessPolicy). */
+/**
+ * Waits on a foreground or reconnect `settleAll()` (single-flight with the
+ * drain tick's own settle). A row that settled releases its held tx on the
+ * drain's next pass, so that pass is asked for now. Never rejects: a settle
+ * that fails leaves every row as it was, for the next tick.
+ */
+async function releaseAfterTokenSettle(settling: Promise<number> | undefined, when: string): Promise<void> {
+  try {
+    if (((await settling) ?? 0) > 0) TaskSendOffline.requestNow()
+  } catch (e) {
+    devLog(`[WalletContext] ${when} token settle failed:`, e)
+  }
+}
+
 type MandalaRequest = {
   /** The originator (dApp domain) requesting token access */
   originator: string
@@ -2097,6 +2111,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               storage: phoneStorage,
               chain,
               endpoints: mandalaEndpoints,
+              // The module registered above for THIS build (undefined without
+              // endpoints, or when its build failed): settle, hand-over
+              // evidence and the overlay provider all come from it. Without
+              // it the runtime is unavailable rather than half-wired.
+              color: colorRef.current?.module,
+              provider: colorRef.current?.provider,
               // Lazy: constructing a runtime must do no I/O, and a wallet that
               // never touches stablecoins never opens a MessageBox connection.
               messageBox: mandalaEndpoints
@@ -2196,49 +2216,28 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           if (phoneStorage) {
             monitor.addTask(
               new TaskSendOffline(monitor, async () => {
-                // FIX C recovery and the nearby-blinding reservation sweep ride
-                // this same tick, ahead of the submit-then-broadcast pass below
-                // so a row this recovers to `admitted` can broadcast in the
-                // SAME pass rather than waiting for the next one. Read from the
-                // ref for the same reason `token: mandalaRef.current?.tokenDeps`
-                // is below — a rebuild replaces the runtime under a task
-                // registered once. Both are best-effort and never throw.
-                await mandalaRef.current?.recoverStaleAdmissions()
-                // The 2026-09-15 repair: a settlement row that says the overlay
-                // has the transaction, beside a wallet that failed it and
-                // released its input coin as spendable although it is spent on
-                // chain. Ahead of the release pass on purpose — a coin this
-                // re-marks spent must not be planned into a send below.
-                await mandalaRef.current?.repairAdmittedAborted()
-                // The LIB's own journals, on the same tick and with the same
-                // ref discipline: an overlay-accepted transfer whose broadcast
-                // never went out, a liftable refusal still holding its inputs,
-                // and the recipient notification a committed transfer owes its
-                // payee. Nothing else in this wallet drives them — the
-                // settlement drain below only knows `token_settlements` rows,
-                // and the handle rail writes none of these entries. Never
-                // throws (see `reconcileJournals`).
-                await mandalaRef.current?.reconcileJournals()
-                // The payer's handle-rail rows: no queue row exists for them,
-                // so the release pass below would never step them. Each one
-                // takes its `settleNow` step here instead (2026-09-15).
-                await mandalaRef.current?.settlePendingSends()
-                // Every held coin's σ_I on device, for the next offline hand-over.
-                await mandalaRef.current?.ensureAdmissionsForHoldings()
-                await mandalaRef.current?.pruneBlindingReservations()
+                // The color runtime's own pass first: redeliver undelivered
+                // hand-overs, the module settle, and the held-receipt
+                // reconcile (`MandalaRuntime.tick`, never throws). It runs
+                // AHEAD of the release pass on purpose — `processOfflineActions`
+                // posts a held 1Color tx only once its `color_transfers` row
+                // reads `settled`, so a row this settles goes out in the SAME
+                // pass. Read from the ref, not captured: a rebuild replaces the
+                // runtime under a task that was registered once, and a
+                // torn-down wallet's ref is undefined, so it drains nothing.
+                await mandalaRef.current?.tick()
                 const r = await processOfflineActions({
                   storage: phoneStorage!,
-                  refetchBeef: makeBeefRepair({ woc: wocConfigFor(chain), online: getOnline }),
-                  // The settlement drain, on the same cadence and in the same
-                  // pass as the BSV release. That is the whole of §4.3: a token
-                  // transaction takes the ordinary plan's place in dependency
-                  // order and simply has `/submit` in front of its broadcast,
-                  // so the recipient's `held` rows and the payer's
-                  // `handed_over` rows both settle on every online tick.
-                  // Read from the ref, not captured: a rebuild replaces the
-                  // runtime under a task that was registered once.
-                  token: mandalaRef.current?.tokenDeps
+                  refetchBeef: makeBeefRepair({ woc: wocConfigFor(chain), online: getOnline })
                 })
+                // The handle rail's `mandala-color` box, on the drain's cadence
+                // too: a hand-over credited here is journaled `held` and the
+                // next tick settles it. The credit-inbox task drains the same
+                // box (its `incomplete` flag feeds the profile removal check);
+                // both coalesce on the runtime's receive single flight. Never
+                // throws (see drainMandalaInbox).
+                const drained = await drainMandalaInbox(mandalaRef.current)
+                if (drained.credited > 0) setTxStatusVersion(v => v + 1)
                 // The drain writes transaction statuses directly, below the
                 // monitor's onTransactionStatusChanged callback — bump the
                 // version ourselves so the transactions screen re-fetches.
@@ -2401,9 +2400,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             if (sendWaiting?.processUnsent) {
               const orig = sendWaiting.processUnsent.bind(sendWaiting)
               sendWaiting.processUnsent = async (allReqApis, indent) => {
-                // Guard #2 for this path: a request with a `token_settlements`
-                // row is the settlement drain's to broadcast, after `/submit`,
-                // never the monitor's. Held here and dropped from this pass.
+                // Guard #2 for this path: an unsettled 1Color request (its
+                // `color_transfers` row is missing or not `settled`, see
+                // `colorHeldTxids`) is the drain's to release once the module
+                // settles it, never the monitor's. Held here and dropped from
+                // this pass.
                 const heldTokenTxids = await phoneStorage.holdTokenReqsForDrain(allReqApis as never)
                 const reqApis =
                   heldTokenTxids.size > 0 ? allReqApis.filter(r => !heldTokenTxids.has(r.txid)) : allReqApis
@@ -3773,6 +3774,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       TaskCreditInbox.noteConnectivity(online)
       TaskDrainOutbox.noteConnectivity(online)
       TaskBackupPush.noteConnectivity(online)
+      // Back online: the module settles what was credited or handed over
+      // offline (single-flight with the drain tick), and a row that settled
+      // releases its held tx on the drain's next pass.
+      if (online) void releaseAfterTokenSettle(mandalaRef.current?.settleAll(), 'reconnect')
     })
   }, [walletBuilt])
 
@@ -3812,6 +3817,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       const isNowForeground = nextAppState === 'active'
 
       if (wasBackground && isNowForeground) {
+        void releaseAfterTokenSettle(mandalaRef.current?.settleAll(), 'foreground')
         // The loop's timers were frozen with the app; the gap is the OS's, not
         // the monitor's. Without this the first watchdog check after a long
         // background would restart a healthy loop.
