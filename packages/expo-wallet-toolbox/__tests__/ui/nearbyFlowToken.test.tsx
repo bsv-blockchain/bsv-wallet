@@ -694,6 +694,126 @@ describe('NearbyFlow — the token path', () => {
   })
 })
 
+// A host drawing the payer's steps itself gets the token figure EXACTLY: above
+// 2^53 a `Number()` of the units is a different amount, so the hosted
+// contracts carry bigint `units` plus a formatted `amountText`, and the
+// number-shaped fields stay satoshi-only (0 / undefined on a token session).
+describe('NearbyFlow — hosted payer renderers on a token session', () => {
+  const BIG = 9007199254740993n // 2^53 + 1: Number() would round it to 2^53
+  const MAX_U64 = 18446744073709551615n
+
+  type Confirm = import('../../ui/components/pay/NearbyFlow').NearbyConfirm
+  type ShowCode = import('../../ui/components/pay/NearbyFlow').NearbyShowCode
+  type Done = import('../../ui/components/pay/NearbyFlow').NearbyDone
+
+  const tokenSession = (units?: bigint): Session =>
+    mintSession({
+      identityKey: PAYEE_IDENTITY,
+      ...(units !== undefined ? { units } : {}),
+      asset: ASSET,
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      supportsAwdl: false
+    })
+
+  it('hands confirm, show-code and done exact bigint units, never a rounded number', async () => {
+    mockBuildPaymentFrame.mockResolvedValue({
+      frame: {},
+      reference: 'ref-1',
+      txid: 'd'.repeat(64),
+      satoshis: 1,
+      tokenAmount: BIG
+    })
+    let confirm: Confirm | undefined
+    let showCode: ShowCode | undefined
+    let done: Done | undefined
+    wrap(
+      <NearbyFlow
+        role="payer"
+        initialSession={tokenSession(BIG)}
+        onExit={jest.fn()}
+        renderPayer={{
+          confirm: c => {
+            confirm = c
+            return null
+          },
+          showCode: c => {
+            showCode = c
+            return null
+          },
+          done: d => {
+            done = d
+            return null
+          }
+        }}
+      />,
+      makeFakeMandala({ balances: [balanceOf(USDX, MAX_U64)] })
+    )
+    await settle()
+    expect(confirm).toBeDefined()
+    expect(confirm!.units).toBe(BIG)
+    expect(confirm!.fixedUnits).toBe(BIG)
+    expect(confirm!.holding).toBe(MAX_U64)
+    expect(confirm!.amountText).toBe('90,071,992,547,409.93 USDX')
+    // The number-shaped fields are satoshi-only.
+    expect(confirm!.amount).toBe(0)
+    expect(confirm!.fixedAmount).toBeUndefined()
+    expect(confirm!.canSend).toBe(true)
+
+    await act(async () => {
+      confirm!.send()
+      for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(showCode).toBeDefined()
+    expect(showCode!.units).toBe(BIG)
+    expect(showCode!.amountText).toBe('90,071,992,547,409.93 USDX')
+    expect(showCode!.amount).toBe(0)
+
+    await act(async () => {
+      showCode!.done()
+      for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(done).toBeDefined()
+    // Task 18: the satoshi figure is 0 on the token path; the text is the payment.
+    expect(done!.amount).toBe(0)
+    expect(done!.amountText).toBe('90,071,992,547,409.93 USDX')
+  })
+
+  it('takes a bigint from the host’s setAmount on an open token request, exactly', async () => {
+    let confirm: Confirm | undefined
+    wrap(
+      <NearbyFlow
+        role="payer"
+        initialSession={tokenSession()}
+        onExit={jest.fn()}
+        renderPayer={{
+          confirm: c => {
+            confirm = c
+            return null
+          }
+        }}
+      />,
+      makeFakeMandala({ balances: [balanceOf(USDX, MAX_U64)] })
+    )
+    await settle()
+    expect(confirm!.units).toBe(0n)
+    expect(confirm!.fixedUnits).toBeUndefined()
+    await act(async () => {
+      confirm!.setAmount(BIG)
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(confirm!.units).toBe(BIG)
+    expect(confirm!.amount).toBe(0)
+    expect(confirm!.canSend).toBe(true)
+    await act(async () => {
+      confirm!.setAmount(undefined)
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(confirm!.units).toBe(0n)
+    expect(confirm!.canSend).toBe(false)
+  })
+})
+
 describe('NearbyFlow — the token path, payee side (plan 07 Task 16)', () => {
   /** A real AtomicBEEF, so the screen can read the txid it asks the journal about. */
   function receiptBeef(): Uint8Array {

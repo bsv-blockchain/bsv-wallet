@@ -479,16 +479,34 @@ function assetUnits(asset: SessionAsset, held?: { ticker: string; decimals: numb
  */
 export interface NearbyConfirm {
   session: Session
-  /** The payee's own figure, which the payer cannot change; undefined is an open request. */
+  /**
+   * BSV session: the payee's own satoshi figure, which the payer cannot
+   * change; undefined is an open request. Always undefined on a token
+   * session — read `fixedUnits` there.
+   */
   fixedAmount?: number
-  /** What will be paid: satoshis, or base units of `asset`. 0 until usable. */
+  /**
+   * BSV session: the satoshis that will be paid, 0 until usable. Always 0 on a
+   * token session, whose figure is `units` / `amountText`: token base units
+   * run to 2^64-1, and a number is not that figure above 2^53.
+   */
   amount: number
-  /** Open request only: set the payer's figure (satoshis or base units); undefined clears it. */
-  setAmount: (units: number | undefined) => void
+  /** Token session: the payee's own figure in exact base units; undefined is an open request. */
+  fixedUnits?: bigint
+  /** Token session: what will be paid, in exact base units of `asset`. 0n until usable. */
+  units?: bigint
+  /** Token session: `units` formatted in `asset` (e.g. "25.00 USDX"), when the unit can be named. */
+  amountText?: string
+  /**
+   * Open request only: set the payer's figure — satoshis on a BSV session,
+   * base units on a token one (pass a bigint there: a number above 2^53 is
+   * already a different figure). undefined or a non-positive value clears it.
+   */
+  setAmount: (amount: number | bigint | undefined) => void
   /** Token session: the unit every figure is in. Undefined on BSV. */
   asset?: { ticker: string; decimals: number }
-  /** Token session: this wallet's holding of it, in base units. */
-  holding?: number
+  /** Token session: this wallet's holding of it, in exact base units. */
+  holding?: bigint
   note: string
   setNote: (note: string) => void
   recipient: { name: string; detail?: string }
@@ -507,8 +525,12 @@ export interface NearbyConfirm {
 
 /** The payer's "Delivering…" step, while the radio carries the payment. */
 export interface NearbySending {
-  /** Satoshis, or base units of `asset`. */
+  /** Satoshis on a BSV session; 0 on a token session, whose figure is `units` / `amountText`. */
   amount: number
+  /** Token session: exact base units of `asset`. */
+  units?: bigint
+  /** Token session: `units` formatted in `asset`. */
+  amountText?: string
   asset?: { ticker: string; decimals: number }
   recipient: { name: string; detail?: string }
   presence: { state: PresenceState; label: string } | null
@@ -520,7 +542,12 @@ export interface NearbyShowCode {
   code: (size: number) => React.ReactNode
   /** True when the code cycles through frames. */
   animated: boolean
+  /** Satoshis on a BSV session; 0 on a token session, whose figure is `units` / `amountText`. */
   amount: number
+  /** Token session: exact base units of `asset`. */
+  units?: bigint
+  /** Token session: `units` formatted in `asset`. */
+  amountText?: string
   asset?: { ticker: string; decimals: number }
   recipient: { name: string; detail?: string }
   presence: { state: PresenceState; label: string } | null
@@ -534,7 +561,7 @@ export interface NearbyShowCode {
 
 /** The payer's finish: the payment went. */
 export interface NearbyDone {
-  /** Satoshis; with `amountText` set it's a token payment and that is the figure. */
+  /** Satoshis; 0 on a token payment, where `amountText` is the figure. */
   amount: number
   amountText?: string
   statusNote?: string
@@ -684,8 +711,8 @@ function NearbyFlow({
   /**
    * Token mode: the figure in the asset's own units, and what is and is not
    * settled yet. Held apart from `settledAmount`, which is satoshis and on the
-   * token path is always 1 (BRC-92) — rendering it would show "1" for every
-   * token payment ever made.
+   * token path is always 0 — the output's 1 satoshi (BRC-92) rendered as the
+   * figure would show "1" for every token payment ever made.
    */
   const [settledTokenText, setSettledTokenText] = useState<string | null>(null)
   const [settledStatusNote, setSettledStatusNote] = useState<string | null>(null)
@@ -1830,28 +1857,38 @@ function NearbyFlow({
     return scannedSession.units ?? unitsFrom(sendAmount)
   }, [scannedSession, sendAmount])
   /**
-   * The same figure as a number: satoshis on the BSV path, and on a token
-   * session only the hosted renderers' number-shaped `amount` (their legacy
-   * contract). The money path and every token display use `payUnits`.
+   * The satoshi figure: the BSV path's amount, and always 0 on a token
+   * session. Token units are never converted to a number (above 2^53 that is
+   * a different figure): the money path, every token display and the hosted
+   * renderers' `units` / `amountText` read `payUnits`.
    */
   const payAmount = useMemo(() => {
-    if (!scannedSession) return 0
-    if (scannedSession.asset) return Number(payUnits)
+    if (!scannedSession || scannedSession.asset) return 0
     return scannedSession.amount ?? satsFrom(sendAmount)
-  }, [scannedSession, sendAmount, payUnits])
+  }, [scannedSession, sendAmount])
   /**
    * The figure the payee NAMED, or undefined for an open request: `units` on a
    * token session (session v2 carries no satoshi `amount` beside an asset),
    * `amount` on a BSV one. `fixedUnits` is the exact token figure every token
-   * display uses; `fixedAmount` is its number-shaped twin for the BSV path and
-   * the hosted renderers' legacy `fixedAmount` field.
+   * display uses; `fixedAmount` is the BSV satoshi figure and is undefined on
+   * a token session (never a `Number()` of units). `hasFixedAmount` is the
+   * one "did the payee name a figure" test for both.
    */
   const fixedUnits = scannedSession?.asset ? scannedSession.units : undefined
-  const fixedAmount = useMemo(() => {
-    if (!scannedSession) return undefined
-    if (scannedSession.asset) return scannedSession.units !== undefined ? Number(scannedSession.units) : undefined
-    return scannedSession.amount
-  }, [scannedSession])
+  const fixedAmount = scannedSession && !scannedSession.asset ? scannedSession.amount : undefined
+  const hasFixedAmount = fixedUnits !== undefined || fixedAmount !== undefined
+  /**
+   * Token session: the figure being paid, formatted in the asset's unit, for
+   * the hosted renderers. Undefined while the unit cannot be named
+   * (`unitsUnknown`): a bare number at a guessed scale is not printed.
+   */
+  const payAmountText = useMemo(
+    () =>
+      scannedAssetUnits && !unitsUnknown
+        ? (formatTokenAmountWithUnit(payUnits, scannedAssetUnits) ?? undefined)
+        : undefined,
+    [scannedAssetUnits, unitsUnknown, payUnits]
+  )
 
   /**
    * The token receipt, once a hand-over is accepted — one writer for BOTH
@@ -2288,9 +2325,10 @@ function NearbyFlow({
       }
       // `built.satoshis` is the real amount the wallet locked into the output —
       // `payAmount` is only what was requested, and the two diverge under
-      // send-max (`payAmount` carries the sentinel). On the token path it is 1
-      // satoshi, per BRC-92, and `built.tokenAmount` is the payment.
-      setSettledAmount(built.satoshis)
+      // send-max (`payAmount` carries the sentinel). On the token path the
+      // figure is 0: the output's 1 satoshi (BRC-92) is not the payment,
+      // `built.tokenAmount` is, and the receipt writer sets its text.
+      setSettledAmount(session.asset ? 0 : built.satoshis)
       if (session.asset) {
         // W5: the positive ack is the ACK. The receipt opens as "settling",
         // and `settleAfterHandover` (inside the writer) names this hand-over
@@ -2372,6 +2410,7 @@ function NearbyFlow({
         // No handle (e.g. re-entry after reset, which clears builtRef and
         // scannedSession together): nothing to decide, just close.
         if (celebrate) {
+          // Satoshis only: 0 on a token session (payAmount already is).
           setSettledAmount(payAmount)
           setRole('payer')
           setNotice(null)
@@ -2440,7 +2479,7 @@ function NearbyFlow({
         if (celebrate) setNotice({ text: t('local_pay_broadcast_pending'), tone: 'warning' })
       }
       if (celebrate) {
-        setSettledAmount(built.satoshis)
+        setSettledAmount(session.asset ? 0 : built.satoshis)
         // The receipt opens as "settling"; the writer's own settleNow is what
         // may settle it (W5: tapping Done is this rail's ACK).
         if (session.asset) writeTokenReceipt(session.asset, built, false)
@@ -2964,9 +3003,9 @@ function NearbyFlow({
             when the payee fixed it, or the live field when they left it open. */}
       {phase === 'send_confirm' && scannedSession && (
         <Animated.View entering={settleIn}>
-          {phaseTitle(fixedAmount === undefined ? t('local_pay_choose_amount') : t('local_pay_send'))}
+          {phaseTitle(hasFixedAmount ? t('local_pay_send') : t('local_pay_choose_amount'))}
 
-          {fixedAmount === undefined ? (
+          {!hasFixedAmount ? (
             <>
               {supportText(t('local_pay_enter_amount_send'))}
               <View style={styles.gapXl} />
@@ -3013,7 +3052,7 @@ function NearbyFlow({
                   </Animated.View>
                 ) : (
                   amountBlock(
-                    fixedAmount,
+                    fixedAmount ?? 0,
                     undefined,
                     scannedAssetUnits && fixedUnits !== undefined
                       ? { units: fixedUnits, asset: scannedAssetUnits }
@@ -3426,9 +3465,19 @@ function NearbyFlow({
                   session: scannedSession,
                   fixedAmount,
                   amount: payAmount,
-                  setAmount: units => setSendAmount(units !== undefined && units > 0 ? String(Math.round(units)) : ''),
+                  ...(scannedSession.asset ? { fixedUnits, units: payUnits, amountText: payAmountText } : {}),
+                  setAmount: amount =>
+                    setSendAmount(
+                      typeof amount === 'bigint'
+                        ? amount > 0n
+                          ? amount.toString()
+                          : ''
+                        : amount !== undefined && amount > 0
+                          ? String(Math.round(amount))
+                          : ''
+                    ),
                   asset: scannedAssetUnits,
-                  holding: scannedHolding && !unitsUnknown ? Number(scannedHolding.units) : undefined,
+                  holding: scannedHolding && !unitsUnknown ? scannedHolding.units : undefined,
                   note,
                   setNote,
                   recipient: payerRecipient,
@@ -3460,7 +3509,13 @@ function NearbyFlow({
               node: (
                 <Hosted
                   render={renderPayer.sending}
-                  value={{ amount: payAmount, asset: scannedAssetUnits, recipient: payerRecipient, presence }}
+                  value={{
+                    amount: payAmount,
+                    ...(scannedSession?.asset ? { units: payUnits, amountText: payAmountText } : {}),
+                    asset: scannedAssetUnits,
+                    recipient: payerRecipient,
+                    presence
+                  }}
                 />
               )
             }
@@ -3473,6 +3528,7 @@ function NearbyFlow({
                       code: size => <PaymentQrDisplay frameQr={paymentQr} size={size} onError={onPaymentQrError} />,
                       animated: paymentQrBlocks > 1,
                       amount: payAmount,
+                      ...(scannedSession?.asset ? { units: payUnits, amountText: payAmountText } : {}),
                       asset: scannedAssetUnits,
                       recipient: payerRecipient,
                       presence,

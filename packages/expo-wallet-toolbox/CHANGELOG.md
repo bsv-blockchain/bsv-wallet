@@ -58,7 +58,16 @@ versions below 6, session version 1 and MessageBox bodies v1/v2 are all gone.
   BRC-207 §7.1 receipt into `p color <assetTag>`. The σI pieces are removed:
   `offline/tokenFrames`, `localpay/settlementAck`, `mandala/drain`,
   `mandala/bundle` (`coverFromFrame`, `assembleBundle`, `tokenParentsOf`) and
-  their exports.
+  their exports. A nearby BSV frame whose transaction carries any 1Color
+  output is declined (`session_mismatch`): the broadcast hold would park it
+  for good.
+- **Hosted payer renderers.** On a token session `NearbyConfirm`,
+  `NearbySending` and `NearbyShowCode` carry the exact figure as `units`
+  (bigint) and `amountText`, and `NearbyConfirm` adds `fixedUnits`. The
+  number-shaped `amount` is 0 and `fixedAmount` is undefined there, and
+  `NearbyDone.amount` is 0 on a token payment. `NearbyConfirm.holding` is a
+  bigint, and `setAmount` takes a bigint (token base units) or a number
+  (satoshis).
 
 ### Added
 
