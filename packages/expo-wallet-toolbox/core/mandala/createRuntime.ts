@@ -55,7 +55,6 @@ import {
   type DerSignature,
   type EvidenceSource,
   type FetchedAdmission,
-  type MandalaStorage,
   type MessageBoxLike,
   type MessageBoxSender,
   type OverlayFetch,
@@ -70,7 +69,7 @@ import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 import { postOwnedByTxid, processOfflineActions, type OfflineTokenDeps } from '../storage/methods/processOfflineActions'
 import type { PostOutcome } from '../offline/plan'
 import { findOfflineActions } from '../storage/methods/offlineActions'
-import { getPending, type KVStorage, type TokenCreditedHook } from '../localpay/pending'
+import { getPending, type TokenCreditedHook } from '../localpay/pending'
 import type { PaymentFrame } from '../localpay/codec'
 import type { VerifyAdmissionFn } from '../localpay/settlementAck'
 import type { LockToPayee, TokenBuildDeps } from '../localpay/build'
@@ -172,56 +171,9 @@ function libCoverArgs(
 
 // ─────────────────────────── the wallet's storage ───────────────────────────
 
-/** What the KV adapter needs: the toolbox's own key/value table, plus raw SQL for the two verbs it lacks. */
-export interface MandalaKvStorage extends KVStorage {
-  readonly sqliteDb?: {
-    runAsync(sql: string, params: (string | number | null)[]): Promise<{ changes: number }>
-    getAllAsync(sql: string, params: (string | number | null)[]): Promise<unknown[]>
-  }
-}
-
-/** LIKE treats these as wildcards; a journal prefix containing one must still match literally. */
-function escapeLike(prefix: string): string {
-  return prefix.replace(/[\\%_]/g, c => `\\${c}`)
-}
-
-/**
- * `MandalaStorage` over `StorageExpoSQLite`'s `key_value_store` (D3c).
- *
- * The lib's journals are the recovery contract: an overlay-accepted but
- * not-yet-broadcast transaction is recoverable only because its `'accepted'`
- * entry outlives the process that wrote it. React Native has no
- * `localStorage`, so without this adapter the lib silently falls back to a
- * process-lifetime Map and an interrupted broadcast becomes unrecoverable.
- *
- * `removeItem`/`keys` go straight to SQL because `StorageExpoSQLite` exposes
- * neither — and both are deliberately hard failures when the database is
- * closed rather than silent no-ops: a `removeItem` that quietly did nothing
- * would leave a completed broadcast's journal entry behind forever, which the
- * lib's reconcile pass reads as work still outstanding.
- */
-export function createMandalaKvStorage(storage: MandalaKvStorage): MandalaStorage {
-  const db = (): NonNullable<MandalaKvStorage['sqliteDb']> => {
-    const handle = storage.sqliteDb
-    if (!handle) throw new Error('Mandala journal storage: the wallet database is not open')
-    return handle
-  }
-  return {
-    getItem: async key => (await storage.getKeyValue(key)) ?? null,
-    setItem: async (key, value) => {
-      await storage.setKeyValue(key, value)
-    },
-    removeItem: async key => {
-      await db().runAsync('DELETE FROM key_value_store WHERE key = ?', [key])
-    },
-    keys: async prefix => {
-      const rows = (await db().getAllAsync(`SELECT key FROM key_value_store WHERE key LIKE ? ESCAPE '\\'`, [
-        `${escapeLike(prefix)}%`
-      ])) as { key: string }[]
-      return rows.map(r => r.key)
-    }
-  }
-}
+// Moved to ./kvStore (plan 07 Task 5). Re-exported until Tasks 11–13 rewrite this
+// file and its consumers import from ./kvStore directly.
+export { createMandalaKvStorage, type WalletKv as MandalaKvStorage } from './kvStore'
 
 // ─────────────────────────────── construction ───────────────────────────────
 
