@@ -12,11 +12,14 @@ in the mandala worktree. The seam contract is `2026-10-22-1color-00-interfaces.m
 | Gate                           | Baseline (ae9dec61, before 1Color)       | Final (this branch)                          |
 | ------------------------------ | ---------------------------------------- | -------------------------------------------- |
 | `npx jest` suites              | 2 failed, 2 skipped, 370 passed (374)    | **0 failed**, 2 skipped, 377 passed (379)    |
-| `npx jest` tests               | 2 failed, 10 skipped, 6403 passed (6415) | **0 failed**, 10 skipped, 6297 passed (6307) |
+| `npx jest` tests               | 2 failed, 10 skipped, 6403 passed (6415) | **0 failed**, 10 skipped, 6304 passed (6314) |
 | `npx tsc --noEmit -p .`        | 0 `error TS`                             | **0** `error TS`                             |
 | Leftover grep (Task 19 Step 1) | n/a                                      | only allowed hits (below)                    |
-| `expo export` ios              | n/a                                      | `Exported:` (3356 modules, 17 MB hbc)        |
-| `expo export` android          | n/a                                      | `Exported:` (3435 modules, 17 MB hbc)        |
+| `expo export` ios              | n/a                                      | `Exported:` (3356 modules)                   |
+| `expo export` android          | n/a                                      | `Exported:` (3435 modules)                   |
+
+The final column is the re-run after the whole-plan review fixes (below):
+6297 → 6304 tests, the seven new pins.
 
 The baseline's two failures were load-sensitive 5000 ms timeouts
 (`vaultScreen`, `enrollWizard`); both pass in the final full run. The test
@@ -55,9 +58,9 @@ Task 19 fixed the stale hits: `vault/guard.test.ts` now uses the module's
 output dir is in the session scratchpad, not `$TMPDIR`):
 
 ```
-iOS Bundled 36479ms index.js (3356 modules)
+iOS Bundled 23013ms index.js (3356 modules)
 Exported: …/scratchpad/1color-export
-Android Bundled 32251ms index.js (3435 modules)
+Android Bundled 20483ms index.js (3435 modules)
 Exported: …/scratchpad/1color-export-a
 ```
 
@@ -145,6 +148,37 @@ The 2.8.11, 2.14.9 and `@bsv+mandala+0.4.1` patches are deleted.
   `colorHandoff` member on the `signAction` result. It survives the wallet's
   wrappers (pinned in `colorRegistration.test.ts`), but BRC-100 defines no
   carrier for it.
+- **Third-party originator token sends (review finding 3).** The module
+  is registered for every originator. Take an external app's published or
+  BRC-177 token action that the overlay admits. The module's D24
+  `sendWith` reaches the storage hold, which holds it because there is no
+  journal row. The tx is left out of `sendWithResults`, and the module
+  calls `removeUnsent`. `processOfflineActions` then holds that owned step
+  on every pass. After `2903b7c7` reconcile no longer turns its change
+  into a fake receipt, but nothing in this wallet releases it either. Its
+  broadcast is the overlay's on admission (design §21), as it always was
+  for an exact spend with no change. The `offline_actions` row stays
+  queued. The remaining fix is a contract question for IC §8.2: release a
+  held owned 1Color req once the module reports its txid admitted, keyed
+  on the settle report rather than on a journal row. The alternative is
+  to have the module journal through a host hook. Neither is in IC
+  Revision 2.
+- **Review finding 4 test shape.** The finding asked for a test that a
+  send leaves no `mandala.txJournal.*` key. Every wallet test mocks the
+  lib's `sendHandover`, which needs a module-hosting wallet, so the pin
+  checks the call arguments instead: `journal: false` on both rails
+  (`handle.test.ts`, `pendingTokenHold.test.ts`). The no-key guarantee
+  then rests on the lib's documented `journal: false` behaviour. A dev
+  build that ran this branch before `1d0208de` keeps its earlier
+  `mandala.txJournal.*` entries, because the one-time migration only
+  wipes them before its marker exists. No released build is affected.
+- **Address-rail decoy (note only).** The legacy address sweep
+  (`core/pay/rails/address.ts`) internalizes chain-indexer
+  transactions. A payment to a wallet address whose tx also carries a
+  1Color output could be held by the same W1 predicate if its internalize
+  queues a broadcast (this was not verified). Those txs are already
+  mined, so no double-spend window opens, but such an `offline_actions`
+  row would stay held. Not fixed here.
 - **Inert scaffolding (Task 11).** `mandala/{token,bundle,drain}.ts` were
   kept until their last importers were rewritten. Tasks 15 and 16 deleted
   them.
@@ -159,6 +193,53 @@ The 2.8.11, 2.14.9 and `@bsv+mandala+0.4.1` patches are deleted.
   - the core barrel now exports `buildColorModule`, `createColorModuleStore`
     and `createColorAccessPolicy` (with `colorPromptType` and
     `COLOR_PROMPT_TYPES`), so a host can build the module and runtime itself.
+
+## Whole-plan review fixes
+
+Five findings from the whole-plan review, one commit each, tests first:
+
+1. **Decoy 1Color output on a nearby BSV frame** (important,
+   `62561d4a`). The W1 hold parks any tx with a 1Color output until its
+   journal row reads `settled`, and only token transfers get a row. A payer
+   could add a 1-sat OneColor output to a valid BSV frame. The payee's
+   credit would then be held for good, while the payer stayed free to
+   double-spend the inputs. `verifyFramePayment`'s BSV branch now
+   declines such a frame (`not_mine` → `session_mismatch`) before any
+   derivation, so the payee queues nothing. It uses the hold's own
+   predicate (`transactionHasColorOutput`, newly exported from
+   `colorGuard.ts`), so the two cannot drift. The guard itself is
+   unchanged and still fails closed.
+2. **Hosted renderer token amounts** (important, `a32c55a3`). The
+   contracts are widened rather than kept number-shaped. On a token
+   session, `NearbyConfirm`, `NearbySending` and `NearbyShowCode` carry
+   `units: bigint` and `amountText`, and `NearbyConfirm` adds
+   `fixedUnits`. On a token session the number fields are fixed:
+   `amount` is 0 and `fixedAmount` is undefined. This follows the
+   `NearbyDone`/`NearbyReceived` precedent (number `amount` plus
+   `amountText`). `NearbyConfirm.holding` is now a `bigint`, and
+   `setAmount` accepts a `bigint`. `settledAmount` is 0 on every token
+   exit, including the no-handle exit at the old `:2375`, as Task 18
+   specifies. `grep "Number(" NearbyFlow.tsx` now finds only the BSV
+   `satsFrom` parse. This is a breaking type change for any host
+   renderer, recorded in the 0.21.0 CHANGELOG. No in-repo host uses
+   `renderPayer`.
+3. **Third-party originator token actions** (minor, `2903b7c7`; contract
+   gap below). `reconcileHeldTransfers` now skips an unjournaled txid
+   that the wallet funded (`transactions.isOutgoing = 1`). Its inventory
+   records are the sender's own change, so it no longer shows as a
+   `received`/`external` credit.
+4. **Lib txJournal growth** (minor, `1d0208de`). Both rails pass
+   `journal: false` to `sendHandover`. The lib's precondition is
+   `reconcileWallet({ sweep: false })`, and it holds vacuously because the
+   wallet runs no sweep.
+5. **`settleAll` ∥ `settleNow(T)`** (minor, `60053f0a`). This is pinned
+   for admitted and refused verdicts: one journal transition. The pin
+   exposed a real double abort of the refused hand-over. The settler now
+   coalesces aborts per reference and does not repeat an abort that
+   succeeded. A failed or declined abort is still retried, by the next
+   report or by a `settleNow` of the refused row. `settleNow` does not
+   wait for an in-flight `settleAll`, because that would put a nearby
+   ACK's settle behind a slow settle-all.
 
 ## Publish order (IC §9; the user publishes manually)
 
