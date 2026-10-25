@@ -9,7 +9,7 @@
 import { createColorAccessPolicy } from '../../core/mandala/accessPolicy'
 
 const ADMIN = 'admin.wallet.local'
-const TYPES = ['color_send', 'color_signature', 'color_access', 'color_relinquish', 'color_receive_offline'] as const
+const TYPES = ['color_send', 'color_signature', 'color_access', 'color_relinquish'] as const
 
 function msg(fields: Record<string, unknown>): string {
   return JSON.stringify({ seekPermission: true, ...fields })
@@ -28,6 +28,12 @@ beforeEach(() => {
 describe('createColorAccessPolicy', () => {
   it('approves every type for the admin originator without prompting', async () => {
     for (const type of TYPES) expect(await policy(ADMIN, msg({ type }))).toBe(true)
+    expect(prompt).not.toHaveBeenCalled()
+  })
+
+  it('refuses the removed color_receive_offline type (B7) as unknown, for every originator', async () => {
+    expect(await policy(ADMIN, msg({ type: 'color_receive_offline' }))).toBe(false)
+    expect(await policy('app.example', msg({ type: 'color_receive_offline' }))).toBe(false)
     expect(prompt).not.toHaveBeenCalled()
   })
 

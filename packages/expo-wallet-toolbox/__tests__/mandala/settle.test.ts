@@ -1,38 +1,57 @@
 /**
- * Runtime settlement through the color module (plan 07 Task 12).
+ * Host settlement of token hand-overs and receipts (plan 07 Task 12, design
+ * §9 B7). The module settles nothing; the runtime does, with the lib:
  *
- *  · `settleNow(txid)` names one row to `color.settle({ txids })`, coalesced
- *    per txid, and never for a row the payer withheld (`built`/`parked`) or a
- *    row already final. A thrown settle reads back as the row's current state.
- *  · `settleAll()` is bare `color.settle()`, single-flight.
- *  · A report maps onto the `color_transfers` journal with CAS transitions
- *    only; a refused own hand-over is journaled `refused` BEFORE its action is
- *    aborted, so the abort guard lets the inputs go.
+ *  · a delivered own hand-over (`handed_over`, `delivered`) goes through lib
+ *    `settleHandover` with the exact bytes and envelope the host ledger
+ *    recorded at send time; a held receipt through `settleReceipts`.
+ *  · The `markSettled` handed to the lib is the module's flag FIRST, then the
+ *    journal row, so the lib's post-admission broadcast already finds the row
+ *    `settled` (the hold releases it).
+ *  · Nothing is submitted for a row the payer withheld (`built`/`parked`), an
+ *    undelivered hand-over (B5) or a row already final. A refused own
+ *    hand-over is journaled `refused` BEFORE its action is aborted, once.
  *  · `isHandoverAdmitted` answers `undefined` whenever the overlay cannot be
  *    asked or answers something it cannot read, and `false` only on an empty
  *    output list.
  *  · `reconcileHeld` journals an unjournaled receipt as `held` whenever any of
  *    its records is `color_offline` (never `settled`).
  *
- * The journal is real SQLite: the CAS and INSERT OR IGNORE are what the
- * concurrency pins prove.
+ * The journal is real SQLite and the host ledger the lib's own: the CAS and
+ * INSERT OR IGNORE are what the concurrency pins prove. The lib's overlay
+ * calls (`settleHandover`, `settleReceipts`) are the seams under test.
  */
+jest.mock('@bsv/mandala', () => {
+  const actual = jest.requireActual('@bsv/mandala')
+  return { ...actual, settleHandover: jest.fn(), settleReceipts: jest.fn() }
+})
+
 import type { DatabaseSync } from 'node:sqlite'
-import { Hash, LockingScript, PrivateKey, Transaction, type WalletInterface } from '@bsv/sdk'
+import { Hash, LockingScript, PrivateKey, Transaction, Utils, type WalletInterface } from '@bsv/sdk'
 import { OneColor } from '@bsv/templates'
-import type { ColorOverlayProvider, ColorSettleReport } from '@bsv/color-permission-module'
-import { applySettleReport, createSettler, readHandoverAdmission, type SettleDeps } from '../../core/mandala/settle'
+import type { ColorOverlayProvider } from '@bsv/color-permission-module'
+import {
+  createHostLedger,
+  settleHandover,
+  settleReceipts,
+  type HostLedger,
+  type ReceiptSettleResult,
+  type SettleResult
+} from '@bsv/mandala'
+import { createSettler, readHandoverAdmission, type SettleDeps } from '../../core/mandala/settle'
 import { createMandalaRuntime, type CreateMandalaRuntimeArgs } from '../../core/mandala/createRuntime'
 import { createTransferJournal, type JournalDb, type TransferJournal } from '../../core/mandala/transferJournal'
 import type { ColorTransferRow } from '../../core/mandala/types'
 import type { InventoryRecord } from '../../core/mandala/assets'
 import { openTestDb, type ExpoLikeDb } from '../__helpers__/nodeSqlite'
 
+const settleHandoverMock = settleHandover as jest.MockedFunction<typeof settleHandover>
+const settleReceiptsMock = settleReceipts as jest.MockedFunction<typeof settleReceipts>
+
 const ADMIN = 'admin.example'
 const T = 'a1'.repeat(32)
 const U = 'b2'.repeat(32)
 const A = `${'ab'.repeat(32)}_0`
-const OTHER_ASSET = `${'cd'.repeat(32)}_0`
 const NOW = Date.parse('2026-10-22T12:00:00.000Z')
 const EP = {
   overlayUrl: 'https://overlay.example',
@@ -40,17 +59,35 @@ const EP = {
   messageBoxUrl: 'https://messagebox.example'
 }
 const MAX_U64 = 18446744073709551615n
+const BEEF_HEX = '0101010100'
+const ENVELOPE_HEX = '7b7d'
+const SIGMA = { txid: T, outputs: [1], signer: EP.overlayIdentityKey, signature: '3006' }
 
 let raw: DatabaseSync
 let db: ExpoLikeDb
 let journal: TransferJournal
+let ledger: HostLedger
 let storage: CreateMandalaRuntimeArgs['storage']
 
 beforeEach(async () => {
-  let kv
+  let kv: { getKeyValue(k: string): Promise<string | undefined>; setKeyValue(k: string, v: string): Promise<void> }
   ;({ raw, db, kv } = await openTestDb())
   journal = createTransferJournal(db as JournalDb, () => new Date(NOW))
   storage = { getKeyValue: kv.getKeyValue, setKeyValue: kv.setKeyValue, sqliteDb: db } as never
+  const mem = new Map<string, string>()
+  ledger = createHostLedger({
+    getItem: async k => mem.get(k) ?? null,
+    setItem: async (k, v) => {
+      mem.set(k, v)
+    },
+    removeItem: async k => {
+      mem.delete(k)
+    },
+    keys: async prefix => [...mem.keys()].filter(k => k.startsWith(prefix))
+  })
+  settleHandoverMock.mockReset()
+  settleReceiptsMock.mockReset()
+  settleReceiptsMock.mockResolvedValue([])
 })
 
 afterEach(() => raw.close())
@@ -74,300 +111,255 @@ function row(over: Partial<Omit<ColorTransferRow, 'createdAt' | 'updatedAt'>> = 
   }
 }
 
-type SettleFn = SettleDeps['color']['settle']
+/** The own `pending` record `sendHandover` writes at signing. */
+async function ownPending(txid = T): Promise<void> {
+  await ledger.put({
+    v: 1,
+    txid,
+    assetId: A,
+    state: 'pending',
+    own: true,
+    outputs: [1],
+    beefHex: BEEF_HEX,
+    submits: [{ txid, beefHex: BEEF_HEX, offChainHex: ENVELOPE_HEX }],
+    at: 1
+  })
+}
 
-function deps(
-  o: {
-    settle?: SettleFn
-    row?: Partial<Omit<ColorTransferRow, 'createdAt' | 'updatedAt'>>
-    abort?: SettleDeps['abort']
-    onChange?: () => void
-  } = {}
-) {
+/** A settleHandover that, like the lib, runs markSettled before it resolves admitted. */
+function admits(): jest.MockedFunction<typeof settleHandover> {
+  return settleHandoverMock.mockImplementation(async p => {
+    await p.markSettled?.(p.handover.txid)
+    return { status: 'admitted', attestation: SIGMA } as SettleResult
+  })
+}
+
+function deps(o: { abort?: SettleDeps['abort']; onChange?: () => void; markSettled?: SettleDeps['markSettled'] } = {}) {
   return {
-    color: { settle: o.settle ?? (jest.fn(async () => ({ results: [] })) as unknown as SettleFn) },
+    wallet: { abortAction: jest.fn() } as unknown as WalletInterface,
     journal,
-    abort: o.abort ?? jest.fn(async () => ({ aborted: true })),
-    onChange: o.onChange ?? jest.fn(),
-    ...(o.row ? { seed: row(o.row) } : {})
+    ledger,
+    markSettled: o.markSettled ?? jest.fn(async (_t: string) => {}),
+    overlayIdentityKey: EP.overlayIdentityKey,
+    abort: o.abort ?? jest.fn(async (_r: string) => ({ aborted: true })),
+    onChange: o.onChange ?? jest.fn()
   }
 }
 
-/** Seeds the journal with `seed` (when given) and returns the settler. */
-async function settlerWith(d: ReturnType<typeof deps>) {
-  if ('seed' in d && d.seed) await journal.insert(d.seed)
-  return createSettler(d)
-}
-
-describe('settleNow', () => {
-  it('coalesces concurrent settleNow(txid) onto one module call', async () => {
-    const settle = jest.fn(async () => {
+describe('settleNow: an own hand-over', () => {
+  it('submits the exact ledger bytes once for concurrent calls, and settles through markSettled', async () => {
+    await journal.insert(row())
+    await ownPending()
+    const d = deps()
+    let stateAtMark: string | undefined
+    settleHandoverMock.mockImplementation(async p => {
       await tick()
-      return { results: [{ txid: T, assetId: A, status: 'admitted' as const, outputs: [0] }] }
+      await p.markSettled?.(p.handover.txid)
+      stateAtMark = (await journal.get(T))?.state
+      return { status: 'admitted', attestation: SIGMA }
     })
-    const onChange = jest.fn()
-    const s = await settlerWith(deps({ settle, row: { state: 'handed_over' }, onChange }))
+    const s = createSettler(d)
     const [a, b] = await Promise.all([s.settleNow(T), s.settleNow(T)])
-    expect(settle).toHaveBeenCalledTimes(1)
-    expect(settle).toHaveBeenCalledWith({ txids: [T] })
-    expect(a).toBe('settled')
-    expect(b).toBe('settled')
-    expect((await journal.get(T))!.state).toBe('settled')
-    expect(onChange).toHaveBeenCalledTimes(1)
+    expect([a, b]).toEqual(['settled', 'settled'])
+    expect(settleHandoverMock).toHaveBeenCalledTimes(1)
+    expect(settleHandoverMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        wallet: d.wallet,
+        handover: { txid: T, tx: Utils.toArray(BEEF_HEX, 'hex'), offChainValues: Utils.toArray(ENVELOPE_HEX, 'hex') },
+        assetId: A,
+        overlayIdentityKey: EP.overlayIdentityKey,
+        ledger
+      })
+    )
+    // The module flag first, and the row already settled before the lib's
+    // post-admission broadcast would start.
+    expect(d.markSettled).toHaveBeenCalledWith(T)
+    expect(stateAtMark).toBe('settled')
+    expect(d.onChange).toHaveBeenCalled()
   })
 
-  it('never settles a built or parked row', async () => {
-    const settle = jest.fn()
-    const s = await settlerWith(deps({ settle: settle as never, row: { state: 'parked' } }))
-    expect(await s.settleNow(T)).toBe('parked')
-    await journal.insert(row({ txid: U, state: 'built' }))
-    expect(await s.settleNow(U)).toBe('built')
-    expect(settle).not.toHaveBeenCalled()
+  it('never submits a built, parked or undelivered hand-over (FIX F, B5)', async () => {
+    for (const [txid, over] of [
+      ['01'.repeat(32), { state: 'built' as const, delivered: false }],
+      ['02'.repeat(32), { state: 'parked' as const, delivered: false }],
+      ['03'.repeat(32), { state: 'handed_over' as const, delivered: false }]
+    ] as const) {
+      await journal.insert(row({ txid, ...over }))
+      await ownPending(txid)
+      expect(await createSettler(deps()).settleNow(txid)).toBe(over.state)
+    }
+    expect(settleHandoverMock).not.toHaveBeenCalled()
   })
 
-  it('names neither a final row nor an unknown txid to the module', async () => {
-    const settle = jest.fn()
-    const s = await settlerWith(deps({ settle: settle as never, row: { state: 'cancelled' } }))
-    expect(await s.settleNow(T)).toBe('cancelled')
-    await journal.insert(row({ txid: U, state: 'settled' }))
-    expect(await s.settleNow(U)).toBe('settled')
+  it('names neither a final row nor an unknown txid to the lib', async () => {
+    await journal.insert(row({ state: 'settled' }))
+    await journal.insert(row({ txid: U, state: 'cancelled', delivered: false }))
+    const s = createSettler(deps())
+    expect(await s.settleNow(T)).toBe('settled')
+    expect(await s.settleNow(U)).toBe('cancelled')
     expect(await s.settleNow('c3'.repeat(32))).toBe('unavailable')
-    expect(settle).not.toHaveBeenCalled()
+    expect(settleHandoverMock).not.toHaveBeenCalled()
+    expect(settleReceiptsMock).not.toHaveBeenCalled()
   })
 
-  it('retries the abort of a refused own hand-over without naming it to the module', async () => {
-    const settle = jest.fn()
-    const abort = jest.fn(async () => ({ aborted: true }))
-    const s = await settlerWith(deps({ settle: settle as never, abort, row: { state: 'refused', code: 'ERR_FROZEN' } }))
-    expect(await s.settleNow(T)).toBe('refused')
-    expect(abort).toHaveBeenCalledWith('ref-T')
-    expect(settle).not.toHaveBeenCalled()
-    // A refused receipt has no action to abort.
-    await journal.insert(row({ txid: U, role: 'received', state: 'refused', reference: undefined }))
-    expect(await s.settleNow(U)).toBe('refused')
-    expect(abort).toHaveBeenCalledTimes(1)
-  })
-
-  it('settles a held receipt by name', async () => {
-    const settle = jest.fn(async () => ({
-      results: [{ txid: T, assetId: A, status: 'admitted' as const, outputs: [0] }]
-    }))
-    const s = await settlerWith(deps({ settle, row: { role: 'received', state: 'held', reference: undefined } }))
-    expect(await s.settleNow(T)).toBe('settled')
-  })
-
-  it('retry changes nothing; a thrown settle reports the current state', async () => {
-    const onChange = jest.fn()
-    const settle = jest
-      .fn<ReturnType<SettleFn>, Parameters<SettleFn>>()
-      .mockResolvedValueOnce({ results: [{ txid: T, assetId: A, status: 'retry', code: 'ERR_UNAVAILABLE' }] })
-      .mockRejectedValueOnce(new Error('store fault'))
-      .mockResolvedValueOnce({ results: [{ txid: T, assetId: A, status: 'admitted', outputs: [0] }] })
-    const s = await settlerWith(deps({ settle, row: { state: 'handed_over' }, onChange }))
-    expect(await s.settleNow(T)).toBe('handed_over')
-    expect(await s.settleNow(T)).toBe('handed_over')
-    expect(onChange).not.toHaveBeenCalled()
-    // The in-flight slot was released by the throw: the next call asks again.
-    expect(await s.settleNow(T)).toBe('settled')
-    expect(settle).toHaveBeenCalledTimes(3)
-  })
-
-  it('a thrown settle with an unreadable journal is unavailable, never a verdict', async () => {
-    const settle = jest.fn(async () => {
-      raw.exec('DROP TABLE color_transfers')
-      throw new Error('store fault')
+  it('a refused hand-over is journaled refused with its code, then aborted once', async () => {
+    await journal.insert(row())
+    await ownPending()
+    const order: string[] = []
+    const abort = jest.fn(async (reference: string) => {
+      order.push(`abort:${(await journal.get(T))!.state}`)
+      return { aborted: reference === 'ref-T' }
     })
-    const s = await settlerWith(deps({ settle, row: { state: 'handed_over' } }))
-    expect(await s.settleNow(T)).toBe('unavailable')
+    settleHandoverMock.mockResolvedValue({ status: 'refused', code: 'ERR_CONSERVATION' })
+    const s = createSettler(deps({ abort }))
+    expect(await s.settleNow(T)).toBe('refused')
+    expect((await journal.get(T))!.code).toBe('ERR_CONSERVATION')
+    expect(order).toEqual(['abort:refused'])
+    // A later settleNow of the refused row retries nothing it already released.
+    expect(await s.settleNow(T)).toBe('refused')
+    expect(abort).toHaveBeenCalledTimes(1)
+    expect(settleHandoverMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries the abort of a refused row whose abort failed, without asking the lib', async () => {
+    await journal.insert(row({ state: 'refused' }))
+    const abort = jest.fn(async () => ({ aborted: false }))
+    const s = createSettler(deps({ abort }))
+    expect(await s.settleNow(T)).toBe('refused')
+    expect(await s.settleNow(T)).toBe('refused')
+    expect(abort).toHaveBeenCalledTimes(2)
+    expect(settleHandoverMock).not.toHaveBeenCalled()
+  })
+
+  it('a retry verdict changes nothing; a thrown settle reports the current state', async () => {
+    await journal.insert(row())
+    await ownPending()
+    settleHandoverMock.mockResolvedValueOnce({ status: 'retry', code: 'ERR_UNAVAILABLE' })
+    const s = createSettler(deps())
+    expect(await s.settleNow(T)).toBe('handed_over')
+    settleHandoverMock.mockRejectedValueOnce(new Error('OVERLAY_URL_UNSET'))
+    expect(await s.settleNow(T)).toBe('handed_over')
+  })
+
+  it('finishes a hand-over the ledger already holds settled, without submitting', async () => {
+    await journal.insert(row())
+    await ledger.put({
+      v: 1,
+      txid: T,
+      assetId: A,
+      state: 'settled',
+      own: true,
+      outputs: [],
+      attestation: SIGMA,
+      marked: false,
+      at: 2
+    })
+    const d = deps()
+    expect(await createSettler(d).settleNow(T)).toBe('settled')
+    expect(d.markSettled).toHaveBeenCalledWith(T)
+    expect(settleHandoverMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps a hand-over with no ledger submit bytes where it is', async () => {
+    await journal.insert(row())
+    expect(await createSettler(deps()).settleNow(T)).toBe('handed_over')
+    expect(settleHandoverMock).not.toHaveBeenCalled()
+  })
+
+  it('an unreadable journal is unavailable, never a verdict', async () => {
+    const broken = {
+      ...journal,
+      get: async () => {
+        throw new Error('SQLITE_BUSY')
+      }
+    }
+    expect(await createSettler({ ...deps(), journal: broken }).settleNow(T)).toBe('unavailable')
   })
 })
 
-describe('applySettleReport', () => {
-  it('refused own hand-over is journaled refused, then aborted', async () => {
-    const order: string[] = []
-    await journal.insert(row({ state: 'handed_over' }))
-    const spied: TransferJournal = {
-      ...journal,
-      advance: async (...a) => {
-        order.push('journal')
-        return await journal.advance(...a)
-      }
-    }
-    const abort = jest.fn(async (reference: string) => {
-      order.push('abort')
-      // The abort guard reads the row: it must already say refused.
-      expect((await journal.getByReference(reference))!.state).toBe('refused')
-      return { aborted: true }
+describe('settleNow: a held receipt', () => {
+  it('submits its pending chain through settleReceipts and settles via markSettled', async () => {
+    await journal.insert(row({ role: 'received', state: 'held', reference: undefined, delivered: false }))
+    settleReceiptsMock.mockImplementation(async p => {
+      await p.markSettled?.(T)
+      return [{ txid: T, assetId: A, status: 'admitted' }] as ReceiptSettleResult[]
     })
-    const d = { journal: spied, abort }
-    const out = await applySettleReport(
-      { results: [{ txid: T, assetId: A, status: 'refused', code: 'ERR_FROZEN' }] },
-      d
+    const d = deps()
+    expect(await createSettler(d).settleNow(T)).toBe('settled')
+    expect(settleReceiptsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ ledger, overlayIdentityKey: EP.overlayIdentityKey, txids: [T] })
     )
-    expect(order).toEqual(['journal', 'abort'])
-    expect(abort).toHaveBeenCalledWith('ref-T')
-    expect((await d.journal.get(T))!.code).toBe('ERR_FROZEN')
-    expect((await d.journal.get(T))!.state).toBe('refused')
-    expect(out).toEqual({ changed: 1, settled: [] })
+    expect(d.markSettled).toHaveBeenCalledWith(T)
   })
 
-  it('admitted advances every open state to settled and leaves final rows alone', async () => {
-    const txids = ['01', '02', '03', '04', '05', '06'].map(b => b.repeat(32))
-    const states = ['built', 'parked', 'handed_over', 'held', 'refused', 'cancelled'] as const
-    for (let i = 0; i < txids.length; i++) {
-      await journal.insert(row({ txid: txids[i], state: states[i], reference: `ref-${i}` }))
-    }
-    const report: ColorSettleReport = {
-      results: txids.map(txid => ({ txid, assetId: A, status: 'admitted' as const, outputs: [0] }))
-    }
-    const abort = jest.fn(async () => ({ aborted: true }))
-    const out = await applySettleReport(report, { journal, abort })
-    expect(out).toEqual({ changed: 4, settled: txids.slice(0, 4) })
-    const after = await journal.statesOf(txids)
-    expect(txids.map(t => after.get(t))).toEqual(['settled', 'settled', 'settled', 'settled', 'refused', 'cancelled'])
-    expect(abort).not.toHaveBeenCalled()
+  it('journals a final refusal of a receipt and aborts nothing', async () => {
+    await journal.insert(row({ role: 'received', state: 'held', reference: undefined, delivered: false }))
+    settleReceiptsMock.mockResolvedValue([{ txid: T, assetId: A, status: 'refused', code: 'ERR_INPUT_SPENT' }])
+    const d = deps()
+    expect(await createSettler(d).settleNow(T)).toBe('refused')
+    expect((await journal.get(T))!.code).toBe('ERR_INPUT_SPENT')
+    expect(d.abort).not.toHaveBeenCalled()
   })
 
-  it('a refused receipt is journaled refused and nothing is aborted', async () => {
-    await journal.insert(row({ role: 'received', state: 'held', reference: undefined }))
-    const abort = jest.fn(async () => ({ aborted: true }))
-    await applySettleReport(
-      { results: [{ txid: T, assetId: A, status: 'refused', code: 'ERR_PARENT_REFUSED' }] },
-      { journal, abort }
-    )
-    expect((await journal.get(T))!).toMatchObject({ state: 'refused', code: 'ERR_PARENT_REFUSED' })
-    expect(abort).not.toHaveBeenCalled()
-  })
-
-  it('a refused row whose abort failed is aborted again on the next report', async () => {
-    await journal.insert(row({ state: 'handed_over' }))
-    const abort = jest
-      .fn<Promise<{ aborted: boolean }>, [string]>()
-      .mockRejectedValueOnce(new Error('crashed mid-abort'))
-      .mockResolvedValueOnce({ aborted: true })
-    const report: ColorSettleReport = { results: [{ txid: T, assetId: A, status: 'refused', code: 'ERR_FROZEN' }] }
-    await expect(applySettleReport(report, { journal, abort })).resolves.toEqual({ changed: 1, settled: [] })
-    await expect(applySettleReport(report, { journal, abort })).resolves.toEqual({ changed: 0, settled: [] })
-    expect(abort).toHaveBeenCalledTimes(2)
-  })
-
-  it('retry and unknown txids change nothing; a result for another asset is ignored', async () => {
-    await journal.insert(row({ state: 'handed_over' }))
-    const abort = jest.fn(async () => ({ aborted: true }))
-    const out = await applySettleReport(
-      {
-        results: [
-          { txid: T, assetId: A, status: 'retry', code: 'ERR_UNAVAILABLE' },
-          { txid: T, assetId: OTHER_ASSET, status: 'admitted', outputs: [0] },
-          { txid: 'c3'.repeat(32), assetId: A, status: 'admitted', outputs: [0] }
-        ]
-      },
-      { journal, abort }
-    )
-    expect(out).toEqual({ changed: 0, settled: [] })
-    expect((await journal.get(T))!.state).toBe('handed_over')
+  it('catches the row up with a ledger record already settled and marked', async () => {
+    await journal.insert(row({ role: 'received', state: 'held', reference: undefined, delivered: false }))
+    await ledger.put({ v: 1, txid: T, assetId: A, state: 'settled', outputs: [0], attestation: SIGMA, at: 2 })
+    expect(await createSettler(deps()).settleNow(T)).toBe('settled')
   })
 })
 
 describe('settleAll', () => {
-  it('settleAll is single-flight', async () => {
-    await journal.insert(row({ state: 'handed_over' }))
-    let release: () => void = () => undefined
-    const gate = new Promise<void>(resolve => {
-      release = resolve
-    })
-    const settle = jest.fn(async () => {
-      await gate
-      return { results: [{ txid: T, assetId: A, status: 'admitted' as const, outputs: [0] }] }
-    })
-    const onChange = jest.fn()
-    const s = createSettler({ color: { settle }, journal, abort: async () => ({ aborted: true }), onChange })
+  it('settles every pending receipt and every DELIVERED own hand-over, single-flight', async () => {
+    await journal.insert(row())
+    await ownPending()
+    await journal.insert(row({ txid: U, delivered: false }))
+    await ownPending(U)
+    admits()
+    let release!: () => void
+    settleReceiptsMock.mockImplementation(
+      async () =>
+        await new Promise<ReceiptSettleResult[]>(resolve => {
+          release = () => resolve([])
+        })
+    )
+    const s = createSettler(deps())
     const first = s.settleAll()
     const second = s.settleAll()
+    await tick()
     release()
     expect(await first).toBe(1)
     expect(await second).toBe(1)
-    expect(settle).toHaveBeenCalledTimes(1)
-    expect(settle).toHaveBeenCalledWith()
-    expect(onChange).toHaveBeenCalledTimes(1)
-    // A later call is a new run.
-    expect(await s.settleAll()).toBe(0)
-    expect(settle).toHaveBeenCalledTimes(2)
+    expect(settleReceiptsMock).toHaveBeenCalledTimes(1)
+    expect(settleReceiptsMock).toHaveBeenCalledWith(expect.not.objectContaining({ txids: expect.anything() }))
+    expect(settleHandoverMock).toHaveBeenCalledTimes(1)
+    expect((await journal.get(U))!.state).toBe('handed_over')
   })
 
-  // The per-txid single flight and the settle-all one are separate, so a tick's
-  // settleAll() racing a screen's settleNow(T) makes two module calls that
-  // both cover T. Exercised interleaving: settleAll() starts first, settleNow(T)
-  // reads the row while it is still handed_over and names it, then both module
-  // calls resolve with the same verdict and both reports are applied. The
-  // journal CAS lets exactly one of them move the row.
-  describe('racing settleNow(T)', () => {
-    function gatedSettle(status: 'admitted' | 'refused') {
-      let release: () => void = () => undefined
-      const gate = new Promise<void>(resolve => {
-        release = resolve
-      })
-      const result =
-        status === 'admitted'
-          ? { txid: T, assetId: A, status, outputs: [0] }
-          : { txid: T, assetId: A, status, code: 'ERR_FROZEN' }
-      const settle = jest.fn(async () => {
-        await gate
-        return { results: [result] } as unknown as ColorSettleReport
-      })
-      return { settle: settle as unknown as SettleFn & jest.Mock, release }
-    }
+  it('a receipt pass that throws does not stop the hand-overs', async () => {
+    await journal.insert(row())
+    await ownPending()
+    settleReceiptsMock.mockRejectedValue(new Error('OVERLAY_IDENTITY_KEY_UNSET'))
+    admits()
+    expect(await createSettler(deps()).settleAll()).toBe(1)
+    expect((await journal.get(T))!.state).toBe('settled')
+  })
 
-    async function race(status: 'admitted' | 'refused') {
-      await journal.insert(row({ state: 'handed_over' }))
-      const advance = jest.spyOn(journal, 'advance')
-      const { settle, release } = gatedSettle(status)
+  describe('racing settleNow(T)', () => {
+    it('moves a refused own hand-over once and aborts its action once', async () => {
+      await journal.insert(row())
+      await ownPending()
+      settleHandoverMock.mockImplementation(async () => {
+        await tick()
+        return { status: 'refused', code: 'ERR_FROZEN' }
+      })
       const abort = jest.fn(async () => ({ aborted: true }))
       const onChange = jest.fn()
-      const s = createSettler({ color: { settle }, journal, abort, onChange })
-      const all = s.settleAll()
-      const now = s.settleNow(T)
-      // Let settleNow read the row and reach the module before either resolves.
-      for (let i = 0; i < 5; i++) await tick()
-      release()
-      const [changed, state] = await Promise.all([all, now])
-      const moved = (await Promise.all(advance.mock.results.map(r => r.value as Promise<boolean>))).filter(Boolean)
-      advance.mockRestore()
-      return { settle, abort, onChange, changed, state, moved }
-    }
-
-    it('moves an admitted row once', async () => {
-      const r = await race('admitted')
-      expect(r.settle).toHaveBeenCalledTimes(2)
-      expect(r.settle).toHaveBeenCalledWith()
-      expect(r.settle).toHaveBeenCalledWith({ txids: [T] })
-      expect(r.moved).toHaveLength(1)
-      expect(r.state).toBe('settled')
-      expect((await journal.get(T))!.state).toBe('settled')
-      expect(r.onChange).toHaveBeenCalledTimes(1)
-      expect(r.abort).not.toHaveBeenCalled()
+      const s = createSettler(deps({ abort, onChange }))
+      await Promise.all([s.settleAll(), s.settleNow(T)])
+      expect((await journal.get(T))!.state).toBe('refused')
+      expect(abort).toHaveBeenCalledTimes(1)
+      expect(onChange).toHaveBeenCalledTimes(1)
     })
-
-    it('moves a refused own hand-over once and aborts its action once', async () => {
-      const r = await race('refused')
-      expect(r.settle).toHaveBeenCalledTimes(2)
-      expect(r.moved).toHaveLength(1)
-      expect(r.state).toBe('refused')
-      expect(await journal.get(T)).toMatchObject({ state: 'refused', code: 'ERR_FROZEN' })
-      expect(r.onChange).toHaveBeenCalledTimes(1)
-      expect(r.abort).toHaveBeenCalledTimes(1)
-      expect(r.abort).toHaveBeenCalledWith('ref-T')
-    })
-  })
-
-  it('a thrown settleAll rejects and frees the slot', async () => {
-    const settle = jest
-      .fn<ReturnType<SettleFn>, Parameters<SettleFn>>()
-      .mockRejectedValueOnce(new Error('store fault'))
-      .mockResolvedValueOnce({ results: [] })
-    const s = createSettler({ color: { settle }, journal, abort: async () => ({ aborted: true }), onChange: jest.fn() })
-    await expect(s.settleAll()).rejects.toThrow(/store fault/)
-    expect(await s.settleAll()).toBe(0)
   })
 })
 
@@ -456,17 +448,13 @@ function transportError(): Error {
 function runtimeWith(
   o: {
     wallet?: ReturnType<typeof fakeWallet>
-    settle?: SettleFn
     admission?: ColorOverlayProvider['admission']
     color?: null
     provider?: null
     storage?: CreateMandalaRuntimeArgs['storage']
   } = {}
 ) {
-  const color = {
-    settle: o.settle ?? (jest.fn(async () => ({ results: [] })) as unknown as SettleFn),
-    handoffEvidence: jest.fn(async () => undefined)
-  }
+  const color = { markSettled: jest.fn(async () => {}) }
   return createMandalaRuntime({
     wallet: o.wallet ?? fakeWallet(),
     adminOriginator: ADMIN,
@@ -474,6 +462,8 @@ function runtimeWith(
     chain: 'main',
     endpoints: EP,
     color: o.color === null ? undefined : (color as never),
+    ledger,
+    hostWallet: {} as WalletInterface,
     provider:
       o.provider === null
         ? undefined
@@ -490,11 +480,10 @@ function runtimeWith(
 describe('runtime: settleNow / settleAll / reviewTokenHoldings', () => {
   it('aborts a refused hand-over through the bound manager as the admin originator, and notifies', async () => {
     await journal.insert(row({ state: 'handed_over' }))
+    await ownPending()
     const wallet = fakeWallet()
-    const settle = jest.fn(async () => ({
-      results: [{ txid: T, assetId: A, status: 'refused' as const, code: 'ERR_FROZEN' }]
-    }))
-    const rt = runtimeWith({ wallet, settle })
+    settleHandoverMock.mockResolvedValue({ status: 'refused', code: 'ERR_FROZEN' })
+    const rt = runtimeWith({ wallet })
     const listener = jest.fn()
     rt.subscribe(listener)
     expect(await rt.settleNow(T)).toBe('refused')
@@ -504,28 +493,23 @@ describe('runtime: settleNow / settleAll / reviewTokenHoldings', () => {
 
   it('settleAll returns how many rows changed', async () => {
     await journal.insert(row({ state: 'handed_over' }))
+    await ownPending()
     await journal.insert(row({ txid: U, role: 'received', state: 'held', reference: undefined }))
-    const settle = jest.fn(async () => ({
-      results: [
-        { txid: T, assetId: A, status: 'admitted' as const, outputs: [0] },
-        { txid: U, assetId: A, status: 'retry' as const, code: 'ERR_UNAVAILABLE' }
-      ]
-    }))
-    const rt = runtimeWith({ settle })
+    admits()
+    settleReceiptsMock.mockResolvedValue([{ txid: U, assetId: A, status: 'retry', code: 'ERR_UNAVAILABLE' }])
+    const rt = runtimeWith()
     expect(await rt.settleAll()).toBe(1)
-    expect(settle).toHaveBeenCalledWith()
   })
 
   it('reviewTokenHoldings settles, then counts where every row stands', async () => {
     await journal.insert(row({ txid: '01'.repeat(32), state: 'handed_over' }))
+    await ownPending('01'.repeat(32))
     await journal.insert(row({ txid: '02'.repeat(32), state: 'held', role: 'received', reference: undefined }))
     await journal.insert(row({ txid: '03'.repeat(32), state: 'refused' }))
     await journal.insert(row({ txid: '04'.repeat(32), state: 'cancelled' }))
     await journal.insert(row({ txid: '05'.repeat(32), state: 'parked' }))
-    const settle = jest.fn(async () => ({
-      results: [{ txid: '01'.repeat(32), assetId: A, status: 'admitted' as const, outputs: [0] }]
-    }))
-    expect(await runtimeWith({ settle }).reviewTokenHoldings()).toEqual({
+    admits()
+    expect(await runtimeWith().reviewTokenHoldings()).toEqual({
       settled: 1,
       refused: 1,
       pending: 2,
@@ -533,27 +517,20 @@ describe('runtime: settleNow / settleAll / reviewTokenHoldings', () => {
     })
   })
 
-  it('reviewTokenHoldings is unreachable when every result is a transport retry, or the module threw', async () => {
+  it('reviewTokenHoldings is unreachable when every result is a transport retry', async () => {
     await journal.insert(row({ state: 'handed_over' }))
-    const retry = jest.fn(async () => ({
-      results: [{ txid: T, assetId: A, status: 'retry' as const, code: 'ERR_UNAVAILABLE' }]
-    }))
-    expect(await runtimeWith({ settle: retry }).reviewTokenHoldings()).toEqual({
+    await ownPending()
+    settleHandoverMock.mockResolvedValue({ status: 'retry', code: 'ERR_UNAVAILABLE' })
+    expect(await runtimeWith().reviewTokenHoldings()).toEqual({
       settled: 0,
       refused: 0,
       pending: 1,
       unreachable: true
     })
-    const other = jest.fn(async () => ({
-      results: [{ txid: T, assetId: A, status: 'retry' as const, code: 'ERR_PARENT_PENDING' }]
-    }))
-    expect((await runtimeWith({ settle: other }).reviewTokenHoldings()).unreachable).toBe(false)
-    const none = jest.fn(async () => ({ results: [] }))
-    expect((await runtimeWith({ settle: none }).reviewTokenHoldings()).unreachable).toBe(false)
-    const thrown = jest.fn(async () => {
-      throw new Error('store fault')
-    })
-    expect(await runtimeWith({ settle: thrown }).reviewTokenHoldings()).toMatchObject({ pending: 1, unreachable: true })
+    settleHandoverMock.mockResolvedValue({ status: 'retry', code: 'ERR_PAUSED' })
+    expect((await runtimeWith().reviewTokenHoldings()).unreachable).toBe(false)
+    await journal.advance(T, ['handed_over'], 'cancelled')
+    expect((await runtimeWith().reviewTokenHoldings()).unreachable).toBe(false)
   })
 
   it('without the module nothing is settled and nothing is pretended', async () => {
@@ -562,6 +539,7 @@ describe('runtime: settleNow / settleAll / reviewTokenHoldings', () => {
     expect(await rt.settleNow(T)).toBe('unavailable')
     expect(await rt.settleAll()).toBe(0)
     expect(await rt.reviewTokenHoldings()).toEqual({ settled: 0, refused: 0, pending: 1, unreachable: true })
+    expect(settleHandoverMock).not.toHaveBeenCalled()
   })
 })
 

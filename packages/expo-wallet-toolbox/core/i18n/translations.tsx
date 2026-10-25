@@ -787,9 +787,6 @@ const resources = {
       color_prompt_signature_title: 'Token Signature Request',
       color_prompt_access_title: 'Token Access Request',
       color_prompt_relinquish_title: 'Remove Token Holding',
-      color_prompt_receive_offline_title: 'Unsettled Token Payment',
-      color_prompt_offline_warning:
-        'These tokens are not settled yet (unsettled transactions: {{count}}). They show as pending and could still be refused when your wallet settles them.',
 
       // Amount input
       send_max: 'Send Max',
@@ -1892,9 +1889,6 @@ const resources = {
       color_prompt_signature_title: '代币签名请求',
       color_prompt_access_title: '代币访问请求',
       color_prompt_relinquish_title: '移除代币持仓',
-      color_prompt_receive_offline_title: '未结算的代币付款',
-      color_prompt_offline_warning:
-        '这些代币尚未结算（未结算交易：{{count}}）。它们显示为待处理，在您的钱包结算时仍可能被拒绝。',
 
       send_max: '发送最大值',
       message_box_unreachable: '无法连接支付服务器。请在设置中检查消息盒 URL。',
@@ -3011,9 +3005,6 @@ const resources = {
       color_prompt_signature_title: 'टोकन हस्ताक्षर अनुरोध',
       color_prompt_access_title: 'टोकन पहुँच अनुरोध',
       color_prompt_relinquish_title: 'टोकन होल्डिंग हटाएँ',
-      color_prompt_receive_offline_title: 'असेटल्ड टोकन भुगतान',
-      color_prompt_offline_warning:
-        'ये टोकन अभी सेटल नहीं हुए हैं (असेटल्ड लेनदेन: {{count}})। ये लंबित के रूप में दिखते हैं और आपके वॉलेट द्वारा सेटल करते समय अब भी अस्वीकार हो सकते हैं।',
 
       send_max: 'अधिकतम भेजें',
       message_box_unreachable: 'भुगतान सर्वर से संपर्क नहीं हो सका। सेटिंग्स में message box URL जांचें।',
@@ -4168,9 +4159,6 @@ const resources = {
       color_prompt_signature_title: 'Solicitud de firma de tokens',
       color_prompt_access_title: 'Solicitud de acceso a tokens',
       color_prompt_relinquish_title: 'Eliminar tenencia de tokens',
-      color_prompt_receive_offline_title: 'Pago de tokens sin liquidar',
-      color_prompt_offline_warning:
-        'Estos tokens aún no están liquidados (transacciones sin liquidar: {{count}}). Aparecen como pendientes y aún podrían ser rechazados cuando tu billetera los liquide.',
 
       send_max: 'Enviar máximo',
       message_box_unreachable:
@@ -5343,9 +5331,6 @@ const resources = {
       color_prompt_signature_title: 'Demande de signature de jetons',
       color_prompt_access_title: 'Demande d’accès aux jetons',
       color_prompt_relinquish_title: 'Retirer une détention de jetons',
-      color_prompt_receive_offline_title: 'Paiement en jetons non réglé',
-      color_prompt_offline_warning:
-        'Ces jetons ne sont pas encore réglés (transactions non réglées : {{count}}). Ils apparaissent en attente et pourraient encore être refusés lorsque votre portefeuille les réglera.',
 
       send_max: 'Envoyer le maximum',
       message_box_unreachable:
@@ -6477,9 +6462,6 @@ const resources = {
       color_prompt_signature_title: 'طلب توقيع رموز',
       color_prompt_access_title: 'طلب الوصول إلى الرموز',
       color_prompt_relinquish_title: 'إزالة حيازة رموز',
-      color_prompt_receive_offline_title: 'دفعة رموز غير مسوّاة',
-      color_prompt_offline_warning:
-        'هذه الرموز لم تُسوَّ بعد (المعاملات غير المسوّاة: {{count}}). تظهر كمعلّقة وقد تُرفض عندما تقوم محفظتك بتسويتها.',
 
       send_max: 'إرسال الحد الأقصى',
       message_box_unreachable: 'تعذر الوصول إلى خادم الدفع. تحقق من عنوان URL لصندوق الرسائل في الإعدادات.',
@@ -7618,9 +7600,6 @@ const resources = {
       color_prompt_signature_title: 'Pedido de assinatura de tokens',
       color_prompt_access_title: 'Pedido de acesso a tokens',
       color_prompt_relinquish_title: 'Remover posse de tokens',
-      color_prompt_receive_offline_title: 'Pagamento de tokens não liquidado',
-      color_prompt_offline_warning:
-        'Estes tokens ainda não foram liquidados (transações não liquidadas: {{count}}). Aparecem como pendentes e ainda podem ser recusados quando a sua carteira os liquidar.',
 
       send_max: 'Enviar máximo',
       message_box_unreachable:
@@ -8770,9 +8749,6 @@ const resources = {
       color_prompt_signature_title: 'টোকেন স্বাক্ষরের অনুরোধ',
       color_prompt_access_title: 'টোকেন অ্যাক্সেসের অনুরোধ',
       color_prompt_relinquish_title: 'টোকেন হোল্ডিং সরান',
-      color_prompt_receive_offline_title: 'অনিষ্পন্ন টোকেন পেমেন্ট',
-      color_prompt_offline_warning:
-        'এই টোকেনগুলি এখনও নিষ্পন্ন হয়নি (অনিষ্পন্ন লেনদেন: {{count}})। এগুলি মুলতুবি হিসেবে দেখায় এবং আপনার ওয়ালেট নিষ্পত্তি করার সময় এখনও প্রত্যাখ্যাত হতে পারে।',
 
       send_max: 'সর্বোচ্চ পাঠান',
       message_box_unreachable: 'পেমেন্ট সার্ভারে পৌঁছানো যায়নি। সেটিংসে message box URL যাচাই করুন।',
@@ -9925,9 +9901,6 @@ const resources = {
       color_prompt_signature_title: 'Запрос на подпись токенов',
       color_prompt_access_title: 'Запрос доступа к токенам',
       color_prompt_relinquish_title: 'Удалить токены из кошелька',
-      color_prompt_receive_offline_title: 'Неподтверждённый платёж токенами',
-      color_prompt_offline_warning:
-        'Эти токены ещё не подтверждены (неподтверждённых транзакций: {{count}}). Они отображаются как ожидающие и всё ещё могут быть отклонены, когда кошелёк их подтвердит.',
 
       send_max: 'Отправить максимум',
       message_box_unreachable: 'Не удалось связаться с платёжным сервером. Проверьте URL message box в настройках.',
@@ -11083,9 +11056,6 @@ const resources = {
       color_prompt_signature_title: 'Permintaan tanda tangan token',
       color_prompt_access_title: 'Permintaan akses token',
       color_prompt_relinquish_title: 'Hapus kepemilikan token',
-      color_prompt_receive_offline_title: 'Pembayaran token belum diselesaikan',
-      color_prompt_offline_warning:
-        'Token ini belum diselesaikan (transaksi belum diselesaikan: {{count}}). Token tampil sebagai tertunda dan masih bisa ditolak saat dompet Anda menyelesaikannya.',
 
       send_max: 'Kirim Maksimal',
       message_box_unreachable: 'Tidak dapat menghubungi server pembayaran. Periksa URL message box di pengaturan.',
@@ -12248,9 +12218,6 @@ const resources = {
       color_prompt_signature_title: 'トークン署名リクエスト',
       color_prompt_access_title: 'トークンアクセスリクエスト',
       color_prompt_relinquish_title: 'トークン保有の削除',
-      color_prompt_receive_offline_title: '未決済のトークン支払い',
-      color_prompt_offline_warning:
-        'これらのトークンはまだ決済されていません（未決済の取引：{{count}}）。保留中として表示され、ウォレットが決済する際に拒否される可能性があります。',
 
       // Amount input
       send_max: '最大額を送金',
@@ -13419,9 +13386,6 @@ const resources = {
       color_prompt_signature_title: 'Prośba o podpis tokenów',
       color_prompt_access_title: 'Prośba o dostęp do tokenów',
       color_prompt_relinquish_title: 'Usuń posiadane tokeny',
-      color_prompt_receive_offline_title: 'Nierozliczona płatność tokenami',
-      color_prompt_offline_warning:
-        'Te tokeny nie są jeszcze rozliczone (nierozliczone transakcje: {{count}}). Są widoczne jako oczekujące i nadal mogą zostać odrzucone, gdy portfel je rozliczy.',
 
       // Amount input
       send_max: 'Wyślij maksimum',

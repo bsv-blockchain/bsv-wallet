@@ -1,19 +1,18 @@
 /**
- * The handle rail's token half (plan 07 Task 13): hand-over send, MessageBox
- * redelivery and inbox receive over the `mandala-color` box.
+ * The handle rail's token half (plan 07 Task 13, design §9 B7): hand-over
+ * send, MessageBox redelivery and inbox receive over the `mandala-color` box.
  *
- *  · `sendToHandle` journals the row `handed_over` BEFORE delivering (W4): a
- *    lost MessageBox response may still have delivered, so the abort guard
- *    must already refuse. Only a delivered hand-over is named to `settleNow`
- *    (post-ACK intent, IC §2.3).
+ *  · `sendToHandle` keeps the v4 body, then journals the row `handed_over`
+ *    BEFORE delivering (W4): a lost MessageBox response may still have
+ *    delivered, so the abort guard must already refuse. Only a delivered
+ *    hand-over is named to `settleNow` (post-ACK submit, B5).
  *  · A per-asset latch refuses a second send while one is in flight (the
  *    double tap). A failed delivery is still `sent` (a second send would be a
  *    second payment), `notified: false`, and the tick redelivers it.
- *  · Redelivery rebuilds the §7.2 body from the row's custody fields, the
- *    module's `handoffEvidence` and the AtomicBEEF; never from the overlay.
- *  · Every inbox credit is journaled `held`; only the module inventory
- *    (`reconcileHeld`) settles it, so an unknown offline state never reads
- *    as admitted. An unreadable box is `incomplete`, never "nothing there".
+ *  · Redelivery sends the v4 body kept at send time; never from the overlay.
+ *  · Inbox receive runs with the host ledger: a credit the lib verified
+ *    online is journaled `settled`, one credited on COVER evidence `held`.
+ *    An unreadable box is `incomplete`, never "nothing there".
  *  · A resend checks everything it needs BEFORE it hands a parked payment
  *    over: a failed or offline resend leaves the row as it found it.
  *
@@ -32,9 +31,21 @@ jest.mock('@bsv/mandala', () => {
 })
 
 import type { DatabaseSync } from 'node:sqlite'
-import { PrivateKey, type WalletInterface } from '@bsv/sdk'
-import { ATTESTED_PROFILE_ID, deliverHandover, receiveHandovers, sendHandover, type HandoverResult } from '@bsv/mandala'
+import { P2PKH, PrivateKey, Transaction, type WalletInterface } from '@bsv/sdk'
+import { OneColor } from '@bsv/templates'
 import {
+  createHostLedger,
+  deliverHandover,
+  handoverBody,
+  receiptOfBody,
+  receiveHandovers,
+  sendHandover,
+  type HandoverBodyV4,
+  type HandoverResult,
+  type HostLedger
+} from '@bsv/mandala'
+import {
+  createHandoverBodies,
   receiveFromInbox,
   redeliverPending,
   resendTransfer,
@@ -56,13 +67,45 @@ const ME = new PrivateKey(7).toPublicKey().toString()
 const B = new PrivateKey(11).toPublicKey().toString()
 const A = `${'ab'.repeat(32)}_0`
 const A2 = `${'cd'.repeat(32)}_0`
-const T = 'a1'.repeat(32)
-const U = 'b2'.repeat(32)
 const NOW = Date.parse('2026-10-22T12:00:00.000Z')
 const MAX_U64 = 18446744073709551615n
-const DEPLOY_HEX = '0100000000000000000000'
-const PROFILE_DATA = { [ATTESTED_PROFILE_ID]: { [A]: { declarationTx: DEPLOY_HEX, submissions: [] } } }
-const BEEF = [1, 1, 1, 1, 0xab]
+const SENDER = new PrivateKey(13).toPublicKey().toString()
+
+/** A real signed-shape hand-over tip: output 0 pays 1500 units. */
+function tipTx(seed: number): Transaction {
+  const source = new Transaction()
+  source.addOutput({ lockingScript: new P2PKH().lock(new Array(20).fill(seed)), satoshis: 100 })
+  const tx = new Transaction()
+  tx.addInput({
+    sourceTransaction: source,
+    sourceOutputIndex: 0,
+    unlockingScript: new P2PKH().lock(new Array(20).fill(seed))
+  })
+  tx.addOutput({ lockingScript: new OneColor().lock(A, 1500n, new Array(20).fill(9)), satoshis: 1 })
+  return tx
+}
+const TIPS = new Map<string, Transaction>()
+for (const seed of [1, 2]) {
+  const tx = tipTx(seed)
+  TIPS.set(tx.id('hex'), tx)
+}
+const [T, U] = [...TIPS.keys()]
+
+/** The v4 body of the hand-over `txid` (its own AtomicBEEF inside). */
+function bodyFor(txid: string): HandoverBodyV4 {
+  const tx = TIPS.get(txid) ?? tipTx(1)
+  return handoverBody({
+    assetId: A,
+    amount: 1500n,
+    outputIndex: 0,
+    tx: tx.toAtomicBEEF(),
+    derivationPrefix: 'cHJlZml4',
+    derivationSuffix: 'c3VmZml4',
+    senderIdentityKey: SENDER,
+    senderMode: 'blinded',
+    linkage: [{ txid, offChainValues: [9, 9] }]
+  })
+}
 
 let raw: DatabaseSync
 let journal: TransferJournal
@@ -78,20 +121,16 @@ const record = (txid: string, tags: string[]): InventoryRecord => ({
 })
 
 function handover(over: Partial<HandoverResult> = {}): HandoverResult {
+  const txid = over.txid ?? T
+  const body = bodyFor(txid)
   return {
-    txid: T,
-    tx: BEEF,
+    txid,
+    tx: (TIPS.get(txid) ?? tipTx(1)).toAtomicBEEF(),
     reference: 'ref-T',
     outputIndex: 0,
     offChainValues: [9, 9],
-    receipt: {
-      version: 1,
-      assetId: A,
-      derivationPrefix: 'cHJlZml4',
-      derivationSuffix: 'c3VmZml4',
-      senderIdentityKey: 'blinded-A-prime',
-      profileData: PROFILE_DATA
-    },
+    receipt: receiptOfBody(body),
+    body,
     ...over
   }
 }
@@ -120,24 +159,34 @@ function messageBox(over: Partial<MandalaMessageBox> = {}): MandalaMessageBox {
   }
 }
 
+let kvMap: Map<string, string>
+let ledger: HostLedger
+const HOST = { revealSpecificKeyLinkage: jest.fn() } as unknown as WalletInterface
+const memoryKv = () => ({
+  getKeyValue: async (k: string) => kvMap.get(k),
+  setKeyValue: async (k: string, v: string) => {
+    kvMap.set(k, v)
+  }
+})
+
 function deps(over: Partial<HandleDeps> = {}): HandleDeps & { abortAction: jest.Mock } {
   const abortAction = jest.fn(async () => ({ aborted: true }))
+  const markSettled = jest.fn(async (_t: string) => {})
   const mb = messageBox()
   return {
     wallet: { abortAction } as unknown as WalletInterface,
     identityKey: async () => ME,
     journal: recordingJournal(journal),
-    color: {
-      handoffEvidence: jest.fn(async (txid: string) => ({ version: 1 as const, txid, profileData: PROFILE_DATA }))
-    },
+    hostWallet: HOST,
+    ledger,
+    markSettled,
+    bodies: createHandoverBodies(memoryKv()),
     messageBox: async () => mb,
     settleNow: jest.fn(async () => {
       order.push('settleNow')
       return 'settled' as const
     }),
     isOnline: async () => true,
-    rememberDeploy: jest.fn(async () => {}),
-    refetch: jest.fn(async () => BEEF),
     processed: new Set<string>(),
     now: () => new Date(NOW),
     recipientRefusal: (r: string) => (/^(02|03)[0-9a-f]{64}$/i.test(r) ? null : 'not an identity key'),
@@ -164,9 +213,14 @@ function row(over: Partial<Omit<ColorTransferRow, 'createdAt' | 'updatedAt'>> = 
     delivered: false,
     derivationPrefix: 'cHJlZml4',
     derivationSuffix: 'c3VmZml4',
-    senderIdentityKey: 'blinded-A-prime',
+    senderIdentityKey: SENDER,
     ...over
   }
+}
+
+/** The body a send kept for `txid` (rows inserted directly need it for a redelivery). */
+async function keepBody(d: HandleDeps, txid = T): Promise<void> {
+  await d.bodies.put(txid, bodyFor(txid))
 }
 
 beforeEach(async () => {
@@ -176,6 +230,17 @@ beforeEach(async () => {
   ;({ raw, db } = await openTestDb())
   journal = createTransferJournal(db as JournalDb, () => new Date(NOW))
   inventory = jest.fn(async () => [])
+  kvMap = new Map()
+  ledger = createHostLedger({
+    getItem: async k => kvMap.get(k) ?? null,
+    setItem: async (k, v) => {
+      kvMap.set(k, v)
+    },
+    removeItem: async k => {
+      kvMap.delete(k)
+    },
+    keys: async prefix => [...kvMap.keys()].filter(k => k.startsWith(prefix))
+  })
   sendHandoverMock.mockImplementation(async () => {
     order.push('sendHandover')
     return handover()
@@ -211,12 +276,16 @@ describe('sendToHandle', () => {
         amount: 1500n,
         recipientKey: B,
         note: 'lunch',
+        hostWallet: HOST,
+        ledger,
         journal: false
       })
     )
+    // The v4 body (with its note and evidence) is what is delivered, and kept.
     expect(deliverHandoverMock).toHaveBeenCalledWith(
-      expect.objectContaining({ recipientKey: B, handover: expect.objectContaining({ txid: T }), note: 'lunch' })
+      expect.objectContaining({ recipientKey: B, handover: expect.objectContaining({ txid: T, body: bodyFor(T) }) })
     )
+    expect(await d.bodies.get(T)).toEqual(bodyFor(T))
     expect(await journal.get(T)).toMatchObject({
       role: 'sent',
       state: 'handed_over',
@@ -230,7 +299,7 @@ describe('sendToHandle', () => {
       note: 'lunch',
       derivationPrefix: 'cHJlZml4',
       derivationSuffix: 'c3VmZml4',
-      senderIdentityKey: 'blinded-A-prime'
+      senderIdentityKey: SENDER
     })
     expect(d.settleNow).toHaveBeenCalledWith(T)
   })
@@ -323,12 +392,7 @@ describe('sendToHandle', () => {
   it('maps module refusals by error name', async () => {
     const named = (name: string, extra: Record<string, unknown> = {}) =>
       Object.assign(new Error(`${name} happened`), { name }, extra)
-    for (const name of [
-      'UnsupportedProfileError',
-      'ProfileParamsError',
-      'ProfileDataError',
-      'AttestationEvidenceError'
-    ]) {
+    for (const name of ['UnsupportedProfileError', 'ProfileParamsError', 'ProfileDataError']) {
       sendHandoverMock.mockRejectedValueOnce(named(name))
       expect(await sendToHandle(deps(), { assetId: A, recipientIdentityKey: B, units: 1n })).toMatchObject({
         kind: 'refused',
@@ -396,6 +460,24 @@ describe('sendToHandle', () => {
     expect(deliverHandoverMock).not.toHaveBeenCalled()
     expect(d.settleNow).not.toHaveBeenCalled()
     expect(d.abortAction).toHaveBeenCalledWith({ reference: 'ref-T' })
+    // Released: the host ledger stops vouching for its change.
+    expect(await ledger.get(T)).toMatchObject({ state: 'refused', own: true, code: 'ERR_RELEASED' })
+  })
+
+  it('a body that cannot be kept is answered by releasing, never by delivering', async () => {
+    const d = deps({
+      bodies: {
+        put: async () => {
+          throw new Error('disk full')
+        },
+        get: async () => undefined
+      }
+    })
+    const r = await sendToHandle(d, { assetId: A, recipientIdentityKey: B, units: 1n })
+    expect(r).toMatchObject({ kind: 'unavailable' })
+    expect(await journal.get(T)).toBeUndefined()
+    expect(deliverHandoverMock).not.toHaveBeenCalled()
+    expect(d.abortAction).toHaveBeenCalledWith({ reference: 'ref-T' })
   })
 
   it('a txid journaled for another transfer is never delivered, and the unseen action is released', async () => {
@@ -423,31 +505,13 @@ describe('sendToHandle', () => {
 })
 
 describe('redeliverPending', () => {
-  it('tick redelivers an undelivered hand-over from handoffEvidence', async () => {
+  it('tick redelivers an undelivered hand-over from its kept body', async () => {
     const d = deps()
     await journal.insert(row())
+    await keepBody(d)
     expect(await redeliverPending(d)).toBe(1)
-    expect(d.color.handoffEvidence).toHaveBeenCalledWith(T)
-    expect(d.refetch).toHaveBeenCalledWith(T)
     expect(deliverHandoverMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        recipientKey: B,
-        handover: {
-          txid: T,
-          tx: BEEF,
-          outputIndex: 0,
-          reference: 'ref-T',
-          offChainValues: [],
-          receipt: {
-            version: 1,
-            assetId: A,
-            derivationPrefix: 'cHJlZml4',
-            derivationSuffix: 'c3VmZml4',
-            senderIdentityKey: 'blinded-A-prime',
-            profileData: PROFILE_DATA
-          }
-        }
-      })
+      expect.objectContaining({ recipientKey: B, handover: { txid: T, body: bodyFor(T) } })
     )
     expect((await d.journal.get(T))!.delivered).toBe(true)
     // Delivered is the ACK: the hand-over is now named to the module.
@@ -469,14 +533,17 @@ describe('redeliverPending', () => {
     // A parked nearby payment a resend handed over, whose delivery then failed.
     const d = deps()
     await journal.insert(row({ rail: 'nearby' }))
+    await keepBody(d)
     expect(await redeliverPending(d)).toBe(1)
     expect(deliverHandoverMock).toHaveBeenCalledWith(expect.objectContaining({ recipientKey: B }))
     expect((await journal.get(T))!.delivered).toBe(true)
   })
 
-  it('a row whose bytes cannot be had stays undelivered for the next tick', async () => {
-    const d = deps({ refetch: jest.fn(async () => undefined) })
+  it('a row with no kept body, or one for another tx, is never delivered', async () => {
+    const d = deps()
     await journal.insert(row())
+    expect(await redeliverPending(d)).toBe(0)
+    await d.bodies.put(T, bodyFor(U))
     expect(await redeliverPending(d)).toBe(0)
     expect(deliverHandoverMock).not.toHaveBeenCalled()
     expect((await journal.get(T))!.delivered).toBe(false)
@@ -485,6 +552,7 @@ describe('redeliverPending', () => {
   it('a failed redelivery stays undelivered and never throws', async () => {
     const d = deps()
     await journal.insert(row())
+    await keepBody(d)
     deliverHandoverMock.mockRejectedValueOnce(new Error('502'))
     expect(await redeliverPending(d)).toBe(0)
     expect((await journal.get(T))!.delivered).toBe(false)
@@ -510,22 +578,20 @@ describe('redeliverPending', () => {
 })
 
 describe('resendTransfer', () => {
-  it('is not-found with no row, and with no evidence', async () => {
+  it('is not-found with no row, and with no kept body', async () => {
     const d = deps()
     expect(await resendTransfer(d, T)).toBe('not-found')
     await journal.insert(row())
-    ;(d.color.handoffEvidence as jest.Mock).mockResolvedValueOnce(undefined)
     expect(await resendTransfer(d, T)).toBe('not-found')
     expect(deliverHandoverMock).not.toHaveBeenCalled()
   })
 
-  it('resends a delivered hand-over again, and is unavailable without bytes or a box', async () => {
+  it('resends a delivered hand-over again, and is unavailable when delivery fails', async () => {
     const d = deps()
     await journal.insert(row({ delivered: true }))
+    await keepBody(d)
     expect(await resendTransfer(d, T)).toBe('resent')
     expect(deliverHandoverMock).toHaveBeenCalledTimes(1)
-    ;(d.refetch as jest.Mock).mockResolvedValueOnce(undefined)
-    expect(await resendTransfer(d, T)).toBe('unavailable')
     deliverHandoverMock.mockRejectedValueOnce(new Error('offline'))
     expect(await resendTransfer(d, T)).toBe('unavailable')
   })
@@ -542,6 +608,7 @@ describe('resendTransfer', () => {
   it('a parked payment is journaled handed_over before it is resent', async () => {
     const d = deps()
     await journal.insert(row({ rail: 'nearby', state: 'parked' }))
+    await keepBody(d)
     deliverHandoverMock.mockImplementationOnce(async () => {
       order.push(`deliverHandover@${(await journal.get(T))!.state}`)
     })
@@ -551,18 +618,17 @@ describe('resendTransfer', () => {
   })
 
   describe('a resend that cannot deliver leaves a parked payment parked', () => {
-    it('with no evidence', async () => {
+    it('with no kept body', async () => {
       const d = deps()
       await journal.insert(row({ rail: 'nearby', state: 'parked' }))
-      ;(d.color.handoffEvidence as jest.Mock).mockResolvedValueOnce(undefined)
       expect(await resendTransfer(d, T)).toBe('not-found')
       expect((await journal.get(T))!.state).toBe('parked')
     })
 
-    it('with evidence for another txid', async () => {
+    it('with a body for another txid', async () => {
       const d = deps()
       await journal.insert(row({ rail: 'nearby', state: 'parked' }))
-      ;(d.color.handoffEvidence as jest.Mock).mockResolvedValueOnce({ version: 1, txid: U, profileData: PROFILE_DATA })
+      await d.bodies.put(T, bodyFor(U))
       expect(await resendTransfer(d, T)).toBe('not-found')
       expect((await journal.get(T))!.state).toBe('parked')
     })
@@ -570,21 +636,21 @@ describe('resendTransfer', () => {
     it('with no custody fields', async () => {
       const d = deps()
       await journal.insert(row({ rail: 'nearby', state: 'parked', derivationPrefix: undefined }))
+      await keepBody(d)
       expect(await resendTransfer(d, T)).toBe('not-found')
       expect((await journal.get(T))!.state).toBe('parked')
     })
 
-    it('with no bytes', async () => {
-      const d = deps({ refetch: jest.fn(async () => undefined) })
+    it('when the body read throws', async () => {
+      const d = deps({
+        bodies: {
+          put: async () => {},
+          get: async () => {
+            throw new Error('locked')
+          }
+        }
+      })
       await journal.insert(row({ rail: 'nearby', state: 'parked' }))
-      expect(await resendTransfer(d, T)).toBe('unavailable')
-      expect((await journal.get(T))!.state).toBe('parked')
-    })
-
-    it('when the evidence read throws', async () => {
-      const d = deps()
-      await journal.insert(row({ rail: 'nearby', state: 'parked' }))
-      ;(d.color.handoffEvidence as jest.Mock).mockRejectedValueOnce(new Error('locked'))
       expect(await resendTransfer(d, T)).toBe('unavailable')
       expect((await journal.get(T))!.state).toBe('parked')
     })
@@ -596,6 +662,7 @@ describe('resendTransfer', () => {
         }
       })
       await journal.insert(row({ rail: 'nearby', state: 'parked' }))
+      await keepBody(d)
       expect(await resendTransfer(d, T)).toBe('unavailable')
       expect((await journal.get(T))!.state).toBe('parked')
       expect(deliverHandoverMock).not.toHaveBeenCalled()
@@ -606,6 +673,7 @@ describe('resendTransfer', () => {
     // The bytes may have landed (a lost response): the abort guard must keep refusing.
     const d = deps()
     await journal.insert(row({ rail: 'nearby', state: 'parked' }))
+    await keepBody(d)
     deliverHandoverMock.mockRejectedValueOnce(new Error('502'))
     expect(await resendTransfer(d, T)).toBe('unavailable')
     expect(await journal.get(T)).toMatchObject({ state: 'handed_over', delivered: false })
@@ -614,12 +682,16 @@ describe('resendTransfer', () => {
   })
 
   it('a payment cancelled while the resend prepared is not delivered', async () => {
-    const d = deps()
-    await journal.insert(row({ rail: 'nearby', state: 'parked' }))
-    ;(d.color.handoffEvidence as jest.Mock).mockImplementationOnce(async (txid: string) => {
-      await journal.advance(txid, ['parked'], 'cancelled')
-      return { version: 1, txid, profileData: PROFILE_DATA }
+    const d = deps({
+      bodies: {
+        put: async () => {},
+        get: async (txid: string) => {
+          await journal.advance(txid, ['parked'], 'cancelled')
+          return bodyFor(txid)
+        }
+      }
     })
+    await journal.insert(row({ rail: 'nearby', state: 'parked' }))
     expect(await resendTransfer(d, T)).toBe('not-found')
     expect(deliverHandoverMock).not.toHaveBeenCalled()
     expect((await journal.get(T))!.state).toBe('cancelled')
@@ -636,7 +708,7 @@ describe('receiveFromInbox', () => {
     offline
   })
 
-  it('journals every inbox credit held; only the module inventory settles it', async () => {
+  it('journals an offline (COVER) credit held and a verified one settled, with the host ledger', async () => {
     const d = deps()
     inventory.mockResolvedValue([record(T, ['color_offline']), record(U, ['color_state_available'])])
     receiveHandoversMock.mockResolvedValueOnce({
@@ -645,7 +717,9 @@ describe('receiveFromInbox', () => {
     })
     expect(await receiveFromInbox(d)).toEqual({ credited: 2, failed: 1 })
     expect(d.reconcileHeld).toHaveBeenCalledWith([T, U])
-    expect(receiveHandoversMock).toHaveBeenCalledWith(expect.objectContaining({ processed: d.processed }))
+    expect(receiveHandoversMock).toHaveBeenCalledWith(
+      expect.objectContaining({ processed: d.processed, ledger, markSettled: d.markSettled })
+    )
     expect(await journal.get(T)).toMatchObject({
       role: 'received',
       state: 'held',
@@ -657,17 +731,9 @@ describe('receiveFromInbox', () => {
     expect(await journal.get(U)).toMatchObject({ role: 'received', state: 'settled', rail: 'handle' })
   })
 
-  it('records the sender and caches the attested deploy from the listed body', async () => {
-    const body = {
-      v: 3,
-      kind: 'handover',
-      assetId: A,
-      outputIndex: 0,
-      tx: 'beef',
-      receipt: { version: 1, assetId: A, profileData: PROFILE_DATA }
-    }
+  it('records the sender from the listing', async () => {
     const mb = messageBox({
-      listMessages: jest.fn(async () => [{ messageId: 'm1', sender: B, body: JSON.stringify(body) }])
+      listMessages: jest.fn(async () => [{ messageId: 'm1', sender: B, body: JSON.stringify(bodyFor(T)) }])
     })
     const d = deps({ messageBox: async () => mb })
     receiveHandoversMock.mockImplementationOnce(async p => {
@@ -676,23 +742,14 @@ describe('receiveFromInbox', () => {
     })
     expect(await receiveFromInbox(d)).toEqual({ credited: 1, failed: 0 })
     expect((await journal.get(T))!.counterpartyKey).toBe(B)
-    expect(d.rememberDeploy).toHaveBeenCalledWith(DEPLOY_HEX)
   })
 
-  it('a credit the lib reports online stays held when the inventory cannot be read', async () => {
-    // The lib reports `offline: false` when its own view read fails: not proof of admission.
+  it('a credit the lib verified online is settled whatever the inventory says (B7: the host ledger is the key)', async () => {
     const d = deps()
     inventory.mockRejectedValue(new Error('p color assets: view unavailable'))
     receiveHandoversMock.mockResolvedValueOnce({ accepted: [accepted(T, false)], failed: [] })
     expect(await receiveFromInbox(d)).toEqual({ credited: 1, failed: 0 })
-    expect((await journal.get(T))!.state).toBe('held')
-  })
-
-  it('a credit the inventory does not list yet stays held', async () => {
-    const d = deps()
-    receiveHandoversMock.mockResolvedValueOnce({ accepted: [accepted(T, false)], failed: [] })
-    expect(await receiveFromInbox(d)).toEqual({ credited: 1, failed: 0 })
-    expect((await journal.get(T))!.state).toBe('held')
+    expect((await journal.get(T))!.state).toBe('settled')
   })
 
   it('an offline credit stays held even when the lib and the view agree it is offline', async () => {
@@ -721,7 +778,7 @@ describe('receiveFromInbox', () => {
         throw new Error('database is locked')
       })
     })
-    receiveHandoversMock.mockResolvedValueOnce({ accepted: [accepted(T, false)], failed: [] })
+    receiveHandoversMock.mockResolvedValueOnce({ accepted: [accepted(T, true)], failed: [] })
     expect(await receiveFromInbox(d)).toEqual({ credited: 1, failed: 0 })
     expect((await journal.get(T))!.state).toBe('held')
   })

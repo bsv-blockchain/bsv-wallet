@@ -6,7 +6,10 @@
  *  - `createColorModuleStore` — the color permission module's
  *    `ColorModuleStore` (IC §2.1). The module owns every `color.v1.` key and
  *    its layout is internal to it: the wallet never reads those keys and
- *    asks the module (`settle`, `handoffEvidence`, `isSettled`) instead.
+ *    calls the module's host-only `markSettled(txid)` instead.
+ *
+ * The same `createMandalaKvStorage` also backs the Mandala host ledger
+ * (`mandala.host.v1.record.*`, design §9 B7), which no BRC-100 caller reaches.
  *
  * Get/set go through the storage's own `getKeyValue`/`setKeyValue` (an atomic
  * per-key upsert). Delete and prefix listing go straight to SQL because the
@@ -83,9 +86,9 @@ export function createMandalaKvStorage(kv: WalletKv): MandalaStorage {
 /**
  * The color module's durable store (IC §2.1) over `key_value_store`.
  *
- * The module's receipt evidence and settlement records live here (D5); losing
- * a write loses the only local copy of an unsettled receipt's evidence, so
- * every failure propagates to the module rather than being swallowed.
+ * The module's settlement records live here; losing a write would leave a
+ * settled coin reading `color_offline`, so every failure propagates to the
+ * module rather than being swallowed.
  */
 export function createColorModuleStore(kv: WalletKv): ColorModuleStore {
   const db = (): SqlHandle => sqlHandle(kv, 'Color module store')

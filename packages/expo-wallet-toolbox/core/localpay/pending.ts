@@ -1,16 +1,8 @@
 import { Beef, Transaction } from '@bsv/sdk'
 import { decodeToken } from '@bsv/mandala'
 import type { PaymentFrame, TokenPayment } from './codec'
-import { MANDALA_ACTION_LABEL } from '../mandala/types'
 import type { NearbyTokenDeps } from '../mandala/runtime'
-import {
-  declarationTxOf,
-  isColorProviderError,
-  isRetriableReceiptFailure,
-  receiptFailureCode,
-  receiptFromFrame,
-  receiptInternalizeOutput
-} from '../mandala/receipt'
+import { isRetriableReceiptFailure, isTransportReceiptFailure, receiptFailureCode } from '../mandala/receipt'
 import { failedPostReason } from '../pay/creditErrors'
 
 export const PENDING_KEY = 'localpay_pending'
@@ -116,8 +108,8 @@ export function getPendingCorruptNotice(): boolean {
  * Every byte field of a frame travels as a `number[]`: `JSON.stringify` turns a
  * `Uint8Array` into an index-keyed object, and a token frame's byte fields
  * came back that way for as long as only `transaction` was converted
- * (2026-09-16). The v6 token block's byte fields are `certificates`;
- * `profileData` is already a string and is stored as that exact string.
+ * (2026-09-16). The v7 token block's only byte fields are `certificates`;
+ * its evidence members are JSON already and are stored as they are.
  */
 type WireBytes = number[]
 
@@ -506,8 +498,15 @@ interface InternalizingWallet {
 type AttributePayment = (txid: string, info: { senderIdentityKey: string; receivedVia?: string }) => Promise<void>
 
 /**
+ * The runtime's `nearby.accept`: runs the lib's recipient path on a TOKEN
+ * frame (B7: verify online or by COVER, record in the host ledger, then
+ * internalize the plain receipt). Throws what the lib throws.
+ */
+export type TokenAcceptHook = NearbyTokenDeps['accept']
+
+/**
  * The runtime's `nearby.onReceived`: told how a TOKEN frame's receipt
- * internalize settled, credited (`ok`) or failed (`final` = refused for good).
+ * settled, credited (`ok`) or failed (`final` = refused for good).
  * The runtime journals `held`/`settled`/`refused` in `color_transfers`.
  *
  * Supplied by the caller rather than called directly from here: this module
@@ -544,19 +543,12 @@ function tokenReceiptFacts(frame: PaymentFrame): Parameters<TokenReceiveHook>[0]
     const output = tx.outputs[frame.outputIndex]
     const decoded = output ? decodeToken(output.lockingScript, txid, frame.outputIndex) : null
     if (decoded === null || decoded.role !== 'value' || decoded.assetId !== frame.token.assetId) return undefined
-    let declarationTx: string | undefined
-    try {
-      declarationTx = declarationTxOf(receiptFromFrame(frame))
-    } catch {
-      declarationTx = undefined
-    }
     return {
       txid,
       assetId: frame.token.assetId,
       units: decoded.amount,
       counterpartyKey: frame.senderIdentityKey,
-      outputIndex: frame.outputIndex,
-      ...(declarationTx !== undefined ? { declarationTx } : {})
+      outputIndex: frame.outputIndex
     }
   } catch (e) {
     console.warn('[localpay] could not read the token receipt’s own facts:', messageOf(e))
@@ -585,57 +577,67 @@ export async function processPending(
   attribute?: AttributePayment,
   /**
    * TOKEN FRAMES ONLY: the runtime's `nearby.onReceived`, run once the
-   * receipt internalize settles either way.
+   * receipt settles either way.
    *
-   * There is deliberately no hook BEFORE the internalize any more. The toolbox
-   * forces a broadcast inside `internalizeAction`, and what holds an unsettled
-   * 1Color tx there is the `color_transfers` journal, where a MISSING row
-   * already holds (W1, pinned in Task 7). The color module stores the receipt
-   * durably before the underlying internalize (IC §2.2-8). So the journal row
-   * written after the credit can only release, never fail open.
+   * There is deliberately no hook BEFORE the internalize. The toolbox forces
+   * a broadcast inside `internalizeAction`, and what holds an unsettled
+   * 1Color tx there is the broadcast hold: the lib records the receipt in the
+   * host ledger before it internalizes (B7), which marks the tx as this
+   * wallet's custody, and its `color_transfers` row is not `settled` (a
+   * MISSING row holds). So the journal row written after the credit can only
+   * release, never fail open.
    */
-  onTokenReceived?: TokenReceiveHook
+  onTokenReceived?: TokenReceiveHook,
+  /**
+   * TOKEN FRAMES ONLY: the runtime's `nearby.accept`. Without it a token
+   * frame is never internalized here (no plain internalize can credit a
+   * Mandala receipt the host has not verified); it fails retriably.
+   */
+  acceptToken?: TokenAcceptHook
 ): Promise<{ id: string; success: boolean; error?: string }[]> {
   const results: { id: string; success: boolean; error?: string }[] = []
   for (const p of await getRetryable(storage)) {
     await updateStatus(storage, p.id, 'processing')
     const isToken = p.frame.kind === 'token'
     const facts = isToken ? tokenReceiptFacts(p.frame) : undefined
+    let offline = false
     try {
-      await wallet.internalizeAction(
-        {
-          tx: Array.from(p.frame.transaction),
-          // A token frame is the BRC-207 §7.1 receipt: a basket insertion into
-          // `p color <assetTag>`, which the color module checks and credits.
-          outputs: [isToken ? receiptInternalizeOutput(p.frame) : walletPaymentOutput(p.frame)],
-          // The activity list uses the description as the row title, so it
-          // says what happened — never who: a nearby transfer is blinded, so
-          // the payer's key it used to carry told the user nothing. The
-          // counterparty face is recovered from outputs.senderIdentityKey,
-          // which is why the rail label carries no key. A token frame ALSO
-          // carries MANDALA_ACTION_LABEL: it is how the home screen
-          // recognises a token row, and without it a received stablecoin
-          // rendered as a BSV row over "+0 sats" (2026-09-16). A sender's note
-          // on the frame overrides this fixed wording, same as the message-box
-          // rail's PeerPay note.
-          description: truncateUtf8Bytes(
-            (p.frame.note?.trim() || (isToken ? 'Received token' : 'Received BSV')).padEnd(5),
-            MAX_INTERNALIZE_DESCRIPTION_BYTES
-          ),
-          labels: isToken ? [PEERPAY_LABEL, MANDALA_ACTION_LABEL] : [PEERPAY_LABEL]
-        },
-        originator
-      )
+      if (isToken) {
+        // The BRC-207 receipt path of the lib (B7): the v4 body rebuilt from
+        // the frame, verified online or by COVER, recorded in the host ledger,
+        // then the plain receipt internalized into `p color <assetTag>`.
+        if (!acceptToken) throw new Error('token receipts are not available on this network (ERR_UNAVAILABLE)')
+        offline = (await acceptToken(p.frame)).offline
+      } else {
+        await wallet.internalizeAction(
+          {
+            tx: Array.from(p.frame.transaction),
+            outputs: [walletPaymentOutput(p.frame)],
+            // The activity list uses the description as the row title, so it
+            // says what happened — never who: a nearby transfer is blinded, so
+            // the payer's key it used to carry told the user nothing. The
+            // counterparty face is recovered from outputs.senderIdentityKey,
+            // which is why the rail label carries no key. A sender's note on
+            // the frame overrides this fixed wording, same as the message-box
+            // rail's PeerPay note.
+            description: truncateUtf8Bytes(
+              (p.frame.note?.trim() || 'Received BSV').padEnd(5),
+              MAX_INTERNALIZE_DESCRIPTION_BYTES
+            ),
+            labels: [PEERPAY_LABEL]
+          },
+          originator
+        )
+      }
     } catch (e) {
       const error = failedPostReason(e) ?? messageOf(e)
       if (isToken) {
-        // A definitive receipt refusal goes straight to the ceiling (the same
-        // receipt can only be refused again) and is journaled `refused`. A
-        // retryable overlay verdict never burns an attempt. Anything else
-        // follows the BSV rule (FIX I), so a structurally bad frame still
-        // stops being retried.
+        // A definitive refusal (the lib's receive classifier: a malformed or
+        // contradicting body, a refused hop, a final verdict) goes straight to
+        // the ceiling and is journaled `refused`. A transport failure never
+        // burns an attempt. Anything else follows the BSV rule (FIX I).
         const final = !isRetriableReceiptFailure(e)
-        await updateStatus(storage, p.id, 'failed', error, final ? 'exhaust' : isColorProviderError(e) ? 'free' : 'auto')
+        await updateStatus(storage, p.id, 'failed', error, final ? 'exhaust' : isTransportReceiptFailure(e) ? 'free' : 'auto')
         await reportReceipt(onTokenReceived, facts, { ok: false, code: receiptFailureCode(e), final })
       } else {
         await updateStatus(storage, p.id, 'failed', error)
@@ -648,7 +650,7 @@ export async function processPending(
     // a crash in between re-runs the (idempotent, 0207 A.83) internalize and
     // the (INSERT OR IGNORE) journal write, where the other order would leave
     // a credit nobody ever journals. Its failure never un-credits the coin.
-    if (isToken) await reportReceipt(onTokenReceived, facts, { ok: true })
+    if (isToken) await reportReceipt(onTokenReceived, facts, { ok: true, offline })
     try {
       await updateStatus(storage, p.id, 'completed')
     } catch (e) {

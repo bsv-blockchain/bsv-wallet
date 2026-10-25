@@ -1,157 +1,121 @@
 /**
- * The PAYEE's half of a nearby token hand-over (plan 07 Task 16): the BRC-207
- * §7.1 receipt a v6 localpay frame carries, as `internalizeAction` takes it,
- * and how a failed receipt internalize is classified.
+ * The token half of a nearby (localpay) frame, as the v4 hand-over body the
+ * lib reads, and how a failed receipt is classified (design §9 B7, IC §7.3).
  *
- * The frame's fields are the receipt's, one to one (IC §7.3): the remittance
- * strings, the sender key (A, or A′ when the payer blinded) and the
- * `profileData` JSON the payer's module produced for this hand-over. Nothing
- * here verifies evidence; the color module does that inside
- * `internalizeAction`, against this device's own configured overlay, before
- * it credits anything (IC §2.2-5, 0207:299-357).
+ * A FRAME_VERSION 7 token frame carries exactly the §7.2 body members (minus
+ * `v`/`kind`, which the frame version replaces): the frame's own sender key,
+ * remittance strings, output index, note and AtomicBEEF, plus the token
+ * block's asset id, decimal amount, sender mode and the σ / envelope evidence.
+ * The payee rebuilds the body here and runs the lib's own recipient path on it
+ * (`parseHandoverBody` → `acceptHandover`: online submit or offline COVER,
+ * host ledger record, then the plain BRC-207 receipt internalize). The
+ * receipt itself is the 5-member custody JSON (IC §7.1); no evidence ever
+ * travels in `customInstructions`.
  *
  * Pure: no wallet, no storage, no network.
  */
-import { ATTESTED_PROFILE_ID, colorBasket, type ReceiptInstruction } from '@bsv/mandala'
-import type { PaymentFrame } from '../localpay/codec'
-
-const HEX = /^(?:[0-9a-f]{2})+$/
-
-const isPlainObject = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object' && !Array.isArray(v)
+import { Utils } from '@bsv/sdk'
+import { classifyReceiveError, type HandoverBodyV4, type HandoverResult } from '@bsv/mandala'
+import type { PaymentFrame, TokenPayment } from '../localpay/codec'
 
 /**
- * The §7.1 receipt of a token frame: `{version:1, assetId, derivationPrefix,
- * derivationSuffix, senderIdentityKey, profileData}`, in that member order.
- * Throws for a BSV frame or a `profileData` that is not a JSON object (the
- * codec refuses both at decode; this is the second wall, not the first).
+ * The v4 hand-over body a token frame stands for. Throws a TypeError for a
+ * BSV frame (the codec refuses a token kind without its block; this is the
+ * second wall). Members are copied verbatim: `parseHandoverBody` is the one
+ * strict check, so this never "repairs" anything a sender put on the wire.
  */
-export function receiptFromFrame(frame: PaymentFrame): ReceiptInstruction {
+export function bodyFromFrame(frame: PaymentFrame): HandoverBodyV4 {
   if (frame.kind !== 'token' || frame.token === undefined) {
-    throw new TypeError('a §7.1 receipt is built from a token frame')
+    throw new TypeError('a v4 hand-over body is built from a token frame')
   }
-  const profileData = JSON.parse(frame.token.profileData) as unknown
-  if (!isPlainObject(profileData)) throw new TypeError('the frame’s profileData is not a JSON object')
+  const t = frame.token
   return {
-    version: 1,
-    assetId: frame.token.assetId,
+    v: 4,
+    kind: 'handover',
+    assetId: t.assetId,
+    amount: t.amount,
     derivationPrefix: frame.derivationPrefix,
     derivationSuffix: frame.derivationSuffix,
     senderIdentityKey: frame.senderIdentityKey,
-    profileData
-  }
-}
-
-/**
- * The one `internalizeAction` output for a token frame: a basket insertion of
- * the named output into `p color <assetTag>` (lib `colorBasket`), carrying the
- * receipt verbatim. No caller tags: the module authors every `color_*` tag
- * and strips any a caller supplies (IC §2.2-6).
- */
-export function receiptInternalizeOutput(frame: PaymentFrame): {
-  outputIndex: number
-  protocol: 'basket insertion'
-  insertionRemittance: { basket: string; customInstructions: string }
-} {
-  const receipt = receiptFromFrame(frame)
-  return {
+    senderMode: t.senderMode,
+    transaction: Utils.toHex(Array.from(frame.transaction)),
     outputIndex: frame.outputIndex,
-    protocol: 'basket insertion',
-    insertionRemittance: { basket: colorBasket(receipt.assetId), customInstructions: JSON.stringify(receipt) }
+    ...(t.admission !== undefined ? { admission: t.admission } : {}),
+    admissions: t.admissions,
+    linkage: t.linkage,
+    ...(frame.note !== undefined && frame.note !== '' ? { note: frame.note } : {})
   }
 }
 
-/**
- * The attested leaf's deploy tx for the receipt's own asset, when it is a
- * lowercase hex string; display data only (W7 metadata cache).
- */
-export function declarationTxOf(receipt: ReceiptInstruction): string | undefined {
-  const attested = receipt.profileData?.[ATTESTED_PROFILE_ID]
-  const leaf = isPlainObject(attested) ? attested[receipt.assetId] : undefined
-  const decl = isPlainObject(leaf) ? leaf.declarationTx : undefined
-  return typeof decl === 'string' && HEX.test(decl) ? decl : undefined
+/** The frame's token block for a signed hand-over: the evidence members of its v4 body. */
+export function tokenPaymentOfHandover(h: Pick<HandoverResult, 'body'>): TokenPayment {
+  const b = h.body
+  return {
+    assetId: b.assetId,
+    amount: b.amount,
+    senderMode: b.senderMode,
+    ...(b.admission !== undefined ? { admission: b.admission } : {}),
+    admissions: b.admissions,
+    linkage: b.linkage,
+    certificates: []
+  }
 }
 
-/** Module error classes that are a definitive verdict on the receipt itself. */
-const FINAL_NAMES = [
-  'AttestationEvidenceError',
-  'ProfileDataError',
-  'ProfileParamsError',
-  'UnsupportedProfileError',
-  'ColorConsentDeclinedError'
-] as const
-
-/**
- * The module's consent-decline text (vendored dist:
- * `BRC-207: the user declined the ${requestType} request`). Matched as well as
- * the class, because a decline is final on the nearby rail (IC §7.2: no retry
- * channel) and its class name may not survive the manager stack.
- */
-const DECLINED_TEXT = /BRC-207: the user declined the \S+ request/
-
-/** `(ERR_X)` or `(ERR_X, retryable)`, the lib provider's message tag (G13). */
+/** `(ERR_X)` or `(ERR_X, retryable)`, the lib/overlay message tag. */
 const CODE_TAG = /\((ERR_[A-Z0-9_]+)(, retryable)?\)/
 
-interface ErrorFacts {
-  name: string
-  message: string
-  code?: string
-  retryable?: boolean
+function nameOf(e: unknown): string {
+  const n = (e as { name?: unknown } | null)?.name
+  return typeof n === 'string' ? n : ''
 }
 
-function factsOf(e: unknown): ErrorFacts {
-  const o = (e !== null && typeof e === 'object' ? e : {}) as {
-    name?: unknown
-    message?: unknown
-    code?: unknown
-    retryable?: unknown
-  }
-  const name = typeof o.name === 'string' ? o.name : ''
-  const message = typeof o.message === 'string' ? o.message : typeof e === 'string' ? e : ''
-  const tag = CODE_TAG.exec(message)
-  const code = typeof o.code === 'string' && /^ERR_[A-Z0-9_]+$/.test(o.code) ? o.code : tag?.[1]
-  const retryable = typeof o.retryable === 'boolean' ? o.retryable : tag !== null ? tag[2] !== undefined : undefined
-  return { name, message, ...(code !== undefined ? { code } : {}), ...(retryable !== undefined ? { retryable } : {}) }
+function messageOf(e: unknown): string {
+  const m = (e as { message?: unknown } | null)?.message
+  return typeof m === 'string' ? m : String(e)
 }
 
 /**
- * Names are matched on `.name` OR the module's `[Name] ` message prefix,
- * never `instanceof` (IC D22): a BRC-100 substrate may hand back a plain
- * Error with the class only in its text.
+ * Module refusals of the asset itself (its `req` names a profile this wallet
+ * does not support, or no overlay is configured for its issuer key): final for
+ * this wallet's configuration, whatever the lib's generic classifier says.
  */
-const isNamed = (f: ErrorFacts, name: string): boolean => f.name === name || f.message.includes(`[${name}] `)
+const FINAL_MODULE_ERRORS = ['UnsupportedProfileError', 'ProfileParamsError'] as const
+
+const isNamed = (e: unknown, name: string): boolean => nameOf(e) === name || messageOf(e).includes(`[${name}] `)
 
 /**
- * Whether a failed receipt internalize is worth retrying.
- *
- * - `ColorProviderError`: its own `retryable` (property, else the `(ERR_X,
- *   retryable)` tag). Without either, retriable: an unanswerable "is it
- *   final?" must never journal a payment refused.
- * - `AttestationEvidenceError`, `ProfileDataError`, `ProfileParamsError`,
- *   `UnsupportedProfileError` and a consent decline: final.
- * - Anything else (a storage fault, a transport fault, a non-error): retriable.
+ * Whether a failed receipt is worth retrying, by the lib's own receive
+ * classifier (`classifyReceiveError`): `retry` (a transport fault, a
+ * retryable verdict, `ERR_NOT_COVERED`, `ERR_BODY_UNREADABLE`, anything
+ * unrecognised) is retriable; `ack` (a malformed or contradicting body, a
+ * refused hop, a final overlay verdict, `ProfileDataError`) and `declined`
+ * (the user's own "no") are final, and so are the module's refusals of the
+ * asset itself (`FINAL_MODULE_ERRORS`). An unanswerable "is it final?" stays
+ * retriable: a payment is never journaled refused on a guess.
  */
 export function isRetriableReceiptFailure(e: unknown): boolean {
-  const f = factsOf(e)
-  if (isNamed(f, 'ColorProviderError')) return f.retryable !== false
-  if (FINAL_NAMES.some(n => isNamed(f, n))) return false
-  if (DECLINED_TEXT.test(f.message)) return false
-  return true
+  if (FINAL_MODULE_ERRORS.some(n => isNamed(e, n))) return false
+  return classifyReceiveError(e).disposition === 'retry'
 }
 
-/** True for a module/provider overlay verdict (`ColorProviderError`), by name or message prefix. */
-export function isColorProviderError(e: unknown): boolean {
-  return isNamed(factsOf(e), 'ColorProviderError')
+/** True for a transport-level overlay failure (no typed verdict): the attempt is not counted. */
+export function isTransportReceiptFailure(e: unknown): boolean {
+  const code = (e as { code?: unknown } | null)?.code
+  if (code === 'ERR_UNAVAILABLE') return true
+  return CODE_TAG.exec(messageOf(e))?.[1] === 'ERR_UNAVAILABLE'
 }
 
 /**
- * The refusal code journaled for a failed receipt: the overlay's `ERR_*`
- * code when there is one, else the module error class, else `ERR_RECEIPT`.
+ * The refusal code journaled for a failed receipt: the lib/overlay `ERR_*`
+ * code when there is one, else the error class, else `ERR_RECEIPT`.
  */
 export function receiptFailureCode(e: unknown): string {
-  const f = factsOf(e)
-  if (f.code !== undefined) return f.code
-  for (const n of ['ColorProviderError', ...FINAL_NAMES]) if (isNamed(f, n)) return n
-  if (DECLINED_TEXT.test(f.message)) return 'ColorConsentDeclinedError'
-  return 'ERR_RECEIPT'
+  const c = classifyReceiveError(e)
+  if (c.code !== undefined) return c.code
+  if (c.disposition === 'declined') return 'ColorConsentDeclinedError'
+  for (const n of FINAL_MODULE_ERRORS) if (isNamed(e, n)) return n
+  const name = nameOf(e)
+  if (name !== '' && name !== 'Error') return name
+  const bracket = /^\[([A-Za-z]+Error)\] /.exec(messageOf(e))?.[1]
+  return bracket ?? 'ERR_RECEIPT'
 }

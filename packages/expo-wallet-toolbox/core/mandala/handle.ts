@@ -2,16 +2,20 @@
  * The handle rail's token half (plan 07 Task 13): hand-over send, MessageBox
  * redelivery and inbox receive over the `mandala-color` box (IC §7.2).
  *
- * `@bsv/mandala` builds and parses; the color module holds custody and
- * evidence; this file only orders the steps and keeps the wallet's
+ * `@bsv/mandala` builds, parses, verifies and settles (design §9 B7); the
+ * color module holds custody; the host ledger records what this host
+ * verified; this file only orders the steps and keeps the wallet's
  * `color_transfers` journal true to them.
  *
  * Send, in this order (stability mandate):
  *  1. Refuse what the request alone decides (amount domain, recipient) and a
  *     second send of the same asset while one is in flight. The latch is taken
  *     with no await before it, so a double tap sees it.
- *  2. `sendHandover` builds and signs `noSend`. Nobody has the bytes yet.
- *  3. Journal the row `handed_over` (W4) BEFORE delivering: a lost MessageBox
+ *  2. `sendHandover` builds and signs `noSend`, builds the envelope from the
+ *     host wallet's own custody and records the hand-over `pending` in the
+ *     host ledger. Nobody has the bytes yet.
+ *  3. Keep the v4 body (for redelivery), then journal the row `handed_over`
+ *     (W4) BEFORE delivering: a lost MessageBox
  *     response may still have delivered, so from here the abort guard refuses
  *     and the broadcast hold holds. A crash before this insert leaves a signed
  *     action no recipient has seen; with no row the guard lets it be released.
@@ -20,30 +24,31 @@
  *  4. `deliverHandover`. Success is the ACK (IC §7.2) and is journaled.
  *     Failure is still `sent`: a second send would be a second payment. The
  *     tick redelivers it (`redeliverPending`).
- *  5. Only a delivered hand-over is named to `settleNow` (post-ACK intent,
- *     IC §2.3), and only when online, raced against a timeout so a slow
- *     overlay never holds the payer's screen. The settle keeps running.
+ *  5. Only a delivered hand-over is named to `settleNow` (post-ACK submit,
+ *     B5), and only when online, raced against a timeout so a slow overlay
+ *     never holds the payer's screen. The settle keeps running.
  *
- * Redelivery and resend rebuild the §7.2 body from the row (custody fields
- * written at send time), `handoffEvidence` (profileData) and the AtomicBEEF
- * from `refetch`. They never contact the overlay. A resend gathers all of it,
- * and opens the box, BEFORE it hands a parked payment over: a resend that
- * cannot deliver leaves the row exactly as it found it.
+ * Redelivery and resend send the v4 body kept at send time (`bodies`): the
+ * exact bytes, receipt fields and evidence the first delivery carried. They
+ * never contact the overlay. A resend reads the body, and opens the box,
+ * BEFORE it hands a parked payment over: a resend that cannot deliver leaves
+ * the row exactly as it found it.
  *
- * Receive journals every credit `held`. Only `reconcileHeld`, reading the
- * module's inventory, moves it to `settled`: the lib's `offline: false` is
- * also what it reports when its own view read failed, so it is never proof
- * the overlay admitted the credit (design anti-goal; IC §6, D5).
+ * Receive runs the lib's recipient path with the host ledger (online submit,
+ * or offline COVER with the S1 hop checks), which records what it verified
+ * before the plain receipt is internalized. A credit is journaled `settled`
+ * when the ledger says σ was verified and `held` when it was credited on
+ * COVER evidence (`offline`); `settleNow`/the drain settles a held one.
  */
-import type { WalletInterface } from '@bsv/sdk'
-import type { ColorPermissionModule } from '@bsv/color-permission-module'
+import { Transaction, Utils, type WalletInterface } from '@bsv/sdk'
 import {
-  ATTESTED_PROFILE_ID,
   MAX_UINT64,
   deliverHandover,
   receiveHandovers,
   sendHandover,
+  type HandoverBodyV4,
   type HandoverResult,
+  type HostLedger,
   type MessageBoxLike,
   type MessageBoxSender
 } from '@bsv/mandala'
@@ -60,14 +65,17 @@ export interface HandleDeps {
   wallet: WalletInterface
   identityKey: () => Promise<string>
   journal: TransferJournal
-  color: Pick<ColorPermissionModule, 'handoffEvidence'>
+  /** The host's UNDERLYING wallet: the hand-over envelope is built from its custody. */
+  hostWallet: WalletInterface
+  /** The host ledger shared with the issuer-v1 handler. */
+  ledger: HostLedger
+  /** The settler's `markSettled` (module flag, then journal row). */
+  markSettled: (txid: string) => Promise<void>
+  /** The v4 bodies of this device's own hand-overs, kept for redelivery. */
+  bodies: HandoverBodies
   messageBox: () => Promise<MandalaMessageBox>
   settleNow: (txid: string) => Promise<TokenSettleState>
   isOnline: () => Promise<boolean>
-  /** Caches a received receipt's attested deploy tx (W7). Never throws. */
-  rememberDeploy: (hex: string) => Promise<void>
-  /** AtomicBEEF of a txid: the network first, then this device's own copy. */
-  refetch: (txid: string) => Promise<number[] | undefined>
   /** Message ids this session already handled (the lib's dedupe set). */
   processed: Set<string>
   now: () => Date
@@ -87,12 +95,59 @@ export interface HandleDeps {
 
 const DEFAULT_SETTLE_TIMEOUT_MS = 8_000
 
-/** Errors the module throws for a profile or evidence fault: a refusal, nothing was sent. */
+/**
+ * Where the v4 body of each own hand-over is kept for redelivery: the lib is
+ * run with `journal: false`, and the host ledger keeps the bytes but not the
+ * receipt fields or the σ / envelope evidence the body carries.
+ */
+export interface HandoverBodies {
+  /** Durable before it resolves; a failure throws. */
+  put(txid: string, body: HandoverBodyV4): Promise<void>
+  /** The stored body, or undefined when there is none (or it is unreadable). */
+  get(txid: string): Promise<HandoverBodyV4 | undefined>
+}
+
+/** KV key of an own hand-over's v4 body. */
+export function handoverBodyKey(txid: string): string {
+  return `bsvwallet.color.handover.${txid}`
+}
+
+/** `HandoverBodies` over the wallet's key-value table. */
+export function createHandoverBodies(kv: {
+  getKeyValue(key: string): Promise<string | undefined>
+  setKeyValue(key: string, value: string): Promise<void>
+}): HandoverBodies {
+  return {
+    put: async (txid, body) => {
+      await kv.setKeyValue(handoverBodyKey(txid), JSON.stringify(body))
+    },
+    get: async txid => {
+      const text = await kv.getKeyValue(handoverBodyKey(txid))
+      if (text === undefined) return undefined
+      try {
+        const body = JSON.parse(text) as HandoverBodyV4
+        return body?.v === 4 && body.kind === 'handover' ? body : undefined
+      } catch {
+        return undefined
+      }
+    }
+  }
+}
+
+/** The subject txid of a v4 body's AtomicBEEF, or undefined when unreadable. */
+function bodyTxid(body: HandoverBodyV4): string | undefined {
+  try {
+    return Transaction.fromAtomicBEEF(Utils.toArray(body.transaction, 'hex')).id('hex')
+  } catch {
+    return undefined
+  }
+}
+
+/** Errors the module/lib throw for a profile or argument fault: a refusal, nothing was sent. */
 const REFUSAL_ERROR_NAMES = new Set([
   'UnsupportedProfileError',
   'ProfileParamsError',
   'ProfileDataError',
-  'AttestationEvidenceError',
   // The user's own "no" at the spend prompt.
   'ColorConsentDeclinedError'
 ])
@@ -168,13 +223,37 @@ async function settleSoon(d: HandleDeps, txid: string): Promise<TokenSettleState
   }
 }
 
-/** Best-effort release of a signed action nobody has seen. The abort guard decides. */
-async function releaseUnseen(d: HandleDeps, reference: string): Promise<void> {
+/**
+ * Best-effort release of a signed action nobody has seen. The abort guard
+ * decides. Once released, the host ledger stops vouching for its change
+ * (`sendHandover` recorded it `pending`), as the lib does for its own release.
+ */
+export async function releaseUnseenHandover(
+  d: { wallet: WalletInterface; ledger: HostLedger },
+  h: Pick<HandoverResult, 'txid' | 'reference' | 'receipt'>
+): Promise<void> {
+  let released = false
   try {
-    const r = await d.wallet.abortAction({ reference })
-    if (!r?.aborted) devLog(`[mandala] handle: the unjournaled hand-over ${reference} was not released`)
+    const r = await d.wallet.abortAction({ reference: h.reference })
+    released = r?.aborted === true
+    if (!released) devLog(`[mandala] the unjournaled hand-over ${h.txid} was not released`)
   } catch (e) {
-    devLog(`[mandala] handle: releasing the unjournaled hand-over ${reference} failed:`, e)
+    devLog(`[mandala] releasing the unjournaled hand-over ${h.txid} failed:`, e)
+  }
+  if (!released) return
+  try {
+    await d.ledger.put({
+      v: 1,
+      txid: h.txid,
+      assetId: h.receipt.assetId,
+      state: 'refused',
+      own: true,
+      outputs: [],
+      code: 'ERR_RELEASED',
+      at: Date.now()
+    })
+  } catch (e) {
+    devLog(`[mandala] the released hand-over ${h.txid} is still recorded pending in the host ledger:`, e)
   }
 }
 
@@ -230,8 +309,10 @@ async function runSend(
       amount: a.units,
       recipientKey: a.recipientKey,
       ...(note !== undefined ? { note } : {}),
+      hostWallet: d.hostWallet,
+      ledger: d.ledger,
       // The wallet owns this send's durability: the `color_transfers` row
-      // (written next) and the module's own store. The lib's txJournal would
+      // (written next), the kept body and the host ledger. The lib's txJournal would
       // keep a 'signed'/'delivered' entry holding the tx hex that only
       // `settleHandover`/`reconcileWallet` clear, and this wallet runs
       // neither, so with the default it grew by one tx per send. The lib's
@@ -250,6 +331,8 @@ async function runSend(
   delivering.add(h.txid)
   try {
     try {
+      // The body first: a row that can be redelivered must have one.
+      await d.bodies.put(h.txid, h.body)
       const wrote = await d.journal.insert({
         txid: h.txid,
         role: 'sent',
@@ -272,13 +355,13 @@ async function runSend(
         // journaled before; anything else is not ours to deliver.
         const existing = await d.journal.get(h.txid)
         if (existing?.role !== 'sent' || existing.reference !== h.reference) {
-          await releaseUnseen(d, h.reference)
+          await releaseUnseenHandover(d, h)
           return { kind: 'unavailable', message: `color_transfers already holds ${h.txid} for another transfer` }
         }
       }
     } catch (e) {
       devLog(`[mandala] handle: journaling the hand-over ${h.txid} failed; releasing it undelivered:`, e)
-      await releaseUnseen(d, h.reference)
+      await releaseUnseenHandover(d, h)
       return { kind: 'unavailable', message: messageOf(e) }
     }
     notify(d)
@@ -289,8 +372,7 @@ async function runSend(
         await deliverHandover({
           messageBoxClient: await d.messageBox(),
           recipientKey: a.recipientKey,
-          handover: h,
-          ...(note !== undefined ? { note } : {})
+          handover: h
         })
         delivered = true
       } catch (e) {
@@ -327,14 +409,14 @@ type DeliverOutcome = 'resent' | 'not-found' | 'unavailable'
 /** Everything a (re)delivery needs, gathered before anything is changed. */
 interface PreparedDelivery {
   recipientKey: string
-  handover: HandoverResult
+  handover: Pick<HandoverResult, 'txid' | 'body'>
   box: MandalaMessageBox
 }
 
 /**
- * Rebuilds the §7.2 hand-over of a sent row and opens the box. Reads only:
- * the row's custody fields, the module's evidence and the bytes must all be
- * present, and the box must open, or nothing is to be delivered.
+ * Reads the kept v4 body of a sent row and opens the box. Reads only: the
+ * body must be present and carry the row's own tx and asset, and the box must
+ * open, or nothing is to be delivered.
  */
 async function prepareRow(
   d: HandleDeps,
@@ -350,21 +432,14 @@ async function prepareRow(
   ) {
     return 'not-found'
   }
-  let evidence: Awaited<ReturnType<HandleDeps['color']['handoffEvidence']>>
+  let body: HandoverBodyV4 | undefined
   try {
-    evidence = await d.color.handoffEvidence(txid)
+    body = await d.bodies.get(txid)
   } catch (e) {
-    devLog(`[mandala] handle: reading the hand-over evidence of ${txid} failed:`, e)
+    devLog(`[mandala] handle: reading the kept body of ${txid} failed:`, e)
     return 'unavailable'
   }
-  if (!evidence || evidence.txid !== txid) return 'not-found'
-  let tx: number[] | undefined
-  try {
-    tx = await d.refetch(txid)
-  } catch (e) {
-    devLog(`[mandala] handle: fetching the bytes of ${txid} failed:`, e)
-  }
-  if (!tx || tx.length === 0) return 'unavailable'
+  if (!body || body.assetId !== row.assetId || bodyTxid(body) !== txid) return 'not-found'
   let box: MandalaMessageBox
   try {
     box = await d.messageBox()
@@ -372,27 +447,7 @@ async function prepareRow(
     devLog(`[mandala] handle: the MessageBox for ${txid} could not be opened:`, e)
     return 'unavailable'
   }
-
-  return {
-    recipientKey: row.counterpartyKey,
-    box,
-    handover: {
-      txid,
-      tx,
-      reference: row.reference ?? '',
-      outputIndex: row.outputIndex,
-      receipt: {
-        version: 1,
-        assetId: row.assetId,
-        derivationPrefix: row.derivationPrefix,
-        derivationSuffix: row.derivationSuffix,
-        senderIdentityKey: row.senderIdentityKey,
-        profileData: evidence.profileData as Record<string, unknown>
-      },
-      // Not part of the §7.2 body.
-      offChainValues: []
-    }
-  }
+  return { recipientKey: row.counterpartyKey, box, handover: { txid, body } }
 }
 
 /** Delivers a prepared hand-over and journals the ACK. */
@@ -401,8 +456,7 @@ async function deliverPrepared(d: HandleDeps, row: ColorTransferRow, p: Prepared
     await deliverHandover({
       messageBoxClient: p.box,
       recipientKey: p.recipientKey,
-      handover: p.handover,
-      ...(row.note !== undefined ? { note: row.note } : {})
+      handover: p.handover
     })
   } catch (e) {
     devLog(`[mandala] handle: redelivering ${row.txid} failed:`, e)
@@ -524,45 +578,32 @@ export async function resendTransfer(d: HandleDeps, txid: string): Promise<'rese
 }
 
 const IDENTITY_KEY = /^(02|03)[0-9a-f]{64}$/
-const HEX = /^(?:[0-9a-f]{2})+$/
 
-/** What this session learned of each listed message: who sent it and its asset's attested deploy. */
+/** What this session learned of each listed message: who sent it. */
 interface ListedMessage {
   sender?: string
-  declarationTx?: string
 }
 
 /**
- * Reads the sender and the attested `declarationTx` from a listed hand-over
- * body, leniently: this is display data (the counterparty, the asset's name)
- * for credits the module already accepted, never a decision input.
+ * Reads the sender of a listed hand-over, leniently: display data (the
+ * counterparty) for credits the lib already verified, never a decision input.
  */
 function readListed(message: unknown): [string, ListedMessage] | undefined {
   if (message === null || typeof message !== 'object') return undefined
-  const m = message as { messageId?: unknown; sender?: unknown; body?: unknown }
+  const m = message as { messageId?: unknown; sender?: unknown }
   const id = typeof m.messageId === 'string' || typeof m.messageId === 'number' ? String(m.messageId) : undefined
   if (id === undefined) return undefined
   const out: ListedMessage = {}
   if (typeof m.sender === 'string' && IDENTITY_KEY.test(m.sender)) out.sender = m.sender
-  try {
-    const body = (typeof m.body === 'string' ? JSON.parse(m.body) : m.body) as {
-      assetId?: unknown
-      receipt?: { profileData?: Record<string, Record<string, { declarationTx?: unknown }>> }
-    }
-    const assetId = typeof body?.assetId === 'string' ? body.assetId : undefined
-    const decl =
-      assetId !== undefined ? body?.receipt?.profileData?.[ATTESTED_PROFILE_ID]?.[assetId]?.declarationTx : undefined
-    if (typeof decl === 'string' && HEX.test(decl)) out.declarationTx = decl
-  } catch {
-    // An unreadable body is the lib's to judge; nothing to learn from it here.
-  }
   return [id, out]
 }
 
 /**
- * Drains the `mandala-color` box through lib `receiveHandovers` and journals
- * each credit `held`, then asks `reconcileHeld` to settle the ones the module
- * inventory shows admitted. Single-flight per runtime.
+ * Drains the `mandala-color` box through lib `receiveHandovers` (with the
+ * host ledger: online submit or offline COVER, recorded before the plain
+ * receipt is internalized) and journals each credit, `held` when it was
+ * credited offline and `settled` when the ledger holds a verified σ. Held
+ * ones are then offered to `reconcileHeld`. Single-flight per runtime.
  *
  * `incomplete: true` means the box could not be read at all, which is never
  * the same answer as an empty box. A journal fault after a credit is logged:
@@ -600,7 +641,13 @@ async function runReceive(d: HandleDeps): Promise<{ credited: number; failed: nu
       },
       acknowledgeMessage: async args => await box.acknowledgeMessage(args)
     }
-    result = await receiveHandovers({ wallet: d.wallet, messageBoxClient: observed, processed: d.processed })
+    result = await receiveHandovers({
+      wallet: d.wallet,
+      messageBoxClient: observed,
+      processed: d.processed,
+      ledger: d.ledger,
+      markSettled: d.markSettled
+    })
   } catch (e) {
     devLog('[mandala] handle: the token inbox could not be read:', e)
     return { credited: 0, failed: 0, incomplete: true }
@@ -610,9 +657,9 @@ async function runReceive(d: HandleDeps): Promise<{ credited: number; failed: nu
   for (const credit of result.accepted) {
     const seen = listed.get(String(credit.messageId))
     try {
-      // Always `held`, whatever `credit.offline` says: the lib reports
-      // `offline: false` when it could not read its view at all. Only the
-      // module inventory, below, settles a credit.
+      // `offline` is the host ledger's own state for this tx (B7): `pending`
+      // (COVER evidence, not yet admitted) or `settled` (σ verified by this
+      // host). A row already `held` is moved by markSettled, never here.
       if (
         await d.journal.insert({
           txid: credit.txid,
@@ -621,7 +668,7 @@ async function runReceive(d: HandleDeps): Promise<{ credited: number; failed: nu
           units: credit.amount,
           outputIndex: credit.outputIndex,
           rail: 'handle',
-          state: 'held',
+          state: credit.offline ? 'held' : 'settled',
           delivered: false,
           ...(seen?.sender !== undefined ? { counterpartyKey: seen.sender } : {})
         })
@@ -631,18 +678,12 @@ async function runReceive(d: HandleDeps): Promise<{ credited: number; failed: nu
     } catch (e) {
       devLog(`[mandala] handle: journaling the inbox credit ${credit.txid} failed:`, e)
     }
-    if (seen?.declarationTx !== undefined) {
-      try {
-        await d.rememberDeploy(seen.declarationTx)
-      } catch (e) {
-        devLog('[mandala] handle: caching a received deploy failed:', e)
-      }
-    }
   }
   if (changed) notify(d)
   if (result.accepted.length > 0) {
-    // Promotes each credit (new, or a replay journaled `held` earlier) the
-    // inventory shows settled; a view fault leaves it held for the next tick.
+    // A replay of a credit journaled `held` earlier that is now settled is
+    // moved by markSettled; this also catches one whose markSettled write
+    // failed. A view fault leaves it held for the next tick.
     try {
       await d.reconcileHeld(result.accepted.map(c => c.txid))
     } catch (e) {

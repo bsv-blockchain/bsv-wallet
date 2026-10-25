@@ -882,12 +882,18 @@ describe('NearbyFlow — the token path, payee side (plan 07 Task 16)', () => {
     await receiveScannedFrame(s)
 
     await waitFor(() => expect(mockProcessPending).toHaveBeenCalledTimes(1))
-    // The session's OWN asset is the binding, never the frame's.
-    expect(mockVerifyFramePayment.mock.calls[0][3]).toEqual({ assetId: ASSET.id })
-    // One hook, after the internalize: no pre-internalize write any more.
+    // The session's OWN asset and this device's own overlay key are the
+    // binding, never the frame's.
+    expect(mockVerifyFramePayment.mock.calls[0][3]).toEqual({
+      assetId: ASSET.id,
+      overlayIdentityKey: runtime.endpoints.overlayIdentityKey
+    })
+    // The journal hook after the credit, and the lib's recipient path (B7)
+    // that verifies and credits the receipt.
     const args = mockProcessPending.mock.calls[0] as unknown[]
-    expect(args).toHaveLength(5)
+    expect(args).toHaveLength(6)
     expect(args[4]).toBe(runtime.nearby.onReceived)
+    expect(args[5]).toBe(runtime.nearby.accept)
     await waitFor(() => expect(s.getByText('local_pay_token_not_cleared:Acme Bank')).toBeTruthy())
     expect(s.getByText('25.00 USDX')).toBeTruthy()
   })

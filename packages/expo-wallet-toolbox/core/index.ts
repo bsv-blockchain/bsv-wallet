@@ -196,6 +196,7 @@ export {
   offlineUnitsOf,
   readAvailable,
   readInventory,
+  readPending,
   shortAssetId,
   type InventoryRecord
 } from './mandala/assets'
@@ -209,10 +210,11 @@ export {
   type MandalaMessageBox
 } from './mandala/createRuntime'
 // The BRC-207 color module as WalletContext registers it
-// (`permissionModules.color`): the module with the attested and Mandala
-// profiles, its `ColorModuleStore` over `key_value_store`, and the host
-// consent policy. A host that builds its own permissions manager needs all
-// three to give `createMandalaRuntime` a module and a provider.
+// (`permissionModules.color`): the module with the Mandala issuer-v1 profile
+// and the host ledger it credits from (B7), its `ColorModuleStore` over
+// `key_value_store`, and the host consent policy. A host that builds its own
+// permissions manager needs all of them to give `createMandalaRuntime` a
+// module, a provider and a ledger.
 export { buildColorModule, type BuildColorModuleArgs, type BuiltColorModule } from './mandala/colorModule'
 export { createColorModuleStore, type WalletKv } from './mandala/kvStore'
 export {
@@ -222,15 +224,16 @@ export {
   type ColorAccessPolicyOptions,
   type ColorPromptType
 } from './mandala/accessPolicy'
-// The nearby payee's BRC-207 §7.1 receipt (plan 07 Task 16).
+// A nearby token frame as the v4 hand-over body (B7, IC §7.3), and how a
+// failed receipt is classified.
 export {
-  declarationTxOf,
-  isColorProviderError,
+  bodyFromFrame,
   isRetriableReceiptFailure,
+  isTransportReceiptFailure,
   receiptFailureCode,
-  receiptFromFrame,
-  receiptInternalizeOutput
+  tokenPaymentOfHandover
 } from './mandala/receipt'
+export { createHandoverBodies, handoverBodyKey, type HandoverBodies } from './mandala/handle'
 
 // Contacts
 export { mergeContactCache, type ContactCache } from './contacts/contactCache'

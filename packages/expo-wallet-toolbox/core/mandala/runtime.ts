@@ -8,13 +8,16 @@
  * the lib directly; everything goes through this surface so failure copy,
  * journaling and state live in one place.
  *
- * Since 1Color (plan 07): the color permission module holds every token and
- * all evidence; the runtime is a thin host over the module (`settle`,
- * `handoffEvidence`), `@bsv/mandala` (hand-over send/receive, deploy reads)
- * and the wallet's own `color_transfers` journal. Token amounts are exact
- * `bigint` everywhere on this surface (IC §0).
+ * Since 1Color (plan 07) and Amendment B7: the color permission module holds
+ * every token; the runtime is the HOST over it. `@bsv/mandala` sends,
+ * receives, verifies (online submit or offline COVER) and settles hand-overs
+ * with the host ledger, and the module's host-only `markSettled(txid)` clears
+ * `color_offline` once a coin is settled. The wallet's own `color_transfers`
+ * journal mirrors every transfer. Token amounts are exact `bigint`
+ * everywhere on this surface (IC §0).
  */
 import type { HandoverResult } from '@bsv/mandala'
+import type { PaymentFrame } from '../localpay/codec'
 import type { MandalaEndpointConfig } from '../toolboxConfig'
 import type { TransferJournal } from './transferJournal'
 import type { ColorTransferRail, ColorTransferRole, ColorTransferRow, ColorTransferState } from './types'
@@ -35,9 +38,9 @@ export interface TokenAssetInfo {
  *
  * `units` is the exact `p color balance <assetTag>` sum: everything available
  * to spend, INCLUDING offline credits (0207:396-404). `offlineUnits` is the
- * part of it the inventory tags `color_offline` — accepted, spendable, but not
- * yet settled with the issuer's overlay. It is never more than `units`; the
- * settled part is `units - offlineUnits`. Never sum the two.
+ * pending part of it, the same view filtered to `color_offline` (B7) —
+ * accepted, but not yet settled with the issuer's overlay. It is never more
+ * than `units`; the settled part is `units - offlineUnits`. Never sum the two.
  */
 export interface TokenBalance {
   asset: TokenAssetInfo
@@ -125,7 +128,17 @@ export interface NearbyTokenDeps {
   }): Promise<HandoverResult>
   /** PAYER: the frame was handed over (or parked) (Task 15). */
   onHandedOver(txid: string, state: 'parked' | 'handed_over'): Promise<void>
-  /** PAYEE: the receipt internalize settled either way (Task 16). */
+  /**
+   * PAYEE: run the lib's recipient path on a token frame's v4 body (B7):
+   * strict parse, online submit or offline COVER with the S1 hop checks, the
+   * host-ledger record, then the plain BRC-207 receipt internalize. Throws
+   * what the lib throws; `offline` is true when the credit rests on COVER
+   * evidence (pending settlement).
+   */
+  accept(
+    frame: PaymentFrame
+  ): Promise<{ txid: string; assetId: string; units: bigint; outputIndex: number; offline: boolean }>
+  /** PAYEE: the receipt settled either way (Task 16). */
   onReceived(
     a: {
       txid: string
@@ -133,9 +146,8 @@ export interface NearbyTokenDeps {
       units: bigint
       counterpartyKey: string
       outputIndex: number
-      declarationTx?: string
     },
-    outcome: { ok: true } | { ok: false; code: string; final: boolean }
+    outcome: { ok: true; offline: boolean } | { ok: false; code: string; final: boolean }
   ): Promise<void>
 }
 
@@ -166,16 +178,20 @@ export interface MandalaRuntime {
   assetStatus(assetId: string): Promise<TokenAssetStatus>
   /** Same as `assetStatus`, forcing a fresh read past the cache. */
   refreshAssetStatus(assetId: string): Promise<TokenAssetStatus>
-  /** Caches a received receipt's attested deploy tx for offline metadata reads (W7). Never throws. */
+  /** Caches a deploy tx for offline metadata reads (W7). Never throws. */
   rememberDeploy(declarationTxHex: string): Promise<void>
   /** Plain reason a recipient string cannot receive tokens, or null. Sending to self is allowed. */
   recipientRefusal(recipient: string): string | null
   /** Subscribe to changes (balances/activity/settlement state). Returns unsubscribe. */
   subscribe(listener: () => void): () => void
 
-  /** One row's settlement through `color.settle({ txids })`; built/parked rows are returned untouched (Task 12). */
+  /**
+   * One row's settlement (B7): a delivered own hand-over through lib
+   * `settleHandover`, a held receipt through `settleReceipts`; built/parked
+   * and undelivered rows are returned untouched.
+   */
   settleNow(txid: string): Promise<TokenSettleState>
-  /** Bare `color.settle()`, single-flight; returns how many journal rows changed (Task 12). */
+  /** Every pending receipt and delivered own hand-over, single-flight; returns how many journal rows changed. */
   settleAll(): Promise<number>
   /** `settleAll` plus a count of where every row stands (Task 12). */
   reviewTokenHoldings(): Promise<TokenHoldingsReview>

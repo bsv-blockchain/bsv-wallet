@@ -118,7 +118,7 @@ export interface FakeMandala extends MandalaRuntime {
   receiveFromInbox: jest.Mock
   resendTransfer: jest.Mock
   tick: jest.Mock
-  nearby: { handover: jest.Mock; onHandedOver: jest.Mock; onReceived: jest.Mock }
+  nearby: { handover: jest.Mock; onHandedOver: jest.Mock; accept: jest.Mock; onReceived: jest.Mock }
   /** Fire every subscriber, as the real runtime does when money moves. */
   emit(): void
 }
@@ -174,6 +174,7 @@ export function makeFakeMandala(
       handover: jest.fn(),
       // PAYER, at park/hold. A no-op by default; a test that cares asserts on it.
       onHandedOver: jest.fn(async () => {}),
+      accept: jest.fn(),
       onReceived: jest.fn(async () => {})
     },
     emit: () => listeners.forEach(l => l())

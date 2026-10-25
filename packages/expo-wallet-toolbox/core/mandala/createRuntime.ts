@@ -5,8 +5,10 @@
  * above it (the UI, `useMandala()`) sees only `runtime.ts`'s pure interface;
  * everything below it is reached from here:
  *
- *  · the color permission module (`settle`, `handoffEvidence`), which holds
- *    every token and all evidence;
+ *  · the color permission module, which holds every token, and its host-only
+ *    `markSettled(txid)`;
+ *  · the host ledger (B7) shared with the module's issuer-v1 handler, and the
+ *    host's underlying wallet, from which hand-over envelopes are built;
  *  · its read-only `listOutputs` views (`p color assets`, `p color balance
  *    <assetTag>`), read through the PUBLISHED manager as the admin originator
  *    (`assets.ts`);
@@ -21,17 +23,25 @@
  */
 import { PublicKey, type WalletInterface } from '@bsv/sdk'
 import type { ColorOverlayProvider, ColorPermissionModule } from '@bsv/color-permission-module'
-import { fetchRegistry, registryIsLive, type OverlayRegistryRow } from '@bsv/mandala'
+import {
+  acceptHandover,
+  fetchRegistry,
+  parseHandoverBody,
+  registryIsLive,
+  type HostLedger,
+  type OverlayRegistryRow
+} from '@bsv/mandala'
 import { resolveAssetState, type AssetAdminStateView } from '@bsv/mandala/adminState'
 import type { AppChain } from '../config'
 import type { MandalaEndpointConfig } from '../toolboxConfig'
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 import { devLog } from '../logging'
-import { makeResendBeef, type LocalBeefStorage } from '../peerpay/resendBeef'
 import { findOfflineActions, type OfflineDb } from '../storage/methods/offlineActions'
-import { createAssetMetadata, offlineUnitsOf, readAvailable, readInventory, STATE_AVAILABLE_TAG } from './assets'
+import { createAssetMetadata, readAvailable, readInventory, readPending, STATE_AVAILABLE_TAG } from './assets'
 import type { WalletKv } from './kvStore'
+import { bodyFromFrame } from './receipt'
 import {
+  createHandoverBodies,
   receiveFromInbox as receiveHandleInbox,
   redeliverPending,
   resendTransfer as resendHandle,
@@ -78,18 +88,19 @@ export interface CreateMandalaRuntimeArgs {
   storage: StorageExpoSQLite
   chain: AppChain
   endpoints: MandalaEndpointConfig | undefined
-  /** The registered color module (`BuiltColorModule.module`). */
-  color: Pick<ColorPermissionModule, 'settle' | 'handoffEvidence'> | undefined
+  /** The registered color module (`BuiltColorModule.module`): only its host-only `markSettled`. */
+  color: Pick<ColorPermissionModule, 'markSettled'> | undefined
   /** The module's Mandala overlay provider (`BuiltColorModule.provider`). */
   provider: ColorOverlayProvider | undefined
+  /** The host ledger the module's issuer-v1 handler credits from (`BuiltColorModule.ledger`). */
+  ledger: HostLedger | undefined
+  /**
+   * The host's UNDERLYING wallet (the one the module was built over), never the
+   * manager: a hand-over's envelope is built from its custody (B7).
+   */
+  hostWallet: WalletInterface | undefined
   /** Built lazily on first use so constructing a runtime does no I/O and needs no network. */
   messageBox?: () => Promise<MandalaMessageBox>
-  /**
-   * AtomicBEEF of a txid from the network, for a hand-over resend (Task 13).
-   * This device's own stored copy is the fallback (`makeResendBeef`): a
-   * hand-over that was never broadcast is known to no service.
-   */
-  refetchBeef?: (txid: string) => Promise<number[] | undefined>
   /** Whether this device has signal; decides whether a send takes its own settle now (Task 13). */
   isOnline?: () => Promise<boolean>
   now?: () => Date
@@ -202,10 +213,16 @@ interface AssetStatusSnapshot {
 }
 
 export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRuntime {
-  const { wallet, adminOriginator, storage, endpoints, color, provider } = args
+  const { wallet, adminOriginator, storage, endpoints, color, provider, ledger, hostWallet } = args
   const now = args.now ?? (() => new Date())
   const db = storage.sqliteDb
-  const available = endpoints !== undefined && color !== undefined && provider !== undefined && db !== undefined
+  const available =
+    endpoints !== undefined &&
+    color !== undefined &&
+    provider !== undefined &&
+    ledger !== undefined &&
+    hostWallet !== undefined &&
+    db !== undefined
   const config: MandalaEndpointConfig = endpoints ?? { overlayUrl: '', overlayIdentityKey: '', messageBoxUrl: '' }
   const journal: TransferJournal = db ? createTransferJournal(db as unknown as JournalDb, now) : unavailableJournal()
   const bound = bindOriginator(wallet, adminOriginator)
@@ -343,16 +360,20 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   // Without the module or a database there is nothing to settle with, and
   // every member says so rather than pretending.
   const settler: Settler | undefined =
-    color !== undefined && db !== undefined
+    color !== undefined && ledger !== undefined && db !== undefined && endpoints !== undefined
       ? createSettler({
-          color,
+          wallet: bound,
           journal,
+          ledger,
+          markSettled: async txid => await color.markSettled(txid),
+          overlayIdentityKey: config.overlayIdentityKey,
           // Through the PUBLISHED manager, so the abort guard decides; the row
           // already reads `refused` when this runs.
           abort: async reference => await bound.abortAction({ reference }),
           onChange: emit
         })
       : undefined
+  const bodies = createHandoverBodies(storage as unknown as WalletKv)
 
   const reviewTokenHoldings = async (): Promise<TokenHoldingsReview> => {
     let unreachable = true
@@ -407,23 +428,18 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   // One deps object per runtime: the per-asset send latch, the in-delivery set
   // and the redeliver/receive single flights hang off it.
   const handleDeps: HandleDeps | undefined =
-    color !== undefined && db !== undefined
+    settler !== undefined && ledger !== undefined && hostWallet !== undefined
       ? {
           wallet: bound,
           identityKey,
           journal,
-          color,
+          hostWallet,
+          ledger,
+          markSettled: settler.markSettled,
+          bodies,
           messageBox,
-          settleNow: async txid => (settler ? await settler.settleNow(txid) : 'unavailable'),
+          settleNow: async txid => await settler.settleNow(txid),
           isOnline: args.isOnline ?? (async () => true),
-          rememberDeploy: async hex => {
-            await metadata.remember(hex)
-            emit()
-          },
-          refetch: makeResendBeef({
-            refetch: args.refetchBeef ?? (async () => undefined),
-            storage: storage as unknown as LocalBeefStorage
-          }),
           processed: new Set<string>(),
           now,
           recipientRefusal: recipientRefusalOf,
@@ -439,23 +455,45 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   // module too; without either it refuses rather than building a payment
   // nothing could journal or settle.
   const nearbyPayer =
-    db !== undefined
-      ? createNearbyPayer({ wallet: bound, identityKey, journal, recipientRefusal: recipientRefusalOf, onChange: emit })
+    db !== undefined && ledger !== undefined && hostWallet !== undefined
+      ? createNearbyPayer({
+          wallet: bound,
+          identityKey,
+          journal,
+          hostWallet,
+          ledger,
+          bodies,
+          recipientRefusal: recipientRefusalOf,
+          onChange: emit
+        })
       : undefined
   const nearbyUnavailable = async (): Promise<never> => {
     throw new Error('Stablecoins are not available on this network')
   }
-  // ── Nearby rail, payee half (Task 16) ──
+  // ── Nearby rail, payee half (Task 16, B7) ──
   //
-  // Told how a nearby receipt internalize settled. A credit is journaled
-  // `held` FIRST and only then promoted from the module inventory
-  // (`reconcileHeld`), the handle rail's order (Task 13): a row exists before
-  // any view read, and an unreadable or not-yet-listing view leaves it held,
-  // never settled (Review Focus 4). A definitive refusal is journaled
-  // `refused` with its code; a retriable failure writes nothing (a missing
-  // row already holds, W1). Every write is INSERT OR IGNORE, so a replay, a
-  // second tab or a later refusal of an already credited txid never forks or
-  // downgrades the row.
+  // `accept` runs the lib's recipient path on the frame's v4 body with the
+  // host ledger and this chain's K: verified first, recorded second, credited
+  // third (the issuer-v1 handler credits exactly what the ledger holds).
+  const accept: NearbyTokenDeps['accept'] = async frame => {
+    if (ledger === undefined || settler === undefined || endpoints === undefined) return await nearbyUnavailable()
+    const parsed = parseHandoverBody(bodyFromFrame(frame))
+    const r = await acceptHandover(parsed, {
+      wallet: bound,
+      ledger,
+      markSettled: settler.markSettled,
+      overlayIdentityKey: config.overlayIdentityKey
+    })
+    return { txid: r.txid, assetId: r.assetId, units: r.amount, outputIndex: r.outputIndex, offline: r.offline }
+  }
+
+  // Told how a nearby receipt settled. A credit is journaled `held` when it
+  // rests on COVER evidence (ledger `pending`) and `settled` when this host
+  // verified σ; a held one is then offered to `reconcileHeld`. A definitive
+  // refusal is journaled `refused` with its code; a retriable failure writes
+  // nothing (a missing row already holds, W1). Every write is INSERT OR
+  // IGNORE, so a replay, a second tab or a later refusal of an already
+  // credited txid never forks or downgrades the row.
   const onReceived: NearbyTokenDeps['onReceived'] = async (a, outcome) => {
     if (db === undefined) await nearbyUnavailable()
     if (outcome.ok) {
@@ -466,7 +504,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         units: a.units,
         outputIndex: a.outputIndex,
         rail: 'nearby',
-        state: 'held',
+        state: outcome.offline ? 'held' : 'settled',
         delivered: false,
         counterpartyKey: a.counterpartyKey
       })
@@ -475,14 +513,6 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
         await reconcileHeld([a.txid])
       } catch (e) {
         devLog(`[mandala] nearby: reconciling the receipt ${a.txid} failed; it stays held:`, e)
-      }
-      if (a.declarationTx !== undefined) {
-        try {
-          await metadata.remember(a.declarationTx)
-          emit()
-        } catch (e) {
-          devLog('[mandala] nearby: caching a received deploy failed:', e)
-        }
       }
       return
     }
@@ -538,8 +568,9 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
    * One drain pass, in this order, each step on its own:
    *  1. redeliver every hand-over whose MessageBox delivery is not known to
    *     have happened (W4), each one then named to `settleNow`;
-   *  2. the bare module settle (IC §8.2), which moves journal rows the overlay
-   *     admitted or refused;
+   *  2. settlement (B7): every pending receipt (`settleReceipts`) and every
+   *     delivered own hand-over (`settleHandover`), which moves journal rows
+   *     the overlay admitted or refused;
    *  3. journal the held 1Color receipts the release queue carries (Review
    *     Focus 4): `held` while any record is `color_offline`, else `settled`.
    *
@@ -577,6 +608,7 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
   const nearby: NearbyTokenDeps = {
     handover: nearbyPayer && color !== undefined ? nearbyPayer.handover : nearbyUnavailable,
     onHandedOver: nearbyPayer ? nearbyPayer.onHandedOver : nearbyUnavailable,
+    accept,
     onReceived
   }
 
@@ -610,7 +642,8 @@ export function createMandalaRuntime(args: CreateMandalaRuntimeArgs): MandalaRun
           r => r.assetId === assetId && r.role === 'value' && r.tags.includes(STATE_AVAILABLE_TAG)
         )
         const units = hasAvailable ? await readAvailable(bound, adminOriginator, assetId) : 0n
-        let offlineUnits = offlineUnitsOf(records, assetId)
+        // B7: pending = the same balance view, filtered to `color_offline`.
+        let offlineUnits = hasAvailable ? await readPending(bound, adminOriginator, assetId) : 0n
         if (offlineUnits > units) {
           // Two views, two snapshots (0207:657-660). Keep the promise that the
           // offline part is a subset: with the larger figure, ALL of it reads

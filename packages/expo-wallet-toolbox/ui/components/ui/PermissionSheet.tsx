@@ -108,8 +108,7 @@ const COLOR_DESCRIPTIONS: Record<ColorPromptType, string> = {
   color_send: 'wants to send tokens from your wallet',
   color_signature: 'wants to sign with one of your token keys. Only approve if you just asked this app to move tokens',
   color_access: 'wants to see your token holdings',
-  color_relinquish: 'wants to remove a token holding from your wallet',
-  color_receive_offline: 'wants to add tokens that are not settled yet to your wallet'
+  color_relinquish: 'wants to remove a token holding from your wallet'
 }
 
 /** What the sheet needs to render color consent messages. */

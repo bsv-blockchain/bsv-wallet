@@ -99,7 +99,8 @@ import {
 } from '@bsv/sdk'
 import { Wallet, WalletPermissionsManager, WalletSigner, WalletStorageManager } from '@bsv/wallet-toolbox-mobile'
 import { OneColor } from '@bsv/templates'
-import { colorBasket, decodeToken } from '@bsv/mandala'
+import { colorBasket, decodeToken, parseHandoverBody } from '@bsv/mandala'
+import { bodyFromFrame } from '../../core/mandala/receipt'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { buildPaymentFrame } from '../../core/localpay/build'
 import { mintSession } from '../../core/localpay/session'
@@ -535,9 +536,10 @@ describe('I3: the offline pending-payment queue never credits into the Vault bas
     const beef = new Beef()
     beef.mergeTransaction(tx)
 
-    // `receiptInternalizeOutput` (core/mandala/receipt.ts) derives the basket
-    // from the frame's asset id alone (`colorBasket`) — no other field of
-    // PaymentFrame maps to a basket name. These values are as
+    // `processPending` never internalizes a token frame itself: it hands the
+    // frame to the runtime's `nearby.accept`, whose lib path (`acceptHandover`)
+    // derives the basket from the parsed asset id alone (`colorBasket`) — no
+    // other field of PaymentFrame maps to a basket name. These values are as
     // adversarial as the type allows, to demonstrate that none of them can
     // reach the basket decision.
     const frame: PaymentFrame = {
@@ -549,16 +551,43 @@ describe('I3: the offline pending-payment queue never credits into the Vault bas
       derivationSuffix: Utils.toBase64(Utils.toArray('admin', 'utf8')),
       token: {
         assetId,
-        certificates: [],
-        profileData: JSON.stringify({ basket: VAULT_BASKET })
+        amount: '500',
+        senderMode: 'identity',
+        admissions: [],
+        linkage: [{ txid: tx.id('hex'), offChainValues: Utils.toHex(Utils.toArray(VAULT_BASKET, 'utf8')) }],
+        certificates: []
       },
       transaction: new Uint8Array(beef.toBinaryAtomic(tx.id('hex')))
     }
 
+    // The lib's internalize step, as `acceptHandover` runs it once the
+    // evidence is verified (the overlay is not part of this proof): the
+    // basket comes from the strictly parsed body's asset id.
+    const accept = jest.fn(async (f: PaymentFrame) => {
+      const h = parseHandoverBody(bodyFromFrame(f))
+      await wallet.internalizeAction(
+        {
+          tx: h.tx,
+          description: 'Receive Mandala tokens',
+          labels: ['mandala', 'receive'],
+          outputs: [
+            {
+              outputIndex: h.outputIndex,
+              protocol: 'basket insertion',
+              insertionRemittance: { basket: colorBasket(h.assetId), customInstructions: JSON.stringify(h.receipt) }
+            }
+          ]
+        } as never,
+        ADMIN
+      )
+      return { txid: tx.id('hex'), assetId: h.assetId, units: h.amount, outputIndex: h.outputIndex, offline: false }
+    })
+
     const kv = memoryKvStorage()
     await savePending(kv, frame)
-    const results = await processPending(wallet as never, kv, ADMIN)
+    const results = await processPending(wallet as never, kv, ADMIN, undefined, undefined, accept)
     expect(results).toEqual([{ id: expect.any(String), success: true }])
+    expect(accept).toHaveBeenCalledTimes(1)
 
     const mandala = (await wallet.listOutputs({ basket: colorBasket(assetId), limit: 10, offset: 0 } as never, ADMIN)) as {
       outputs: { outpoint: string }[]

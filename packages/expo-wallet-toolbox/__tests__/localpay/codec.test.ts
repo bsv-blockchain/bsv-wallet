@@ -54,9 +54,9 @@ describe('localpay codec', () => {
     expect(() => decodeFrame(v1)).toThrow('unsupported frame version 1')
   })
 
-  it('is version 6', () => {
-    expect(FRAME_VERSION).toBe(6)
-    expect(encodeFrame(sample())[0]).toBe(6)
+  it('is version 7', () => {
+    expect(FRAME_VERSION).toBe(7)
+    expect(encodeFrame(sample())[0]).toBe(7)
   })
 
   it('round-trips an optional note', () => {
@@ -248,12 +248,10 @@ describe('sealed envelope', () => {
 })
 
 const ASSET = 'ab'.repeat(32) + '_0'
-const ATTESTED = 'https://brc.dev/207/attested'
-const LEAF = {
-  declarationTx: '0100',
-  transactions: [],
-  attestations: [{ txid: 'cd'.repeat(32), outputs: [0], signer: '03'.padEnd(66, 'b'), signature: '3006020101020102' }],
-  submissions: [{ txid: 'cd'.repeat(32), offChainValues: 'beef' }]
+const SIGMA = { txid: 'cd'.repeat(32), outputs: [0, 1], signer: '03'.padEnd(66, 'b'), signature: '3006020101020102' }
+const EVIDENCE = {
+  admissions: [SIGMA],
+  linkage: [{ txid: 'ef'.repeat(32), offChainValues: 'beef' }]
 }
 
 const tokenSample = (): PaymentFrame => ({
@@ -261,8 +259,11 @@ const tokenSample = (): PaymentFrame => ({
   kind: 'token',
   token: {
     assetId: ASSET,
-    certificates: [new Uint8Array([9, 9, 9]), new Uint8Array([])],
-    profileData: JSON.stringify({ [ATTESTED]: { [ASSET]: LEAF } })
+    amount: '18446744073709551615',
+    senderMode: 'blinded',
+    admissions: EVIDENCE.admissions,
+    linkage: EVIDENCE.linkage,
+    certificates: [new Uint8Array([9, 9, 9]), new Uint8Array([])]
   } satisfies TokenPayment
 })
 
@@ -280,13 +281,20 @@ function varint(n: number): number[] {
 }
 
 /**
- * A v6 token frame laid out by hand, so the DECODER's checks can be reached
+ * A v7 token frame laid out by hand, so the DECODER's checks can be reached
  * with values the encoder refuses to write. Layout: version, kind, 33-byte
- * sender key, outputIndex, prefix, suffix, assetId, certificates,
- * profileData, note, transaction.
+ * sender key, outputIndex, prefix, suffix, assetId, amount, senderMode byte,
+ * certificates, evidence JSON, note, transaction.
  */
-function rawTokenFrame(opts: { version?: number; assetId?: string; profileData?: Uint8Array; profileLen?: number }) {
-  const out: number[] = [opts.version ?? 6, 0x02]
+function rawTokenFrame(opts: {
+  version?: number
+  assetId?: string
+  amount?: string
+  mode?: number
+  evidence?: Uint8Array
+  evidenceLen?: number
+}) {
+  const out: number[] = [opts.version ?? 7, 0x02]
   for (let i = 0; i < 33; i++) out.push(i === 0 ? 0x02 : 0xaa)
   out.push(...varint(0))
   const str = (s: string) => {
@@ -296,15 +304,17 @@ function rawTokenFrame(opts: { version?: number; assetId?: string; profileData?:
   str('cHJlZml4')
   str('c3VmZml4')
   str(opts.assetId ?? ASSET)
+  str(opts.amount ?? '5')
+  out.push(opts.mode ?? 0x00)
   out.push(...varint(0))
-  const pd = opts.profileData ?? utf8('{}')
-  out.push(...varint(opts.profileLen ?? pd.length), ...pd)
+  const ev = opts.evidence ?? utf8('{"admissions":[],"linkage":[]}')
+  out.push(...varint(opts.evidenceLen ?? ev.length), ...ev)
   str('')
   out.push(...varint(2), 1, 2)
   return new Uint8Array(out)
 }
 
-describe('frame v6 token block', () => {
+describe('frame v7 token block (IC §7.3)', () => {
   it('round-trips a bsv frame with kind preserved', () => {
     const decoded = decodeFrame(encodeFrame(sample()))
     expect(decoded.kind).toBe('bsv')
@@ -312,25 +322,34 @@ describe('frame v6 token block', () => {
     expect(decoded).toEqual(sample())
   })
 
-  it('round-trips a v6 token frame with a profileData carrier', () => {
+  it('round-trips a v7 token frame with the hand-over evidence', () => {
     const f = tokenSample()
-    expect(f.version).toBe(6)
+    expect(f.version).toBe(7)
     expect(decodeFrame(encodeFrame(f))).toEqual(f)
   })
 
-  it('carries exactly assetId, certificates and profileData', () => {
+  it('carries exactly the v4 body members the frame does not already carry', () => {
     const decoded = decodeFrame(encodeFrame(tokenSample()))
-    expect(Object.keys(decoded.token!).sort()).toEqual(['assetId', 'certificates', 'profileData'])
-  })
-
-  it('carries profileData byte-for-byte, including non-ASCII text', () => {
-    const profileData = JSON.stringify({ [ATTESTED]: { [ASSET]: { ...LEAF, memo: 'café ☕ 𝄞' } } })
-    const f = { ...tokenSample(), token: { ...tokenSample().token!, profileData } }
-    expect(decodeFrame(encodeFrame(f)).token!.profileData).toBe(profileData)
+    expect(Object.keys(decoded.token!).sort()).toEqual(
+      ['admissions', 'amount', 'assetId', 'certificates', 'linkage', 'senderMode'].sort()
+    )
+    const withTip = {
+      ...tokenSample(),
+      token: { ...tokenSample().token!, admission: SIGMA, senderMode: 'identity' as const }
+    }
+    expect(decodeFrame(encodeFrame(withTip)).token).toEqual(withTip.token)
   })
 
   it('decodes the hand-built layout', () => {
-    expect(decodeFrame(rawTokenFrame({})).token).toEqual({ assetId: ASSET, certificates: [], profileData: '{}' })
+    expect(decodeFrame(rawTokenFrame({})).token).toEqual({
+      assetId: ASSET,
+      amount: '5',
+      senderMode: 'identity',
+      admissions: [],
+      linkage: [],
+      certificates: []
+    })
+    expect(decodeFrame(rawTokenFrame({ mode: 0x01 })).token!.senderMode).toBe('blinded')
   })
 
   it('seals and unseals a token frame', () => {
@@ -338,23 +357,61 @@ describe('frame v6 token block', () => {
     expect(unsealFrame(sealFrame(tokenSample(), psk), psk)).toEqual(tokenSample())
   })
 
-  it('refuses frame version 5 and a non-object profileData', () => {
-    const v5 = encodeFrame(tokenSample())
-    v5[0] = 5
-    expect(() => decodeFrame(v5)).toThrow(CodecError)
-    expect(() => decodeFrame(v5)).toThrow(/unsupported frame version 5/)
-    expect(() => decodeFrame(rawTokenFrame({ version: 5 }))).toThrow(/unsupported frame version 5/)
-    for (const bad of ['[]', 'null', '5', '"x"', 'true', '{', '', '{"a":1} x']) {
-      expect(() => decodeFrame(rawTokenFrame({ profileData: utf8(bad) }))).toThrow(CodecError)
-      expect(() => encodeFrame({ ...tokenSample(), token: { ...tokenSample().token!, profileData: bad } })).toThrow(
-        CodecError
-      )
+  it('refuses frame versions 6 and 5: no back-compat', () => {
+    for (const v of [6, 5]) {
+      const old = encodeFrame(tokenSample())
+      old[0] = v
+      expect(() => decodeFrame(old)).toThrow(CodecError)
+      expect(() => decodeFrame(old)).toThrow(new RegExp(`unsupported frame version ${v}`))
+      expect(() => decodeFrame(rawTokenFrame({ version: v }))).toThrow(new RegExp(`unsupported frame version ${v}`))
     }
   })
 
-  it('refuses profileData that is not valid UTF-8 rather than rewriting it', () => {
-    const bytes = new Uint8Array([...utf8('{"a":"'), 0xff, 0xfe, ...utf8('"}')])
-    expect(() => decodeFrame(rawTokenFrame({ profileData: bytes }))).toThrow(CodecError)
+  it.each(['0', '01', '-1', '1.5', '', ' 1', '18446744073709551616'])(
+    'refuses amount %p at encode and decode',
+    amount => {
+      expect(() => encodeFrame({ ...tokenSample(), token: { ...tokenSample().token!, amount } })).toThrow(CodecError)
+      expect(() => decodeFrame(rawTokenFrame({ amount }))).toThrow(CodecError)
+    }
+  )
+
+  it('refuses an unknown senderMode byte', () => {
+    expect(() => decodeFrame(rawTokenFrame({ mode: 0x02 }))).toThrow(/senderMode/)
+    expect(() =>
+      encodeFrame({ ...tokenSample(), token: { ...tokenSample().token!, senderMode: 'x' as never } })
+    ).toThrow(CodecError)
+  })
+
+  it('refuses malformed evidence at decode and encode', () => {
+    const bad = [
+      '[]',
+      'null',
+      '{',
+      '{"admissions":[]}',
+      '{"linkage":[]}',
+      '{"admissions":[],"linkage":[],"extra":1}',
+      '{"admissions":[{"txid":"x"}],"linkage":[]}',
+      `{"admissions":[${JSON.stringify({ ...SIGMA, outputs: [] })}],"linkage":[]}`,
+      `{"admissions":[${JSON.stringify({ ...SIGMA, signature: 'XYZ' })}],"linkage":[]}`,
+      `{"admissions":[${JSON.stringify({ ...SIGMA, extra: 1 })}],"linkage":[]}`,
+      `{"admissions":[],"linkage":[{"txid":"${'ef'.repeat(32)}","offChainValues":"b"}]}`,
+      `{"admissions":[],"linkage":[{"txid":"${'ef'.repeat(32)}","offChainValues":"be"},{"txid":"${'ef'.repeat(32)}","offChainValues":"be"}]}`
+    ]
+    for (const text of bad) expect(() => decodeFrame(rawTokenFrame({ evidence: utf8(text) }))).toThrow(CodecError)
+    expect(() =>
+      encodeFrame({ ...tokenSample(), token: { ...tokenSample().token!, admissions: [{ ...SIGMA, outputs: [] }] } })
+    ).toThrow(CodecError)
+    expect(() =>
+      encodeFrame({
+        ...tokenSample(),
+        token: { ...tokenSample().token!, linkage: [{ txid: 'x', offChainValues: 'be' }] }
+      })
+    ).toThrow(CodecError)
+  })
+
+  it('refuses evidence that is not valid UTF-8 rather than rewriting it', () => {
+    const bytes = new Uint8Array([...utf8('{"admissions":[],"linkage":[],"a":"'), 0xff, 0xfe, ...utf8('"}')])
+    expect(() => decodeFrame(rawTokenFrame({ evidence: bytes }))).toThrow(CodecError)
   })
 
   it('rejects a v3 frame: fail-closed versioning', () => {
@@ -363,14 +420,9 @@ describe('frame v6 token block', () => {
     expect(() => decodeFrame(bytes)).toThrow(/unsupported frame version 3/)
   })
 
-  it('refuses profileData above 16 MiB at encode, and at decode before reading it', () => {
-    const over = '{"a":"' + 'x'.repeat(16_777_216 - 8 + 1) + '"}'
-    expect(utf8(over).length).toBe(16_777_217)
-    expect(() => encodeFrame({ ...tokenSample(), token: { ...tokenSample().token!, profileData: over } })).toThrow(
-      /profileData too large/
-    )
+  it('refuses evidence above 16 MiB before reading it', () => {
     // Only the length prefix is hostile: the check fires before any allocation.
-    expect(() => decodeFrame(rawTokenFrame({ profileLen: 16_777_217 }))).toThrow(/profileData too large/)
+    expect(() => decodeFrame(rawTokenFrame({ evidenceLen: 16_777_217 }))).toThrow(/token evidence too large/)
   })
 
   it.each(['ab'.repeat(32) + '.0', 'AB'.repeat(32) + '_0', 'ab'.repeat(32) + '_1', 'ab'.repeat(31) + '_0', ''])(

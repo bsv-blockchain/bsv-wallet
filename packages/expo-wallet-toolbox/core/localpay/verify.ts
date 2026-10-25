@@ -1,8 +1,8 @@
 import { Hash, P2PKH, PublicKey, Transaction, Utils } from '@bsv/sdk'
 import type { ChainTracker, WalletProtocol } from '@bsv/sdk'
 import { OneColor } from '@bsv/templates'
-import { ATTESTED_PROFILE_ID, MAX_UINT64, colorProtocolID, decodeToken } from '@bsv/mandala'
-import { transactionHasColorOutput } from '../mandala/colorGuard'
+import { MAX_UINT64, colorProtocolID, cover, decodeToken, parseHandoverBody, verifyAttestation } from '@bsv/mandala'
+import { bodyFromFrame } from '../mandala/receipt'
 import type { PaymentFrame } from './codec'
 import { PEERPAY_PROTOCOL_ID } from './pending'
 import { isRequestableAmount } from './session'
@@ -107,9 +107,10 @@ export async function verifyFramePayment(
    * Token frames only: THIS DEVICE's own session asset id, the asset the payee
    * asked to be paid in. The frame's `token.assetId` is data that must equal
    * it, and the script must move it. Its ABSENCE refuses a token frame: no
-   * session asset is no binding.
+   * session asset is no binding. `overlayIdentityKey` is THIS DEVICE's
+   * configured Mandala overlay key K: the evidence must reach σ by it.
    */
-  opts?: { assetId?: string }
+  opts?: { assetId?: string; overlayIdentityKey?: string }
 ): Promise<VerifiedPayment> {
   let tx: Transaction
   try {
@@ -127,19 +128,11 @@ export async function verifyFramePayment(
   }
 
   if (frame.kind === 'bsv') {
-    // A BSV frame whose transaction carries ANY 1Color output is refused
-    // outright, before anything else is read. The broadcast hold
-    // (`colorHeldTxids`, W1) parks every tx with a 1Color output until its
-    // `color_transfers` row reads `settled`, and only token transfers ever get
-    // a row: internalizing this tx would queue a credit the payee could never
-    // broadcast, while the payer stayed free to double-spend its inputs. Same
-    // predicate as the hold, so the rail refuses exactly what the hold would
-    // keep. Anyone can build a 1Color envelope, so this is a payer-controlled
-    // input and not a rare shape.
-    if (transactionHasColorOutput(tx)) {
-      throw new FrameVerifyError('not_mine', 'a BSV payment frame must not carry a 1Color output')
-    }
-
+    // A 1Color output elsewhere in the transaction is not refused here: the
+    // broadcast hold applies only to transactions in which THIS wallet's
+    // token custody is involved (its own `p color` inputs, or a receipt it
+    // recorded in the host ledger or journal), so a payer's decoy 1Color
+    // output cannot park this BSV credit (`colorGuard.ts`).
     const { publicKey } = await wallet.getPublicKey(
       {
         protocolID: PEERPAY_PROTOCOL_ID,
@@ -225,15 +218,14 @@ export async function verifyFramePayment(
 
   if (!frame.token) throw new FrameVerifyError('unparseable', 'token frame without token block')
 
-  // There is no COVER walk and no conservation sum here. The color module
-  // validates the receipt's whole frontier (attestations, unattested
-  // ancestors, conservation) inside `internalizeAction`, against this
-  // device's OWN configured overlay key, before it credits anything (IC
-  // §2.2-5, 0207:299-357). What this function adds is the cheap, certain part
-  // that must decide the payer's decline BEFORE the settle path latches or
-  // writes: the output is a 1Color value output of the session's asset, it
-  // pays a key this device derives, and the evidence is the kind the module
-  // will accept.
+  // What this function checks is the cheap, certain part that must decide the
+  // payer's decline BEFORE the settle path latches or writes: the output is a
+  // 1Color value output of the session's asset whose script amount is the
+  // frame's, it pays a key this device derives, the v4 body the frame stands
+  // for parses strictly, and its evidence reaches an admission by THIS
+  // device's own overlay key (offline COVER, pure). The online submit, the
+  // host-ledger record and the receipt internalize are the settle path's
+  // (`nearby.accept`, design §9 B7).
 
   // (1) The named output is a 1Color VALUE output of the session's asset.
   const decoded = decodeToken(output.lockingScript, tx.id('hex'), frame.outputIndex)
@@ -249,6 +241,9 @@ export async function verifyFramePayment(
   const units = decoded.amount
   if (typeof units !== 'bigint' || units < 1n || units > MAX_UINT64) {
     throw new FrameVerifyError('not_mine', `the named output carries no usable token amount: ${String(units)}`)
+  }
+  if (frame.token.amount !== units.toString()) {
+    throw new FrameVerifyError('not_mine', 'the frame’s amount is not the named output’s')
   }
 
   // (2) It pays us: the payee-side mirror of lib `sendHandover`'s recipient
@@ -284,35 +279,46 @@ export async function verifyFramePayment(
     throw new FrameVerifyError('not_mine', 'the named token output does not pay this device')
   }
 
-  // (3) The evidence is exactly the attested leaf for this asset: the only
-  //     profile a Mandala receipt carries (IC §7.1, no issuer-v1 leaf). The
-  //     module checks what is inside it.
-  if (!isAttestedOnly(frame.token.profileData, decoded.assetId)) {
-    throw new FrameVerifyError('not_covered', 'the frame does not carry attested evidence for this asset')
+  // (3) The evidence: the v4 body parses strictly (exact members, σ and
+  //     envelope row shapes), and either a σ by THIS device's configured K
+  //     covers the named output of the tip itself, or COVER over the body
+  //     reaches σ by K with every unanchored hop checked (S1) — the same two
+  //     offline arms as the lib's `acceptHandover`. No K is no binding: the
+  //     frame is refused.
+  const K = opts?.overlayIdentityKey
+  if (K === undefined || !/^0[23][0-9a-f]{64}$/.test(K)) {
+    throw new FrameVerifyError('not_covered', 'this device has no Mandala overlay key to verify the evidence against')
+  }
+  let parsed: ReturnType<typeof parseHandoverBody>
+  try {
+    parsed = parseHandoverBody(bodyFromFrame(frame))
+  } catch (e) {
+    throw new FrameVerifyError('not_covered', `the frame’s hand-over evidence is malformed: ${messageOf(e)}`)
+  }
+  const tipTxid = tx.id('hex')
+  const rows = [...(parsed.admission !== undefined ? [parsed.admission] : []), ...parsed.admissions]
+  const tipCovered = rows.some(
+    a => a.txid === tipTxid && a.outputs.includes(frame.outputIndex) && verifyAttestation(a, decoded.assetId as string, K)
+  )
+  if (tipCovered) return { kind: 'token', assetId: decoded.assetId, units }
+  const admissions = new Map<string, (typeof parsed.admissions)[number]>()
+  for (const a of rows) {
+    if (!admissions.has(a.txid)) admissions.set(a.txid, a)
+  }
+  let covered: ReturnType<typeof cover>
+  try {
+    covered = cover({ assetId: decoded.assetId, tip: tx, admissions, linkage: parsed.linkage }, { expectedSignerKey: K })
+  } catch (e) {
+    throw new FrameVerifyError('not_covered', `the frame’s evidence could not be checked: ${messageOf(e)}`)
+  }
+  if (!covered.ok) {
+    throw new FrameVerifyError(
+      'not_covered',
+      `the frame’s evidence does not reach an admission (${covered.reason}${covered.detail ? `: ${covered.detail}` : ''})`
+    )
   }
 
   return { kind: 'token', assetId: decoded.assetId, units }
-}
-
-const isPlainObject = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object' && !Array.isArray(v)
-
-/**
- * `profileData` is a JSON object with exactly one key, the attested profile,
- * whose value is an object holding an object leaf for `assetId`.
- */
-function isAttestedOnly(profileData: string, assetId: string): boolean {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(profileData)
-  } catch {
-    return false
-  }
-  if (!isPlainObject(parsed)) return false
-  const keys = Object.keys(parsed)
-  if (keys.length !== 1 || keys[0] !== ATTESTED_PROFILE_ID) return false
-  const attested = parsed[ATTESTED_PROFILE_ID]
-  return isPlainObject(attested) && Object.prototype.hasOwnProperty.call(attested, assetId) && isPlainObject(attested[assetId])
 }
 
 function messageOf(e: unknown): string {

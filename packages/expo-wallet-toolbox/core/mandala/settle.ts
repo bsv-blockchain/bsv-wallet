@@ -1,35 +1,53 @@
 /**
- * Settlement of token hand-overs and receipts through the color module (plan
- * 07 Task 12).
+ * Settlement of token hand-overs and receipts on the host (design §9 B7, IC
+ * §8.2 Revision 3).
  *
- * The module owns settlement: it submits each stored tx to the issuer's
- * overlay, verifies the attestation and records it (IC §2.3). The wallet's
- * part is to say WHEN (a named txid is persisted submit intent) and to mirror
- * each verdict onto its own `color_transfers` journal, which is the one key
- * the broadcast hold and the abort refusal read (W1).
+ * The color module no longer settles anything. The host does, with the lib:
+ *
+ *  · a SENT hand-over the recipient acknowledged (journal `handed_over`,
+ *    `delivered`) is submitted by `settleHandover` with the exact bytes and
+ *    envelope `sendHandover` recorded in the host ledger. A verified σ
+ *    settles it; a final verdict refuses it.
+ *  · a RECEIVED coin credited offline (ledger `pending`) is submitted by
+ *    `settleReceipts` with its stored chain; a verified σ covering the
+ *    credited output settles it.
+ *
+ * Both end in the host-only `color.markSettled(txid)`, which clears
+ * `color_offline` on the tx's outputs. The wallet hands the lib a
+ * `markSettled` that ALSO moves the `color_transfers` row to `settled`, in
+ * that order and before the lib's own post-admission broadcast starts, so the
+ * broadcast hold (keyed on the journal, W1) already releases that broadcast.
  *
  * Rules every function here keeps (stability mandate):
  *  · Journal moves are compare-and-set only (`journal.advance`), so a drain
- *    tick racing a screen, or a report replayed after a crash, can never move
+ *    tick racing a screen, or a verdict replayed after a crash, can never move
  *    a row twice or out of a final state.
- *  · `built`/`parked` rows are the payer's own and are never named to the
- *    module (FIX F): a payment the user withheld is not settled by anyone else.
- *    A final row is never named either: naming persists intent, and intent on a
- *    cancelled payment would submit what the user withdrew.
+ *  · `built`/`parked` rows are the payer's own and are never submitted (FIX
+ *    F), and neither is a `handed_over` row whose delivery is not known to
+ *    have happened (B5: the sender submits only after the recipient's ACK).
+ *    A final row is never submitted.
  *  · A refused own hand-over is journaled `refused` FIRST and only then
  *    aborted, so the abort guard (which refuses aborts of `handed_over` and
  *    `settled` rows) lets its inputs go. `settleNow` of a `refused` row
- *    retries the abort (the module never reports a refused txid again), so a
- *    crash between the two steps never strands the inputs. Within one
- *    settler the abort is coalesced per reference (a racing `settleAll` and
- *    `settleNow` abort once) and not repeated after it succeeded.
+ *    retries the abort, so a crash between the two steps never strands the
+ *    inputs. Within one settler the abort is coalesced per reference (a
+ *    racing `settleAll` and `settleNow` abort once) and not repeated after it
+ *    succeeded.
  *  · Every unknown answer fails closed: an unreadable admission answer is
  *    `undefined` (never `false`), and an inventory record that is offline or
  *    restricted is never journaled as `settled`.
  */
-import { Transaction, type LookupAnswer } from '@bsv/sdk'
-import type { ColorOverlayProvider, ColorPermissionModule, ColorSettleReport } from '@bsv/color-permission-module'
+import { Transaction, Utils, type LookupAnswer, type WalletInterface } from '@bsv/sdk'
+import type { ColorOverlayProvider } from '@bsv/color-permission-module'
 import { COLOR_OFFLINE_TAG } from '@bsv/color-permission-module'
+import {
+  settleHandover as libSettleHandover,
+  settleReceipts as libSettleReceipts,
+  type HostLedger,
+  type LedgerRecord,
+  type ReceiptSettleResult,
+  type SettleResult
+} from '@bsv/mandala'
 import { devLog } from '../logging'
 import type { InventoryRecord } from './assets'
 import type { TokenSettleState } from './runtime'
@@ -37,62 +55,39 @@ import type { TransferJournal } from './transferJournal'
 import type { ColorTransferRow, ColorTransferState } from './types'
 
 export interface SettleDeps {
-  color: Pick<ColorPermissionModule, 'settle'>
+  /** The bound manager: the lib's post-admission `sendWith` runs through it. */
+  wallet: WalletInterface
   journal: TransferJournal
+  /** The host ledger shared with the issuer-v1 handler. */
+  ledger: HostLedger
+  /** The module's host-only `markSettled(txid)` (clears `color_offline`). */
+  markSettled: (txid: string) => Promise<void>
+  /** This chain's overlay identity key K. */
+  overlayIdentityKey: string
   /** The bound manager's `abortAction({ reference })`, behind the abort guard. */
   abort: (reference: string) => Promise<{ aborted: boolean }>
   onChange: () => void
+  /** Lib seams (tests replace them). */
+  settleHandover?: typeof libSettleHandover
+  settleReceipts?: typeof libSettleReceipts
 }
 
 /** Every state a verdict may move a row out of. Final states are never left. */
 const OPEN_STATES: readonly ColorTransferState[] = ['built', 'parked', 'handed_over', 'held']
-/**
- * The only states `settleNow` names to the module. Never `built`/`parked` (the
- * payer's own, FIX F) and never a final state.
- */
-const SETTLEABLE_STATES: readonly ColorTransferState[] = ['handed_over', 'held']
 
-/** The module's transport-failure code (IC §2.1). */
+/** The transport-failure code (overlay unreachable, no typed verdict). */
 export const ERR_UNAVAILABLE = 'ERR_UNAVAILABLE'
 
-/**
- * Mirrors one settle report onto the journal (IC §2.3 mapping).
- *
- *  · `admitted` → `settled` from any open state.
- *  · `refused` → `refused` (with the code) from any open state; then, for a
- *    `sent` row with a reference that reads `refused`, abort its action.
- *  · `retry` → nothing.
- *
- * A result whose asset differs from the row's is ignored (the row keeps
- * holding its broadcast). Journal faults propagate: the module has recorded
- * the verdict, and the next report that names the txid replays it.
- */
-export async function applySettleReport(
-  report: ColorSettleReport,
-  d: Pick<SettleDeps, 'journal' | 'abort'>
-): Promise<{ changed: number; settled: string[] }> {
-  let changed = 0
-  const settled: string[] = []
-  for (const result of report?.results ?? []) {
-    if (result.status !== 'admitted' && result.status !== 'refused') continue
-    const row = await d.journal.get(result.txid)
-    if (!row) continue
-    if (row.assetId !== result.assetId) {
-      devLog(`[mandala] settle: ${result.txid} reported for ${result.assetId}, journaled for ${row.assetId}; ignored`)
-      continue
-    }
-    if (result.status === 'admitted') {
-      if (await d.journal.advance(result.txid, OPEN_STATES, 'settled')) {
-        changed++
-        settled.push(result.txid)
-      }
-      continue
-    }
-    const patch = result.code !== undefined ? { code: result.code } : {}
-    if (await d.journal.advance(result.txid, OPEN_STATES, 'refused', patch)) changed++
-    await releaseRefused(await d.journal.get(result.txid), d.abort)
-  }
-  return { changed, settled }
+/** One settlement outcome, sent or received, as the drain reports it. */
+export interface SettleOutcome {
+  txid: string
+  assetId: string
+  status: 'admitted' | 'retry' | 'refused'
+  code?: string
+}
+
+export interface SettleReport {
+  results: SettleOutcome[]
 }
 
 /**
@@ -110,24 +105,38 @@ async function releaseRefused(row: ColorTransferRow | undefined, abort: SettleDe
   }
 }
 
+/** The exact submit bytes of an own hand-over, from its host-ledger record. */
+function ownSubmit(
+  rec: LedgerRecord | undefined,
+  txid: string
+): { tx: number[]; offChainValues: number[] } | undefined {
+  const tip = rec?.submits?.find(s => s.txid === txid)
+  const beefHex = tip?.beefHex ?? rec?.beefHex
+  if (tip === undefined || beefHex === undefined || tip.offChainHex === '') return undefined
+  return { tx: Utils.toArray(beefHex, 'hex'), offChainValues: Utils.toArray(tip.offChainHex, 'hex') }
+}
+
 export interface Settler {
   settleNow(txid: string): Promise<TokenSettleState>
   settleAll(): Promise<number>
-  /** `settleAll` with the module's report, sharing its single flight. */
-  settleAllReport(): Promise<{ changed: number; report: ColorSettleReport }>
+  /** `settleAll` with every outcome, sharing its single flight. */
+  settleAllReport(): Promise<{ changed: number; report: SettleReport }>
+  /** The `markSettled` the lib is handed: module first, then the journal row. */
+  markSettled(txid: string): Promise<void>
 }
 
 export function createSettler(deps: SettleDeps): Settler {
+  const settleHandover = deps.settleHandover ?? libSettleHandover
+  const settleReceipts = deps.settleReceipts ?? libSettleReceipts
   const inFlight = new Map<string, Promise<TokenSettleState>>()
-  let allInFlight: Promise<{ changed: number; report: ColorSettleReport }> | undefined
+  let allInFlight: Promise<{ changed: number; report: SettleReport }> | undefined
 
   // The per-txid and settle-all single flights are separate, so a tick's
-  // `settleAll()` racing a screen's `settleNow(T)` can apply two reports that
-  // both refuse T. The journal CAS moves the row once; the abort is coalesced
-  // here: concurrent aborts of one reference share a call, and a reference
-  // already aborted by this settler is not asked again. A failed or declined
-  // abort is never remembered, so the retry paths (the next report, a
-  // `settleNow` of the refused row) still run it.
+  // `settleAll()` racing a screen's `settleNow(T)` can both see T refused.
+  // The journal CAS moves the row once; the abort is coalesced here:
+  // concurrent aborts of one reference share a call, and a reference already
+  // aborted by this settler is not asked again. A failed or declined abort is
+  // never remembered, so the retry paths still run it.
   const abortInFlight = new Map<string, Promise<{ aborted: boolean }>>()
   const aborted = new Set<string>()
   const abortOnce = (reference: string): Promise<{ aborted: boolean }> => {
@@ -146,37 +155,155 @@ export function createSettler(deps: SettleDeps): Settler {
     running.then(clear, clear)
     return running
   }
-  const d: SettleDeps = { ...deps, abort: abortOnce }
 
   const notify = (): void => {
     try {
-      d.onChange()
+      deps.onChange()
     } catch (e) {
       devLog('[mandala] settle: a change listener threw:', e)
     }
   }
 
+  /** CAS to `settled`; true when this call moved the row. */
+  const journalSettled = async (txid: string): Promise<boolean> => {
+    const moved = await deps.journal.advance(txid, OPEN_STATES, 'settled')
+    if (moved) notify()
+    return moved
+  }
+
+  /**
+   * The lib's `markSettled`: the module's flag first (so the coin stops being
+   * `color_offline`), then the journal (so the hold releases). A module
+   * failure throws before the journal moves, and the lib retries both.
+   */
+  const markSettled = async (txid: string): Promise<void> => {
+    await deps.markSettled(txid)
+    await journalSettled(txid)
+  }
+
+  /** Journals a final refusal (CAS) and releases a refused own hand-over. */
+  const journalRefused = async (txid: string, code: string | undefined): Promise<boolean> => {
+    const moved = await deps.journal.advance(txid, OPEN_STATES, 'refused', code !== undefined ? { code } : {})
+    if (moved) notify()
+    await releaseRefused(await deps.journal.get(txid), abortOnce)
+    return moved
+  }
+
   const currentState = async (txid: string): Promise<TokenSettleState> => {
     try {
-      return (await d.journal.get(txid))?.state ?? 'unavailable'
+      return (await deps.journal.get(txid))?.state ?? 'unavailable'
     } catch (e) {
       devLog(`[mandala] settle: could not read ${txid} from the journal:`, e)
       return 'unavailable'
     }
   }
 
+  /** Post-ACK submit of one own hand-over. Never throws for an overlay outcome. */
+  const settleSent = async (row: ColorTransferRow): Promise<SettleOutcome | undefined> => {
+    const base = { txid: row.txid, assetId: row.assetId }
+    const rec = await deps.ledger.get(row.txid)
+    if (rec?.state === 'settled') {
+      // Admitted before (a crash after the σ, or another settle): finish it.
+      if (rec.marked !== true) await markSettled(row.txid)
+      else await journalSettled(row.txid)
+      return { ...base, status: 'admitted' }
+    }
+    if (rec?.state === 'refused') {
+      await journalRefused(row.txid, rec.code)
+      return { ...base, status: 'refused', ...(rec.code !== undefined ? { code: rec.code } : {}) }
+    }
+    const bytes = ownSubmit(rec, row.txid)
+    if (bytes === undefined) {
+      devLog(`[mandala] settle: no host-ledger submit bytes for the hand-over ${row.txid}; it stays ${row.state}`)
+      return { ...base, status: 'retry', code: 'ERR_NO_CHAIN' }
+    }
+    let r: SettleResult
+    try {
+      r = await settleHandover({
+        wallet: deps.wallet,
+        handover: { txid: row.txid, ...bytes },
+        assetId: row.assetId,
+        overlayIdentityKey: deps.overlayIdentityKey,
+        ledger: deps.ledger,
+        markSettled
+      })
+    } catch (e) {
+      devLog(`[mandala] settle: the hand-over ${row.txid} could not be submitted:`, e)
+      return { ...base, status: 'retry', code: 'ERR_SETTLE' }
+    }
+    if (r.status === 'admitted') {
+      // The lib ran markSettled already; a failure there is only warned, so
+      // the row is moved here too (a CAS: a no-op when it already moved).
+      await journalSettled(row.txid)
+      return { ...base, status: 'admitted' }
+    }
+    if (r.status === 'refused') {
+      await journalRefused(row.txid, r.code)
+      return { ...base, status: 'refused', code: r.code }
+    }
+    return { ...base, status: 'retry', code: r.code }
+  }
+
+  /** Mirrors `settleReceipts` results onto the journal. */
+  const applyReceiptResults = async (results: readonly ReceiptSettleResult[]): Promise<SettleOutcome[]> => {
+    const out: SettleOutcome[] = []
+    for (const r of results) {
+      if (r.status === 'admitted') await journalSettled(r.txid)
+      else if (r.status === 'refused') await journalRefused(r.txid, r.code)
+      out.push({
+        txid: r.txid,
+        assetId: r.assetId,
+        status: r.status,
+        ...(r.code !== undefined ? { code: r.code } : {})
+      })
+    }
+    return out
+  }
+
+  /** A held receipt: submit its pending chain, or catch the row up with a settled ledger record. */
+  const settleReceived = async (row: ColorTransferRow): Promise<SettleOutcome[]> => {
+    const results = await applyReceiptResults(
+      await settleReceipts({
+        ledger: deps.ledger,
+        markSettled,
+        overlayIdentityKey: deps.overlayIdentityKey,
+        txids: [row.txid]
+      })
+    )
+    if (results.length > 0) return results
+    const rec = await deps.ledger.get(row.txid)
+    if (rec?.state === 'settled' && rec.marked !== false) {
+      await journalSettled(row.txid)
+      return [{ txid: row.txid, assetId: row.assetId, status: 'admitted' }]
+    }
+    if (rec?.state === 'refused') {
+      await journalRefused(row.txid, rec.code)
+      return [
+        {
+          txid: row.txid,
+          assetId: row.assetId,
+          status: 'refused',
+          ...(rec.code !== undefined ? { code: rec.code } : {})
+        }
+      ]
+    }
+    return []
+  }
+
   const runOne = async (txid: string): Promise<TokenSettleState> => {
-    const row = await d.journal.get(txid)
+    const row = await deps.journal.get(txid)
     if (!row) return 'unavailable'
     // A crash between journaling a refusal and aborting its action leaves the
-    // inputs reserved, and the module never reports a refused txid again: the
-    // abort is retried from here, without naming the row to the module.
-    if (row.state === 'refused') await releaseRefused(row, d.abort)
-    if (!SETTLEABLE_STATES.includes(row.state)) return row.state
-    const report = await d.color.settle({ txids: [txid] })
-    const { changed } = await applySettleReport(report, d)
-    if (changed > 0) notify()
-    return (await d.journal.get(txid))?.state ?? 'unavailable'
+    // inputs reserved: the abort is retried from here.
+    if (row.state === 'refused') await releaseRefused(row, abortOnce)
+    if (row.role === 'sent') {
+      if (row.state !== 'handed_over' || !row.delivered) return row.state
+      await settleSent(row)
+    } else {
+      if (row.state !== 'held') return row.state
+      await settleReceived(row)
+    }
+    return (await deps.journal.get(txid))?.state ?? 'unavailable'
   }
 
   const settleNow = (txid: string): Promise<TokenSettleState> => {
@@ -198,14 +325,58 @@ export function createSettler(deps: SettleDeps): Settler {
     return running
   }
 
-  const settleAllReport = (): Promise<{ changed: number; report: ColorSettleReport }> => {
+  /**
+   * Every pending receipt and every delivered own hand-over, once. Faults per
+   * item are logged and do not stop the rest; a ledger or journal read fault
+   * for the whole pass propagates.
+   */
+  const runAll = async (): Promise<{ changed: number; report: SettleReport }> => {
+    let changed = 0
+    const counting = async <T>(fn: () => Promise<T>): Promise<T> => {
+      const before = await deps.journal.list({ states: [...OPEN_STATES] })
+      const r = await fn()
+      const after = await deps.journal.statesOf(before.map(b => b.txid))
+      for (const b of before) if (after.get(b.txid) !== b.state) changed++
+      return r
+    }
+    const results = await counting(async () => {
+      const out: SettleOutcome[] = []
+      try {
+        out.push(
+          ...(await applyReceiptResults(
+            await settleReceipts({ ledger: deps.ledger, markSettled, overlayIdentityKey: deps.overlayIdentityKey })
+          ))
+        )
+      } catch (e) {
+        devLog('[mandala] settle: settling pending receipts failed:', e)
+      }
+      // Held rows whose ledger record is already settled (a crash between the
+      // two writes, or a receipt the handler settled with its own submit).
+      for (const row of await deps.journal.list({ states: ['held'], role: 'received' })) {
+        try {
+          const rec = await deps.ledger.get(row.txid)
+          if (rec?.state === 'settled' && rec.marked !== false) await journalSettled(row.txid)
+        } catch (e) {
+          devLog(`[mandala] settle: catching up ${row.txid} failed:`, e)
+        }
+      }
+      for (const row of await deps.journal.list({ states: ['handed_over'], role: 'sent' })) {
+        if (!row.delivered) continue
+        try {
+          const r = await settleSent(row)
+          if (r) out.push(r)
+        } catch (e) {
+          devLog(`[mandala] settle: settling the hand-over ${row.txid} failed:`, e)
+        }
+      }
+      return out
+    })
+    return { changed, report: { results } }
+  }
+
+  const settleAllReport = (): Promise<{ changed: number; report: SettleReport }> => {
     if (allInFlight) return allInFlight
-    const running = (async () => {
-      const report = await d.color.settle()
-      const { changed } = await applySettleReport(report, d)
-      if (changed > 0) notify()
-      return { changed, report }
-    })()
+    const running = runAll()
     allInFlight = running
     const clear = (): void => {
       if (allInFlight === running) allInFlight = undefined
@@ -217,12 +388,13 @@ export function createSettler(deps: SettleDeps): Settler {
   return {
     settleNow,
     settleAll: async () => (await settleAllReport()).changed,
-    settleAllReport
+    settleAllReport,
+    markSettled
   }
 }
 
 /** Whether every result of a non-empty report is a transport `retry`: nothing could be asked. */
-export function reportIsUnreachable(report: ColorSettleReport | undefined): boolean {
+export function reportIsUnreachable(report: SettleReport | undefined): boolean {
   const results = report?.results ?? []
   return results.length > 0 && results.every(r => r.status === 'retry' && r.code === ERR_UNAVAILABLE)
 }

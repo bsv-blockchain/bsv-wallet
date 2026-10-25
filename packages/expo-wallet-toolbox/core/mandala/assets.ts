@@ -136,11 +136,29 @@ export async function readInventory(wallet: WalletInterface, originator: string)
  * would already have lost precision above 2^53.
  */
 export async function readAvailable(wallet: WalletInterface, originator: string, assetId: string): Promise<bigint> {
+  return await readBalanceView(wallet, originator, assetId)
+}
+
+/**
+ * The pending (offline-credited, not yet settled) units of `assetId`: the
+ * same balance view filtered to `color_offline` (B7 API: "Pending balance").
+ * A subset of `readAvailable`, never added to it.
+ */
+export async function readPending(wallet: WalletInterface, originator: string, assetId: string): Promise<bigint> {
+  return await readBalanceView(wallet, originator, assetId, [COLOR_OFFLINE_TAG])
+}
+
+async function readBalanceView(
+  wallet: WalletInterface,
+  originator: string,
+  assetId: string,
+  tags?: string[]
+): Promise<bigint> {
   const basket = `p color balance ${assetTag(assetId)}`
-  const r = (await wallet.listOutputs({ basket }, originator)) as { totalOutputs?: unknown }
+  const r = (await wallet.listOutputs(tags ? { basket, tags } : { basket }, originator)) as { totalOutputs?: unknown }
   const total = r?.totalOutputs
   if (typeof total !== 'string' || !CANONICAL_UNITS.test(total)) {
-    throw new Error(`${basket}: non-canonical balance ${JSON.stringify(total)}`)
+    throw new Error(`${basket}${tags ? ` [${tags.join(',')}]` : ''}: non-canonical balance ${JSON.stringify(total)}`)
   }
   return BigInt(total)
 }
@@ -262,11 +280,11 @@ async function deployFromProvider(provider: ColorOverlayProvider, assetId: strin
 }
 
 /**
- * Display metadata for assets, from a cached `declarationTx` first and the
+ * Display metadata for assets, from a cached deploy first and the
  * overlay's deploy answer second (W7).
  *
- *  · `remember(hex)` files a deploy tx (a received receipt's attested
- *    `declarationTx`) under the asset id of its own txid. It never throws:
+ *  · `remember(hex)` files a deploy tx under the asset id of its own txid
+ *    (receipts carry no deploy since B7). It never throws:
  *    a bad hex string or a non-deploy is ignored.
  *  · `info(assetId)` answers from memory, then the KV cache, then
  *    `provider.admission`. A resolved answer is cached for good (it is a pure

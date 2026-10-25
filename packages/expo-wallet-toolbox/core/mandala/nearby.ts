@@ -1,10 +1,12 @@
 /**
  * The nearby rail's PAYER half of the token runtime (plan 07 Task 15).
  *
- * The color module builds, funds and signs the hand-over inside lib
- * `sendHandover`; localpay only frames it. What lives here is the wallet's
- * own record of it, `color_transfers` (W1), which the broadcast hold and the
- * abort refusal both read.
+ * The color module funds and signs the hand-over inside lib `sendHandover`,
+ * which also builds the envelope from the host wallet's custody and records
+ * the hand-over `pending` in the host ledger (B7); localpay only frames its
+ * v4 body. What lives here is the wallet's own record of it, the kept body
+ * and `color_transfers` (W1), which the broadcast hold and the abort refusal
+ * both read.
  *
  * `handover`, in this order (stability mandate):
  *  1. Refuse what the request alone decides (amount domain, recipient).
@@ -14,9 +16,10 @@
  *  3. Check the result is bound to that request: the receipt carries the
  *     same asset and strings, and the payee output is index 0 (the frame
  *     names it). Anything else is released, never journaled.
- *  4. Journal `built`, rail `nearby`, with the receipt custody. Nobody has
- *     the bytes yet, so a journal fault (or a txid already journaled for
- *     another transfer) is answered by releasing the action, never by
+ *  4. Keep the v4 body (a handle-rail resend of this payment needs it), then
+ *     journal `built`, rail `nearby`, with the receipt custody. Nobody has
+ *     the bytes yet, so a body or journal fault (or a txid already journaled
+ *     for another transfer) is answered by releasing the action, never by
  *     returning bytes the journal does not know.
  *
  * `onHandedOver` moves the row forward only: built → parked → handed_over.
@@ -27,8 +30,9 @@
  * and keeps the queue row parked.
  */
 import type { WalletInterface } from '@bsv/sdk'
-import { MAX_UINT64, sendHandover, type HandoverResult } from '@bsv/mandala'
+import { MAX_UINT64, sendHandover, type HandoverResult, type HostLedger } from '@bsv/mandala'
 import { devLog } from '../logging'
+import { releaseUnseenHandover, type HandoverBodies } from './handle'
 import type { NearbyTokenDeps } from './runtime'
 import type { TransferJournal } from './transferJournal'
 import type { ColorTransferState } from './types'
@@ -38,6 +42,12 @@ export interface NearbyPayerDeps {
   wallet: WalletInterface
   identityKey: () => Promise<string>
   journal: TransferJournal
+  /** The host's UNDERLYING wallet (the envelope is built from its custody). */
+  hostWallet: WalletInterface
+  /** The host ledger shared with the issuer-v1 handler. */
+  ledger: HostLedger
+  /** Where the v4 body is kept for a later resend. */
+  bodies: HandoverBodies
   /** Plain reason a recipient cannot receive tokens, or null. */
   recipientRefusal: (recipient: string) => string | null
   /** Journal state changed. */
@@ -85,16 +95,6 @@ export function createNearbyPayer(d: NearbyPayerDeps): NearbyPayer {
     }
   }
 
-  /** Best-effort release of a signed action nobody has seen. The abort guard decides. */
-  const releaseUnseen = async (reference: string): Promise<void> => {
-    try {
-      const r = await d.wallet.abortAction({ reference })
-      if (!r?.aborted) devLog(`[mandala] nearby: the unjournaled hand-over ${reference} was not released`)
-    } catch (e) {
-      devLog(`[mandala] nearby: releasing the unjournaled hand-over ${reference} failed:`, e)
-    }
-  }
-
   const handover: NearbyPayer['handover'] = async a => {
     const units = a.units
     if (typeof units !== 'bigint' || units < 1n || units > MAX_UINT64) {
@@ -117,18 +117,22 @@ export function createNearbyPayer(d: NearbyPayerDeps): NearbyPayer {
       derivationPrefix: a.derivationPrefix,
       derivationSuffix: a.derivationSuffix,
       ...(note !== undefined ? { note } : {}),
-      // The journal row below and the module own durability; see the handle
-      // rail's `sendToHandle` for why the lib's txJournal stays off.
+      hostWallet: d.hostWallet,
+      ledger: d.ledger,
+      // The journal row below, the kept body and the host ledger own
+      // durability; see the handle rail's `sendToHandle` for why the lib's
+      // txJournal stays off.
       journal: false
     })
 
     // Signed. From here every exit either journals it or releases it.
     const mismatch = handoverMismatch(h, a)
     if (mismatch !== null) {
-      await releaseUnseen(h.reference)
+      await releaseUnseenHandover(d, h)
       throw new Error(mismatch)
     }
     try {
+      await d.bodies.put(h.txid, h.body)
       const wrote = await d.journal.insert({
         txid: h.txid,
         role: 'sent',
@@ -153,7 +157,7 @@ export function createNearbyPayer(d: NearbyPayerDeps): NearbyPayer {
       }
     } catch (e) {
       devLog(`[mandala] nearby: journaling the hand-over ${h.txid} failed; releasing it unframed:`, messageOf(e))
-      await releaseUnseen(h.reference)
+      await releaseUnseenHandover(d, h)
       throw e
     }
     notify()

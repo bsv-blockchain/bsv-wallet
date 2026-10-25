@@ -1,19 +1,17 @@
 import type { ColorTokenAccessHandler } from '@bsv/color-permission-module'
 
-/** Every consent message type the color module 0.2.0 sends (IC §2.5). */
-export type ColorPromptType =
-  | 'color_send'
-  | 'color_signature'
-  | 'color_access'
-  | 'color_relinquish'
-  | 'color_receive_offline'
+/**
+ * Every consent message type the color module 0.2.0 sends. B7 removed
+ * `color_receive_offline` (the module transports and validates no history),
+ * so a message naming it is an unknown type and fails closed.
+ */
+export type ColorPromptType = 'color_send' | 'color_signature' | 'color_access' | 'color_relinquish'
 
 export const COLOR_PROMPT_TYPES: readonly ColorPromptType[] = [
   'color_send',
   'color_signature',
   'color_access',
-  'color_relinquish',
-  'color_receive_offline'
+  'color_relinquish'
 ]
 
 export interface ColorAccessPolicyOptions {

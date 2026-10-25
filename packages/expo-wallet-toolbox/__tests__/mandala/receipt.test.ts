@@ -1,140 +1,167 @@
 /**
- * The payee's half of a nearby token hand-over (plan 07 Task 16): the §7.1
- * receipt built from a v6 frame, and how a failed receipt internalize is
- * classified (retry it, or journal it refused for good).
+ * The payee's half of a nearby token hand-over (plan 07 Task 16, design §9
+ * B7): a v7 frame is the v4 MessageBox hand-over body (IC §7.3), and a failed
+ * receipt is classified by the lib's own receive classifier (retry it, or
+ * journal it refused for good).
  */
-import { ATTESTED_PROFILE_ID } from '@bsv/mandala'
-import type { PaymentFrame } from '../../core/localpay/codec'
+import { P2PKH, PrivateKey, Transaction, Utils } from '@bsv/sdk'
+import { OneColor } from '@bsv/templates'
 import {
-  declarationTxOf,
+  InvalidTransferError,
+  OverlayRefusedError,
+  handoverBody,
+  parseHandoverBody,
+  receiptOfBody,
+  type HandoverResult
+} from '@bsv/mandala'
+import { FRAME_VERSION, decodeFrame, encodeFrame, type PaymentFrame } from '../../core/localpay/codec'
+import {
+  bodyFromFrame,
   isRetriableReceiptFailure,
+  isTransportReceiptFailure,
   receiptFailureCode,
-  receiptFromFrame,
-  receiptInternalizeOutput
+  tokenPaymentOfHandover
 } from '../../core/mandala/receipt'
 
 const ASSET = `${'ab'.repeat(32)}_0`
-const LEAF = {
-  declarationTx: '0100beef',
-  transactions: [],
-  attestations: [{ txid: 'cd'.repeat(32), outputs: [0], signer: '02'.padEnd(66, 'a'), signature: '3044' }],
-  submissions: [{ txid: 'cd'.repeat(32), offChainValues: '00' }]
-}
-const FRAME: PaymentFrame = {
-  version: 6,
-  kind: 'token',
-  senderIdentityKey: '03'.padEnd(66, 'b'),
-  outputIndex: 0,
-  derivationPrefix: 'cHJlZml4cHJlZml4cHJlZg==',
-  derivationSuffix: 'c3VmZml4c3VmZml4c3VmZg==',
-  token: { assetId: ASSET, certificates: [], profileData: JSON.stringify({ [ATTESTED_PROFILE_ID]: { [ASSET]: LEAF } }) },
-  transaction: new Uint8Array([1, 2, 3])
+const SENDER = new PrivateKey(13).toPublicKey().toString()
+const K = new PrivateKey(9).toPublicKey().toString()
+const PREFIX = 'cHJlZml4cHJlZml4cHJlZg=='
+const SUFFIX = 'c3VmZml4c3VmZml4c3VmZg=='
+
+function tip(units: bigint): Transaction {
+  const source = new Transaction()
+  source.addOutput({ lockingScript: new P2PKH().lock(new Array(20).fill(1)), satoshis: 10 })
+  const tx = new Transaction()
+  tx.addInput({
+    sourceTransaction: source,
+    sourceOutputIndex: 0,
+    unlockingScript: new P2PKH().lock(new Array(20).fill(1))
+  })
+  tx.addOutput({ lockingScript: new OneColor().lock(ASSET, units, new Array(20).fill(9)), satoshis: 1 })
+  return tx
 }
 
-/** An error as it may arrive from the module, or after a BRC-100 substrate dropped its class. */
-function err(name: string, retryable?: boolean, message = 'boom'): Error {
-  const e = new Error(message) as Error & { retryable?: boolean }
-  e.name = name
-  if (retryable !== undefined) e.retryable = retryable
-  return e
+function handover(units: bigint, note?: string): Pick<HandoverResult, 'body' | 'tx' | 'txid'> {
+  const tx = tip(units)
+  const beef = tx.toAtomicBEEF()
+  const body = handoverBody({
+    assetId: ASSET,
+    amount: units,
+    outputIndex: 0,
+    tx: beef,
+    derivationPrefix: PREFIX,
+    derivationSuffix: SUFFIX,
+    senderIdentityKey: SENDER,
+    senderMode: 'blinded',
+    admission: { txid: tx.id('hex'), outputs: [0], signer: K, signature: '3006020101020101' },
+    admissions: [{ txid: 'cd'.repeat(32), outputs: [1], signer: K, signature: '3006020101020102' }],
+    linkage: [{ txid: tx.id('hex'), offChainValues: [1, 2, 3] }],
+    ...(note !== undefined ? { note } : {})
+  })
+  return { body, tx: beef, txid: tx.id('hex') }
 }
 
-describe('receiptFromFrame / receiptInternalizeOutput', () => {
-  it('builds the §7.1 receipt and the p color basket insertion verbatim', () => {
-    const out = receiptInternalizeOutput(FRAME)
-    expect(out.outputIndex).toBe(0)
-    expect(out.protocol).toBe('basket insertion')
-    expect(out.insertionRemittance.basket).toBe(`p color ${ASSET.replace('_', 'v')}`)
-    expect(JSON.parse(out.insertionRemittance.customInstructions)).toEqual({
-      version: 1,
-      assetId: ASSET,
-      derivationPrefix: FRAME.derivationPrefix,
-      derivationSuffix: FRAME.derivationSuffix,
-      senderIdentityKey: FRAME.senderIdentityKey,
-      profileData: JSON.parse(FRAME.token!.profileData)
-    })
-    // No caller tags: the module authors every color_* tag itself.
-    expect(out.insertionRemittance).not.toHaveProperty('tags')
+function frameOf(h: Pick<HandoverResult, 'body' | 'tx'>, note?: string): PaymentFrame {
+  return {
+    version: FRAME_VERSION,
+    kind: 'token',
+    senderIdentityKey: h.body.senderIdentityKey,
+    outputIndex: h.body.outputIndex,
+    derivationPrefix: h.body.derivationPrefix,
+    derivationSuffix: h.body.derivationSuffix,
+    token: tokenPaymentOfHandover(h),
+    ...(note !== undefined ? { note } : {}),
+    transaction: Uint8Array.from(h.tx)
+  }
+}
+
+describe('a v7 token frame is the v4 hand-over body (IC §7.3)', () => {
+  it('rebuilds exactly the body the payer signed, through the codec', () => {
+    const h = handover(18446744073709551615n, 'coffee')
+    const frame = decodeFrame(encodeFrame(frameOf(h, 'coffee')))
+    expect(bodyFromFrame(frame)).toEqual(h.body)
   })
 
-  it('serializes the members in §7.1 order', () => {
-    const keys = Object.keys(JSON.parse(receiptInternalizeOutput(FRAME).insertionRemittance.customInstructions))
-    expect(keys).toEqual(['version', 'assetId', 'derivationPrefix', 'derivationSuffix', 'senderIdentityKey', 'profileData'])
+  it('omits an empty note, as the body does', () => {
+    const h = handover(5n)
+    expect(bodyFromFrame(frameOf(h))).toEqual(h.body)
+    expect(bodyFromFrame(frameOf(h))).not.toHaveProperty('note')
   })
 
-  it('refuses a BSV frame and a profileData that is not a JSON object', () => {
-    expect(() => receiptFromFrame({ ...FRAME, kind: 'bsv', token: undefined })).toThrow(/token frame/)
-    expect(() => receiptFromFrame({ ...FRAME, token: { ...FRAME.token!, profileData: '[1]' } })).toThrow(/object/)
-    expect(() => receiptFromFrame({ ...FRAME, token: { ...FRAME.token!, profileData: '{' } })).toThrow()
+  it('parses strictly with the lib, and yields the plain 5-member custody receipt', () => {
+    const h = handover(250n)
+    const parsed = parseHandoverBody(bodyFromFrame(frameOf(h)))
+    expect(parsed.amount).toBe(250n)
+    expect(parsed.receipt).toEqual(receiptOfBody(h.body))
+    expect(Object.keys(parsed.receipt).sort()).toEqual(
+      ['assetId', 'derivationPrefix', 'derivationSuffix', 'senderIdentityKey', 'version'].sort()
+    )
+    expect(Utils.toHex(parsed.tx)).toBe(h.body.transaction)
+  })
+
+  it('refuses a BSV frame', () => {
+    const h = handover(1n)
+    const { token: _t, ...rest } = frameOf(h)
+    expect(() => bodyFromFrame({ ...rest, kind: 'bsv' })).toThrow(TypeError)
   })
 })
 
-describe('declarationTxOf', () => {
-  it('reads the attested leaf’s deploy tx when it is lowercase hex', () => {
-    expect(declarationTxOf(receiptFromFrame(FRAME))).toBe('0100beef')
-  })
-
-  it('is undefined for a missing, non-hex or uppercase declarationTx', () => {
-    const r = receiptFromFrame(FRAME)
-    expect(declarationTxOf({ ...r, profileData: {} })).toBeUndefined()
-    expect(declarationTxOf({ ...r, profileData: { [ATTESTED_PROFILE_ID]: { [ASSET]: { declarationTx: 'zz' } } } })).toBeUndefined()
-    expect(declarationTxOf({ ...r, profileData: { [ATTESTED_PROFILE_ID]: { [ASSET]: { declarationTx: '0A' } } } })).toBeUndefined()
-    expect(declarationTxOf({ ...r, profileData: { [ATTESTED_PROFILE_ID]: { [ASSET]: { declarationTx: 7 } } } })).toBeUndefined()
-  })
-})
-
-describe('isRetriableReceiptFailure', () => {
+describe('isRetriableReceiptFailure / receiptFailureCode (lib classifyReceiveError)', () => {
   it.each([
-    ['ColorProviderError', true, true],
-    ['ColorProviderError', false, false],
-    ['AttestationEvidenceError', undefined, false],
-    ['ProfileDataError', undefined, false],
-    ['ProfileParamsError', undefined, false],
-    ['UnsupportedProfileError', undefined, false],
-    ['ColorConsentDeclinedError', undefined, false],
-    ['Error', undefined, true]
-  ])('classifies %s retryable=%s as retriable=%s', (name, retryable, expected) =>
-    expect(isRetriableReceiptFailure(err(name, retryable as boolean | undefined))).toBe(expected)
+    ['a refused hop', new InvalidTransferError('x', 'ERR_EVIDENCE'), false, 'ERR_EVIDENCE'],
+    ['a malformed body', new InvalidTransferError('x'), false, 'InvalidTransferError'],
+    ['offline, not covered yet', new InvalidTransferError('x', 'ERR_NOT_COVERED'), true, 'ERR_NOT_COVERED'],
+    ['an unreadable body', new InvalidTransferError('x', 'ERR_BODY_UNREADABLE'), true, 'ERR_BODY_UNREADABLE'],
+    [
+      'a final verdict',
+      new OverlayRefusedError({ code: 'ERR_CONSERVATION', retryable: false }),
+      false,
+      'ERR_CONSERVATION'
+    ],
+    ['a retryable verdict', new OverlayRefusedError({ code: 'ERR_PAUSED', retryable: true }), true, 'ERR_PAUSED'],
+    [
+      'a transport fault',
+      new OverlayRefusedError({ code: 'ERR_UNAVAILABLE', retryable: true }),
+      true,
+      'ERR_UNAVAILABLE'
+    ],
+    ['a storage fault', new Error('SQLITE_BUSY'), true, 'ERR_RECEIPT']
+  ])('%s', (_l, e, retriable, code) => {
+    expect(isRetriableReceiptFailure(e)).toBe(retriable)
+    expect(receiptFailureCode(e)).toBe(code)
+  })
+
+  it('reads a class kept only in the message prefix (IC D22)', () => {
+    const bridged = new Error('[ProfileDataError] BRC-207: Mandala issuer-v1 receipt: refused')
+    expect(isRetriableReceiptFailure(bridged)).toBe(false)
+    expect(receiptFailureCode(bridged)).toBe('ProfileDataError')
+  })
+
+  it.each(['UnsupportedProfileError', 'ProfileParamsError'])(
+    'treats the module refusing the asset (%s) as final',
+    name => {
+      const e = Object.assign(new Error(`[${name}] no Mandala overlay configured`), { name })
+      expect(isRetriableReceiptFailure(e)).toBe(false)
+      expect(receiptFailureCode(e)).toBe(name)
+      expect(isRetriableReceiptFailure(new Error(`[${name}] bridged`))).toBe(false)
+    }
   )
 
-  // D22: names do not always survive a BRC-100 substrate; the module prefixes
-  // its messages with `[Name] ` and the lib provider tags `(ERR_X[, retryable])`.
-  it('reads the class and retryability from the message when the name was lost', () => {
-    expect(
-      isRetriableReceiptFailure(
-        err('Error', undefined, '[ColorProviderError] mandala overlay refused (ERR_CONSERVATION): no')
-      )
-    ).toBe(false)
-    expect(
-      isRetriableReceiptFailure(
-        err('Error', undefined, '[ColorProviderError] mandala overlay refused (ERR_UNAVAILABLE, retryable): down')
-      )
-    ).toBe(true)
-    expect(isRetriableReceiptFailure(err('Error', undefined, 'WERR: [AttestationEvidenceError] BRC-207: bad'))).toBe(
-      false
-    )
-    // The module's consent decline text (dist: `BRC-207: the user declined the ${type} request`).
-    expect(isRetriableReceiptFailure(err('Error', undefined, 'BRC-207: the user declined the color_receive request'))).toBe(
-      false
-    )
+  it('treats the user’s own decline as final', () => {
+    const declined = Object.assign(new Error('BRC-207: the user declined the color_send request'), {
+      name: 'ColorConsentDeclinedError'
+    })
+    expect(isRetriableReceiptFailure(declined)).toBe(false)
+    expect(receiptFailureCode(declined)).toBe('ColorConsentDeclinedError')
   })
 
-  it('treats a storage fault or a non-error as retriable', () => {
-    expect(isRetriableReceiptFailure(new Error('database is locked'))).toBe(true)
-    expect(isRetriableReceiptFailure('nope')).toBe(true)
-    expect(isRetriableReceiptFailure(undefined)).toBe(true)
-  })
-})
-
-describe('receiptFailureCode', () => {
-  it('prefers the overlay code, then the error class', () => {
-    const provider = Object.assign(err('ColorProviderError', false), { code: 'ERR_CONSERVATION' })
-    expect(receiptFailureCode(provider)).toBe('ERR_CONSERVATION')
-    expect(receiptFailureCode(err('Error', undefined, '[ColorProviderError] refused (ERR_LINKAGE): x'))).toBe(
-      'ERR_LINKAGE'
+  it('isTransportReceiptFailure is true only for ERR_UNAVAILABLE', () => {
+    expect(isTransportReceiptFailure(new OverlayRefusedError({ code: 'ERR_UNAVAILABLE', retryable: true }))).toBe(true)
+    expect(isTransportReceiptFailure(new Error('mandala overlay refused (ERR_UNAVAILABLE, retryable): down'))).toBe(
+      true
     )
-    expect(receiptFailureCode(err('AttestationEvidenceError'))).toBe('AttestationEvidenceError')
-    expect(receiptFailureCode(err('Error', undefined, '[ProfileDataError] x'))).toBe('ProfileDataError')
-    expect(receiptFailureCode(new Error('x'))).toBe('ERR_RECEIPT')
+    expect(isTransportReceiptFailure(new OverlayRefusedError({ code: 'ERR_PAUSED', retryable: true }))).toBe(false)
+    expect(isTransportReceiptFailure(new Error('x'))).toBe(false)
   })
 })

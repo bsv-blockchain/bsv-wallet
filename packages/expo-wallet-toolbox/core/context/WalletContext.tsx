@@ -2112,11 +2112,16 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               chain,
               endpoints: mandalaEndpoints,
               // The module registered above for THIS build (undefined without
-              // endpoints, or when its build failed): settle, hand-over
-              // evidence and the overlay provider all come from it. Without
-              // it the runtime is unavailable rather than half-wired.
+              // endpoints, or when its build failed): its host-only
+              // `markSettled`, the overlay provider and the host ledger all
+              // come from it. Without it the runtime is unavailable rather
+              // than half-wired.
               color: colorRef.current?.module,
               provider: colorRef.current?.provider,
+              ledger: colorRef.current?.ledger,
+              // The UNDERLYING wallet the module was built over (B7): hand-over
+              // envelopes are built from its custody, never through the manager.
+              hostWallet: colorRef.current ? (wallet as never) : undefined,
               // Lazy: constructing a runtime must do no I/O, and a wallet that
               // never touches stablecoins never opens a MessageBox connection.
               messageBox: mandalaEndpoints
@@ -2141,8 +2146,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               // own submit now, or left to the drain. The runtime deliberately
               // has no NetInfo dependency of its own, so the app-wide probe is
               // handed to it here.
-              isOnline: getOnline,
-              refetchBeef: makeBeefRepair({ woc: wocConfigFor(chain), online: getOnline })
+              isOnline: getOnline
             })
             mandalaRef.current = runtime.available ? runtime : undefined
             setMandala(runtime.available ? runtime : undefined)
@@ -3549,12 +3553,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           storage,
           adminOriginator,
           undefined,
-          // How a TOKEN frame's receipt internalize settled, for the
-          // `color_transfers` journal (held / settled / refused). Read off the
-          // ref on every pass: the runtime is rebuilt with the wallet. Its own
+          // How a TOKEN frame's receipt settled, for the `color_transfers`
+          // journal (held / settled / refused), and the lib's recipient path
+          // that verifies and credits it (B7). Read off the ref on every pass:
+          // the runtime is rebuilt with the wallet. The journal hook's own
           // failure is never the payment's, and until a row lands the missing
           // row holds the tx from broadcast (W1).
-          mandalaRef.current?.nearby.onReceived
+          mandalaRef.current?.nearby.onReceived,
+          mandalaRef.current?.nearby.accept
         )
         const successes = results.filter(r => r.success)
         if (successes.length > 0) {

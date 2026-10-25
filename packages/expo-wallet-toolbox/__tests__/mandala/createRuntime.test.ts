@@ -2,8 +2,8 @@
  * `createMandalaRuntime`: the UI's one door to tokens (plan 07 Task 11, reads).
  *
  *  · Balances come from the color module's views: `units` is the exact
- *    `p color balance <assetTag>` sum and `offlineUnits` the part of it the
- *    inventory tags `color_offline` (W10). Offline is never shown as settled.
+ *    `p color balance <assetTag>` sum and `offlineUnits` the same view
+ *    filtered to `color_offline` (B7 pending). Offline is never shown as settled.
  *  · Activity is the `color_transfers` journal, mapped to display statuses.
  *  · A runtime missing endpoints, the module, the provider or a database is
  *    unavailable, and its journal refuses every read rather than reading "no
@@ -11,14 +11,24 @@
  */
 jest.mock('@bsv/mandala', () => {
   const actual = jest.requireActual('@bsv/mandala')
-  return { ...actual, fetchRegistry: jest.fn() }
+  return { ...actual, fetchRegistry: jest.fn(), settleReceipts: jest.fn(), acceptHandover: jest.fn() }
 })
 jest.mock('@bsv/mandala/adminState', () => ({ resolveAssetState: jest.fn() }))
 
 import type { DatabaseSync } from 'node:sqlite'
 import { Hash, LockingScript, PrivateKey, Transaction, UnlockingScript, type WalletInterface } from '@bsv/sdk'
 import { OneColor } from '@bsv/templates'
-import { assetTag, fetchRegistry } from '@bsv/mandala'
+import {
+  acceptHandover,
+  assetTag,
+  createHostLedger,
+  fetchRegistry,
+  handoverBody,
+  settleReceipts,
+  type HostLedger
+} from '@bsv/mandala'
+import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
+import { tokenPaymentOfHandover } from '../../core/mandala/receipt'
 import { resolveAssetState } from '@bsv/mandala/adminState'
 import type { ColorOverlayProvider } from '@bsv/color-permission-module'
 import {
@@ -61,21 +71,33 @@ const refusingProvider: ColorOverlayProvider = {
   }
 }
 
-const fakeColor = {
-  settle: jest.fn(async () => ({ results: [] })),
-  handoffEvidence: jest.fn(async () => undefined)
-}
+const fakeColor = { markSettled: jest.fn(async () => {}) }
+const HOST = { revealSpecificKeyLinkage: jest.fn() } as unknown as WalletInterface
 
 let raw: DatabaseSync
 let db: ExpoLikeDb
 let storage: CreateMandalaRuntimeArgs['storage']
 let journal: TransferJournal
+let ledger: HostLedger
 
 beforeEach(async () => {
   let kv
   ;({ raw, db, kv } = await openTestDb())
   storage = { getKeyValue: kv.getKeyValue, setKeyValue: kv.setKeyValue, sqliteDb: db } as never
   journal = createTransferJournal(db as JournalDb, () => new Date(NOW))
+  const mem = new Map<string, string>()
+  ledger = createHostLedger({
+    getItem: async k => mem.get(k) ?? null,
+    setItem: async (k, v) => {
+      mem.set(k, v)
+    },
+    removeItem: async k => {
+      mem.delete(k)
+    },
+    keys: async prefix => [...mem.keys()].filter(k => k.startsWith(prefix))
+  })
+  ;(settleReceipts as jest.Mock).mockReset().mockResolvedValue([])
+  ;(acceptHandover as jest.Mock).mockReset()
   ;(fetchRegistry as jest.Mock).mockReset()
   ;(resolveAssetState as jest.Mock).mockReset()
 })
@@ -83,24 +105,34 @@ beforeEach(async () => {
 afterEach(() => raw.close())
 
 /** A wallet whose `listOutputs` serves the inventory from records and the balance view per asset. */
-function fakeWallet(o: { available?: Record<string, string>; inventory?: InventoryRecord[]; inventoryError?: Error }) {
-  const listOutputs = jest.fn(async (args: { basket: string; offset?: number }, _originator?: string) => {
-    if (args.basket === 'p color assets') {
-      if (o.inventoryError) throw o.inventoryError
-      const outputs = (o.inventory ?? []).map(r => ({
-        outpoint: r.outpoint,
-        satoshis: 1,
-        spendable: r.tags.includes('color_state_available'),
-        lockingScript: new OneColor().lock(r.assetId, r.units, pkh()).toHex(),
-        tags: r.tags
-      }))
-      return { totalOutputs: outputs.length, outputs: outputs.slice(args.offset ?? 0) }
+function fakeWallet(o: {
+  available?: Record<string, string>
+  /** The `color_offline`-filtered balance view per asset (B7 pending); '0' when absent. */
+  pending?: Record<string, string>
+  inventory?: InventoryRecord[]
+  inventoryError?: Error
+}) {
+  const listOutputs = jest.fn(
+    async (args: { basket: string; offset?: number; tags?: string[] }, _originator?: string) => {
+      if (args.basket === 'p color assets') {
+        if (o.inventoryError) throw o.inventoryError
+        const outputs = (o.inventory ?? []).map(r => ({
+          outpoint: r.outpoint,
+          satoshis: 1,
+          spendable: r.tags.includes('color_state_available'),
+          lockingScript: new OneColor().lock(r.assetId, r.units, pkh()).toHex(),
+          tags: r.tags
+        }))
+        return { totalOutputs: outputs.length, outputs: outputs.slice(args.offset ?? 0) }
+      }
+      for (const [id, total] of Object.entries(o.available ?? {})) {
+        if (args.basket !== `p color balance ${assetTag(id)}`) continue
+        if (args.tags?.includes('color_offline')) return { totalOutputs: o.pending?.[id] ?? '0', outputs: [] }
+        return { totalOutputs: total, outputs: [] }
+      }
+      throw new Error(`no basket ${args.basket}`)
     }
-    for (const [id, total] of Object.entries(o.available ?? {})) {
-      if (args.basket === `p color balance ${assetTag(id)}`) return { totalOutputs: total, outputs: [] }
-    }
-    throw new Error(`no basket ${args.basket}`)
-  })
+  )
   const getPublicKey = jest.fn(async () => ({ publicKey: SELF }))
   return { listOutputs, getPublicKey } as unknown as WalletInterface & {
     listOutputs: typeof listOutputs
@@ -111,6 +143,7 @@ function fakeWallet(o: { available?: Record<string, string>; inventory?: Invento
 function runtimeWith(
   o: {
     available?: Record<string, string>
+    pending?: Record<string, string>
     inventory?: InventoryRecord[]
     inventoryError?: Error
     endpoints?: CreateMandalaRuntimeArgs['endpoints'] | null
@@ -129,6 +162,8 @@ function runtimeWith(
     endpoints: pick(o.endpoints, EP),
     color: pick(o.color, fakeColor as never),
     provider: pick(o.provider, refusingProvider),
+    ledger,
+    hostWallet: HOST,
     now: () => new Date(NOW)
   })
 }
@@ -187,6 +222,7 @@ describe('balances', () => {
   it('balances = available view with offline portion, one row per held asset', async () => {
     const rt = runtimeWith({
       available: { [ASSET]: '1500' },
+      pending: { [ASSET]: '500' },
       inventory: [
         rec({ outpoint: `${'01'.repeat(32)}.0`, units: 1000n, tags: ['color_state_available'] }),
         rec({ outpoint: `${'02'.repeat(32)}.0`, units: 500n, tags: ['color_state_available', 'color_offline'] })
@@ -201,6 +237,7 @@ describe('balances', () => {
     const big = 18446744073709551615n
     const rt = runtimeWith({
       available: { [ASSET]: (2n * big).toString() },
+      pending: { [ASSET]: big.toString() },
       inventory: [
         rec({ outpoint: `${'01'.repeat(32)}.0`, units: big, tags: ['color_state_available', 'color_offline'] }),
         rec({ outpoint: `${'02'.repeat(32)}.0`, units: big, tags: ['color_state_available'] })
@@ -229,11 +266,17 @@ describe('balances', () => {
     // The balance view is asked only for an asset with an available record.
     const baskets = wallet.listOutputs.mock.calls.map(c => c[0].basket)
     expect(baskets).not.toContain(`p color balance ${assetTag(OTHER)}`)
+    // Pending is the same view filtered to `color_offline` (B7 API).
+    expect(wallet.listOutputs).toHaveBeenCalledWith(
+      { basket: `p color balance ${assetTag(ASSET)}`, tags: ['color_offline'] },
+      ADMIN
+    )
   })
 
   it('clamps the offline portion to the available figure when the snapshots disagree', async () => {
     const rt = runtimeWith({
       available: { [ASSET]: '100' },
+      pending: { [ASSET]: '500' },
       inventory: [rec({ units: 500n, tags: ['color_state_available', 'color_offline'] })]
     })
     const [b] = await rt.balances()
@@ -460,21 +503,31 @@ describe('tick (Task 17)', () => {
 
   const heldCredit = () => rec({ outpoint: `${QUEUED_COLOR}.0`, tags: ['color_state_available', 'color_offline'] })
 
+  /** The stub's kept-body read records the redelivery step (and can fail it). */
+  function observingBodies(stub: CreateMandalaRuntimeArgs['storage'], calls: string[], fail?: Error) {
+    const base = stub as unknown as { getKeyValue(k: string): Promise<string | undefined> }
+    const read = base.getKeyValue
+    return {
+      ...(stub as object),
+      getKeyValue: async (k: string) => {
+        if (k.startsWith('bsvwallet.color.handover.')) {
+          calls.push('redeliver')
+          if (fail) throw fail
+        }
+        return await read(k)
+      }
+    } as unknown as CreateMandalaRuntimeArgs['storage']
+  }
+
   it("tick() runs redeliver → settle → reconcileHeld and swallows each step's error", async () => {
     await seedTickRows()
     const calls: string[] = []
-    const color = {
-      handoffEvidence: jest.fn(async () => {
-        calls.push('redeliver')
-        return undefined
-      }),
-      settle: jest.fn(async () => {
-        calls.push('settle')
-        return { results: [] }
-      })
-    }
+    ;(settleReceipts as jest.Mock).mockImplementation(async () => {
+      calls.push('settle')
+      return []
+    })
     const { stub } = tickStorage(calls)
-    const rt = runtimeWith({ storage: stub, color: color as never, inventory: [heldCredit()] })
+    const rt = runtimeWith({ storage: observingBodies(stub, calls), inventory: [heldCredit()] })
     const listener = jest.fn()
     rt.subscribe(listener)
 
@@ -487,18 +540,15 @@ describe('tick (Task 17)', () => {
 
     // Every step throws: the tick still runs the next one and still resolves.
     calls.length = 0
-    const failing = {
-      handoffEvidence: jest.fn(async () => {
-        calls.push('redeliver')
-        throw new Error('evidence store down')
-      }),
-      settle: jest.fn(async () => {
-        calls.push('settle')
-        throw new Error('overlay down')
-      })
-    }
+    ;(settleReceipts as jest.Mock).mockImplementation(async () => {
+      calls.push('settle')
+      throw new Error('overlay down')
+    })
     const broken = tickStorage(calls, { heldError: new Error('journal unreadable') })
-    const rt2 = runtimeWith({ storage: broken.stub, color: failing as never, inventoryError: new Error('view down') })
+    const rt2 = runtimeWith({
+      storage: observingBodies(broken.stub, calls, new Error('kv store down')),
+      inventoryError: new Error('view down')
+    })
     await expect(rt2.tick()).resolves.toBeUndefined()
     expect(calls).toEqual(['redeliver', 'settle', 'held:f2,f3'])
   })
@@ -544,11 +594,11 @@ describe('the nearby payee member (Task 16)', () => {
   })
   const credit = (tags: string[]) => rec({ outpoint: `${TXID}.0`, units: 18446744073709551615n, tags })
 
-  it('journals a credited offline receipt as held, exactly, on the nearby rail', async () => {
+  it('journals a receipt credited on COVER evidence as held, exactly, on the nearby rail', async () => {
     const rt = runtimeWith({ inventory: [credit(['color_state_available', 'color_offline'])] })
     const listener = jest.fn()
     rt.subscribe(listener)
-    await rt.nearby.onReceived(received(), { ok: true })
+    await rt.nearby.onReceived(received(), { ok: true, offline: true })
     expect(await rt.journal.get(TXID)).toMatchObject({
       role: 'received',
       state: 'held',
@@ -561,65 +611,94 @@ describe('the nearby payee member (Task 16)', () => {
     expect(listener).toHaveBeenCalled()
   })
 
-  it('journals a credit the inventory shows settled as settled', async () => {
-    const rt = runtimeWith({ inventory: [credit(['color_state_available'])] })
-    await rt.nearby.onReceived(received(), { ok: true })
+  it('journals a receipt whose σ the host verified as settled, whatever the inventory says', async () => {
+    const rt = runtimeWith({ inventoryError: new Error('view down') })
+    await rt.nearby.onReceived(received(), { ok: true, offline: false })
     expect((await rt.journal.get(TXID))?.state).toBe('settled')
   })
 
-  it('keeps a credit held when the inventory cannot be read or does not show it yet', async () => {
+  it('keeps an offline credit held when the inventory cannot be read or does not show it yet', async () => {
     const unreadable = runtimeWith({ inventoryError: new Error('view down') })
-    await unreadable.nearby.onReceived(received(), { ok: true })
+    await unreadable.nearby.onReceived(received(), { ok: true, offline: true })
     expect((await unreadable.journal.get(TXID))?.state).toBe('held')
 
     const other = 'd4'.repeat(32)
     const unseen = runtimeWith({ inventory: [] })
-    await unseen.nearby.onReceived(received({ txid: other }), { ok: true })
+    await unseen.nearby.onReceived(received({ txid: other }), { ok: true, offline: true })
     expect((await unseen.journal.get(other))?.state).toBe('held')
   })
 
   it('a replayed credit never forks the row and still settles it', async () => {
     const offline = runtimeWith({ inventory: [credit(['color_state_available', 'color_offline'])] })
-    await offline.nearby.onReceived(received(), { ok: true })
+    await offline.nearby.onReceived(received(), { ok: true, offline: true })
     const settled = runtimeWith({ inventory: [credit(['color_state_available'])] })
     await Promise.all([
-      settled.nearby.onReceived(received(), { ok: true }),
-      settled.nearby.onReceived(received(), { ok: true })
+      settled.nearby.onReceived(received(), { ok: true, offline: false }),
+      settled.nearby.onReceived(received(), { ok: true, offline: false })
     ])
     expect(await settled.journal.list()).toEqual([expect.objectContaining({ txid: TXID, state: 'settled' })])
   })
 
-  it('caches the attested deploy the receipt carried, so the asset is named offline', async () => {
-    // IC §4 fixture F-REQ (as in assets.test): K is the deploy's overlay key.
-    const K = '02798b81951a6a8c7ef8beda09b06a23031d7efaf37b663265e0188ab378124046'
-    const REQ_HEX =
-      'a2781c68747470733a2f2f6272632e6465762f3230372f6174746573746564a266706172616d73a26974727573744d6f6465686964656e746974796b6964656e746974794b657978423032373938623831393531613661386337656638626564613039623036613233303331643765666166333762363633323635653031383861623337383132343034366776657273696f6e01785068747470733a2f2f6769746875622e636f6d2f6273762d626c6f636b636861696e2f6d616e64616c612f626c6f622f6d61737465722f646f63732f70726f66696c65732f6973737565722d76312e6d64a266706172616d73a16b6964656e746974794b657978423032373938623831393531613661386337656638626564613039623036613233303331643765666166333762363633323635653031383861623337383132343034366776657273696f6e01'
-    const PAYLOAD_HEX = `a4636465630263726571${REQ_HEX}6373796d6454555344656c6162656c6b5465737420446f6c6c6172`
-    const deploy = new Transaction()
-    deploy.addInput({
-      sourceTXID: '11'.repeat(32),
-      sourceOutputIndex: 0,
-      unlockingScript: UnlockingScript.fromHex('00')
+  it('accept runs the lib recipient path on the frame’s v4 body with the host ledger and this chain’s K', async () => {
+    const tip = new Transaction()
+    tip.addInput({ sourceTXID: '11'.repeat(32), sourceOutputIndex: 0, unlockingScript: UnlockingScript.fromHex('00') })
+    tip.addOutput({ satoshis: 1, lockingScript: new OneColor().lock(ASSET, 42n, pkh()) })
+    const body = handoverBody({
+      assetId: ASSET,
+      amount: 42n,
+      outputIndex: 0,
+      tx: tip.toAtomicBEEF(),
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      senderIdentityKey: SELF,
+      senderMode: 'identity',
+      linkage: [{ txid: tip.id('hex'), offChainValues: [1] }]
     })
-    deploy.addOutput({
-      satoshis: 1,
-      lockingScript: LockingScript.fromHex(
-        `00006d4d6d01${PAYLOAD_HEX}7576a914a1d8edf2f9ebd6d2fe4728e0eb3bd369ab78d76a88ac`
-      )
+    const frame: PaymentFrame = {
+      version: FRAME_VERSION,
+      kind: 'token',
+      senderIdentityKey: SELF,
+      outputIndex: 0,
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      token: tokenPaymentOfHandover({ body }),
+      transaction: Uint8Array.from(tip.toAtomicBEEF())
+    }
+    ;(acceptHandover as jest.Mock).mockResolvedValue({
+      txid: tip.id('hex'),
+      assetId: ASSET,
+      amount: 42n,
+      outputIndex: 0,
+      offline: true
     })
-    const assetId = `${deploy.id('hex')}_0`
-    const rt = runtimeWith({ endpoints: { ...EP, overlayIdentityKey: K }, inventory: [] })
-    await rt.nearby.onReceived(received({ assetId, declarationTx: deploy.toHex() }), { ok: true })
-    expect(await rt.listAssets()).toEqual([expect.objectContaining({ assetId, ticker: 'TUSD', resolved: true })])
+    const rt = runtimeWith()
+    await expect(rt.nearby.accept(frame)).resolves.toEqual({
+      txid: tip.id('hex'),
+      assetId: ASSET,
+      units: 42n,
+      outputIndex: 0,
+      offline: true
+    })
+    const [parsed, opts] = (acceptHandover as jest.Mock).mock.calls[0]
+    expect(parsed).toMatchObject({ assetId: ASSET, amount: 42n, outputIndex: 0 })
+    expect(opts).toMatchObject({ ledger, overlayIdentityKey: EP.overlayIdentityKey })
+    expect(typeof opts.markSettled).toBe('function')
+    // A malformed body never reaches the lib's accept.
+    await expect(rt.nearby.accept({ ...frame, token: { ...frame.token!, amount: '43x' } })).rejects.toMatchObject({
+      name: 'InvalidTransferError'
+    })
+    expect(acceptHandover).toHaveBeenCalledTimes(1)
+    // Without the module there is nothing to credit with.
+    await expect(runtimeWith({ color: null }).nearby.accept(frame)).rejects.toThrow(/not available/)
   })
 
   it('journals a definitive refusal as refused with its code, and a retriable one not at all', async () => {
     const rt = runtimeWith()
-    await rt.nearby.onReceived(received(), { ok: false, code: 'AttestationEvidenceError', final: true })
+    await rt.nearby.onReceived(received(), { ok: false, code: 'ERR_EVIDENCE', final: true })
     expect(await rt.journal.get(TXID)).toMatchObject({
       role: 'received',
       state: 'refused',
-      code: 'AttestationEvidenceError',
+      code: 'ERR_EVIDENCE',
       rail: 'nearby'
     })
     const other = 'e5'.repeat(32)
@@ -629,14 +708,14 @@ describe('the nearby payee member (Task 16)', () => {
 
   it('never overwrites a credited row with a later refusal', async () => {
     const rt = runtimeWith({ inventory: [credit(['color_state_available', 'color_offline'])] })
-    await rt.nearby.onReceived(received(), { ok: true })
+    await rt.nearby.onReceived(received(), { ok: true, offline: true })
     await rt.nearby.onReceived(received(), { ok: false, code: 'ProfileDataError', final: true })
     expect((await rt.journal.get(TXID))?.state).toBe('held')
   })
 
   it('without a database, refuses rather than pretending to journal', async () => {
     const rt = runtimeWith({ storage: { sqliteDb: undefined } as never })
-    await expect(rt.nearby.onReceived(received(), { ok: true })).rejects.toThrow(/not available/)
+    await expect(rt.nearby.onReceived(received(), { ok: true, offline: false })).rejects.toThrow(/not available/)
   })
 })
 

@@ -53,17 +53,20 @@ export {
  *
  *  · PAYER: `buildPaymentFrame` with `TokenBuildDeps` frames the runtime's
  *    `nearby.handover` (lib `sendHandover`, bound to the session's own
- *    remittance strings) as a v6 frame with the BRC-207 `profileData`
- *    carrier. It submits NOTHING — hand-over comes first, unconditionally.
+ *    remittance strings) as a v7 frame carrying the v4 hand-over body's
+ *    members (IC §7.3). It submits NOTHING — hand-over comes first,
+ *    unconditionally.
  *    `finalizeDelivery` then holds and returns `broadcast: 'pending'` for
  *    every token payment, online or off (guard #1); the screen calls
  *    `settleNow` after the payee's positive ack (W5), and only a verified
  *    admission ever releases the tx.
- *  · PAYEE: `verifyFramePayment` checks the frame structurally (a value
- *    output of the session's asset, paying this device's `p color` key, with
- *    attested evidence), and `processPending` internalizes it as the BRC-207
- *    §7.1 receipt into `p color <assetTag>`; the runtime's
- *    `nearby.onReceived` journals it held, settled or refused (Task 16).
+ *  · PAYEE: `verifyFramePayment` checks the frame (a value output of the
+ *    session's asset, paying this device's `p color` key, with evidence that
+ *    reaches σ by this device's K under offline COVER), and `processPending`
+ *    hands it to the runtime's `nearby.accept` (lib `acceptHandover`: online
+ *    submit or COVER, host-ledger record, then the plain BRC-207 receipt into
+ *    `p color <assetTag>`); `nearby.onReceived` journals it held, settled or
+ *    refused (Task 16, B7).
  */
 export {
   buildPaymentFrame,

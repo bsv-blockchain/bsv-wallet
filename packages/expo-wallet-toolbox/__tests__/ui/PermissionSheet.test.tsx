@@ -119,20 +119,17 @@ describe('deriveActive — color module prompts', () => {
     expect(active!.approvalBlocked).toBeFalsy()
   })
 
-  it('puts the offline warning in the always-visible description', () => {
+  it('blocks approval of the removed color_receive_offline type (B7): unknown, deny-only', () => {
     const message = JSON.stringify({
       type: 'color_receive_offline',
       assetId: ASSET_A,
       outputs: [{ outputIndex: 0, amount: '1500' }],
       unsettledTransactions: 2,
       signers: ['02' + 'd'.repeat(64)],
-      profiles: ['https://brc.dev/207/attested'],
       seekPermission: true
     })
     const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats, color)
-    expect(active!.description).toContain('color_prompt_offline_warning')
-    expect(active!.details.map(d => d.value)).toContain('15 USDX')
-    expect(active!.approvalBlocked).toBeFalsy()
+    expect(active!.approvalBlocked).toBe(true)
   })
 
   it.each([

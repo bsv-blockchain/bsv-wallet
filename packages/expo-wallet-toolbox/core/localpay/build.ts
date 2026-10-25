@@ -4,6 +4,7 @@ import { isRequestableAmount, isRequestableUnits, type Session } from './session
 import { PEERPAY_LABEL, PEERPAY_PROTOCOL_ID } from './pending'
 import type { Ack } from './types'
 import { handoverMismatch } from '../mandala/nearby'
+import { tokenPaymentOfHandover } from '../mandala/receipt'
 import type { NearbyTokenDeps } from '../mandala/runtime'
 import { getOnline } from '../net/online'
 
@@ -385,12 +386,9 @@ async function buildTokenPaymentFrame(
         outputIndex: h.outputIndex,
         derivationPrefix: h.receipt.derivationPrefix,
         derivationSuffix: h.receipt.derivationSuffix,
-        token: {
-          assetId: asset.id,
-          certificates: [],
-          // The BRC-207 carrier: the payee rebuilds the §7.1 receipt from it.
-          profileData: JSON.stringify(h.receipt.profileData)
-        },
+        // The v4 body's own members (IC §7.3): the payee rebuilds the body
+        // and runs the lib's recipient path on it.
+        token: tokenPaymentOfHandover(h),
         ...(trimmedNote !== undefined ? { note: trimmedNote } : {}),
         transaction: Uint8Array.from(h.tx)
       },

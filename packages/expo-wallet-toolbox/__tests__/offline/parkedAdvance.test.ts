@@ -119,6 +119,9 @@ const hooks = () =>
     wallet: { abortAction: async () => ({ aborted: true }) } as unknown as WalletInterface,
     identityKey: async () => '02'.padEnd(66, 'a'),
     journal,
+    hostWallet: {} as WalletInterface,
+    ledger: { get: async () => undefined, put: async r => r, list: async () => [] },
+    bodies: { put: async () => {}, get: async () => undefined },
     recipientRefusal: () => null
   })
 

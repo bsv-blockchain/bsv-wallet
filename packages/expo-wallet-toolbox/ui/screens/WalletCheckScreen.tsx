@@ -166,7 +166,7 @@ function useWalletCheckPorts(): WalletCheckPorts {
         if (!mandala?.available) return { settled: 0, removed: 0, unattested: 0 }
         const { settled, pending, unreachable } = await mandala.reviewTokenHoldings()
         if (unreachable) throw new Error('token overlay unreachable')
-        // 1Color: the review is `color.settle()` plus a count of where every
+        // 1Color (B7): the review is the host's settle pass plus a count of where every
         // journal row stands. It removes nothing itself (a refused hand-over's
         // coins come back through its own abort, counted nowhere here), so
         // `removed` is 0 and never inflates freedCoins with history. Rows

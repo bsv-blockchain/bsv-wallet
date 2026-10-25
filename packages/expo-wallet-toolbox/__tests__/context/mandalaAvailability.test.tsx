@@ -25,7 +25,9 @@ const MAIN = {
 }
 
 /** Stand-ins for `BuiltColorModule.module` / `.provider`; availability never calls them. */
-const COLOR = { settle: async () => ({ results: [] }), handoffEvidence: async () => undefined } as never
+const COLOR = { markSettled: async () => {} } as never
+const LEDGER = { get: async () => undefined, put: async (r: unknown) => r, list: async () => [] } as never
+const HOST = {} as never
 const PROVIDER = {} as never
 
 afterEach(() => resetToolboxConfig())
@@ -108,7 +110,9 @@ describe('the runtime the build would publish agrees with the gate', () => {
       // The build registers the color module (and its provider) exactly when
       // the chain has endpoints; a runtime is never available without them.
       color: getMandalaEndpoints(chain) ? COLOR : undefined,
-      provider: getMandalaEndpoints(chain) ? PROVIDER : undefined
+      provider: getMandalaEndpoints(chain) ? PROVIDER : undefined,
+      ledger: getMandalaEndpoints(chain) ? LEDGER : undefined,
+      hostWallet: getMandalaEndpoints(chain) ? HOST : undefined
     })
   }
 

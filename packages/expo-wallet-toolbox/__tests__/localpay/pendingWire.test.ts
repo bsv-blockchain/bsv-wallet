@@ -18,18 +18,7 @@ import {
 } from '../../core/localpay/pending'
 
 const ASSET = 'ab'.repeat(32) + '_0'
-const ATTESTED = 'https://brc.dev/207/attested'
-const PROFILE_DATA = JSON.stringify({
-  [ATTESTED]: {
-    [ASSET]: {
-      declarationTx: '0100',
-      transactions: [],
-      attestations: [{ txid: 'cd'.repeat(32), outputs: [0], signer: '03'.padEnd(66, 'b'), signature: '3006' }],
-      submissions: [{ txid: 'cd'.repeat(32), offChainValues: 'beef' }],
-      amount: '18446744073709551615'
-    }
-  }
-})
+const SIGMA = { txid: 'cd'.repeat(32), outputs: [0], signer: '03'.padEnd(66, 'b'), signature: '3006' }
 
 function memoryStorage(): KVStorage & { raw: Map<string, string> } {
   const raw = new Map<string, string>()
@@ -62,8 +51,11 @@ function tokenFrame(): PaymentFrame {
     derivationSuffix: 'c3VmZml4',
     token: {
       assetId: ASSET,
-      certificates: [new Uint8Array([9, 9, 9]), new Uint8Array([])],
-      profileData: PROFILE_DATA
+      amount: '18446744073709551615',
+      senderMode: 'blinded',
+      admissions: [SIGMA],
+      linkage: [{ txid: 'ef'.repeat(32), offChainValues: 'beef' }],
+      certificates: [new Uint8Array([9, 9, 9]), new Uint8Array([])]
     },
     transaction: tokenBeef().bytes
   }
@@ -94,25 +86,26 @@ function expectTokenFrameIntact(back: PaymentFrame, original: PaymentFrame): voi
   expect(b.assetId).toBe(o.assetId)
   expect(b.certificates).toHaveLength(o.certificates.length)
   o.certificates.forEach((c, i) => expectSameBytes(b.certificates[i], c))
-  expect(typeof b.profileData).toBe('string')
-  expect(b.profileData).toBe(o.profileData)
-  expect(Object.keys(b).sort()).toEqual(['assetId', 'certificates', 'profileData'])
+  expect(b.amount).toBe(o.amount)
+  expect(b.admissions).toEqual(o.admissions)
+  expect(b.linkage).toEqual(o.linkage)
+  expect(Object.keys(b).sort()).toEqual(['admissions', 'amount', 'assetId', 'certificates', 'linkage', 'senderMode'])
   // The codec is the one definition of "every byte field": if the queue lost
   // one, the re-encoded frame differs from the original.
   expect(Array.from(encodeFrame(back))).toEqual(Array.from(encodeFrame(original)))
 }
 
 describe('pending queue: token frame bytes survive the KV round-trip', () => {
-  it('keeps a v6 token frame profileData intact through savePending and reload', async () => {
+  it('keeps a v7 token frame’s evidence and decimal amount intact through savePending and reload', async () => {
     const kv = memoryStorage()
     const original = tokenFrame()
-    expect(original.version).toBe(6)
+    expect(original.version).toBe(7)
     await savePending(kv, original, 'ble')
-    // Stored as the JSON string itself, never re-parsed into an object.
-    expect(JSON.parse(kv.raw.get(PENDING_KEY)!)[0].frame.token.profileData).toBe(PROFILE_DATA)
+    // The amount is stored as the decimal string itself, never a JSON number.
+    expect(JSON.parse(kv.raw.get(PENDING_KEY)!)[0].frame.token.amount).toBe('18446744073709551615')
     const [back] = await getPending(kv)
-    expect(back.frame.token!.profileData).toBe(PROFILE_DATA)
-    expect(JSON.parse(back.frame.token!.profileData)[ATTESTED][ASSET].amount).toBe('18446744073709551615')
+    expect(back.frame.token!.amount).toBe('18446744073709551615')
+    expect(back.frame.token!.admissions).toEqual([SIGMA])
   })
 
   it('reads back every byte field as a Uint8Array with the same contents', async () => {
@@ -143,27 +136,23 @@ describe('pending queue: token frame bytes survive the KV round-trip', () => {
     expect(Array.from(encodeFrame(back.frame))).toEqual(Array.from(encodeFrame(original)))
   })
 
-  it('hands internalizeAction a §7.1 receipt whose profileData survived the queue exactly', async () => {
+  it('hands the lib’s accept path the token frame exactly as it was queued, never a plain internalize', async () => {
     const kv = memoryStorage()
     const original = tokenFrame()
     await savePending(kv, original)
-    const seen: unknown[] = []
-    const wallet = {
-      internalizeAction: async (args: unknown) => {
-        seen.push(args)
-        return { accepted: true }
-      }
-    }
-    const results = await processPending(wallet, kv, 'test')
+    const internalizeAction = jest.fn(async () => ({ accepted: true }))
+    const seen: PaymentFrame[] = []
+    const accept = jest.fn(async (frame: PaymentFrame) => {
+      seen.push(frame)
+      return { txid: 'cd'.repeat(32), assetId: ASSET, units: 1n, outputIndex: 0, offline: false }
+    })
+    const results = await processPending({ internalizeAction }, kv, 'test', undefined, undefined, accept)
     expect(results).toEqual([expect.objectContaining({ success: true })])
+    expect(internalizeAction).not.toHaveBeenCalled()
     expect(seen).toHaveLength(1)
-    const args = seen[0] as { tx: number[]; outputs: { insertionRemittance: { customInstructions: string } }[] }
-    expect(args.tx).toEqual(Array.from(original.transaction))
-    // Including the amount string above 2^53 inside the leaf: no number ever
-    // touched it on the way through the queue.
-    expect(JSON.parse(args.outputs[0].insertionRemittance.customInstructions).profileData).toEqual(
-      JSON.parse(PROFILE_DATA)
-    )
+    // Including the amount string above 2^53: no number ever touched it on
+    // the way through the queue.
+    expect(Array.from(encodeFrame(seen[0]))).toEqual(Array.from(encodeFrame(original)))
   })
 })
 
@@ -201,7 +190,7 @@ describe('pending queue: entries written before byte fields were converted', () 
     await updateStatus(kv, 'legacy_1', 'processing')
     const stored = JSON.parse(kv.raw.get(PENDING_KEY)!)[0].frame.token
     expect(stored.certificates[0]).toEqual([9, 9, 9])
-    expect(stored.profileData).toBe(PROFILE_DATA)
+    expect(stored.amount).toBe('18446744073709551615')
     const [back] = await getPending(kv)
     expectTokenFrameIntact(back.frame, original)
   })

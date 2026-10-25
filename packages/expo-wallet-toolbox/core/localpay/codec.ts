@@ -1,14 +1,18 @@
 import { SymmetricKey } from '@bsv/sdk'
 
 /**
- * 6: the token block is a BRC-207 carrier (IC §7.3) — `assetId`, the opaque
- * certificates, and `profileData`, the UTF-8 JSON of the §7.1 receipt's
- * `profileData` object. The issuer overlay url/key, the per-txid linkage and
- * the σI admissions of v5 are gone: the payee uses its own configured overlay
- * and builds the §7.1 receipt from these fields. A v5 or older frame is
- * refused outright; there is no back-compat.
+ * 7 (IC §7.3, design §9 B7): the token block carries exactly the members of
+ * the v4 MessageBox hand-over body (IC §7.2) that the frame does not already
+ * carry: `assetId`, `amount` (canonical decimal string), `senderMode`, the
+ * optional tip `admission`, the ancestor `admissions[]` (σ) and `linkage[]`
+ * (one envelope per unadmitted transaction, the tip included), plus the
+ * unchanged opaque `certificates`. The frame's own sender key, remittance
+ * strings, output index, note and AtomicBEEF are the body's other members.
+ * The payee rebuilds the body and runs the lib's recipient path on it with
+ * its own configured overlay. Frame 6 (BRC-207 receipt `profileData`) and
+ * older are refused outright; there is no back-compat.
  */
-export const FRAME_VERSION = 6
+export const FRAME_VERSION = 7
 
 export class CodecError extends Error {
   constructor(message: string) {
@@ -19,23 +23,53 @@ export class CodecError extends Error {
 
 export type FrameKind = 'bsv' | 'token'
 
-/** BRC-207 custom-instructions ceiling for the attested profile (IC §7.1): 16 MiB. */
-export const MAX_PROFILE_DATA_BYTES = 16_777_216
+/**
+ * Ceiling on the token block's evidence JSON (`admission`, `admissions`,
+ * `linkage`). The lib caps each list at 1000 rows; a 1000-hop chain of
+ * envelopes stays well inside this.
+ */
+export const MAX_EVIDENCE_BYTES = 16_777_216
+
+/** The lib's per-list row ceiling (`receive.ts` MAX_EVIDENCE_ROWS). */
+const MAX_EVIDENCE_ROWS = 1000
 
 /** Asset ids are `<64 lowercase hex>_0` (IC §0, Mandala policy). */
 const ASSET_ID_RE = /^[0-9a-f]{64}_0$/
+const DECIMAL_RE = /^(0|[1-9][0-9]*)$/
+const TXID_RE = /^[0-9a-f]{64}$/
+const KEY_RE = /^0[23][0-9a-f]{64}$/
+const EVEN_HEX_RE = /^(?:[0-9a-f]{2})+$/
+const MAX_UINT32 = 4294967295
+
+/** One σ row: the BRC-207 JSON attestation shape (IC §3, §7.2). */
+export interface FrameAttestation {
+  txid: string
+  outputs: number[]
+  signer: string
+  signature: string
+}
+
+/** One envelope row: the off-chain values `txid` is submitted with, lowercase hex. */
+export interface FrameLinkage {
+  txid: string
+  offChainValues: string
+}
 
 export interface TokenPayment {
   /** `<64 lowercase hex>_0` — the underscore id form, never the dot outpoint form. */
   assetId: string
+  /** Exact token units of the named output, canonical decimal string (IC §0). */
+  amount: string
+  /** `blinded` when the sender key is A′, `identity` when it is A. */
+  senderMode: 'blinded' | 'identity'
+  /** σ of the tip, when the payer already holds it. */
+  admission?: FrameAttestation
+  /** σ per admitted ancestor (terminates the payee's COVER walk). */
+  admissions: FrameAttestation[]
+  /** Envelope per unadmitted transaction, the tip included. */
+  linkage: FrameLinkage[]
   /** Opaque serialized VerifiableCertificates. */
   certificates: Uint8Array[]
-  /**
-   * UTF-8 JSON text of the §7.1 receipt's `profileData` object, carried
-   * verbatim. The codec checks only that it is a JSON object within
-   * `MAX_PROFILE_DATA_BYTES`; the payee's module verifies the evidence.
-   */
-  profileData: string
 }
 
 export interface PaymentFrame {
@@ -56,9 +90,9 @@ export interface PaymentFrame {
   derivationPrefix: string
   derivationSuffix: string
   /**
-   * Present iff kind === 'token'. Carried opaquely: the codec validates
-   * shapes and lengths (and that `profileData` is a JSON object), never the
-   * certificates or the evidence inside `profileData`.
+   * Present iff kind === 'token'. The codec validates shapes and lengths
+   * (decimal amount, attestation and envelope row shapes); it verifies no
+   * signature and no envelope. The payee's lib does (IC §7.2).
    */
   token?: TokenPayment
   /**
@@ -144,22 +178,83 @@ function bytesToHex(b: Uint8Array): string {
   return Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
 }
 
-function checkAssetId(assetId: unknown): void {
-  if (typeof assetId !== 'string' || !ASSET_ID_RE.test(assetId)) throw new CodecError('bad token assetId')
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+function readAttestation(v: unknown, what: string): FrameAttestation {
+  if (!isPlainObject(v)) throw new CodecError(`${what} is not an object`)
+  const keys = Object.keys(v)
+  if (keys.length !== 4 || !['txid', 'outputs', 'signer', 'signature'].every(k => keys.includes(k))) {
+    throw new CodecError(`${what} members must be exactly txid, outputs, signer, signature`)
+  }
+  if (typeof v.txid !== 'string' || !TXID_RE.test(v.txid)) throw new CodecError(`${what}.txid is not a txid`)
+  if (
+    !Array.isArray(v.outputs) ||
+    v.outputs.length === 0 ||
+    v.outputs.some(o => typeof o !== 'number' || !Number.isInteger(o) || o < 0 || o > MAX_UINT32)
+  ) {
+    throw new CodecError(`${what}.outputs is not a non-empty uint32 list`)
+  }
+  if (typeof v.signer !== 'string' || !KEY_RE.test(v.signer)) throw new CodecError(`${what}.signer is not a key`)
+  if (typeof v.signature !== 'string' || !EVEN_HEX_RE.test(v.signature)) {
+    throw new CodecError(`${what}.signature is not hex`)
+  }
+  return { txid: v.txid, outputs: [...(v.outputs as number[])], signer: v.signer, signature: v.signature }
 }
 
-/** profileData must be a JSON OBJECT (not an array, null or a scalar). */
-function checkProfileData(text: string): void {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    throw new CodecError('token profileData is not JSON')
+function readLinkage(v: unknown, what: string): FrameLinkage {
+  if (!isPlainObject(v) || Object.keys(v).length !== 2) {
+    throw new CodecError(`${what} must be exactly {txid, offChainValues}`)
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new CodecError('token profileData is not a JSON object')
+  if (typeof v.txid !== 'string' || !TXID_RE.test(v.txid)) throw new CodecError(`${what}.txid is not a txid`)
+  if (typeof v.offChainValues !== 'string' || !EVEN_HEX_RE.test(v.offChainValues)) {
+    throw new CodecError(`${what}.offChainValues is not hex`)
+  }
+  return { txid: v.txid, offChainValues: v.offChainValues }
+}
+
+interface Evidence {
+  admission?: FrameAttestation
+  admissions: FrameAttestation[]
+  linkage: FrameLinkage[]
+}
+
+/** The evidence members, checked and normalised; the same rules at encode and decode. */
+function checkEvidence(v: unknown): Evidence {
+  if (!isPlainObject(v)) throw new CodecError('token evidence is not a JSON object')
+  for (const k of Object.keys(v)) {
+    if (k !== 'admission' && k !== 'admissions' && k !== 'linkage') {
+      throw new CodecError(`token evidence has an unexpected member ${JSON.stringify(k)}`)
+    }
+  }
+  if (!Array.isArray(v.admissions) || v.admissions.length > MAX_EVIDENCE_ROWS) {
+    throw new CodecError('token admissions is not a list')
+  }
+  if (!Array.isArray(v.linkage) || v.linkage.length > MAX_EVIDENCE_ROWS) {
+    throw new CodecError('token linkage is not a list')
+  }
+  const linkage = v.linkage.map((l, i) => readLinkage(l, `token linkage[${i}]`))
+  if (new Set(linkage.map(l => l.txid)).size !== linkage.length)
+    throw new CodecError('token linkage names a txid twice')
+  return {
+    ...(v.admission !== undefined ? { admission: readAttestation(v.admission, 'token admission') } : {}),
+    admissions: v.admissions.map((a, i) => readAttestation(a, `token admissions[${i}]`)),
+    linkage
   }
 }
+
+function checkTokenScalars(t: { assetId: unknown; amount: unknown; senderMode: unknown }): void {
+  if (typeof t.assetId !== 'string' || !ASSET_ID_RE.test(t.assetId)) throw new CodecError('bad token assetId')
+  if (typeof t.amount !== 'string' || !DECIMAL_RE.test(t.amount) || t.amount === '0') {
+    throw new CodecError('token amount is not a positive canonical decimal string')
+  }
+  if (BigInt(t.amount) > (1n << 64n) - 1n) throw new CodecError('token amount exceeds 2^64-1')
+  if (t.senderMode !== 'blinded' && t.senderMode !== 'identity') {
+    throw new CodecError('token senderMode must be blinded or identity')
+  }
+}
+
+const SENDER_MODE_BYTE = { identity: 0x00, blinded: 0x01 } as const
 
 /**
  * Strict UTF-8 decode, independent of whether the platform TextDecoder
@@ -198,15 +293,20 @@ export function encodeFrame(f: PaymentFrame): Uint8Array {
     const t = f.token
     // Checked at encode as well as decode: fail where there is still a payer
     // to tell, rather than ship a frame every payee will refuse.
-    checkAssetId(t.assetId)
-    if (typeof t.profileData !== 'string') throw new CodecError('token profileData must be a string')
-    const profileBytes = enc.encode(t.profileData)
-    if (profileBytes.length > MAX_PROFILE_DATA_BYTES) throw new CodecError('token profileData too large')
-    checkProfileData(t.profileData)
+    checkTokenScalars(t)
+    const evidence = checkEvidence({
+      ...(t.admission !== undefined ? { admission: t.admission } : {}),
+      admissions: t.admissions,
+      linkage: t.linkage
+    })
+    const evidenceBytes = enc.encode(JSON.stringify(evidence))
+    if (evidenceBytes.length > MAX_EVIDENCE_BYTES) throw new CodecError('token evidence too large')
     putStr(out, t.assetId)
+    putStr(out, t.amount)
+    out.push(SENDER_MODE_BYTE[t.senderMode])
     putVarint(out, t.certificates.length)
     for (const cert of t.certificates) putBytes(out, cert)
-    putBytes(out, profileBytes)
+    putBytes(out, evidenceBytes)
   }
   putStr(out, f.note ?? '')
   putBytes(out, f.transaction)
@@ -229,18 +329,28 @@ export function decodeFrame(b: Uint8Array): PaymentFrame {
   let token: TokenPayment | undefined
   if (kind === 'token') {
     const assetId = getStr(b, pos)
-    checkAssetId(assetId)
+    const amount = getStr(b, pos)
+    if (pos.i >= b.length) throw new CodecError('truncated token senderMode')
+    const modeByte = b[pos.i++]
+    const senderMode = modeByte === 0x00 ? 'identity' : modeByte === 0x01 ? 'blinded' : undefined
+    if (senderMode === undefined) throw new CodecError(`unsupported token senderMode ${modeByte}`)
+    checkTokenScalars({ assetId, amount, senderMode })
     const certificates: Uint8Array[] = []
     // Each certificate consumes bytes and bounds-checks first, so a hostile
     // count cannot make this loop spin: it throws the moment the buffer runs out.
     const certCount = getVarint(b, pos)
     for (let c = 0; c < certCount; c++) certificates.push(getBytes(b, pos))
-    const profileData = decodeUtf8Strict(
-      getBytes(b, pos, { bytes: MAX_PROFILE_DATA_BYTES, what: 'token profileData' }),
-      'token profileData'
+    const evidenceText = decodeUtf8Strict(
+      getBytes(b, pos, { bytes: MAX_EVIDENCE_BYTES, what: 'token evidence' }),
+      'token evidence'
     )
-    checkProfileData(profileData)
-    token = { assetId, certificates, profileData }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(evidenceText)
+    } catch {
+      throw new CodecError('token evidence is not JSON')
+    }
+    token = { assetId, amount, senderMode, ...checkEvidence(parsed), certificates }
   }
   const note = getStr(b, pos)
   const transaction = getBytes(b, pos)

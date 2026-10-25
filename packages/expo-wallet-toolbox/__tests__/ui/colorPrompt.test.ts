@@ -126,38 +126,6 @@ describe('describeColorRequest', () => {
     expect(view!.lines).toContainEqual({ label: 'Signs input', value: '2' })
   })
 
-  it('warns before an offline credit, with exact amounts', () => {
-    const message = {
-      type: 'color_receive_offline',
-      assetId: USDX,
-      outputs: [{ outputIndex: 0, amount: '1500' }],
-      unsettledTransactions: 2,
-      signers: [SIGNER],
-      profiles: ['https://brc.dev/207/attested'],
-      seekPermission: true
-    }
-    const view = describeColorRequest(JSON.stringify(message), info, t)
-    expect(view!.type).toBe('color_receive_offline')
-    expect(view!.title).toBe('color_prompt_receive_offline_title')
-    expect(view!.warning).toContain('color_prompt_offline_warning')
-    expect(values(view)).toEqual(expect.arrayContaining([USDX, '15 USDX', SIGNER, '2']))
-  })
-
-  it('passes the unsettled count to the offline warning', () => {
-    const tSpy = jest.fn((key: string, o?: object) => (o ? `${key}:${JSON.stringify(o)}` : key))
-    const message = {
-      type: 'color_receive_offline',
-      assetId: USDX,
-      outputs: [{ outputIndex: 1, amount: '1' }],
-      unsettledTransactions: 3,
-      signer: SIGNER,
-      profiles: [],
-      seekPermission: true
-    }
-    const view = describeColorRequest(JSON.stringify(message), info, tSpy)
-    expect(view!.warning).toBe('color_prompt_offline_warning:{"count":3}')
-  })
-
   it('renders color_access and color_relinquish', () => {
     const access = describeColorRequest(
       JSON.stringify({ type: 'color_access', basket: 'p color assets', seekPermission: true }),
@@ -185,11 +153,12 @@ describe('describeColorRequest', () => {
     ['a missing assets array', JSON.stringify({ ...sendMessage(), assets: undefined })],
     ['a bad asset id', JSON.stringify(sendMessage({ assets: [leg('USDX', { outgoingAmount: '1' })] }))],
     [
-      'an offline credit with no outputs',
+      // B7 removed the module's offline-credit prompt: it is an unknown type now.
+      'the removed color_receive_offline type',
       JSON.stringify({
         type: 'color_receive_offline',
         assetId: USDX,
-        outputs: [],
+        outputs: [{ outputIndex: 0, amount: '1500' }],
         unsettledTransactions: 1,
         signers: []
       })

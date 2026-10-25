@@ -1,13 +1,13 @@
 /**
  * `buildColorModule`: the one place the wallet assembles the BRC-207 color
- * module (plan 07 Task 10). The module is registered with the built-in
- * attested profile and the Mandala issuer-v1 profile, and its default
- * provider is the same Mandala overlay provider the profile routes to (W3).
+ * module (plan 07 Task 10). Since B7 the module is registered with the
+ * Mandala issuer-v1 profile only (no attested profile), over a host ledger in
+ * the wallet's key-value table, and its default provider is the Mandala
+ * overlay provider for this chain (W3).
  */
 import type { DatabaseSync } from 'node:sqlite'
 import { PrivateKey } from '@bsv/sdk'
 import { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
-import { ATTESTED_PROFILE_ID } from '@bsv/color-permission-module'
 import { MANDALA_PROFILE_ID } from '@bsv/mandala/profile'
 import { buildColorModule } from '../../core/mandala/colorModule'
 import type { WalletKv } from '../../core/mandala/kvStore'
@@ -41,7 +41,7 @@ beforeEach(async () => {
 afterEach(() => raw.close())
 
 describe('buildColorModule', () => {
-  it('registers attested + Mandala issuer-v1 and advertises the attested capability', async () => {
+  it('advertises the color capability and no attested profile', async () => {
     const { module } = buildColorModule({
       wallet: fakeUnderlyingWallet(),
       endpoints: EP,
@@ -53,12 +53,12 @@ describe('buildColorModule', () => {
       permissionModules: { color: module }
     } as never)
     const { version } = await manager.getVersion({}, ADMIN)
-    expect(version).toMatch(/brc207-color-attested=1/)
+    expect(version).not.toMatch(/brc207-color-attested/)
     expect(version).toMatch(/brc207-color=4/)
     module.dispose()
   })
 
-  it('registers exactly the attested and Mandala issuer-v1 profiles', () => {
+  it('registers exactly the Mandala issuer-v1 profile', () => {
     const { module } = buildColorModule({
       wallet: fakeUnderlyingWallet(),
       endpoints: EP,
@@ -67,7 +67,22 @@ describe('buildColorModule', () => {
       fetch: refuseFetch
     })
     const profiles = (module as unknown as { profiles: ReadonlyMap<string, unknown> }).profiles
-    expect([...profiles.keys()].sort()).toEqual([ATTESTED_PROFILE_ID, MANDALA_PROFILE_ID].sort())
+    expect([...profiles.keys()]).toEqual([MANDALA_PROFILE_ID])
+  })
+
+  it('keeps the host ledger in the wallet key-value table, where the hold reads it', async () => {
+    const b = buildColorModule({
+      wallet: fakeUnderlyingWallet(),
+      endpoints: EP,
+      kv,
+      requestTokenAccess: async () => true,
+      fetch: refuseFetch
+    })
+    const txid = 'ab'.repeat(32)
+    await b.ledger.put({ v: 1, txid, assetId: `${'cd'.repeat(32)}_0`, state: 'pending', outputs: [0], at: 1 })
+    expect(await kv.getKeyValue(`mandala.host.v1.record.${txid}`)).toBeDefined()
+    expect((await b.ledger.get(txid))?.state).toBe('pending')
+    expect(typeof b.module.markSettled).toBe('function')
   })
 
   it('routes the provider to the configured overlay and key', () => {

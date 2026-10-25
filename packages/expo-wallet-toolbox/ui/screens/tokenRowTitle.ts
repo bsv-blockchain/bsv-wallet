@@ -19,20 +19,32 @@ function messageBoxFixed(role: 'sent' | 'received', assetId?: string, units?: bi
   return `${role === 'sent' ? 'Send' : 'Receive'} ${units.toString()} of ${assetId}`
 }
 
+/** `@bsv/mandala` 0.5.0's own default descriptions (`sendHandover`, `acceptHandover`). */
+const LIB_FIXED: Record<'sent' | 'received', string> = {
+  sent: 'Send Mandala tokens',
+  received: 'Receive Mandala tokens'
+}
+
 /**
- * The fixed wording for whichever rail authored this action, or `undefined`
+ * The fixed wordings for whichever rail authored this action, or `undefined`
  * when the action carries neither rail's marker label — in which case the
  * description is never trusted as a note (see `tokenRowTitle`'s doc).
  */
-function fixedDescriptionFor(
+function fixedDescriptionsFor(
   role: 'sent' | 'received',
   labels: string[] | undefined,
   assetId: string | undefined,
   units: bigint | undefined
-): string | undefined {
+): string[] | undefined {
   const set = new Set(labels ?? [])
-  if (set.has(PEERPAY_LABEL)) return NEARBY_FIXED[role]
-  if (set.has('transfer') || set.has('receive')) return messageBoxFixed(role, assetId, units)
+  if (set.has(PEERPAY_LABEL)) return [NEARBY_FIXED[role]]
+  if (set.has('transfer') || set.has('receive')) {
+    // Every token hand-over is lib-built since B7, on both rails. Without the
+    // row's own asset and units the older wording cannot be ruled out, so the
+    // description is not trusted as a note at all.
+    const older = messageBoxFixed(role, assetId, units)
+    return older === undefined ? undefined : [LIB_FIXED[role], older]
+  }
   return undefined
 }
 
@@ -62,8 +74,8 @@ export function tokenRowTitle(args: {
   units?: bigint
   t: (key: string, values?: Record<string, unknown>) => string
 }): string {
-  const fixed = fixedDescriptionFor(args.role, args.labels, args.assetId, args.units)
-  const hasNote = fixed !== undefined && !!args.description && args.description !== fixed
+  const fixed = fixedDescriptionsFor(args.role, args.labels, args.assetId, args.units)
+  const hasNote = fixed !== undefined && !!args.description && !fixed.includes(args.description)
   if (hasNote) return args.description as string
   return args.t(args.role === 'sent' ? 'token_row_sent' : 'token_row_received', { ticker: args.ticker })
 }

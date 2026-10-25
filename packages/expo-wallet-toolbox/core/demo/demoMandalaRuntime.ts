@@ -104,6 +104,9 @@ export function createDemoMandalaRuntime(): MandalaRuntime {
         throw new Error('demo mode does not build nearby token payments')
       },
       onHandedOver: async () => {},
+      accept: async () => {
+        throw new Error('demo mode does not receive nearby token payments')
+      },
       onReceived: async () => {}
     }
   }

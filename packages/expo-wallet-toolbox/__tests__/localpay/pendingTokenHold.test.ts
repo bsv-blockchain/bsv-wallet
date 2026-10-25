@@ -29,8 +29,16 @@ jest.mock('@bsv/mandala', () => {
 import type { DatabaseSync } from 'node:sqlite'
 import { P2PKH, PrivateKey, Transaction, type WalletInterface } from '@bsv/sdk'
 import { OneColor } from '@bsv/templates'
-import { ATTESTED_PROFILE_ID, sendHandover, type HandoverResult } from '@bsv/mandala'
+import {
+  createHostLedger,
+  handoverBody,
+  receiptOfBody,
+  sendHandover,
+  type HandoverResult,
+  type HostLedger
+} from '@bsv/mandala'
 import { createNearbyPayer } from '../../core/mandala/nearby'
+import { createHandoverBodies } from '../../core/mandala/handle'
 import { colorHeldTxids } from '../../core/mandala/colorGuard'
 import { createTransferJournal, type JournalDb, type TransferJournal } from '../../core/mandala/transferJournal'
 import { holdSentPaymentOffline, parkSentPaymentOffline, releaseParkedPayment } from '../../core/offline/payerHold'
@@ -57,20 +65,25 @@ function signedHandover(units: bigint, over: Partial<HandoverResult> = {}): { h:
   tx.addInput({ sourceTransaction: source, sourceOutputIndex: 0, unlockingScript: new P2PKH().lock(PKH) })
   tx.addOutput({ lockingScript: new OneColor().lock(ASSET, units, PKH), satoshis: 1 })
   tx.addOutput({ lockingScript: new P2PKH().lock(PKH), satoshis: 900 })
+  const body = handoverBody({
+    assetId: ASSET,
+    amount: units,
+    outputIndex: 0,
+    tx: tx.toAtomicBEEF(),
+    derivationPrefix: PREFIX,
+    derivationSuffix: SUFFIX,
+    senderIdentityKey: A_PRIME,
+    senderMode: 'blinded',
+    linkage: [{ txid: tx.id('hex'), offChainValues: [1] }]
+  })
   const h: HandoverResult = {
     txid: tx.id('hex'),
     tx: tx.toAtomicBEEF(),
     reference: 'ref-nearby',
     outputIndex: 0,
     offChainValues: [1],
-    receipt: {
-      version: 1,
-      assetId: ASSET,
-      derivationPrefix: PREFIX,
-      derivationSuffix: SUFFIX,
-      senderIdentityKey: A_PRIME,
-      profileData: { [ATTESTED_PROFILE_ID]: { [ASSET]: { declarationTx: '00' } } }
-    },
+    receipt: receiptOfBody(body),
+    body,
     ...over
   }
   return { h, rawTx: tx.toBinary() }
@@ -81,12 +94,27 @@ let db: ExpoLikeDb
 let journal: TransferJournal
 let abortAction: jest.Mock
 let onChange: jest.Mock
+let kvMap: Map<string, string>
+let ledger: HostLedger
+const HOST = { revealSpecificKeyLinkage: jest.fn() } as unknown as WalletInterface
+
+function memoryKv() {
+  return {
+    getKeyValue: async (k: string) => kvMap.get(k),
+    setKeyValue: async (k: string, v: string) => {
+      kvMap.set(k, v)
+    }
+  }
+}
 
 function payer(j: TransferJournal = journal) {
   return createNearbyPayer({
     wallet: { abortAction } as unknown as WalletInterface,
     identityKey: async () => ME,
     journal: j,
+    hostWallet: HOST,
+    ledger,
+    bodies: createHandoverBodies(memoryKv()),
     recipientRefusal: k => (k === 'bad' ? 'not an identity key' : null),
     onChange
   })
@@ -119,6 +147,17 @@ beforeEach(async () => {
   journal = createTransferJournal(db as unknown as JournalDb, () => new Date('2026-10-22T12:00:00.000Z'))
   abortAction = jest.fn(async () => ({ aborted: true }))
   onChange = jest.fn()
+  kvMap = new Map()
+  ledger = createHostLedger({
+    getItem: async k => kvMap.get(k) ?? null,
+    setItem: async (k, v) => {
+      kvMap.set(k, v)
+    },
+    removeItem: async k => {
+      kvMap.delete(k)
+    },
+    keys: async prefix => [...kvMap.keys()].filter(k => k.startsWith(prefix))
+  })
   sendHandoverMock.mockReset()
   TaskSendOffline.resetForTests()
 })
@@ -143,9 +182,13 @@ describe('nearby.handover journals the payer row', () => {
       derivationPrefix: PREFIX,
       derivationSuffix: SUFFIX,
       note: 'lunch',
+      hostWallet: HOST,
+      ledger,
       // The wallet owns durability: no lib txJournal entry per send.
       journal: false
     })
+    // The v4 body is kept for a later resend.
+    expect(JSON.parse(kvMap.get(`bsvwallet.color.handover.${h.txid}`)!)).toEqual(h.body)
     expect(await journal.get(h.txid)).toMatchObject({
       role: 'sent',
       state: 'built',
@@ -176,6 +219,8 @@ describe('nearby.handover journals the payer row', () => {
     await expect(payer().handover(ask(5n))).rejects.toThrow(/session|output 0|asset/)
     expect(abortAction).toHaveBeenCalledWith({ reference: 'ref-nearby' })
     expect(await journal.get(h.txid)).toBeUndefined()
+    // Released: the host ledger stops vouching for its change.
+    expect(await ledger.get(h.txid)).toMatchObject({ state: 'refused', code: 'ERR_RELEASED' })
   })
 
   it('releases the signed action and throws when the journal cannot record it', async () => {
@@ -266,7 +311,13 @@ describe('the payer’s token tx is held until the journal reads settled', () =>
     const { h, rawTx } = signedHandover(1500n)
     sendHandoverMock.mockResolvedValue(h)
     const p = payer()
-    const held = async () => (await colorHeldTxids([{ txid: h.txid, rawTx }], journal)).has(h.txid)
+    const held = async () =>
+      (
+        await colorHeldTxids([{ txid: h.txid, rawTx }], {
+          statesOf: t => journal.statesOf(t),
+          custodyOf: async () => new Set()
+        })
+      ).has(h.txid)
 
     await p.handover(ask(1500n))
     expect((await journal.get(h.txid))?.state).toBe('built')
@@ -300,7 +351,14 @@ describe('the payer’s token tx is held until the journal reads settled', () =>
     expect(await journal.get(h.txid)).toMatchObject({ state: 'handed_over', delivered: true })
     expect((await findOfflineActionByTxid(db as never, h.txid))?.status).toBe('queued')
     expect(TaskSendOffline.hasPending).toBe(true)
-    expect((await colorHeldTxids([{ txid: h.txid, rawTx }], journal)).has(h.txid)).toBe(true)
+    expect(
+      (
+        await colorHeldTxids([{ txid: h.txid, rawTx }], {
+          statesOf: t => journal.statesOf(t),
+          custodyOf: async () => new Set()
+        })
+      ).has(h.txid)
+    ).toBe(true)
   })
 
   it('a hold whose journal hook fails is left parked, never drainable', async () => {

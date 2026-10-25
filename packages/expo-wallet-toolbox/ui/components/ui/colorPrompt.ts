@@ -40,8 +40,7 @@ const TITLE_KEYS: Record<ColorPromptType, string> = {
   color_send: 'color_prompt_send_title',
   color_signature: 'color_prompt_signature_title',
   color_access: 'color_prompt_access_title',
-  color_relinquish: 'color_prompt_relinquish_title',
-  color_receive_offline: 'color_prompt_receive_offline_title'
+  color_relinquish: 'color_prompt_relinquish_title'
 }
 
 /** Thrown inside this file only: the message is not fully readable. */
@@ -199,30 +198,6 @@ function describeRelinquish(m: Record<string, unknown>): ColorPromptView['lines'
   ]
 }
 
-function describeOfflineCredit(m: Record<string, unknown>, assetInfo: AssetInfo): ColorPromptView['lines'] {
-  const assetId = assetIdOf(m.assetId)
-  const outputs = listOf(m.outputs, MAX_OUTPUTS)
-  const unsettled = countOf(m.unsettledTransactions)
-  let signers: string[]
-  if (typeof m.signer === 'string') signers = [m.signer]
-  else signers = stringsOf(m.signers, MAX_SIGNERS)
-  if (m.profiles !== undefined) stringsOf(m.profiles, 16)
-
-  const lines: ColorPromptView['lines'] = [{ label: 'Asset ID', value: assetId }]
-  let total = 0n
-  for (const raw of outputs) {
-    const o = isRecord(raw) ? raw : fail()
-    const index = countOf(o.outputIndex)
-    const units = amountOf(o.amount)
-    total += units
-    lines.push({ label: `Output ${index}`, value: unitsText(units, assetId, assetInfo) })
-  }
-  if (outputs.length > 1) lines.push({ label: 'Receiving', value: unitsText(total, assetId, assetInfo) })
-  lines.push({ label: 'Unsettled transactions', value: String(unsettled) })
-  for (const signer of signers) lines.push({ label: 'Attested by', value: signer })
-  return lines
-}
-
 /**
  * What a color consent message asks, for the permission sheet. `null` when the
  * message is not fully readable (bad JSON, an unknown type, a missing member, a
@@ -241,7 +216,6 @@ export function describeColorRequest(message: string, assetInfo: AssetInfo, t: T
   const type = m.type as ColorPromptType
   try {
     let lines: ColorPromptView['lines']
-    let warning: string | undefined
     switch (type) {
       case 'color_send':
       case 'color_signature':
@@ -253,12 +227,8 @@ export function describeColorRequest(message: string, assetInfo: AssetInfo, t: T
       case 'color_relinquish':
         lines = describeRelinquish(m)
         break
-      case 'color_receive_offline':
-        lines = describeOfflineCredit(m, assetInfo)
-        warning = t('color_prompt_offline_warning', { count: countOf(m.unsettledTransactions) })
-        break
     }
-    return { type, title: t(TITLE_KEYS[type]), lines, ...(warning === undefined ? {} : { warning }) }
+    return { type, title: t(TITLE_KEYS[type]), lines }
   } catch {
     // Unreadable, or any other failure while building the view: fail closed to the deny-only prompt.
     return null

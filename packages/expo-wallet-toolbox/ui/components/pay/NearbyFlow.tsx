@@ -1182,13 +1182,15 @@ function NearbyFlow({
           { wallet, chainTracker },
           frame,
           adminOriginator,
-          // The session's OWN asset — this device minted it. A token frame is
-          // verified structurally against it (value output of this asset,
-          // paying our `p color` key, attested evidence); the color module
-          // checks the evidence itself at internalize, against this device's
-          // own configured overlay. Absent on a BSV request, where a token
-          // frame is refused for naming no asset.
-          session.asset ? { assetId: session.asset.id } : undefined
+          // The session's OWN asset — this device minted it — and this
+          // device's own overlay key. A token frame is verified against both
+          // (value output of this asset paying our `p color` key, evidence
+          // that reaches σ by our K); the lib verifies it again online or by
+          // COVER before the receipt is internalized. Absent on a BSV request,
+          // where a token frame is refused for naming no asset.
+          session.asset
+            ? { assetId: session.asset.id, overlayIdentityKey: mandala.runtime?.endpoints.overlayIdentityKey }
+            : undefined
         )
       } catch (e) {
         // `not_mine` is a frame that was never for this request; `unparseable`
@@ -1436,12 +1438,15 @@ function NearbyFlow({
               receivedVia: info.receivedVia
             })
           },
-          // How the receipt internalize settled, for the `color_transfers`
-          // journal (held / settled / refused). Isolated inside processPending
-          // from the credit itself: a failing journal write can never
-          // un-credit a coin that is already ours, and until it lands the
-          // missing row holds the tx from broadcast (W1).
-          mandala.runtime?.nearby.onReceived
+          // How the receipt settled, for the `color_transfers` journal (held /
+          // settled / refused). Isolated inside processPending from the credit
+          // itself: a failing journal write can never un-credit a coin that is
+          // already ours, and until it lands the missing row holds the tx from
+          // broadcast (W1).
+          mandala.runtime?.nearby.onReceived,
+          // The lib's recipient path for a token frame (B7): verify, record
+          // in the host ledger, then internalize the plain receipt.
+          mandala.runtime?.nearby.accept
         )
         const credited = results.some(r => r.success)
         setNotice(

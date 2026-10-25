@@ -24,7 +24,7 @@ import {
   type WalletProtocol
 } from '@bsv/sdk'
 import { OneColor } from '@bsv/templates'
-import { ATTESTED_PROFILE_ID, colorProtocolID } from '@bsv/mandala'
+import { colorProtocolID, signAttestation } from '@bsv/mandala'
 import { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
 import {
   FrameVerifyError,
@@ -35,7 +35,7 @@ import {
 import { PEERPAY_PROTOCOL_ID } from '../../core/localpay/pending'
 import type { PaymentFrame } from '../../core/localpay/codec'
 import { buildColorModule } from '../../core/mandala/colorModule'
-import { txHasColorOutput } from '../../core/mandala/colorGuard'
+import { colorHeldTxids, txHasColorOutput } from '../../core/mandala/colorGuard'
 import { openTestDb } from '../__helpers__/nodeSqlite'
 
 const payeeKey = PrivateKey.fromRandom().toPublicKey()
@@ -282,14 +282,13 @@ describe('verifyFramePayment', () => {
     expect(err).toBeInstanceOf(FrameVerifyError)
   })
 
-  // The broadcast hold (`colorHeldTxids`) holds any tx with a 1Color output
-  // until its `color_transfers` row reads `settled`, and only token transfers
-  // ever get a row. A payer who adds a decoy 1Color output to an otherwise
-  // valid BSV frame would have the payee's internalize parked for good: never
-  // broadcast, while the payer stays free to double-spend the inputs. The BSV
-  // rail refuses such a frame before anything is queued, by the very
-  // predicate the hold uses.
-  it('refuses a BSV frame whose transaction also carries a 1Color output', async () => {
+  // The decoy-output finding (nearby rail). A payer who adds a decoy 1Color
+  // output to an otherwise valid BSV frame must not be able to make the
+  // payee's wallet HOLD the credit (instead of broadcasting it) while the
+  // payer stays free to double-spend the inputs. The hold applies only to
+  // transactions where this wallet's token custody is involved, so the frame
+  // is accepted as the BSV payment it is and its tx is not parked.
+  it('accepts a BSV frame carrying a decoy 1Color output, and the hold does not park it', async () => {
     const decoy = new OneColor()
       .lock(`${'cd'.repeat(32)}_0`, 1n, PrivateKey.fromRandom().toPublicKey().toHash() as number[])
       .toHex()
@@ -297,15 +296,15 @@ describe('verifyFramePayment', () => {
       { satoshis: 4200, scriptHex: minesScript() },
       { satoshis: 1, scriptHex: decoy }
     ])
-    // The same tx is one the hold would park: the two predicates are one.
-    expect(txHasColorOutput(Transaction.fromAtomicBEEF(Array.from(frame.transaction)).toBinary())).toBe(true)
-    await expect(verifyFramePayment(deps, frame, 'admin.com')).rejects.toMatchObject({
-      name: 'FrameVerifyError',
-      kind: 'not_mine'
+    await expect(verifyFramePayment(deps, frame, 'admin.com')).resolves.toEqual({ kind: 'bsv', satoshis: 4200 })
+    const tx = Transaction.fromAtomicBEEF(Array.from(frame.transaction))
+    expect(txHasColorOutput(tx.toBinary())).toBe(true)
+    // No journal row, no host-ledger record, no `p color` input: not ours.
+    const held = await colorHeldTxids([{ txid: tx.id('hex'), rawTx: tx.toBinary() }], {
+      statesOf: async () => new Map(),
+      custodyOf: async () => new Set()
     })
-    // Refused before the ownership derivation: nothing about it is ours to read.
-    expect(deps.wallet.getPublicKey).not.toHaveBeenCalled()
-    expect(declineReasonFor('not_mine')).toBe('session_mismatch')
+    expect(held.size).toBe(0)
   })
 
   it('refuses a BSV frame whose named output is itself a 1Color output', async () => {
@@ -434,9 +433,8 @@ const EP = {
   overlayIdentityKey: new PrivateKey(9).toPublicKey().toString(),
   messageBoxUrl: 'https://messagebox.example'
 }
-const LEAF = { declarationTx: '00', transactions: [], attestations: [], submissions: [] }
-const profileDataOf = (v: unknown): string => JSON.stringify(v)
-const ATTESTED_ONLY = profileDataOf({ [ATTESTED_PROFILE_ID]: { [ASSET_ID]: LEAF } })
+/** The overlay's own key (K = EP.overlayIdentityKey): signs σ over a tip. */
+const OVERLAY = new ProtoWallet(new PrivateKey(9))
 
 /** The payee's child key as the payer derives it (lib `sendHandover`, unblinded). */
 async function payeeChildFromPayer(assetId = ASSET_ID, recipient = PAYEE_IDENTITY): Promise<string> {
@@ -455,25 +453,36 @@ function oneColorScript(amount: bigint, pkh: number[], assetId: string | null = 
   return new OneColor().lock(assetId, amount, pkh).toHex()
 }
 
-function tokenFrame(transaction: Uint8Array, overrides: Partial<PaymentFrame> = {}): PaymentFrame {
+function tokenFrame(transaction: Uint8Array, overrides: Partial<PaymentFrame> = {}, amount = '1500'): PaymentFrame {
   return {
-    version: 6,
+    version: 7,
     kind: 'token',
     senderIdentityKey: PAYER_IDENTITY,
     outputIndex: 0,
     derivationPrefix: PREFIX,
     derivationSuffix: SUFFIX,
-    token: { assetId: ASSET_ID, certificates: [], profileData: ATTESTED_ONLY },
+    token: { assetId: ASSET_ID, amount, senderMode: 'identity', admissions: [], linkage: [], certificates: [] },
     transaction,
     ...overrides
   }
 }
 
-/** A frame whose output 0 pays the payee `amount` of `assetId`. */
+/** σ by `signer` over `transaction`'s tip for `outputs`, under `assetId`. */
+async function sigmaOver(transaction: Uint8Array, outputs: number[], assetId = ASSET_ID, signer = OVERLAY) {
+  const txid = Transaction.fromAtomicBEEF(Array.from(transaction)).id('hex')
+  const { publicKey } = await signer.getPublicKey({ identityKey: true })
+  return { txid, outputs, signer: publicKey, signature: await signAttestation(signer, assetId, txid, outputs) }
+}
+
+/** A frame whose output 0 pays the payee `amount` of `assetId`, with the tip's σ by K. */
 async function payingFrame(amount: bigint, assetId = ASSET_ID): Promise<PaymentFrame> {
   const pkh = pkhOf(await payeeChildFromPayer(assetId))
-  return tokenFrame(beefOf([{ satoshis: 1, scriptHex: oneColorScript(amount, pkh, assetId) }]))
+  const transaction = beefOf([{ satoshis: 1, scriptHex: oneColorScript(amount, pkh, assetId) }])
+  const frame = tokenFrame(transaction, {}, amount.toString())
+  return { ...frame, token: { ...frame.token!, admission: await sigmaOver(transaction, [0], assetId) } }
 }
+
+const KEYED = { assetId: ASSET_ID, overlayIdentityKey: EP.overlayIdentityKey }
 
 let raw: { close(): void } | undefined
 const disposers: (() => void)[] = []
@@ -515,7 +524,7 @@ describe('verifyFramePayment: token kind', () => {
     const { deps, underlyingGetPublicKey } = await payeeManager()
     const frame = await payingFrame(1500n)
 
-    await expect(verifyFramePayment(deps, frame, ADMIN, { assetId: ASSET_ID })).resolves.toEqual({
+    await expect(verifyFramePayment(deps, frame, ADMIN, KEYED)).resolves.toEqual({
       kind: 'token',
       assetId: ASSET_ID,
       units: 1500n
@@ -538,7 +547,7 @@ describe('verifyFramePayment: token kind', () => {
     const frame = await payingFrame(1500n)
     // An app originator is P-routed to the module, which passes getPublicKey
     // through after validating the key args (no consent prompt, no overlay).
-    await expect(verifyFramePayment(deps, frame, 'app.example', { assetId: ASSET_ID })).resolves.toMatchObject({
+    await expect(verifyFramePayment(deps, frame, 'app.example', KEYED)).resolves.toMatchObject({
       units: 1500n
     })
     expect(moduleRequest).toHaveBeenCalledWith(
@@ -547,43 +556,65 @@ describe('verifyFramePayment: token kind', () => {
     )
   })
 
-  it('refuses a frame paying another key, another asset, or carrying a non-attested profileData', async () => {
+  it('refuses a frame paying another key or another asset', async () => {
     const { deps } = await payeeManager()
 
     // Another key: the payer derived a child of somebody else.
     const strangerPkh = pkhOf(await payeeChildFromPayer(ASSET_ID, new PrivateKey(77).toPublicKey().toString()))
     const toStranger = tokenFrame(beefOf([{ satoshis: 1, scriptHex: oneColorScript(1500n, strangerPkh) }]))
-    await expect(verifyFramePayment(deps, toStranger, ADMIN, { assetId: ASSET_ID })).rejects.toMatchObject({
+    await expect(verifyFramePayment(deps, toStranger, ADMIN, KEYED)).rejects.toMatchObject({
       name: 'FrameVerifyError',
       kind: 'not_mine'
     })
 
     // Another asset: the script moves OTHER while the frame and session name ASSET.
     const otherAsset = await payingFrame(1500n, OTHER_ASSET_ID)
-    await expect(verifyFramePayment(deps, otherAsset, ADMIN, { assetId: ASSET_ID })).rejects.toMatchObject({
+    await expect(verifyFramePayment(deps, otherAsset, ADMIN, KEYED)).rejects.toMatchObject({
       kind: 'not_mine'
     })
     // ...and a frame that names the asset its script moves, against a session for another one.
     const named = { ...otherAsset, token: { ...otherAsset.token!, assetId: OTHER_ASSET_ID } }
-    await expect(verifyFramePayment(deps, named, ADMIN, { assetId: ASSET_ID })).rejects.toMatchObject({
+    await expect(verifyFramePayment(deps, named, ADMIN, KEYED)).rejects.toMatchObject({
       kind: 'not_mine'
     })
+  })
 
-    // A non-attested profileData: empty, a second profile, a non-object leaf.
+  it('refuses evidence that does not reach σ by THIS device’s K (not_covered)', async () => {
+    const { deps } = await payeeManager()
     const good = await payingFrame(1500n)
-    for (const profileData of [
-      profileDataOf({}),
-      profileDataOf({ [ATTESTED_PROFILE_ID]: { [ASSET_ID]: LEAF }, 'https://brc.dev/207/other': {} }),
-      profileDataOf({ 'https://brc.dev/207/other': { [ASSET_ID]: LEAF } }),
-      profileDataOf({ [ATTESTED_PROFILE_ID]: { [OTHER_ASSET_ID]: LEAF } }),
-      profileDataOf({ [ATTESTED_PROFILE_ID]: { [ASSET_ID]: [LEAF] } }),
-      profileDataOf({ [ATTESTED_PROFILE_ID]: [] })
-    ]) {
-      const frame = { ...good, token: { ...good.token!, profileData } }
-      await expect(verifyFramePayment(deps, frame, ADMIN, { assetId: ASSET_ID })).rejects.toMatchObject({
-        kind: 'not_covered'
-      })
-    }
+    await expect(verifyFramePayment(deps, good, ADMIN, KEYED)).resolves.toMatchObject({ units: 1500n })
+
+    // No evidence at all.
+    const bare = { ...good, token: { ...good.token!, admission: undefined } }
+    delete (bare.token as { admission?: unknown }).admission
+    await expect(verifyFramePayment(deps, bare, ADMIN, KEYED)).rejects.toMatchObject({ kind: 'not_covered' })
+
+    // σ by another key: a self-made "admission".
+    const forged = await sigmaOver(good.transaction, [0], ASSET_ID, new ProtoWallet(new PrivateKey(10)))
+    const selfSigned = { ...good, token: { ...good.token!, admission: forged } }
+    await expect(verifyFramePayment(deps, selfSigned, ADMIN, KEYED)).rejects.toMatchObject({ kind: 'not_covered' })
+
+    // σ by K, but for another asset's statement.
+    const wrongAsset = await sigmaOver(good.transaction, [0], OTHER_ASSET_ID)
+    const crossAsset = { ...good, token: { ...good.token!, admission: wrongAsset } }
+    await expect(verifyFramePayment(deps, crossAsset, ADMIN, KEYED)).rejects.toMatchObject({ kind: 'not_covered' })
+
+    // A malformed evidence row (the lib's strict parse).
+    const malformed = { ...good, token: { ...good.token!, admissions: [{ ...good.token!.admission!, outputs: [] }] } }
+    await expect(verifyFramePayment(deps, malformed, ADMIN, KEYED)).rejects.toMatchObject({ kind: 'not_covered' })
+
+    // No configured K on this device: no binding.
+    await expect(verifyFramePayment(deps, good, ADMIN, { assetId: ASSET_ID })).rejects.toMatchObject({
+      kind: 'not_covered'
+    })
+    expect(declineReasonFor('not_covered')).toBe('not_covered')
+  })
+
+  it('refuses a frame whose amount is not the named output’s', async () => {
+    const { deps } = await payeeManager()
+    const good = await payingFrame(1500n)
+    const lying = { ...good, token: { ...good.token!, amount: '1501' } }
+    await expect(verifyFramePayment(deps, lying, ADMIN, KEYED)).rejects.toMatchObject({ kind: 'not_mine' })
   })
 
   it('refuses a token frame verified against no session asset', async () => {
@@ -596,13 +627,13 @@ describe('verifyFramePayment: token kind', () => {
   it('reads units above 2^53 from the script exactly', async () => {
     const { deps } = await payeeManager()
     const frame = await payingFrame(9007199254740993n)
-    await expect(verifyFramePayment(deps, frame, ADMIN, { assetId: ASSET_ID })).resolves.toEqual({
+    await expect(verifyFramePayment(deps, frame, ADMIN, KEYED)).resolves.toEqual({
       kind: 'token',
       assetId: ASSET_ID,
       units: 9007199254740993n
     })
     const max = await payingFrame(18446744073709551615n)
-    await expect(verifyFramePayment(deps, max, ADMIN, { assetId: ASSET_ID })).resolves.toMatchObject({
+    await expect(verifyFramePayment(deps, max, ADMIN, KEYED)).resolves.toMatchObject({
       units: 18446744073709551615n
     })
   })
@@ -611,15 +642,15 @@ describe('verifyFramePayment: token kind', () => {
     const { deps } = await payeeManager()
     const pkh = pkhOf(await payeeChildFromPayer())
     const p2pkh = tokenFrame(beefOf([{ satoshis: 1, scriptHex: new P2PKH().lock(pkh).toHex() }]))
-    await expect(verifyFramePayment(deps, p2pkh, ADMIN, { assetId: ASSET_ID })).rejects.toMatchObject({
+    await expect(verifyFramePayment(deps, p2pkh, ADMIN, KEYED)).rejects.toMatchObject({
       kind: 'not_mine'
     })
     const deploy = tokenFrame(beefOf([{ satoshis: 1, scriptHex: oneColorScript(1000n, pkh, null) }]))
-    await expect(verifyFramePayment(deps, deploy, ADMIN, { assetId: ASSET_ID })).rejects.toMatchObject({
+    await expect(verifyFramePayment(deps, deploy, ADMIN, KEYED)).rejects.toMatchObject({
       kind: 'not_mine'
     })
     const blockless = { ...(await payingFrame(1500n)), token: undefined }
-    await expect(verifyFramePayment(deps, blockless, ADMIN, { assetId: ASSET_ID })).rejects.toMatchObject({
+    await expect(verifyFramePayment(deps, blockless, ADMIN, KEYED)).rejects.toMatchObject({
       kind: 'unparseable'
     })
   })
@@ -627,21 +658,20 @@ describe('verifyFramePayment: token kind', () => {
   it('reads the output named by outputIndex', async () => {
     const { deps } = await payeeManager()
     const pkh = pkhOf(await payeeChildFromPayer())
-    const frame = tokenFrame(
-      beefOf([
-        { satoshis: 1, scriptHex: oneColorScript(5n, pkhOf(new PrivateKey(78).toPublicKey().toString())) },
-        { satoshis: 1, scriptHex: oneColorScript(1500n, pkh) }
-      ]),
-      { outputIndex: 1 }
-    )
-    await expect(verifyFramePayment(deps, frame, ADMIN, { assetId: ASSET_ID })).resolves.toMatchObject({
+    const transaction = beefOf([
+      { satoshis: 1, scriptHex: oneColorScript(5n, pkhOf(new PrivateKey(78).toPublicKey().toString())) },
+      { satoshis: 1, scriptHex: oneColorScript(1500n, pkh) }
+    ])
+    const unsigned = tokenFrame(transaction, { outputIndex: 1 })
+    const frame = { ...unsigned, token: { ...unsigned.token!, admission: await sigmaOver(transaction, [0, 1]) } }
+    await expect(verifyFramePayment(deps, frame, ADMIN, KEYED)).resolves.toMatchObject({
       units: 1500n
     })
   })
 
   it('leaves the BSV path untouched by the session asset option', async () => {
     const { frame, deps } = await validFrame([{ satoshis: 4200, scriptHex: minesScript() }])
-    await expect(verifyFramePayment(deps, frame, 'test', { assetId: ASSET_ID })).resolves.toEqual({
+    await expect(verifyFramePayment(deps, frame, 'test', KEYED)).resolves.toEqual({
       kind: 'bsv',
       satoshis: 4200
     })

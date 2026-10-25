@@ -11,14 +11,15 @@
  *  · what comes back must carry those same strings and the payee output at
  *    index 0 — anything else is not this request's payment, so the signed
  *    action is released (by its reference) and the build throws;
- *  · the frame is v6: the receipt's A′, the AtomicBEEF and the BRC-207
- *    `profileData` carrier, with no overlay url/key, linkage or admissions;
+ *  · the frame is v7 (IC §7.3): the receipt's A′, the AtomicBEEF and the
+ *    v4 body's own members (decimal amount, sender mode, σ admissions and
+ *    envelope linkage), with no overlay url/key;
  *  · nothing is created, broadcast or submitted by the builder itself, and
  *    `finalizeDelivery` never broadcasts a token payment (guard #1).
  */
 import { PrivateKey, Transaction, P2PKH } from '@bsv/sdk'
 import { OneColor } from '@bsv/templates'
-import { ATTESTED_PROFILE_ID, type HandoverResult } from '@bsv/mandala'
+import { handoverBody, receiptOfBody, type HandoverResult } from '@bsv/mandala'
 import { buildPaymentFrame, finalizeDelivery, type TokenBuildDeps } from '../../core/localpay/build'
 import { FRAME_VERSION, decodeFrame, encodeFrame } from '../../core/localpay/codec'
 import { mintSession, type Session } from '../../core/localpay/session'
@@ -30,8 +31,12 @@ const ADMIN = 'admin.example'
 const PREFIX = 'cHJlZml4cHJlZml4cHJlZml4cHJlZml4cHJlZml4cHI='
 const SUFFIX = 'c3VmZml4c3VmZml4c3VmZml4c3VmZml4c3VmZml4c3U='
 const PKH = new Array(20).fill(9)
-const LEAF = { declarationTx: '0100', transactions: [], attestations: [], submissions: [] }
-const PROFILE_DATA = { [ATTESTED_PROFILE_ID]: { [ASSET]: LEAF } }
+const SIGMA = {
+  txid: 'cd'.repeat(32),
+  outputs: [1],
+  signer: new PrivateKey(5).toPublicKey().toString(),
+  signature: '3006020101020101'
+}
 
 /** A 1-input tx whose output 0 is the 1-sat 1Color payee output. */
 function handoverTx(units: bigint): { beef: number[]; txid: string } {
@@ -50,21 +55,26 @@ function hand(
   receipt: Partial<HandoverResult['receipt']> = {}
 ): HandoverResult {
   const { beef, txid } = handoverTx(units)
+  const body = handoverBody({
+    assetId: ASSET,
+    amount: units,
+    outputIndex: 0,
+    tx: beef,
+    derivationPrefix: PREFIX,
+    derivationSuffix: SUFFIX,
+    senderIdentityKey: BLINDED_SENDER,
+    senderMode: 'blinded',
+    admissions: [SIGMA],
+    linkage: [{ txid, offChainValues: [1, 2, 3] }]
+  })
   return {
     txid,
     tx: beef,
     reference: 'ref-H',
     outputIndex: 0,
     offChainValues: [1, 2, 3],
-    receipt: {
-      version: 1,
-      assetId: ASSET,
-      derivationPrefix: PREFIX,
-      derivationSuffix: SUFFIX,
-      senderIdentityKey: BLINDED_SENDER,
-      profileData: PROFILE_DATA,
-      ...receipt
-    },
+    receipt: { ...receiptOfBody(body), ...receipt },
+    body,
     ...over
   }
 }
@@ -90,7 +100,7 @@ function payer() {
 }
 
 describe('buildPaymentFrame: token path through the module hand-over', () => {
-  it('builds a v6 token frame from the module hand-over bound to the session remittance', async () => {
+  it('builds a v7 token frame from the module hand-over bound to the session remittance', async () => {
     const wallet = payer()
     const H = hand(1500n)
     const handover = jest.fn(async () => H)
@@ -104,17 +114,24 @@ describe('buildPaymentFrame: token path through the module hand-over', () => {
       note: undefined
     })
     expect(built.frame).toMatchObject({
-      version: 6,
+      version: 7,
       kind: 'token',
       outputIndex: 0,
       senderIdentityKey: BLINDED_SENDER,
       derivationPrefix: PREFIX,
       derivationSuffix: SUFFIX,
-      token: { assetId: ASSET, certificates: [], profileData: JSON.stringify(H.receipt.profileData) }
+      token: {
+        assetId: ASSET,
+        amount: '1500',
+        senderMode: 'blinded',
+        admissions: H.body.admissions,
+        linkage: H.body.linkage,
+        certificates: []
+      }
     })
     expect(Array.from(built.frame.transaction)).toEqual(H.tx)
     expect(built.frame.token).not.toHaveProperty('overlayUrl')
-    expect(built.frame.token).not.toHaveProperty('linkage')
+    expect(built.frame.token).not.toHaveProperty('profileData')
     expect(built.tokenAmount).toBe(1500n)
     expect(built.reference).toBe('ref-H')
     expect(built.txid).toBe(H.txid)
@@ -219,7 +236,7 @@ describe('buildPaymentFrame: token path through the module hand-over', () => {
     await expect(buildPaymentFrame(payer() as never, bsv, ADMIN, 777n)).rejects.toThrow(/satoshis/)
   })
 
-  it('round-trips the frame it builds through the v6 codec', async () => {
+  it('round-trips the frame it builds through the v7 codec', async () => {
     const built = await buildPaymentFrame(payer() as never, tokenSession(1500n), ADMIN, 1500n, {
       handover: async () => hand(1500n)
     })
