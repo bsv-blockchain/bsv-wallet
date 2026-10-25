@@ -74,6 +74,11 @@ Expo SDK line.
 `@bsv/color-permission-module` imports `@bsv/wallet-toolbox-client`, which a
 React Native app must alias to `@bsv/wallet-toolbox-mobile` (see
 [`metro.config.js`](#metroconfigjs) and [Jest configuration](#jest-configuration)).
+The module also declares `@bsv/wallet-toolbox-client` as a peer; satisfy it
+with an npm alias of the mobile toolbox, e.g.
+`"@bsv/wallet-toolbox-client": "npm:@bsv/wallet-toolbox-mobile@^2.15.0"`, so no
+second toolbox is installed. That copy is never loaded (the bundler and Jest
+map the name to `-mobile`), so `patch-package` patches only `-mobile`.
 
 ### Expo native modules (required — each needs its own autolinking/config)
 

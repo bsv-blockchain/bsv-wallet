@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Vendor the unpublished 1Color packages (IC §9) into vendor/ and point the
-// root package.json at them.
+// root package.json at them. @bsv/sdk 4.0.0 and @bsv/wallet-toolbox-mobile
+// 2.15.x are published: they are registry ranges (PUBLISHED below), and any
+// old tarball of theirs is removed from vendor/.
 //
 // Usage: node scripts/vendor-1color.mjs [--src <dir>] [--allow-missing]
 //
@@ -28,12 +30,19 @@ const DEFAULT_SRC = '/Users/personal/git/demos/mandala-wt/1color/vendor-ts-stack
 
 // npm name -> tarball stem (`npm pack` names @bsv/x as bsv-x-<ver>.tgz).
 const VENDORED = {
-  '@bsv/sdk': 'sdk',
   '@bsv/templates': 'templates',
-  '@bsv/wallet-toolbox-client': 'wallet-toolbox-client',
-  '@bsv/wallet-toolbox-mobile': 'wallet-toolbox-mobile',
   '@bsv/color-permission-module': 'color-permission-module',
   '@bsv/mandala': 'mandala'
+}
+
+// Published packages: registry specs, still overridden so transitive users
+// resolve to the one root copy. The color module peers on
+// @bsv/wallet-toolbox-client; on React Native that is -mobile (IC D21), so
+// the peer is an npm alias of -mobile rather than a second toolbox.
+const PUBLISHED = {
+  '@bsv/sdk': { stem: 'sdk', spec: '^4.0.0' },
+  '@bsv/wallet-toolbox-mobile': { stem: 'wallet-toolbox-mobile', spec: '^2.15.0' },
+  '@bsv/wallet-toolbox-client': { stem: 'wallet-toolbox-client', spec: 'npm:@bsv/wallet-toolbox-mobile@^2.15.0' }
 }
 
 // Target peer ranges on the publishable toolbox package (plan 07 W9).
@@ -152,11 +161,22 @@ function main() {
   }
   for (const name of missing) console.log(`${name.padEnd(30)} (missing; left as ${rootPkg.dependencies[name] ?? 'absent'})`)
 
+  for (const [name, { stem, spec }] of Object.entries(PUBLISHED)) {
+    rootPkg.dependencies[name] = spec
+    for (const old of fs.readdirSync(vendorDir)) {
+      if (anyVendoredRe(stem).test(old)) {
+        fs.unlinkSync(path.join(vendorDir, old))
+        console.log(`  removed vendor/${old}`)
+      }
+    }
+    console.log(`${name.padEnd(30)} ${spec}`)
+  }
+
   // Every vendored name is overridden, so transitive users (message-box-client,
   // btms, ...) resolve to the root copy. An override with `$name` needs `name`
   // as a direct dependency; skip it only for a name that is neither vendored
   // nor already a dependency.
-  for (const name of Object.keys(VENDORED)) {
+  for (const name of [...Object.keys(VENDORED), ...Object.keys(PUBLISHED)]) {
     if (rootPkg.dependencies[name] !== undefined) rootPkg.overrides[name] = `$${name}`
   }
   rootPkg.dependencies = sortKeys(rootPkg.dependencies)

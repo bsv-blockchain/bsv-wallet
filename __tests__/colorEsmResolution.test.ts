@@ -21,10 +21,12 @@ function modDist(name: string, file?: string): string {
   return path.join(dir, typeof imp === 'string' ? imp : imp.default)
 }
 
-it('loads the module with the 0.2.0 surface', () => {
+it('loads the module with the 0.2.0 (B7) surface', () => {
   expect(typeof color.createColorModule).toBe('function')
-  expect(typeof color.createAttestedProfile).toBe('function')
-  expect(color.ATTESTED_PROFILE_ID).toBe('https://brc.dev/207/attested')
+  expect(typeof color.ColorPermissionModule.prototype.markSettled).toBe('function')
+  // B7: no attested profile, no history transport in the module.
+  expect((color as Record<string, unknown>).createAttestedProfile).toBeUndefined()
+  expect((color as Record<string, unknown>).ATTESTED_PROFILE_ID).toBeUndefined()
   expect(color.COLOR_OFFLINE_TAG).toBe('color_offline')
 })
 
