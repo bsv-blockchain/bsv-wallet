@@ -10,12 +10,16 @@
  * ordinary `postOwned`. A plain BSV step never touches the journal. A journal
  * read fault stalls the step and never posts (XR-045).
  *
+ * The hold is custody-scoped (the decoy-output finding): a 1Color step is
+ * held only when this wallet's token custody is in it (a journal row, a host
+ * ledger record, or a spent `p color` input) and its row is not `settled`.
+ *
  * A foreign 1Color ancestor (a counterparty's own unsettled change, inside the
- * receipt's BEEF) has no journal row of its own and never will. It is released
- * once a descendant in the same graph reads `settled`: that descendant's
- * admission means the overlay already took, and broadcast, the chain it
- * spends, so re-posting the ancestor cannot put an unadmitted token tx on the
- * network. Until then it holds, and blocks its subtree.
+ * receipt's BEEF) has no custody of its own. It is held while some descendant
+ * in the same graph is held (an unadmitted link under our pending receipt),
+ * and released once none is: a settled descendant's admission means the
+ * overlay already took, and broadcast, the chain it spends; a plain BSV
+ * descendant means the 1Color output is a decoy that is not ours to hold.
  */
 jest.mock('../../core/net/online', () => ({ getOnline: jest.fn(async () => true) }))
 
@@ -116,9 +120,14 @@ function fakeStorage(args: {
   proven?: string[]
   /** The journal `colorHeldTxids` reads; defaults to the real one over node:sqlite. */
   statesOf?: TransferJournal['statesOf']
+  /** Txids with custody beyond a journal row (a host-ledger record, a spent `p color` input). */
+  custodial?: string[]
 }) {
   const colorHeld = jest.fn(async (reqs: readonly { txid: string; rawTx?: readonly number[] }[]) =>
-    colorHeldTxids(reqs, { statesOf: args.statesOf ?? (txids => journal.statesOf(txids)) })
+    colorHeldTxids(reqs, {
+      statesOf: args.statesOf ?? (txids => journal.statesOf(txids)),
+      custodyOf: async txids => new Set(txids.filter(t => (args.custodial ?? []).includes(t)))
+    })
   )
   return {
     sqliteDb: args.db,
@@ -202,17 +211,35 @@ describe('processOfflineActions color branch', () => {
     expect((await journal.get(txid))!.state).toBe('held')
   })
 
-  it('holds a 1Color step that has no journal row at all', async () => {
+  it('holds a 1Color receipt the host ledger recorded that has no journal row yet', async () => {
     const tx = tokenTxSpending('12'.repeat(32))
     const txid = tx.id('hex')
     const db = fakeDb([row({ txid })])
-    const storage = fakeStorage({ db, reqs: [req({ txid, rawTx: tx.toBinary() })] })
+    const storage = fakeStorage({ db, reqs: [req({ txid, rawTx: tx.toBinary() })], custodial: [txid] })
 
     const r = await processOfflineActions({ storage: storage as never })
 
     expect(mockPostReqs).not.toHaveBeenCalled()
     expect(r.sent).toBe(0)
     expect(lastStatusOf(db, txid)).toBe('queued')
+  })
+
+  it('releases a 1Color step with no custody of this wallet (a decoy output) like plain BSV', async () => {
+    const tx = tokenTxSpending('14'.repeat(32))
+    const txid = tx.id('hex')
+    const api = req({ txid, rawTx: tx.toBinary() })
+    mockPostReqs.mockImplementation(async () => {
+      api.status = 'unmined'
+      return { details: [{ txid, status: 'success' }] }
+    })
+    const db = fakeDb([row({ txid })])
+    const storage = fakeStorage({ db, reqs: [api] })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(mockPostReqs).toHaveBeenCalledTimes(1)
+    expect(r.sent).toBe(1)
+    expect(lastStatusOf(db, txid)).toBe('sent')
   })
 
   it('posts it on the next pass once the journal row is settled, and marks it sent', async () => {
@@ -288,7 +315,7 @@ describe('processOfflineActions color branch', () => {
       return { details: reqs.map(r => ({ txid: r.txid, status: 'success' })) }
     })
     const db = fakeDb([row({ txid: token.id('hex') }), row({ offlineActionId: 2, txid: plain.id('hex'), seq: 2 })])
-    const storage = fakeStorage({ db, reqs: [tokenApi, plainApi] })
+    const storage = fakeStorage({ db, reqs: [tokenApi, plainApi], custodial: [token.id('hex')] })
 
     const r = await processOfflineActions({ storage: storage as never })
 
@@ -386,14 +413,39 @@ describe('a foreign 1Color ancestor inside a receipt BEEF', () => {
     expect(r).toMatchObject({ sent: 1, rejected: 0, stopped: false })
   })
 
-  it('is held when its only descendant is plain BSV, which no settlement can vouch for', async () => {
+  it('is released when its only descendant is plain BSV: a decoy-carrying parent is not ours to hold', async () => {
     const parent = tokenTxSpending('41'.repeat(32), 2000n)
     const child = txSpending(parent.id('hex'))
     const inputBEEF = new Beef()
     inputBEEF.mergeRawTx(parent.toBinary())
     const api = req({ txid: child.id('hex'), rawTx: child.toBinary(), inputBEEF: inputBEEF.toBinary() })
-    const postBeef = jest.fn(async () => [])
+    const order: string[] = []
+    const postBeef = jest.fn(async (_b: unknown, txids: string[]) => {
+      order.push('foreign')
+      return [{ txidResults: txids.map(txid => ({ txid, status: 'success' })) }]
+    })
+    mockPostReqs.mockImplementation(async () => {
+      order.push('owned')
+      api.status = 'unmined'
+      return { details: [{ txid: child.id('hex'), status: 'success' }] }
+    })
     const storage = fakeStorage({ db: fakeDb([row({ txid: child.id('hex') })]), reqs: [api], postBeef })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(order).toEqual(['foreign', 'owned'])
+    expect(r.sent).toBe(1)
+  })
+
+  it('is held while its owned 1Color child is a held receipt with no journal row (host-ledger custody)', async () => {
+    const { childTxid, api } = chain()
+    const postBeef = jest.fn(async () => [])
+    const storage = fakeStorage({
+      db: fakeDb([row({ txid: childTxid })]),
+      reqs: [api],
+      postBeef,
+      custodial: [childTxid]
+    })
 
     const r = await processOfflineActions({ storage: storage as never })
 

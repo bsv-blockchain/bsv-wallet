@@ -295,22 +295,27 @@ export async function processOfflineActions(args: {
  * Whether one step of the release plan may be posted now.
  *
  *  · `release` — the tx carries no 1Color output (answered from its bytes, so a
- *    plain BSV step never touches the journal), or its `color_transfers` row
- *    reads `settled`.
- *  · `hold` — an unsettled 1Color tx. A missing row holds: that is a receipt
- *    the module credited as `color_offline` and nothing has admitted.
- *  · `fault` — the journal could not be read. The caller treats it exactly
- *    like `hold`; it is distinct only for the log.
+ *    plain BSV step never touches the journal), this wallet's token custody is
+ *    not in it (a decoy 1Color output on someone else's tx), or its
+ *    `color_transfers` row reads `settled`.
+ *  · `hold` — an unsettled 1Color tx of this wallet's custody (the hold's
+ *    predicate, `colorHeldTxids`): a missing row holds a receipt the host
+ *    ledger recorded and nothing has admitted yet.
+ *  · `fault` — a custody read failed. The caller treats it exactly like
+ *    `hold`; it is distinct only for the log.
  *
  * A FOREIGN step (an ancestor that arrived inside a counterparty's BEEF, no
- * request of ours) has no journal row and never will, because the journal
- * records only this wallet's own sends and receipts. Holding it on that alone
- * would block every owned descendant forever, including one already settled.
- * So a held foreign 1Color step is released when some descendant of it in this
- * graph reads `settled`: that descendant was admitted by the overlay, and the
- * overlay broadcast it — which it cannot do without its ancestors already on
- * the network — so posting the ancestor now can only repeat what is already
- * there. A descendant that is plain BSV vouches for nothing.
+ * request of ours) carries no custody of its own: the journal and the host
+ * ledger record this wallet's own sends and receipts, keyed by their tips. So
+ * a foreign 1Color step is held exactly while it is an unadmitted link in a
+ * chain this wallet holds: when some descendant of it in this graph is held
+ * by the predicate. Posting it then would put an unadmitted token tx under
+ * our pending receipt on chain. Once no descendant is held (each is settled,
+ * or not ours at all), it is released: a settled descendant was admitted and
+ * broadcast by the overlay, which it cannot do without its ancestors already
+ * on the network, and a decoy-only chain is not ours to hold. A foreign step
+ * that is itself custodial keeps the earlier rule: released when some 1Color
+ * descendant is not held.
  *
  * Bytes: an owned step uses its request's raw tx, a foreign one the merged
  * graph's. A step with no bytes is held (`colorHeldTxids`).
@@ -329,17 +334,20 @@ async function colorHold(
   if (rawTx && rawTx.length > 0 && !txHasColorOutput(rawTx)) return 'release'
   try {
     const held = await storage.colorHeldTxids([{ txid, rawTx }])
-    if (!held.has(txid)) return 'release'
-    if (owned) return 'hold'
+    if (owned) return held.has(txid) ? 'hold' : 'release'
 
     const colorDescendants: { txid: string; rawTx: number[] }[] = []
     for (const d of descendantsOf(txid, txs)) {
       const bytes = merged.findTxid(d)?.tx?.toBinary()
       if (bytes && txHasColorOutput(bytes)) colorDescendants.push({ txid: d, rawTx: bytes })
     }
+    const heldDescendants =
+      colorDescendants.length === 0 ? new Set<string>() : await storage.colorHeldTxids(colorDescendants)
+    if (!held.has(txid)) {
+      // Not ours by itself: held only under a chain of ours that is still held.
+      return colorDescendants.some(d => heldDescendants.has(d.txid)) ? 'hold' : 'release'
+    }
     if (colorDescendants.length === 0) return 'hold'
-    const heldDescendants = await storage.colorHeldTxids(colorDescendants)
-    // Not held + a 1Color output + bytes present ⇔ its row reads `settled`.
     return colorDescendants.some(d => !heldDescendants.has(d.txid)) ? 'release' : 'hold'
   } catch (e) {
     devLog(`[processOfflineActions] could not read color_transfers for ${txid}; holding it:`, e)

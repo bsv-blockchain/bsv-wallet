@@ -66,7 +66,7 @@ import {
 import { buildOfflineHoldResult, groupOfflineHolds } from '../offline/hold'
 import { getOnline } from '../net/online'
 import { TaskSendOffline } from '../monitor/TaskSendOffline'
-import { colorHeldTxids } from '../mandala/colorGuard'
+import { colorHeldTxids, HOST_LEDGER_RECORD_PREFIX, txidsSpendingColorOutputs } from '../mandala/colorGuard'
 import { createTransferJournal } from '../mandala/transferJournal'
 import {
   anyAdminOutpoint,
@@ -2000,13 +2000,15 @@ export class StorageExpoSQLite extends StorageProvider {
   }
 
   /**
-   * Which of these requests must not be broadcast now — THROWS if the journal
-   * read could not be answered.
+   * Which of these requests must not be broadcast now — THROWS if the journal,
+   * ledger or input read could not be answered.
    *
-   * A request is held when its raw tx carries a BRC-162 1Color output (or will
-   * not parse, or is missing) and its `color_transfers` row does not read
-   * `settled`; a missing row holds (plan 07 W1, IC §8.2). See
-   * `mandala/colorGuard.ts` for the predicate.
+   * A request is held when its raw tx will not parse or is missing, or when it
+   * carries a BRC-162 1Color output AND this wallet's token custody is in it
+   * (a `color_transfers` row, a Mandala host-ledger record, or an input spent
+   * from one of its `p color` baskets) AND its row does not read `settled`
+   * (plan 07 W1, IC §8.2, the decoy-output fix). See `mandala/colorGuard.ts`
+   * for the predicate.
    *
    * XR-045: a read fault is never collapsed into "no token requests here",
    * which is exactly what "treat it as plain BSV" means to every caller. Each
@@ -2023,6 +2025,15 @@ export class StorageExpoSQLite extends StorageProvider {
         statesOf: async txids => {
           if (!this.db) throw new Error('the database is not open; cannot read color_transfers')
           return await createTransferJournal(this.db).statesOf(txids)
+        },
+        custodyOf: async txids => {
+          if (!this.db) throw new Error('the database is not open; cannot read token custody')
+          const custodial = await txidsSpendingColorOutputs(this.db, txids)
+          for (const txid of txids) {
+            if (custodial.has(txid)) continue
+            if ((await this.getKeyValue(HOST_LEDGER_RECORD_PREFIX + txid)) !== undefined) custodial.add(txid)
+          }
+          return custodial
         }
       })
     } catch (e) {

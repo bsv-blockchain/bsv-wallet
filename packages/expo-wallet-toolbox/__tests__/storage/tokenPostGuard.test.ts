@@ -11,9 +11,14 @@
  * ONLINE recipient internalizing a token receipt reached a real, unmediated
  * broadcast with no admission gate at all.
  *
- * So: a request whose raw tx carries a BRC-162 1Color output is held,
- * regardless of connectivity, unless its journal row reads `settled`. A
- * missing row holds. Only the remaining requests take the online branch.
+ * So: a request whose raw tx carries a BRC-162 1Color output AND this
+ * wallet's token custody (a journal row, a Mandala host-ledger record, or a
+ * spent `p color` input) is held, regardless of connectivity, unless its
+ * journal row reads `settled`. A missing row holds a receipt the host ledger
+ * recorded. Only the remaining requests take the online branch. (A 1Color
+ * output with no custody of ours is a decoy and is not held:
+ * `decoyOutputHold.test.ts`.) Here TOKEN_TX is a receipt being credited: the
+ * lib's receive path recorded it in the host ledger before internalizing.
  * Guard #3 falls out of that — `TaskSendWaiting` selects `['unsent','sending']`
  * directly, bypassing this override entirely, so the rule that protects it is
  * that a held token req never reaches either status in the first place. That
@@ -29,6 +34,7 @@ import { StorageProvider } from '@bsv/wallet-toolbox-mobile'
 import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
 import { createTables } from '../../core/storage/schema/createTables'
 import { createTransferJournal, type JournalDb } from '../../core/mandala/transferJournal'
+import { HOST_LEDGER_RECORD_PREFIX } from '../../core/mandala/colorGuard'
 import type { ColorTransferState } from '../../core/mandala/types'
 import { findOfflineActions } from '../../core/storage/methods/offlineActions'
 
@@ -139,6 +145,11 @@ beforeEach(async () => {
   raw.prepare(`INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (7,'n','n','k')`).run()
 
   storage = new TestStorage(conn)
+  // TOKEN_TX is a receipt the host verified and recorded before internalizing it.
+  await storage.setKeyValue(
+    HOST_LEDGER_RECORD_PREFIX + TOKEN_TXID,
+    JSON.stringify({ v: 1, txid: TOKEN_TXID, assetId: ASSET_ID, state: 'pending', outputs: [0], at: 1 })
+  )
   mockGetOnline.mockResolvedValue(true)
   const fakePost = (async (reqs: { txid: string }[]) => ({
     status: 'success',
@@ -423,6 +434,11 @@ describe('holdTokenReqsForDrain', () => {
 })
 
 describe('colorHeldTxids (public)', () => {
+  it('does not hold a 1Color tx with no custody of this wallet (a decoy output)', async () => {
+    await storage.conn.runAsync('DELETE FROM key_value_store WHERE key = ?', [HOST_LEDGER_RECORD_PREFIX + TOKEN_TXID])
+    expect(await storage.colorHeldTxids([{ txid: TOKEN_TXID, rawTx: RAW[TOKEN_TXID] }])).toEqual(new Set())
+  })
+
   it('reads this storage’s own journal', async () => {
     await journalRow(TOKEN_TXID, 'held')
     expect(

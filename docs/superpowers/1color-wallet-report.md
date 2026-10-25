@@ -172,13 +172,8 @@ The 2.8.11, 2.14.9 and `@bsv+mandala+0.4.1` patches are deleted.
   build that ran this branch before `1d0208de` keeps its earlier
   `mandala.txJournal.*` entries, because the one-time migration only
   wipes them before its marker exists. No released build is affected.
-- **Address-rail decoy (note only).** The legacy address sweep
-  (`core/pay/rails/address.ts`) internalizes chain-indexer
-  transactions. A payment to a wallet address whose tx also carries a
-  1Color output could be held by the same W1 predicate if its internalize
-  queues a broadcast (this was not verified). Those txs are already
-  mined, so no double-spend window opens, but such an `offline_actions`
-  row would stay held. Not fixed here.
+- **Address-rail decoy.** Fixed on every rail by the custody-scoped hold
+  (see "Amendment B7 re-plumb" below).
 - **Inert scaffolding (Task 11).** `mandala/{token,bundle,drain}.ts` were
   kept until their last importers were rewritten. Tasks 15 and 16 deleted
   them.
@@ -263,3 +258,32 @@ gates, or confirm the published 0.2.0 matches 4fa68e7's behaviour.
 - **fuelkeeper (B6).** The token-fee fuel keeper is not part of this
   migration and is not wired into the wallet.
 - Switching on scaletest in the network picker.
+
+## Amendment B7 re-plumb (2026-10-24)
+
+Design §9 B7 / IC Revision 3 on top of the branch above:
+
+- **Dependencies.** `@bsv/sdk` ^4.0.0 and `@bsv/wallet-toolbox-mobile` ^2.15.0
+  come from npm; the module's `@bsv/wallet-toolbox-client` peer is an npm
+  alias of `-mobile`. Vendored: templates 2.2.0 and color-permission-module
+  0.2.0 (ts-stack 993c98b), `@bsv/mandala` 0.5.0-0af06cd. The toolbox-mobile
+  patch was regenerated against the published 2.15.0 (offsets only).
+- **Module.** Issuer-v1 profile only, over a host ledger
+  (`createHostLedger` on `key_value_store`). No attested profile,
+  `settle`, `handoffEvidence`, `colorHandoff` or `color_receive_offline`.
+- **Runtime.** Sends via lib `sendHandover({hostWallet, ledger})` (the v4
+  body is kept for redelivery); settlement via `settleHandover` /
+  `settleReceipts`, whose `markSettled` runs `module.markSettled` and then
+  moves the journal row; receive via `receiveHandovers({ledger, markSettled})`.
+  `offlineUnits` = `p color balance` filtered to `color_offline`.
+- **Nearby.** Frame version 7 carries the v4 body members; the payee
+  pre-checks COVER against its own K and credits through lib
+  `acceptHandover`.
+- **Decoy outputs (plan-review finding).** The hold applies only where this
+  wallet's token custody is in the tx: a journal row, a host-ledger record
+  (present at hold time because the lib records before it internalizes; the
+  toolbox broadcasts before it stores the receipt's outputs), or an input
+  spent from a `p color` basket. Pinned per rail through each rail's own
+  receive code over a real toolbox wallet (`decoyOutputHold.test.ts`). A
+  foreign 1Color ancestor is held only while a descendant of ours is held.
+
