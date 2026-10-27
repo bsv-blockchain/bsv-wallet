@@ -419,8 +419,9 @@ callbacks and the sheet is the originator string. The policy therefore works thr
        at the only place entries are added.
     4. The manifest override returns nulls without fetching when the predicate is `false`.
     5. **Retired managers.** `SigningPolicyPermissionsManager.retire()` sets a one-way flag. While
-       it is set, the `callEvent` override denies every event for every originator (deny, never
-       throw, as in step 2), and the store's `record` refuses. It is independent of the predicate.
+       it is set, the `callEvent` override denies every prompt event for every originator (deny,
+       never throw, as in step 2), and the store's `record` refuses. Today all six `callEvent`
+       sites are prompt events carrying a `requestID`; a future non-prompt event passes through. It is independent of the predicate.
        6.9 calls it on a manager that has been replaced, never on the one just published.
 
     A call refused by the gate throws on a closed binding, which 6.6 step 9 already maps to
