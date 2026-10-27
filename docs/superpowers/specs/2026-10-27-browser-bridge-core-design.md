@@ -1,9 +1,10 @@
 # Browser wallet bridge — core (project 1 of 4)
 
-Date: 2026-10-27. Status: design, revision 3. Revision 2 followed a builder check and three
-adversarial reviews. Revision 3 adds manifest checks and connection-length grants for unverified
-origins, and folds in two source-checked adversarial reviews of that change (28, then 14
-confirmed findings).
+Date: 2026-10-27. Status: design, revision 4. Revision 2 followed a builder check and three
+adversarial reviews. Revision 3 added manifest checks for unverified origins, with two
+source-checked reviews (28, then 14 confirmed findings). Revision 4 remembers unverified approvals
+per site like Safari's and lets their grants last the same way, which removes revision 3's
+connection-length grant machinery.
 Feasibility study: `docs/superpowers/research/2026-10-27-browser-wallet-bridge-feasibility.md`.
 Governing standards: BRC-185 (wallet discovery, selection, connections), BRC-219 (prompt
 liveness), BRC-100, BRC-5 (HTTP JSON).
@@ -46,6 +47,9 @@ to 4001/500. bsv-browser has an untested 28-case switch, drops structured errors
 - **Manifests for unverified origins.** Once the user approves a domain, the wallet checks that
   domain's `manifest.json` even when it cannot prove which website is asking (Android). The rules
   that make this safe are in 6.5.
+- **Unverified approvals are remembered like Safari's.** An Android approval is remembered per
+  site until revoked, and the permissions granted to such a site last as Safari's do (until they
+  expire or are revoked). The consequences are in 6.4, 6.5 and 9.
 
 ## 3. Goals
 
@@ -59,16 +63,19 @@ ASCII hostname with no scheme or port. Refuse anything that could become admin o
 refuse anything the permissions manager would reject.
 
 G3. **Site consent.** Before any method runs, the wallet asks once per site and remembers the
-answer (2). For unattested origins (6.3) the approval is per binding and never remembered.
+answer (2). Unattested origins (6.3) are remembered the same way, in a separate record: approving
+one never connects the other.
 
-G4. **Unattested origins cannot inherit or create lasting authority.** An unattested origin is one
-asserted by a channel that can be forged, such as an Android loopback `Origin` header. These calls
-run in a separate permission namespace where:
-- grants live in memory only while an approved connection for the hostname is live, nothing is
-  written on-chain, and ask-every-time signing (BRC-29) is still asked every time;
-- spending is never auto-approved, and a manifest's spending allowance is ignored;
-- the site's manifest is read from the real domain over HTTPS, and only after the user approves
-  the connection;
+G4. **Unattested origins never share authority with the verified site, and never spend
+silently.** An unattested origin is one asserted by a channel that can be forged, such as an
+Android loopback `Origin` header. These calls run in a separate permission namespace where:
+- grants are ordinary permission tokens, lasting like Safari's (2), but they never satisfy the
+  verified hostname and the verified hostname's never satisfy them; ask-every-time signing
+  (BRC-29) is still asked every time;
+- spending is never auto-approved, no spending allowance is ever granted, and a manifest's
+  spending allowance is ignored;
+- the site's manifest is read from the real domain over HTTPS, and only after the user has
+  connected the site;
 - requests the manager routes to the BTMS or Mandala modules are refused (routing is exact-case
   `p `; see 9).
 
@@ -141,9 +148,8 @@ G9. **Host wiring.**
 - A site's requests run before the user has connected that site.
 - A forged origin reuses a grant that the real site earned through an attested channel, or leaves
   behind a grant that the real site later inherits.
-- A grant given to an unverified connection survives the hostname's last live, approved
-  connection, is added by a prompt raised after that close, or is written on-chain.
-- An unverified connection reuses one approval for more than one ask-every-time signature.
+- An unverified origin spends without a prompt, or holds any spending allowance.
+- An unverified origin reuses one approval for more than one ask-every-time signature.
 - A call moves to another account's wallet: it is checked under one profile or network and runs
   under another.
 - The core or a client puts a deadline on a call that has been accepted and may be waiting for the
@@ -204,9 +210,9 @@ registerTransport({ id, attestation: 'browser' | 'unattested', bindingMode: 'imp
 - `browser` means the browser itself vouched for the origin: the Safari extension's sender frame
   origin, or a native WebView frame origin. `unattested` means anything a local process could forge.
 - `attestation: 'unattested'` with `bindingMode: 'implicit'` is refused at registration
-  (`CONFIGURATION_ERROR`). Implicit mode has no signal for a page going away, so an unattested
-  site's session grants (6.5) could never end. A future legacy kind must bring its own liveness
-  signal before it may be unattested.
+  (`CONFIGURATION_ERROR`). The unattested policy, including the per-connection launch proof
+  (6.4), is defined for the loopback transport only, which binds explicitly (9). A future legacy
+  kind must be specified before it may be unattested.
 - `requestAttention` is mandatory (BRC-219). The core calls it when a request is parked:
   - waiting for site consent;
   - waiting for the wallet to be ready;
@@ -255,12 +261,13 @@ The existing `parseExternalOrigin` (https only, `host:port`) is unchanged for th
 ### 6.4 Site consent (`consent.ts`)
 
 - **Gate.** Before dispatching any method, the core checks the connected-sites store. If the
-  binding's `applicationOrigin` is not connected under the current profile, the request parks and
-  the core enqueues one consent request per origin into a new PermissionSheet kind, `connection`.
+  binding's `applicationOrigin` is not connected under the current profile **with the binding's
+  attestation**, the request parks and the core enqueues one consent request per origin and
+  attestation into a new PermissionSheet kind, `connection`.
 - **What the sheet shows:**
   - the full origin;
   - verified or unverified;
-  - the transport ("Safari");
+  - the transport ("Safari", or the Android browser);
   - what connecting allows, in plain words. The list is the same for verified and unverified
     sites, because the manager behaves the same for both: "see your identity key and the public
     keys it derives, encrypt and decrypt data, make and check HMACs, sign in to the site, read your
@@ -274,48 +281,47 @@ The existing `parseExternalOrigin` (https only, `host:port`) is unchanged for th
     the phrase that discloses it and every flag that is `true` to its "asked first" clause. The
     test fails when a flag changes without the table changing.
   - for a verified site: "Payments under your auto-approve limit go through automatically."
-  - for an unverified site, instead: "Every payment will ask you first." And, when another live,
-    approved unattested binding with the same `Binding.originator` exists (any port; the same set
-    6.5 Scope shares grants with): "example.com is already connected on this device. Approving
-    shares the permissions it holds." A verified connection to the same hostname uses the plain
-    hostname, shares nothing, and does not trigger this line. (6.5 Scope, call 11.)
+  - for an unverified site, instead: "Every payment will ask you first."
+  - for both: "The wallet remembers this site until you remove it."
 - **Answers:**
-  - **Approve:** records the site and releases its parked requests in order. For an unattested
-    binding it sets the binding's in-memory `approved` flag.
+  - **Approve:** records the site and releases its parked requests in order.
   - **Decline:** answers every parked request from that origin with `USER_CANCELLED`, `not-sent`,
-    and records nothing. An unattested binding stays unapproved: it does not count toward session
-    grant lifetime (6.5), and later requests on it ask again, subject to the rate limit.
-- **Attested sites** are remembered per profile until revoked. Records are
-  `{ applicationOrigin, originator, transport, approvedAt, tag }`, where `tag` is an HMAC computed
-  with the admin-scoped wallet under a new reserved guard namespace (`bridge site authority`). This
+    and records nothing. Later requests ask again, subject to the rate limit.
+- **Remembered per profile until revoked**, for both attestations. Records are
+  `{ applicationOrigin, originator, attestation, transport, approvedAt, tag }`, keyed by
+  `applicationOrigin` and `attestation`. A verified approval of `example.com` never connects an
+  unverified `example.com`, and the reverse. `tag` is an HMAC over the whole record, computed with
+  the admin-scoped wallet under a new reserved guard namespace (`bridge site authority`). This
   follows the XR-027 / `connectionAuthority.ts` pattern. A record whose tag fails verification is
   treated as not connected. The store key is swept at logout and Delete Wallet, including profile
   0's bare key.
-- **Unattested bindings** are approved per binding and never remembered. Approval also requires
-  `launchProofVerified: true` from the transport (project 4 binds a per-launch secret delivered in
-  its package-targeted intent). Without it the request is refused (`CONFIGURATION_ERROR`,
-  `not-sent`). Each transport may have at most one pending approval. Repeated connects from the same
-  transport are rate-limited. Permission grants made under an unattested origin last only while
-  at least one approved binding for its hostname is live (6.5).
+- **Unattested connections need a launch proof every time**, remembered or not: the transport
+  reports `launchProofVerified: true` for the binding (project 4 binds a per-launch secret
+  delivered in its package-targeted intent). Without it every request on that binding is refused
+  (`CONFIGURATION_ERROR`, `not-sent`), and no sheet is shown. Once a domain is remembered, this
+  proof is the only thing that separates the real browser session from a local app forging the
+  origin (9). Each transport may have at most one pending approval, and repeated connects from the
+  same transport are rate-limited.
 - **Consent request identity and lifetime.** A `connection` request is core-owned (`consent.ts`),
   not one of the seven manager-backed permission queues, so none of the manager rules reach it on
   their own.
   - It has an opaque `requestId`, and captures the `accountContext` and profile when enqueued,
-    plus the bindings parked behind it. It is keyed by origin for attested sites and by binding
-    epoch for unattested ones (their approval is per binding).
+    plus the bindings parked behind it. It is keyed by origin and attestation.
   - It is removed, and its sheet closed, on any account-context change or teardown, and as soon as
     every binding parked behind it has closed (6.7). Removal settles nothing extra: the close
     already settled the parked requests.
   - `answerConsent(requestId, approve)` does nothing if the id is no longer pending, or if the
     captured `accountContext` or profile differs from the current one. The check and the write
-    (the site record, or `approved` on a binding that is still live) happen synchronously, with no
-    `await` between them. A stale Approve never writes to the connected-sites store.
+    happen synchronously, with no `await` between them. A stale Approve never writes to the
+    connected-sites store.
   - The sheet's 400 ms confirm window follows the identity rule in 6.9: it passes the snapshot's
     `requestId` and drops the answer if the request is gone.
 - **Tap protection.** The sheet's approve button is inactive for 700 ms whenever a `connection` or
   unverified prompt becomes the head of the queue. Other prompt kinds behave as today.
-- **Management.** `listConnectedSites()` and `revokeSite(origin)` are core APIs. Revoking closes
-  that origin's live bindings with `revoked`. The screen comes in project 2.
+- **Management.** `listConnectedSites()` (each entry carries its attestation) and
+  `revokeSite(origin, attestation)` are core APIs. Revoking closes that origin's live bindings of
+  that attestation with `revoked`, and leaves its permission tokens in place, as for any site
+  (6.5). The screen comes in project 2.
 
 ### 6.5 Unattested policy
 
@@ -325,136 +331,33 @@ callbacks and the sheet is the originator string. The policy therefore works thr
 - **Namespace.** `<hostname>.unverified.invalid` (6.3). External input can never produce it,
   because every boundary refuses `.invalid`. Permission tokens, permission caches, action labels
   and spend accounting are therefore disjoint from the real hostname's. Basket contents are not
-  (see Known coupling).
-- **Manager hardening.** `SigningPolicyPermissionsManager` gains an `isUnattestedOriginator`
-  predicate (one shared helper, exported from a dependency-free core module). It uses the same
-  patching technique as the existing BRC-29 rule and is tested against the real manager. For
-  originators in the namespace:
-  - `find{Protocol,Basket,Certificate,Spending}Token` returns `undefined`, so no on-chain token is
-    ever read;
-  - `cachePermission` and `markRecentGrant` do nothing;
-  - grants go to the session grant store below, never to the chain;
-  - `buildPushdropFields` throws, as the backstop. All three mint paths build their token fields
-    there: `createPermissionOnChain`, `renewPermissionOnChain`, and the batch path through
-    `buildPermissionOutput` that grouped and counterparty grants use. (Revision 2 put the backstop
-    on the first two only, which missed the batch path.)
-  - the existing ask-every-time rule (`ASK_EVERY_TIME_PROTOCOLS`, BRC-29 today) holds unchanged,
-    including against the session store.
-- **Session grant store.** An in-memory set on the manager instance, keyed by the manager's own
-  `buildRequestKey`, which embeds the namespace originator.
-  - **Read.** For namespace keys, `hasRecentOrPendingGrant(cacheKey)` answers from the store
-    alone. `ensureProtocolPermission`, `ensureBasketAccess` and `ensureCertificateAccess` all ask
-    it before any token lookup. The manager's `hasProtocolPermission`, `hasBasketAccess` and
-    `hasCertificateAccess`, and `filterAlreadyGrantedPermissions`, go through those three, so a
-    granted item is neither prompted again nor asked again in the grouped sheet.
-    - Under this wallet's configuration (basket and certificate `seek*` flags off,
-      `WalletContext.tsx` ~2049–2055), `ensureBasketAccess` and `ensureCertificateAccess` return
-      before they reach the store, so basket and certificate items never reach the sheet or the
-      store; tests that need them switch those flags on. In practice the store holds protocol items
-      only, of two kinds: signing protocols approved by per-call prompts, and any
-      non-ask-every-time protocol a grouped grant names, including encryption, HMAC and
-      application protocols. Those grouped entries are read only by `filterAlreadyGrantedPermissions`
-      (which asks with `usageType: 'generic'`); per-call encrypt and HMAC checks are exempt before
-      the store lookup. Tests must not assume the store holds signing protocols only.
-    - Spending has no cache path and prompts every time, as intended. `ensureLabelAccess` reads
-      `isPermissionCached` directly; label permissions are not sought under this configuration, so
-      it stays as is.
-  - **Ask-every-time protocols are never stored.** The store's own `record` refuses, and its read
-    never answers, for any protocol key where `isAskEveryTimeProtocol(protocolID)` is true. The check
-    sits in the store, so it holds for all three writers. For such a request the override still
-    resolves the waiting call, but records nothing, so every BRC-29 signature on an unverified
-    connection prompts again, exactly as on an attested one. (`isAskEveryTimeCacheKey` is private to
-    `signingPermissionPolicy.ts` today; export it or store structured entries.)
-  - **Write.** Three writers are overridden for the namespace:
-    - `grantPermission` without `ephemeral` records the request instead of calling
-      `grantPersistentPermission`;
-    - `grantGroupedPermission` and `grantCounterpartyPermission` have no ephemeral mode. Both go
-      straight to a strict on-chain batch, so with the backstop the user would approve and the call
-      would still fail. Both are overridden whole for the namespace.
-
-    Each override follows the same order:
-    1. Look up `activeRequests.get(requestID)` and throw `Request ID not found.` if it is absent,
-       as the manager does. Never record from the caller's parameters: a withdrawn request must add
-       nothing.
-    2. Run the subset check. For grouped grants this is `validateGrantedPermissionsSubset`. The
-       manager has no named counterparty check (its subset test is inline in
-       `grantCounterpartyPermission`, outside its `try`), so copy it inside the `try`.
-    3. Record each granted item, synchronously, before resolving any waiter. A call that arrives a
-       moment later then finds the grant instead of raising a duplicate prompt.
-    4. Settle with `settleActiveGrant(…, 'resolve', true)`.
-
-    Steps 2–4 run inside `try`/`catch`. On failure the override calls
-    `settleActiveGrant(…, 'reject', error)` and rethrows. The sheet advances its queue without
-    awaiting the grant, so an unsettled throw would strand the waiting call.
-
-    Spending requests are never recorded (including a `spendingAuthorization` inside a grouped
-    grant), and any expiry the sheet passes is ignored.
-  - **Lifetime.** Entries last while the originator has at least one **live, approved** unattested
-    binding. Bindings are counted by `Binding.originator`, never by the port-bearing
-    `applicationOrigin`, because ports share one permission identity (6.3). A binding that is
-    parked for consent, declined, or refused for lack of a launch proof does not count, so it can
-    neither keep entries alive nor revive them.
-  - **Liveness gate.** Withdrawing open prompts at close is not enough. A call already inside the
-    manager can raise a new prompt after the close: one waiting on the manifest fetch (up to 10
-    seconds), one queued on the manager's per-originator grouped lock behind an open sheet, or a
-    `waitForAuthentication` that fetches the manifest first. So:
-    1. The runtime gives the manager a synchronous predicate,
-       `hasLiveApprovedUnattestedBinding(originator)`, read from the in-memory bindings registry. It
-       returns `false` until it is set.
-    2. **One choke point.** `callEvent` is overridden. Every prompt the manager raises goes through
-       it: protocol, basket, certificate and spending (through `callPermissionEvent`), grouped
-       (`joinOrCreateGroupedRequest` and the inline `waitForAuthentication` path), and counterparty.
-       Each of those registers its `activeRequests` entry synchronously, then reaches `callEvent`
-       with no `await` in between. For a namespace originator with the predicate `false`, the
-       override does not call the handlers. It calls `denyActiveRequest(requestID)` and returns.
-       It must deny, not throw. A throw would not itself hold the lock, because
-       `withGroupedPermissionFlowLock` releases in a `finally`. The damage is a leaked entry:
-       `joinOrCreateGroupedRequest`, `joinOrCreatePactRequest` and the inline
-       `waitForAuthentication` path register their `group:`, `group-peer:` or `pact:` entry, then
-       await `callEvent` with no catch. A throw leaves an entry whose waiter never settles; the next
-       caller joins it and hangs, and for `group:` it hangs inside the lock, which then never
-       releases. (`enqueueAndFireEvent` does catch, so the per-item paths would survive a throw.)
-    3. The store's `record` also refuses when the predicate is `false`, and the override then
-       settles the request as denied. This makes "no entry without a live, approved binding" hold
-       at the only place entries are added.
-    4. The manifest override returns nulls without fetching when the predicate is `false`.
-    5. **Retired managers.** `SigningPolicyPermissionsManager.retire()` sets a one-way flag. While
-       it is set, the `callEvent` override denies every prompt event for every originator (deny,
-       never throw, as in step 2), and the store's `record` refuses. Today all six `callEvent`
-       sites are prompt events carrying a `requestID`; a future non-prompt event passes through. It is independent of the predicate.
-       6.9 calls it on a manager that has been replaced, never on the one just published.
-
-    A call refused by the gate throws on a closed binding, which 6.6 step 9 already maps to
-    `CONNECTION_CLOSED`, `unknown`. The gate refuses calls that would raise a prompt. A
-    `waitForAuthentication` whose manifest read happens after the close (for example one queued on
-    the grouped lock behind a sheet the close withdrew) gets nulls from step 4, raises nothing and
-    resolves through the underlying `waitForAuthentication`. That is harmless: it records nothing,
-    and its result goes to a closed binding. One already inside the manifest fetch at the close
-    reads the manifest afterwards, registers `group:<originator>`, reaches `callEvent` and is denied.
-  - **Close.** When the originator's last live, approved binding closes, for any reason (page
-    disconnect, revoke, `lost`), the core runs these steps synchronously, in order:
-    1. mark the binding closed, so the predicate is already `false`;
-    2. withdraw that originator's pending prompts with `withdrawPrompts({ originator })` (6.9). Its
-       manager requests are denied first; that deletion is what makes a late answer from the sheet
-       throw `Request ID not found.` and record nothing. The queue items go next, so the user is not
-       left looking at a dead prompt;
-    3. delete its store entries;
-    4. delete its `pactEstablishedCache` entries (the `<originator>:` prefix), because that cache
-       has no TTL. Production never writes them today (no counterparty handler), so this is defence
-       in depth.
-
-    The sweep handles prompts already queued. The gate handles calls that reach `callEvent` after
-    the close. The spending handler re-checks the request after its one `await` (6.9), which covers
-    a prompt that is registered but not yet queued.
-
-    An account-context change does not run this path. The new manager starts with an empty store
-    and empty caches, so no grant carries over. The old manager object is not dropped, though:
-    calls already inside it stay alive, and its handlers stay bound to the live queues. So 6.9
-    retires it (step 5) before withdrawing, and it raises no prompt afterwards. An app restart
-    drops everything.
-  - **Scope.** The store is per originator, not per binding. All live, approved unattested
-    connections that claim one hostname share it, and share open grouped prompts (the manager
-    keys them `group:<originator>`). The connection sheet discloses this (6.4). See call 11 and 9.
+  (see Known coupling). This is what keeps a forging local app from inheriting anything the real
+  site earned through Safari or the in-app browser, and keeps grants made to an unverified
+  connection from reaching the verified hostname.
+- **Grants last like Safari's (owner decision, 2).** The manager handles the namespace the way it
+  handles any originator: an approval mints its normal on-chain permission token, tagged with the
+  namespace originator, and the token lasts until it expires or the user revokes it. A grouped
+  approval from the manifest mints its tokens the same way, so a remembered site is not asked
+  again on its next visit. Nothing about token minting, caching or lookup is patched for the
+  namespace. Revoking the site (6.4) does not delete its tokens, exactly as for a verified site;
+  they are inert while the site is not connected, because the consent gate stops every call.
+  (Revision 3's in-memory, connection-length store is gone.)
+- **Ask-every-time** (`ASK_EVERY_TIME_PROTOCOLS`, BRC-29 today) needs nothing new. The existing
+  patches in `SigningPolicyPermissionsManager` key on the protocol, not the originator, so every
+  BRC-29 signature from the namespace prompts, exactly as for a verified site.
+- **Spending always asks.** A forging local app on a remembered domain must not be able to spend
+  silently, so the namespace never holds spending authority:
+  - `autoApprovePolicy.shouldAutoApprove` returns `{ approve: false, reason: 'unattested' }` for
+    the namespace, and `record()` ignores it. This is done in the pure, already-tested module, and
+    the WalletContext callback is unchanged;
+  - the manifest's `spendingAuthorization` is removed (Manifest, below), so a grouped approval
+    cannot create a monthly allowance;
+  - the sheet already grants single spends with `ephemeral: true`, so no spending token is ever
+    minted for the namespace.
+- **`isUnattestedOriginator`.** One shared predicate, exported from a dependency-free core module,
+  used by the manifest override, the token-module guard, `autoApprovePolicy` and the sheet.
+  `SigningPolicyPermissionsManager` patches use the same technique as the existing BRC-29 rule and
+  are tested against the real manager.
 - **Manifest.** The manager builds the manifest URL from the originator
   (`https://${originator}/manifest.json`). For the namespace it would fetch a `.invalid` host, fail,
   and silently cache nulls for 5 minutes. So for the namespace, `fetchManifestPermissions` strips
@@ -483,28 +386,23 @@ callbacks and the sheet is the originator string. The policy therefore works thr
     one, and an attested-path failure already does the same, so it is accepted (9).
   - **Filtering.** The result is then filtered:
     - the existing ask-every-time filter applies;
-    - `spendingAuthorization` is removed, because spending always prompts for the namespace;
+    - `spendingAuthorization` is removed;
     - protocol entries whose name (`protocolID[1]`) and basket entries whose `basket` start with
       `p ` and whose scheme (the second space-separated token, as the manager's `split(' ')[1]`)
-      is `btms` or `mandala` are removed, because the choke point refuses them. This matches
-      `p btms`, `p btms <assetId>`, `p mandala` and `p mandala <anything>`. It uses the same scheme
-      list as the choke point, so the two cannot drift.
+      is `btms` or `mandala` are removed, because the token-module guard refuses them. This
+      matches `p btms`, `p btms <assetId>`, `p mandala` and `p mandala <anything>`. It uses the
+      same scheme list as the guard, so the two cannot drift.
 
     The filter never edits what the delegate returned. It builds a fresh `groupPermissions` and a
     fresh `counterpartyPermissions` by shallow copy, unconditionally, before removing anything.
     `withoutAskEveryTime` cannot serve as that copy: it returns its input objects unchanged when
     `protocolPermissions` or `protocols` is absent. The manager hands out its cached objects by
     reference, so an in-place edit would change what the attested hostname reads.
-  - **Only after consent.** The dispatcher parks every request from an unapproved binding (6.4),
-    and the manager reads the manifest only inside a wallet call (`waitForAuthentication` or a
-    permission check). The liveness gate covers the rest.
+  - **Only after consent.** The dispatcher parks every request from a site that is not connected
+    (6.4), and the manager reads the manifest only inside a wallet call (`waitForAuthentication` or
+    a permission check).
   - **Counterparty pacts** (`counterpartyPermissions`) stay inert. The wallet registers no
     `onCounterpartyPermissionRequested` handler, so `maybeRequestPact` returns before prompting.
-    `grantCounterpartyPermission` is still overridden, so a future handler cannot mint for the
-    namespace.
-- **Auto-approve.** `autoApprovePolicy.shouldAutoApprove` returns
-  `{ approve: false, reason: 'unattested' }` for the namespace, and `record()` ignores it. This is
-  done in the pure, already-tested module, and the WalletContext callback is unchanged.
 - **Token modules.** Every request from the namespace that the manager would route to a token
   module (the `btms` and `mandala` entries of `config.permissionModules`) is refused with a
   permission-denied wallet error, before the module does anything. The manager routes by more than
@@ -538,9 +436,9 @@ callbacks and the sheet is the originator string. The policy therefore works thr
     `splitLabelsByPermissionModule`, because neither receives the originator, and patching only
     `delegateToPModuleIfNeeded` misses the label and basket routes.
 
-  These modules keep their own 60-second approval sessions (BTMS also grants one on an
-  issuance-shaped createAction) outside the manager's grant checks, so closing the connection could
-  not clear them. This is a policy denial, not a stub.
+  Why refuse: these modules move tokens and keep their own 60-second approval sessions per
+  originator (BTMS also grants one on an issuance-shaped createAction). On a remembered domain, a
+  forging app could ride a session the real page just opened. This is a policy denial, not a stub.
 
   The built-in `nosend` module (`p nosend` labels, BRC-177) is **not** refused. It holds no session,
   and its only checks are `ensureLabelAccess` and `ensureSpendingAuthorization`, which prompts
@@ -551,12 +449,13 @@ callbacks and the sheet is the originator string. The policy therefore works thr
     is stripped there. The grouped sheet therefore carries the badge and the 700 ms tap protection
     too.
   - The sheet shows the full origin and an "Unverified" badge with the line "This request came
-    through a channel that can't prove which website sent it." For unverified requests it adds
-    "Approvals here end when this connection closes." Descriptions taken from a manifest are shown
-    under the origin and badge, so they read as the site's own claims. All strings get i18n keys in
-    all 12 locales (parity test).
+    through a channel that can't prove which website sent it." Descriptions taken from a manifest
+    are shown under the origin and badge, so they read as the site's own claims. All strings get
+    i18n keys in all 12 locales (parity test).
   - PermissionSheet imports the helper by relative path, so the existing barrel mock in
     `PermissionSheet.test.tsx` keeps working.
+  - Any host screen that lists permission tokens by originator (none in the toolbox today) uses the
+    same helper to strip the suffix and show the badge.
 - **Known coupling (recorded).** The vault guard treats an output as admin state when it has no
   basket and was created by a transaction labelled with another originator, and it refuses
   `sendWith` of another originator's transactions (`vaultGuardSql.ts`, `IS_ADMIN_OUTPUT` and
@@ -568,7 +467,8 @@ callbacks and the sheet is the originator string. The policy therefore works thr
   by tests (8).
 
 Attested (`browser`) calls use the plain hostname and go through the manager unchanged, apart from
-the shared manifest-failure cache above and the identity-based queue answers in 6.9.
+the shared manifest-failure cache above and the 6.9 changes (retired managers, identity-based queue
+answers).
 
 ### 6.6 Dispatch pipeline
 
@@ -646,9 +546,8 @@ references it holds (BRC-185 §6).
 ### 6.7 Bindings (`bindings.ts`)
 
 `Binding = { epoch, transportId, applicationOrigin, originator, attestation, instanceId,
-continuityKey, accountContext, createdAt, state: 'live' | 'closed', closeReason?, approved? }`.
-`approved` is in memory only and is used for unattested bindings (6.4). Attested consent lives in
-the connected-sites store instead.
+continuityKey, accountContext, createdAt, state: 'live' | 'closed', closeReason?,
+launchProofVerified? }`. Consent lives in the connected-sites store, not on the binding (6.4).
 
 - **Explicit mode** (Android, project 4).
   - `connect({ epoch, origin, challenge, instanceId, continuityKey })` checks the claimed identity
@@ -658,9 +557,10 @@ the connected-sites store instead.
   - `disconnect` takes the same tuple and origin.
   - Bindings live in memory only.
   - The transport must report `lost` once it can no longer serve a binding. For loopback this
-    includes the end of the session-scoped server or Activity. Any heartbeat or idle rule belongs
-    to project 4, and it must never count a binding as idle while it has parked or in-flight
-    requests (BRC-219; the deadline anti-goal in 5). The core adds no idle timer.
+    includes the end of the session-scoped server or Activity, so stale bindings do not hold the
+    per-origin limit. Any heartbeat or idle rule belongs to project 4, and it must never count a
+    binding as idle while it has parked or in-flight requests (BRC-219; the deadline anti-goal in
+    5). The core adds no idle timer.
 - **Implicit mode** (iOS queue, project 2).
   - The extension signs describe and connect itself, so the page is bound before the app sees
     anything.
@@ -680,20 +580,14 @@ the connected-sites store instead.
   - wallet-UI revoke or site revoke → `revoked`;
   - transport loss, process death or WebView navigation → `lost`;
   - a page-initiated `disconnect` → `disconnected`, an internal value never sent to the page. It
-    takes the same close path as any other close (tombstone, `generation` bump, the last-close
+    takes the same close path as any other close (tombstone, `generation` bump, the consent-request
     rule below). Only the `onClosed` / `brc185:closed` notice to the page that asked is suppressed.
-- **On every close.** If the closing binding was its originator's last live, approved unattested
-  binding (counted by `Binding.originator`, across ports), the 6.5 close steps run: withdraw that
-  originator's prompts, clear its session grants and its pact-cache entries. Account-context
-  closes skip this rule, because the old manager is retired and fully withdrawn instead (6.9).
-  Separately, every close, approved or not, drops the `connection` request that depends on the
-  closing binding once no parked binding remains behind it (6.4). That is not done through
-  `withdrawPrompts({ originator })`: a binding parked for consent is not approved, and a consent
-  request has no manager `request.originator`.
+- **On every close.** The `connection` request that the closing binding was parked behind is
+  dropped once no parked binding remains behind it (6.4).
 - **Fan-out.** Closes are emitted in memory synchronously, through `onClosed` to registered
   transports. They are also written to the inbox store's events outbox, so the extension can emit
-  `brc185:closed`. Closes, including the 6.5 close steps, run synchronously inside the close,
-  before any request on a replacement binding is admitted.
+  `brc185:closed`. Closes run synchronously, before any request on a replacement binding is
+  admitted.
 - **Limits.** At most 8 live bindings per origin and 64 overall. Exceeding either gives
   `RESOURCE_LIMIT`.
 
@@ -784,48 +678,54 @@ queue directory from backups.
   rebuild. So the provider also recomputes the account context at each `walletBuilt` rising edge.
   A different value closes every binding with `account-changed`.
 - **Withdraw departed prompts (bug fix, attested callers included).** On every account-context
-  change, the hook:
-  - retires the **old** manager (6.5 gate step 5), synchronously, before anything else, so a call
-    still parked inside it cannot raise a prompt later. The runtime keeps a reference to the
-    previous manager for this, including on the rising-edge path;
-  - denies every active request on the old manager;
-  - clears the seven permission queues and their modal flags, and every pending `connection`
-    request (6.4);
+  change, `withdrawPrompts(oldManager)`:
+  - **retires** the old manager first, synchronously, so a call still parked inside it cannot
+    raise a prompt later. The runtime keeps a reference to the previous manager for this,
+    including on the rising-edge path. (Calls already inside the old manager stay alive: one
+    waiting on a manifest fetch, one queued on the per-originator grouped lock, one between its
+    token lookup and its prompt. Without retirement they would raise a prompt after the sweep.)
+  - denies every active request on the old manager. This goes through a public method on
+    `SigningPolicyPermissionsManager`, using the existing internals access, and swallows "Request ID
+    not found";
+  - clears the seven permission queues and their modal flags, clears the BTMS and Mandala queues
+    and resolves their items `false`, and removes every pending `connection` request (6.4);
   - releases focus;
   - settles the bridge's in-flight calls. A call that was provably never handed to the wallet gets
     `not-sent`; otherwise `unknown`.
 
   Today a stale prompt survives a profile switch, and answering it throws "Request ID not found"
-  on the new manager.
-- **`withdrawPrompts(scope)`.** The mechanism above, and the per-originator one 6.5 needs, are one
-  operation. Nothing narrower exists today: `usePermissionQueue` can only append and drop its head.
-  - `scope` is `{ manager }` (every request: the account-change case) or
-    `{ manager, originator }` (one unverified site's last close).
-  - **Deny first.** On that manager, `denyActiveRequest` every `activeRequests` entry, or those
-    whose `request.originator` equals the originator. Match on `request.originator`, never on key
-    prefixes: keys come in `proto:`, `basket:`, `cert:`, `spend:`, `group:`, `group-peer:` and
-    `pact:` shapes, some with suffixes. Swallow "Request ID not found". This goes through a public
-    method on `SigningPolicyPermissionsManager`, using the existing internals access.
-  - **Then the queues.** `usePermissionQueue` gains `removeWhere(predicate)`. It removes matching
-    items from any position, and when the head changes or the queue empties it does what `advance`
-    does today (modal flag, focus release). The full form also clears the BTMS and Mandala queues
-    and resolves their items `false`, and removes every `connection` request. The per-originator
-    form skips all of those: the namespace never reaches the token modules (6.5), and consent
-    requests follow the binding-close rule in 6.4.
-  - **The spending handler's gap.** `spendingAuthorizationCallback` (`WalletContext.tsx` ~1264)
-    awaits an AsyncStorage read before it enqueues, so a withdrawal in that window finds nothing to
-    remove. After that `await`, and before the auto-approve ledger `record`, the auto-grant or the
-    enqueue, the handler checks that the manager that raised the request still holds `requestID`,
-    and returns silently if not. `SigningPolicyPermissionsManager` gains a public
-    `hasActiveRequest(requestID)`. The manager is the one the callback was bound to, passed in at
-    the bind site; the handler must not read `managersRef.current`, because a replacement manager
-    restarts its `spend:…:request:N` counter.
-  - WalletContext exposes `withdrawPrompts`, and `BrowserBridgeProvider` registers it with the
-    runtime.
+  on the new manager. WalletContext exposes `withdrawPrompts`, and `BrowserBridgeProvider`
+  registers it with the runtime.
+- **Retired managers.** `SigningPolicyPermissionsManager.retire()` sets a one-way flag, and
+  `callEvent` is overridden. While the flag is set, the override does not call the handlers for a
+  prompt event; it calls `denyActiveRequest(requestID)` and returns. Today all six `callEvent`
+  sites are prompt events carrying a `requestID` (protocol, basket, certificate and spending
+  through `callPermissionEvent`; grouped through `joinOrCreateGroupedRequest` and the inline
+  `waitForAuthentication` path; counterparty). Each registers its `activeRequests` entry, then
+  reaches `callEvent` with no `await` in between, so the deny settles the waiting call. A future
+  non-prompt event passes through.
+  - Deny, never throw. A throw would not itself hold the grouped lock, because
+    `withGroupedPermissionFlowLock` releases in a `finally`. The damage is a leaked entry:
+    `joinOrCreateGroupedRequest`, `joinOrCreatePactRequest` and the inline `waitForAuthentication`
+    path register their entry, then await `callEvent` with no catch. A throw leaves an entry whose
+    waiter never settles; the next caller joins it and hangs, and for `group:` it hangs inside the
+    lock, which then never releases. (`enqueueAndFireEvent` does catch, so the per-item paths
+    would survive a throw.)
+  - `retire()` is called only on a manager that has been replaced, never on the one just
+    published.
+- **The spending handler's gap.** `spendingAuthorizationCallback` (`WalletContext.tsx` ~1264)
+  awaits an AsyncStorage read before it enqueues, so a withdrawal in that window finds nothing to
+  remove. After that `await`, and before the auto-approve ledger `record`, the auto-grant or the
+  enqueue, the handler checks that the manager that raised the request still holds `requestID`,
+  and returns silently if not. `SigningPolicyPermissionsManager` gains a public
+  `hasActiveRequest(requestID)`. The manager is the one the callback was bound to, passed in at the
+  bind site; the handler must not read `managersRef.current`, because a replacement manager
+  restarts its `spend:…:request:N` counter.
 - **Queue answers by identity.** The sheet confirms Allow with a 400 ms animation and then calls
   `executeGrant`, which calls `advance*Queue()`. `advance` drops whatever is at the head. If a
-  withdrawal removes the shown item inside that window, the deferred grant would drop another
-  site's request (possibly attested), whose call then hangs with no prompt. So:
+  profile switch clears the queues inside that window and the new manager raises a prompt, the
+  deferred grant would drop that new prompt, whose call then hangs, and its `grantPermission` to
+  the new manager would throw uncaught. So:
   - for the five manager-backed kinds (protocol, basket, certificate, spending, group),
     `advance*Queue(requestID)` removes that item only if it is still queued, and otherwise does
     nothing. `executeGrant` and `handleDeny` pass the snapshot's `requestID`;
@@ -912,7 +812,7 @@ Mapping rules:
 
 | Situation | ConnectionError code | Delivery |
 | --- | --- | --- |
-| No provider mounted; no wallet exists; unattested approval without launch proof | `CONFIGURATION_ERROR` | not-sent |
+| No provider mounted; no wallet exists; unattested binding without launch proof | `CONFIGURATION_ERROR` | not-sent |
 | Origin refused; attestation mismatch; originator frame mismatch; unknown method on an epoch transport; asserted context | `PROTOCOL_ERROR` | not-sent |
 | Unknown, retired or mismatched binding; account changed before the call | `PROVIDER_CHANGED` (+ `cause: 'account-changed'` when known) | not-sent |
 | User declined site consent | `USER_CANCELLED` | not-sent |
@@ -941,8 +841,8 @@ for page and extension use rebuilds the SDK `WalletError` / `WERR_*` classes wit
   `--forceExit`.
 - Other sessions edit `core/index.ts` and `WalletContext.tsx` in the main checkout. Work stays in
   the `feat/browser-bridge-core` worktree. The teardown registry and its shim land first as a
-  small separate commit, together with `withdrawPrompts`, `removeWhere` and the identity-based
-  queue answers (6.9).
+  small separate commit, together with `withdrawPrompts`, `retire()` and the identity-based queue
+  answers (6.9).
 
 ## 8. Testing
 
@@ -972,14 +872,18 @@ uses `globalThis.fetch` (it resolves DNS and opens `node:https` itself). So test
 `globalThis.fetch` only for the `localhost` http branch. Cases that need no URL seed
 `manifestCache` directly, as `signingPermissionPolicy.test.ts` does.
 
-- The namespace never reuses an attested token, and a session grant never satisfies the attested
-  hostname.
-- An `example.com` DSAP does not auto-pass for the namespace, and `autoApprovePolicy` returns the
-  `unattested` reason.
+- **Namespace isolation.** A token minted for `example.com` never satisfies
+  `example.com.unverified.invalid`, and a token minted for the namespace never satisfies
+  `example.com`, for protocol, basket and certificate checks alike.
+- **Grants last.** A grouped grant for the namespace mints the manager's normal tokens, tagged with
+  the namespace originator. A new binding for the same remembered site, after the first has
+  closed, is not asked again. A non-ephemeral `grantPermission` behaves the same.
+- **Spending always asks.** An `example.com` DSAP does not auto-pass for the namespace;
+  `autoApprovePolicy` returns the `unattested` reason; a grouped approval whose manifest declared a
+  `spendingAuthorization` mints no spending token; every namespace spend prompts.
 - **Ask-every-time.** Two BRC-29 `createSignature` calls under the namespace, with the same
-  counterparty and different key IDs, each raise their own prompt. After granting the first, the
-  store has no BRC-29 key and `hasRecentOrPendingGrant` is false for it. A grouped grant with a
-  BRC-29 entry (test-injected) also leaves the store without one.
+  counterparty and different key IDs, each raise their own prompt, exactly as for an attested
+  originator.
 - **Manifest.**
   - It is fetched from the real hostname, never from a `.invalid` URL. Its spending allowance and
     ask-every-time entries are removed, and so are a `p btms <assetId>` basket, a bare `p mandala`
@@ -990,48 +894,11 @@ uses `globalThis.fetch` (it resolves DNS and opens `node:https` itself). So test
   - `localhost`, a single-label host, an all-numeric last label and each listed special-use suffix
     give nulls, with neither the mocked `createPublicHTTPSFetch` nor the stubbed `globalThis.fetch`
     called.
-  - No fetch happens before the connection is approved, or while no approved binding is live.
+  - No fetch happens while the site is not connected.
   - Shared cache: the attested hostname's manifest objects are reference-equal and deep-equal
     before and after a namespace read, with and without `protocolPermissions`. After a namespace
     read of a failing host, the attested caller gets nulls until the TTL, and nothing is minted or
     auto-approved differently.
-- **Grants.** The manifest under test lists at least one protocol permission; any basket or
-  certificate case switches those `seek*` flags on explicitly.
-  - A grouped grant mints nothing, resolves the waiting `waitForAuthentication`, and is not asked
-    again on the next one. The same holds for a non-ephemeral `grantPermission` and for
-    `grantCounterpartyPermission` (driven with a test-only handler).
-  - Items are recorded before the waiters resolve: a call arriving right after the grant raises no
-    duplicate prompt.
-  - A grouped grant that fails the subset check rejects the waiting call instead of leaving it
-    pending. The same holds for the counterparty override.
-  - A grant whose `activeRequests` entry is gone throws `Request ID not found.` and records nothing.
-  - Expiry passed by the sheet is ignored. A spending request is never recorded, including a
-    `spendingAuthorization` inside a grouped grant and a non-ephemeral `grantPermission` on a
-    spending request.
-  - `cachePermission` and `markRecentGrant` are no-ops for the namespace.
-  - `buildPushdropFields` refuses the namespace on all three mint paths (backstop).
-- **Lifetime and the liveness gate.**
-  - Session grants are dropped when the hostname's last live, approved binding closes, through page
-    disconnect, revoke and `lost` alike. Its `pactEstablishedCache` entries go too (driven with the
-    test-only counterparty handler, since production never writes them).
-  - Close the last binding while (a) one ensure call (a protocol request) holds the grouped lock on
-    a deferred manifest fetch, (b) a second ensure call is queued on the lock behind it, and (c) a
-    `waitForAuthentication` is parked in each of two places: inside the manifest fetch, and queued
-    on the lock. Release the fetch. No sheet is enqueued. Both ensure calls and the fetch-parked
-    `waitForAuthentication` reject with permission-denied. The lock-queued `waitForAuthentication`
-    resolves with no prompt and no entry. The store stays empty, the grouped lock is released and
-    `activeRequests` is empty.
-  - A spending callback with a deferred AsyncStorage read: close the last binding, or switch
-    profile, during the read, then release it. No spending item is enqueued, nothing is recorded in
-    the auto-approve ledger, and the spending modal flag stays closed.
-  - A sheet answered after the close, or raised by a call in flight at the close, adds nothing.
-  - A forced `record` with the predicate `false` stores nothing.
-  - Two ports of one host share one count: closing the last binding of one port while the other is
-    approved keeps the grants.
-  - A declined or never-approved binding does not keep grants alive after the last approved one
-    closes, and a later approval gets the grouped sheet again.
-  - A second approved binding for the same hostname shares the grants and open grouped prompts
-    (call 11). After the last close, a new binding for that hostname inherits nothing.
 - **Token modules**, table-driven over every routing site: the nine `delegateToPModuleIfNeeded`
   routes, plus createAction, listActions and internalizeAction by `p ` label or basket. For the
   namespace each is refused with permission-denied before any module hook runs, with no prompt and
@@ -1044,30 +911,37 @@ uses `globalThis.fetch` (it resolves DNS and opens `node:https` itself). So test
   createAction input, relinquishOutput and internalizeAction, while the namespace's own is allowed.
   A `sendWith` of the other namespace's held txid is refused, while its own is allowed. A
   positive control: an ordinary-basket output of the other namespace is allowed.
+- **Retired managers.** After `retire()`, every prompt event is denied for every originator, the
+  grouped lock is released, and `activeRequests` ends empty. A spending callback whose
+  AsyncStorage read is released after a profile switch enqueues nothing and records nothing in the
+  auto-approve ledger.
 - An explicit "attested unchanged" regression test around every patched method.
 
 **Presentation**
 - `ActivePermission.unverified` is set on all seven `deriveActive` kinds, including `group`. The
-  badge, the caveat line and "Approvals here end when this connection closes." render, and the
-  700 ms tap protection applies to the grouped sheet.
+  badge and caveat line render, and the 700 ms tap protection applies to the grouped sheet.
 - The connection sheet shows the unverified payment line instead of the auto-approve line, and the
-  "already connected on this device" line when another live, approved unattested binding with the
-  same `Binding.originator` exists. A live attested binding for the same hostname does not show it.
+  "remembers this site" line for both.
 - The `seek*` disclosure table: every `false` flag maps to a phrase on the connection sheet and
   every `true` flag to an "asked first" clause; changing a flag without the table fails.
 
 **Consent**
-- Parked until approved; decline answers parked requests with `USER_CANCELLED`.
-- Remembered per profile; a tag failure counts as not connected.
+- Parked until approved; decline answers parked requests with `USER_CANCELLED`, and a later
+  request asks again.
+- Remembered per profile for both attestations; a tag failure counts as not connected.
+- Records are keyed by origin and attestation: approving verified `example.com` leaves unverified
+  `example.com` unconnected, and the reverse.
+- `revokeSite(origin, attestation)` closes only that attestation's bindings and leaves the other
+  record and all permission tokens in place.
 - Swept at logout and Delete Wallet.
 - One pending approval per transport.
 - With a `connection` sheet open, a profile switch, a network switch, and a rebuild or import each
   remove it and settle its parked requests. A late Approve with the old `requestId` writes nothing
-  to the connected-sites store and sets no `approved` flag.
+  to the connected-sites store.
 - When every binding parked behind a `connection` request closes, the request goes; an answer
   inside the 400 ms window writes nothing.
-- Unattested approval needs a launch proof.
-- A declined unattested binding stays unapproved and its later requests ask again.
+- An unattested binding without a launch proof is refused, for a remembered site as for a new one,
+  and shows no sheet.
 - `registerTransport` refuses `unattested` with `implicit`.
 
 **Dispatcher**
@@ -1086,10 +960,8 @@ uses `globalThis.fetch` (it resolves DNS and opens `node:https` itself). So test
 - `rebuildWallet` and an import close bindings.
 - Limits.
 - Close fan-out to the outbox happens before any replacement admission.
-- Page disconnect takes the full close path (tombstone, `generation` bump, last-close rule) with no
-  notice to the page that asked.
-- Last-close counting is by originator across ports, counts only approved bindings, and is
-  skipped for account-change closes.
+- Page disconnect takes the full close path (tombstone, `generation` bump, consent-request rule)
+  with no notice to the page that asked.
 
 **Inbox, through the shared contract suite**
 - Concurrent claim, re-stage after acknowledgement, rename-over.
@@ -1107,14 +979,12 @@ uses `globalThis.fetch` (it resolves DNS and opens `node:https` itself). So test
   the grouped lock, a third parked on a deferred manifest fetch, and a fourth parked before
   `findProtocolToken`. A profile switch runs. After it, and after the fetch is released, no prompt
   is enqueued, the seven queues are empty, `activeRequests` on the old manager is empty and the
-  grouped lock is released. Repeat for a namespace originator that has a new approved binding on
-  the new account before the fetch is released.
-- `withdrawPrompts({ originator })` leaves other originators' queued prompts and active requests
-  intact, attested ones included.
-- The user taps Allow on unverified prompt R1, with R2 of the same kind from another originator
-  queued behind it, and the binding closes inside the 400 ms window. R2 is neither dropped nor
-  left without a sheet, R1's call is settled, and there is no unhandled rejection. Repeat for a
-  `group` request.
+  grouped lock is released. Repeat for a namespace originator that is connected on the new
+  account before the fetch is released.
+- The user taps Allow on prompt R1 and a profile switch runs inside the 400 ms window; the new
+  manager raises R2 of the same kind. R2 is neither dropped nor left without a sheet, nothing is
+  sent to the new manager for R1, and there is no unhandled rejection. Repeat for a `group`
+  request.
 
 **Conformance report**
 - A generated, versioned JSON report listing each method's coverage, refusals and the known
@@ -1125,8 +995,9 @@ uses `globalThis.fetch` (it resolves DNS and opens `node:https` itself). So test
 - `waitForAuthentication` can raise the grouped-permission sheet for any connected origin. For
   attested origins this is existing manager behaviour, left alone so attested callers are
   unchanged. For unverified origins it is new in revision 3: it follows from the manifest check in
-  2, and it is how a manifest's `groupPermissions` become session grants (6.5). It conflicts with
-  BRC-219's "probes must not prompt", but only after the user has approved the connection.
+  2, and it is how a manifest's `groupPermissions` become the site's permission tokens (6.5). It
+  conflicts with BRC-219's "probes must not prompt", but only after the user has connected the
+  site.
 - The vault guard's 30-second deadline and shared 16-slot queue apply to external `listActions`.
   This is pre-existing behaviour and conflicts with "no deadline" for that method only.
   It is proposed as a follow-up.
@@ -1141,12 +1012,18 @@ uses `globalThis.fetch` (it resolves DNS and opens `node:https` itself). So test
   descriptions from the real domain's manifest. A local process that forges the origin can
   therefore raise a sheet with authentic-looking text. The Unverified badge, the caveat lines and
   the 700 ms tap protection are the only mitigation. This is the accepted consequence of the
-  owner's manifest decision in 2 (calls 10 and 11).
-- **Grant pooling (unverified).** The namespace is per hostname, so every live, approved
-  unattested connection with that originator shares session grants and open grouped prompts, and keeps them
-  alive. The connection sheet says so when it happens (6.4). The launch proof is the only control
-  that separates a forging local app from the real browser session, so its format (project 4) is a
-  dependency of this threat model.
+  owner's manifest decision in 2 (call 10). Because approvals now last, an approval given on such
+  a sheet lasts too.
+- **Remembered unverified sites reconnect without a sheet (owner-accepted, 2).** Once
+  `example.com` is remembered as an unverified site, any local process that passes the launch
+  proof and claims `example.com` is connected with no prompt. It then has everything the real page
+  has: the namespace's permission tokens (any signing protocol the user approved, until revoked),
+  and the prompt-free capabilities listed on the connection sheet (identity key, encrypt and
+  decrypt, HMACs, transaction history, outputs, certificates, basket changes). Spending, BRC-29
+  signing, token modules and any signing not yet approved still ask (6.5). The launch proof (6.4,
+  project 4) is the only control that separates such a process from the real browser session.
+  The separate namespace still stops it from inheriting anything the real site earned through
+  Safari or the in-app browser.
 - **Basket contents are not isolated** between `example.com` and `example.com.unverified.invalid`,
   or between any two connected sites, because this wallet turns basket listing, insertion and
   removal prompts off. Only unbasketed outputs and held `sendWith` transactions are coupled to their
@@ -1198,28 +1075,26 @@ uses `globalThis.fetch` (it resolves DNS and opens `node:https` itself). So test
     hostname's 5-minute cache, including its failures. Its spending allowance and token-module
     entries are dropped, and `localhost`, single-label and special-use hosts are never read. (The
     manifest check itself is the owner's decision in 2; these limits are mine.)
-11. Grants for unverified origins now last while an approved unattested connection with the same
-    originator is live,
-    in memory only. Without this, a grouped approval would be thrown away and asked again on every
-    call. This replaces the one-call grants of revision 2 and settles the project 4 question about
-    grant lifetime. Ask-every-time signing (BRC-29) is still asked every time.
-    - The store is per hostname, not per connection. If a second unattested connection with the
-      same originator is approved while the first is live, it uses the first one's grants without seeing
-      the grouped sheet. The connection sheet tells the user before they approve it (6.4).
-    - Rejected alternative: per-connection grants. They would need a per-connection originator.
-      A site would then lose, on every reload, its own earlier unbasketed outputs and held
-      `sendWith` transactions (the vault guard treats another originator's as admin state), and
-      could no longer sign or abort actions its earlier connection started, because the manager
-      binds pending references and no-send txids to the exact originator string. Basketed
-      outputs would stay reachable. (Revision 3's first draft said basket outputs would be lost;
-      that was wrong.)
-    - Rejected fallback: clear the hostname's grants whenever a second connection is approved.
-      It would reset the first tab's grants every time another tab connects, and the impostor
-      could still ask for the same grants itself.
+11. The owner decided that unverified approvals are remembered and their grants last like
+    Safari's (2). My calls within that:
+    - Consent records are separate per attestation, so a verified approval of a domain never
+      connects its unverified twin, and the reverse.
+    - The `.unverified.invalid` namespace stays, so grants never cross between the verified and
+      unverified identities of one domain.
+    - Spending still always asks for unverified sites, with no auto-approve and no allowance,
+      because a forging app on a remembered domain could otherwise spend silently.
+    - Token modules stay refused (call 6), for the same reason.
+    - Revoking a site leaves its permission tokens in place, as for any verified site; they are
+      inert while it is not connected.
+    - Every unverified connection still needs the launch proof, remembered or not.
+    - Revision 3's in-memory, connection-length grants, the liveness gate, the last-close sweep
+      and per-site prompt withdrawal are removed. Retiring a replaced manager and answering queue
+      items by identity stay, because the account-change fix needs them.
 12. The built-in `nosend` module (BRC-177) is not refused for unverified origins. It holds no
     session, and every spend under it still prompts.
 13. The permission sheet answers manager-backed queue items by `requestID` instead of popping the
-    head (6.9). Needed for per-site withdrawal; behaviour-preserving for attested callers.
+    head (6.9), so a profile switch inside the 400 ms confirm window cannot drop the new account's
+    prompt. Behaviour-preserving for attested callers.
 
 ## 11. Left to the builder
 
@@ -1234,19 +1109,21 @@ File and function names; internal data structures; constants not stated here; wh
   - a unique scheme or universal link per wallet;
   - the App Group adapter;
   - the isolation-test update;
-  - the "Browser connections" screen;
+  - the "Browser connections" screen, showing each record's attestation and revoking per record;
+    and whether revoking should also offer to revoke the site's permission tokens (today they are
+    kept, as for in-app sites);
   - the local-notification attention handler;
   - the extension handle contract: frame origin; the page's origin argument must equal the frame
     origin or be refused; a lazy bind failure surfaces as `PROVIDER_CHANGED` on the first invoke.
 - **Project 4:**
   - the `ContinuityStore` implementation;
-  - launch-proof format;
+  - launch-proof format. With remembered unverified sites it is the only control against a local
+    app forging a remembered domain (9), so it must make a connection impossible unless this
+    wallet's own Activity was launched for that session, in front of the user;
   - HTTP status table;
   - whether legacy routes are served;
-  - the loopback liveness signal: when the transport reports `lost` (6.7). Session grants for an
-    unverified site last until it does;
-  - whether the connection sheet should also list the grants held by another live connection to
-    the same hostname (P1 shows only that the permissions are shared).
+  - the loopback liveness signal: when the transport reports `lost` (6.7), so stale bindings do
+    not hold the per-origin limit.
 - **Project 3:** the SDK hook; whether messages survive for codes outside 5/6/7; accepting
   `isAuthenticated: false`.
 - **Follow-ups outside these projects:**
