@@ -16,7 +16,10 @@ import { b64uDecode, b64uEncode } from './protocol/base64url'
 import { DECLINE_BACKOFF_MS, RECONNECT_TOKEN_BYTES } from './protocol/limits'
 import type { Attestation } from './protocol/origin'
 import { BRIDGE_SITE_AUTHORITY_PROTOCOL_ID } from './permissionPolicy'
+import type { GroupPermissions } from '../services/signingPermissionPolicy'
 import { mintGrantTag, unverifiedOriginator } from './unverifiedOriginator'
+
+export type { GroupPermissions }
 
 export type HmacCapableWallet = Pick<WalletInterface, 'createHmac' | 'verifyHmac'>
 
@@ -49,6 +52,8 @@ export interface ConsentRequestInput {
   walletRevision: number
   /** The origin was approved before on this device, so the sheet says "Approving starts fresh". */
   connectedBefore: boolean
+  /** The manifest group previewed for this origin, if any. Connect mints exactly this. */
+  groupPermissions?: GroupPermissions | null
 }
 
 /** What the sheet needs to show a pending `connection` request. */
@@ -60,6 +65,7 @@ export interface PendingConsent {
   connectedBefore: boolean
   walletRevision: number
   profileKey: string
+  groupPermissions?: GroupPermissions | null
 }
 
 export interface ConsentAnswerContext {
@@ -74,6 +80,12 @@ export interface ConsentStoreDeps {
   profileKey: () => string
   now: () => number
   randomBytes: (n: number) => Uint8Array
+  /**
+   * Mints the previewed group as permission tokens under the site's originator, after the consent
+   * record is written. A failure is swallowed: the connection stands and the later group check
+   * falls back to the group sheet.
+   */
+  mint?: (originator: string, group: GroupPermissions) => Promise<void>
 }
 
 export interface ConnectedSite {
@@ -300,6 +312,7 @@ export function createConsentStore(deps: ConsentStoreDeps): ConsentStore {
       connectedBefore: input.connectedBefore,
       walletRevision: input.walletRevision,
       profileKey: deps.profileKey(),
+      groupPermissions: input.groupPermissions ?? null,
       epochs: new Set([input.bindingEpoch]),
       settle,
       promise,
@@ -346,7 +359,7 @@ export function createConsentStore(deps: ConsentStoreDeps): ConsentStore {
         reconnectToken = b64uEncode(token)
         unsigned.reconnectHash = b64uEncode(Uint8Array.from(Hash.sha256(Array.from(token))))
       }
-      return await serial(async () => {
+      const recorded = await serial(async () => {
         const existing = await readRecords(profileKey)
         const tag = await tagFor(profileKey, unsigned)
         // No await between this re-check and the write call: a wallet replacement or teardown
@@ -365,9 +378,20 @@ export function createConsentStore(deps: ConsentStoreDeps): ConsentStore {
         remove(p)
         notify()
         await write
-        p.settle('approved')
         return { record, reconnectToken, epochs }
       })
+      if (recorded === undefined) return undefined
+      // After the record is written and before the page is told: the later group check then finds
+      // the tokens. Outside the write chain, so a slow mint does not hold up other approvals.
+      if (p.groupPermissions != null && deps.mint !== undefined) {
+        try {
+          await deps.mint(recorded.record.originator, p.groupPermissions)
+        } catch (e) {
+          console.warn('[bridge] minting the connect group failed', e instanceof Error ? e.message : String(e))
+        }
+      }
+      p.settle('approved')
+      return recorded
     } catch {
       // A locked wallet or a failed write: nothing was stored, so the site is not connected.
       if (pending.get(requestId) === p) remove(p)
@@ -402,14 +426,24 @@ export function createConsentStore(deps: ConsentStoreDeps): ConsentStore {
 
   const listPending = (): PendingConsent[] =>
     [...pending.values()].map(
-      ({ requestId, origin, attestation, transportId, connectedBefore, walletRevision, profileKey }) => ({
+      ({
         requestId,
         origin,
         attestation,
         transportId,
         connectedBefore,
         walletRevision,
-        profileKey
+        profileKey,
+        groupPermissions
+      }) => ({
+        requestId,
+        origin,
+        attestation,
+        transportId,
+        connectedBefore,
+        walletRevision,
+        profileKey,
+        groupPermissions
       })
     )
 
