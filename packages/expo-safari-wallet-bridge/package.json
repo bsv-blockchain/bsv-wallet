@@ -14,5 +14,18 @@
     "@bsv/expo-wallet-toolbox": "*",
     "@bsv/sdk": "*",
     "expo-modules-core": "*"
-  }
+  },
+  "files": [
+    "app.plugin.js",
+    "expo-module.config.json",
+    "extension",
+    "ios",
+    "plugin",
+    "scripts",
+    "shared",
+    "src",
+    "swift",
+    "!**/node_modules",
+    "!**/.build"
+  ]
 }

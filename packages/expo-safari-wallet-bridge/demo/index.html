@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bridge demo</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #14171a;
+        --muted: #5b6672;
+        --line: #d5dae0;
+        --accent: #0a5cff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #101214;
+          --fg: #eceff2;
+          --muted: #9aa5b1;
+          --line: #2b3036;
+          --accent: #5b92ff;
+        }
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.4 -apple-system, system-ui, sans-serif;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 4px;
+      }
+      p {
+        color: var(--muted);
+        margin: 0 0 16px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      button {
+        font: inherit;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--accent);
+      }
+      input {
+        font: inherit;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--fg);
+        min-width: 0;
+        flex: 1 1 140px;
+      }
+      pre {
+        white-space: pre-wrap;
+        word-break: break-all;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px;
+        min-height: 120px;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body id="demo-root">
+    <h1>Bridge demo</h1>
+    <p>Stand-in BRC-185 client for Simulator testing.</p>
+    <div class="row">
+      <button id="describe">describe</button>
+      <button id="connect">connect</button>
+      <button id="disconnect">disconnect</button>
+    </div>
+    <div class="row">
+      <button id="getVersion">getVersion</button>
+      <button id="isAuthenticated">isAuthenticated</button>
+      <button id="getPublicKey">getPublicKey</button>
+    </div>
+    <div class="row">
+      <input id="description" aria-label="Description" placeholder="Description" value="Demo payment" />
+      <input id="satoshis" aria-label="Satoshis" inputmode="numeric" value="1" />
+      <button id="createAction">createAction</button>
+    </div>
+    <pre id="log"></pre>
+    <script src="/demo.js"></script>
+  </body>
+</html>
