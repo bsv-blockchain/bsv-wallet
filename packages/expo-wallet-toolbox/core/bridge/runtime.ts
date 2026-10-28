@@ -241,7 +241,12 @@ export function initBridgeRuntime(): Promise<void> {
       const raw = await state.storage.getItem(REVISION_KEY)
       const n = raw === null ? 0 : Number(raw)
       await state.bindings.load()
-      setSnapshotOf(state, { walletRevision: String(Number.isSafeInteger(n) && n >= 0 ? n : 0) })
+      // The close counter comes back from the persisted ring too, so the mirrored value never
+      // goes backwards across a restart.
+      setSnapshotOf(state, {
+        walletRevision: String(Number.isSafeInteger(n) && n >= 0 ? n : 0),
+        closeSeq: state.bindings.closeSeq()
+      })
       state.isLoaded = true
     })()
     state.loaded.catch(() => {

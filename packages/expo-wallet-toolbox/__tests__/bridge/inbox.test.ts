@@ -1,5 +1,5 @@
 import { Utils } from '@bsv/sdk'
-import { createBindingRegistry, type BindingRegistry } from '../../core/bridge/bindings'
+import { createBindingRegistry, type BindingRegistry, type CloseEvent } from '../../core/bridge/bindings'
 import type { KeyValue } from '../../core/bridge/consent'
 import type { DispatchRequest, Outcome } from '../../core/bridge/dispatcher'
 import {
@@ -40,8 +40,10 @@ let store: MemoryInboxStore
 let bindings: BindingRegistry
 let dispatched: DispatchRequest[]
 let dispatchImpl: (req: DispatchRequest) => Promise<Outcome>
+let closeListeners: Set<(e: CloseEvent) => void>
+let snapListeners: Set<() => void>
 let registeredAttestation: 'browser' | 'unattested'
-let snap: { walletRevision: string; accountContext: string }
+let snap: { walletRevision: string; accountContext: string; readiness?: 'ready' | 'building' | 'blocked' | 'none' }
 
 const OK: Outcome = { ok: true, result: { height: 1 } }
 
@@ -80,7 +82,15 @@ function processor(over: { store?: InboxStore } = {}) {
     bindings,
     transport: { id: 'q1', attestation: 'browser' },
     snapshot: () => snap,
-    registeredTransport: () => ({ attestation: registeredAttestation })
+    registeredTransport: () => ({ attestation: registeredAttestation }),
+    onClosed: fn => {
+      closeListeners.add(fn)
+      return () => closeListeners.delete(fn)
+    },
+    onSnapshotChange: fn => {
+      snapListeners.add(fn)
+      return () => snapListeners.delete(fn)
+    }
   })
 }
 
@@ -91,7 +101,13 @@ async function result(n: number) {
 beforeEach(async () => {
   t = 10_000_000
   store = createMemoryInboxStore({ now: () => t })
-  bindings = createBindingRegistry({ tombstoneStorage: memoryKv(), now: () => t, onClosed: () => {} })
+  closeListeners = new Set()
+  snapListeners = new Set()
+  bindings = createBindingRegistry({
+    tombstoneStorage: memoryKv(),
+    now: () => t,
+    onClosed: e => [...closeListeners].forEach(f => f(e))
+  })
   await bindings.load()
   dispatched = []
   registeredAttestation = 'browser'
@@ -245,7 +261,10 @@ describe('inbox processor', () => {
         now: () => t,
         bindings,
         transport: { id: 'q1', attestation: 'browser' },
-        snapshot: () => snap
+        snapshot: () => snap,
+        registeredTransport: () => ({ attestation: 'browser' }),
+        onClosed: () => () => {},
+        onSnapshotChange: () => () => {}
       }).processPending()
       expect(dispatched).toHaveLength(0)
       expect(await resolveInboxResult(after, ID(1))).toMatchObject({
@@ -277,7 +296,9 @@ describe('inbox processor', () => {
         bindings,
         transport: { id: 'q1', attestation: 'browser' },
         snapshot: () => snap,
-        registeredTransport: () => ({ attestation: 'browser' })
+        registeredTransport: () => ({ attestation: 'browser' }),
+        onClosed: () => () => {},
+        onSnapshotChange: () => () => {}
       })
       await p.recover()
       expect(await after.stat(ID(1))).toMatchObject({ state: 'pending' })
@@ -405,9 +426,138 @@ describe('inbox processor: trust comes from the registration', () => {
       bindings: trustedBindings,
       transport: { id: 'q1', attestation: 'browser' },
       snapshot: () => snap,
-      registeredTransport: () => ({ attestation: 'browser' })
+      registeredTransport: () => ({ attestation: 'browser' }),
+      onClosed: () => () => {},
+      onSnapshotChange: () => () => {}
     }).processPending()
     expect(dispatched).toHaveLength(0)
     expect(await result(2)).toMatchObject({ ok: false, error: { code: 'PROTOCOL_ERROR' } })
+  })
+})
+
+describe('inbox processor: readiness (6.8)', () => {
+  const notify = () => [...snapListeners].forEach(f => f())
+
+  it.each(['building', 'blocked'] as const)(
+    'parks a record while the runtime is %s and admits it, untombstoned, once ready',
+    async state => {
+      snap = { walletRevision: '0', accountContext: '', readiness: state }
+      await stage(record(1, { accountContext: 'ctx', walletRevision: '1' }))
+      const done = processor().processPending()
+      await new Promise(r => setTimeout(r, 10))
+      expect(dispatched).toHaveLength(0)
+      expect(await store.stat(ID(1))).toMatchObject({ state: 'accepted' })
+      expect(await result(1)).toBeUndefined()
+      expect(bindings.live()).toHaveLength(0)
+
+      snap = { walletRevision: '1', accountContext: 'ctx', readiness: 'ready' }
+      notify()
+      await done
+      expect(dispatched).toHaveLength(1)
+      expect(await result(1)).toMatchObject({ ok: true })
+    }
+  )
+
+  it('a non-ready snapshot never tombstones an epoch as account-changed', async () => {
+    snap = { walletRevision: '0', accountContext: '', readiness: 'building' }
+    await stage(record(1))
+    const events: CloseEvent[] = []
+    closeListeners.add(e => events.push(e))
+    const done = processor().processPending()
+    await new Promise(r => setTimeout(r, 10))
+    expect(events).toEqual([])
+    snap = { walletRevision: '1', accountContext: 'ctx', readiness: 'ready' }
+    notify()
+    await done
+    expect(events).toEqual([])
+    expect(bindings.live()).toHaveLength(1)
+  })
+
+  it('answers CONFIGURATION_ERROR, not-sent when there is no wallet at all', async () => {
+    snap = { walletRevision: '0', accountContext: '', readiness: 'none' }
+    await stage(record(1))
+    await processor().processPending()
+    expect(dispatched).toHaveLength(0)
+    expect(await result(1)).toMatchObject({ ok: false, error: { code: 'CONFIGURATION_ERROR', delivery: 'not-sent' } })
+    expect(bindings.live()).toHaveLength(0)
+  })
+})
+
+describe('inbox processor: close events outbox (6.7)', () => {
+  it('closing epoch A writes one close event with a monotonic closeSeq', async () => {
+    const p = processor()
+    await stage(record(1))
+    await stage(record(2))
+    await p.processPending()
+    bindings.close('epoch-1', 'revoked')
+    bindings.close('epoch-2', 'lost')
+    await new Promise(r => setTimeout(r, 5))
+    expect(await store.readEventsAfter(0)).toEqual([
+      { v: 1, closeSeq: 1, instanceId: 'inst', epoch: 'epoch-1', reason: 'revoked' },
+      { v: 1, closeSeq: 2, instanceId: 'inst', epoch: 'epoch-2', reason: 'lost' }
+    ])
+    expect(await store.readEventsAfter(1)).toHaveLength(1)
+  })
+
+  it('a page disconnect is written too, but marked as not to be announced to the page', async () => {
+    const p = processor()
+    await stage(record(1))
+    await p.processPending()
+    await stage(record(2, { kind: 'disconnect', epoch: 'epoch-1', method: undefined, args: undefined }))
+    await p.processPending()
+    await new Promise(r => setTimeout(r, 5))
+    expect(await store.readEventsAfter(0)).toEqual([
+      { v: 1, closeSeq: 1, instanceId: 'inst', epoch: 'epoch-1', reason: 'lost', notifyPage: false }
+    ])
+  })
+
+  it("ignores another transport's closes", async () => {
+    const p = processor()
+    closeListeners.forEach(f =>
+      f({
+        closeSeq: 9,
+        epoch: 'x',
+        reason: 'lost',
+        notifyPage: true,
+        transportId: 'other',
+        instanceId: 'i',
+        applicationOrigin: 'https://example.com'
+      })
+    )
+    await p.processPending()
+    expect(await store.readEventsAfter(0)).toEqual([])
+  })
+
+  it('the event for a closed epoch is in the outbox before any replacement is admitted', async () => {
+    const p = processor()
+    await stage(record(1))
+    await p.processPending()
+    const original = store.writeEvent.bind(store)
+    store.writeEvent = async ev => {
+      await new Promise(r => setTimeout(r, 20))
+      return original(ev)
+    }
+    bindings.close('epoch-1', 'account-changed')
+    let seenAtAdmission: unknown[] | undefined
+    dispatchImpl = async req => {
+      seenAtAdmission = await store.readEventsAfter(0)
+      await req.beforeCall?.()
+      return OK
+    }
+    await stage(record(2))
+    await p.processPending()
+    expect(seenAtAdmission).toEqual([
+      { v: 1, closeSeq: 1, instanceId: 'inst', epoch: 'epoch-1', reason: 'account-changed' }
+    ])
+  })
+
+  it('dispose stops writing events', async () => {
+    const p = processor()
+    await stage(record(1))
+    await p.processPending()
+    p.dispose()
+    bindings.close('epoch-1', 'revoked')
+    await new Promise(r => setTimeout(r, 5))
+    expect(await store.readEventsAfter(0)).toEqual([])
   })
 })

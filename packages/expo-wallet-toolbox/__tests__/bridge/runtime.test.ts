@@ -420,3 +420,23 @@ describe('connected sites and permission policy APIs', () => {
     expect((await getPermissionPolicy()).verified.seekBasketListingPermissions).toBe(true)
   })
 })
+
+describe('closeSeq across a restart', () => {
+  it('the snapshot starts from the persisted ring, not from 0', async () => {
+    await start()
+    publish(publication())
+    explicit('e1')
+    explicit('e2')
+    getBindingRegistry().close('e1', 'lost')
+    getBindingRegistry().close('e2', 'revoked')
+    expect(getBridgeSnapshot().closeSeq).toBe(2)
+    await getBindingRegistry().flush()
+    detach()
+
+    // A new process: same storage, fresh runtime state.
+    resetBridgeRuntimeForTests()
+    await initBridgeRuntime()
+    expect(getBridgeSnapshot().closeSeq).toBe(2)
+    expect(getBindingRegistry().closeSeq()).toBe(2)
+  })
+})

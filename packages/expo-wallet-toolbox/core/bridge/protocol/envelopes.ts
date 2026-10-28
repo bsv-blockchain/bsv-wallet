@@ -89,13 +89,18 @@ export type InboxResult =
   | { v: 1; id: string; ok: true; result: unknown }
   | { v: 1; id: string; ok: false; error: WireError | ConnectionError }
 
-/** Epoch-specific close event in the store's outbox; `closeSeq` is monotonic. */
+/**
+ * Epoch-specific close event in the store's outbox; `closeSeq` is monotonic. A page-initiated
+ * `disconnect` is written too (reason `lost`) with `notifyPage: false`: it is a close, but the
+ * page that asked is not told, so the reader must not emit `brc185:closed` for it.
+ */
 export interface InboxCloseEvent {
   v: 1
   closeSeq: number
   instanceId: string
   epoch: string
   reason: CloseReason
+  notifyPage?: false
 }
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/

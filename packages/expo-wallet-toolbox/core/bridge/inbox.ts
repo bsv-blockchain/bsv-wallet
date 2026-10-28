@@ -12,7 +12,7 @@
  * re-check after it, immediately before the wallet call (6.6 step 8).
  */
 import { Hash, Utils } from '@bsv/sdk'
-import type { BindingRegistry } from './bindings'
+import type { BindingRegistry, CloseEvent } from './bindings'
 import type { Dispatcher, Outcome } from './dispatcher'
 import { connectionError, isConnectionError, type ConnectionError } from './protocol/connectionError'
 import { isUuidV4, type InboxCloseEvent, type InboxRecord, type InboxResult } from './protocol/envelopes'
@@ -138,7 +138,12 @@ export interface InboxProcessorDeps {
   /** The registered transport this inbox belongs to; trust comes from it, not from the record (6.2). */
   transport: { id: string; attestation: Attestation }
   /** The runtime's current revision and context. Defaults to `getBridgeSnapshot`. */
-  snapshot?: () => Pick<BridgeSnapshot, 'walletRevision' | 'accountContext'>
+  snapshot?: () => Pick<BridgeSnapshot, 'walletRevision' | 'accountContext'> &
+    Partial<Pick<BridgeSnapshot, 'readiness'>>
+  /** Subscribes to snapshot changes (the wait for readiness). Defaults to the runtime's. */
+  onSnapshotChange?: (fn: () => void) => () => void
+  /** Subscribes to binding closes (the events outbox). Defaults to the runtime's `onBindingClosed`. */
+  onClosed?: (fn: (e: CloseEvent) => void) => () => void
   /**
    * The registered transport for an id: trust comes from the registration, never from what the
    * caller of `createInboxProcessor` says (6.2). Defaults to the runtime's `getTransport`.
@@ -158,6 +163,8 @@ export interface InboxProcessor {
   sweepExpired(): Promise<void>
   /** Crash recovery (6.8). Idempotent; `processPending` runs it first. */
   recover(): Promise<void>
+  /** Stops writing close events. The processor is meant to live as long as its transport. */
+  dispose(): void
 }
 
 function errorResult(id: string, error: ConnectionError): Uint8Array {
@@ -184,7 +191,57 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       return (require('./runtime') as typeof import('./runtime')).getTransport(id)
     })
+  const subscribeSnapshot =
+    deps.onSnapshotChange ??
+    ((fn: () => void) => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return (require('./runtime') as typeof import('./runtime')).onSnapshotChange(fn)
+    })
+  const subscribeClosed =
+    deps.onClosed ??
+    ((fn: (e: CloseEvent) => void) => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return (require('./runtime') as typeof import('./runtime')).onBindingClosed(fn)
+    })
   let recovered: Promise<void> | undefined
+
+  // Every close of one of this transport's bindings goes to the events outbox, in close order
+  // (6.7). The writes are chained, and `handle` waits for the chain before it admits anything, so
+  // a replacement binding never gets ahead of the event for the one it replaces.
+  let eventWrites: Promise<void> = Promise.resolve()
+  const unsubscribeClosed = subscribeClosed(e => {
+    if (e.transportId !== transport.id) return
+    const event: InboxCloseEvent = {
+      v: 1,
+      closeSeq: e.closeSeq,
+      instanceId: e.instanceId,
+      epoch: e.epoch,
+      reason: e.reason === 'disconnected' ? 'lost' : e.reason,
+      ...(e.notifyPage ? {} : { notifyPage: false as const })
+    }
+    eventWrites = eventWrites
+      .then(() => store.writeEvent(event))
+      .catch(err => console.warn('[bridge] inbox close event write failed', err))
+  })
+
+  /**
+   * Parks until the runtime is `ready` (spec 6.8): while it is `building` or `blocked` the
+   * snapshot's account context is empty, and admitting against it would tombstone every epoch
+   * bound earlier as `account-changed`. Undefined when there is no wallet at all.
+   */
+  async function readySnapshot() {
+    for (;;) {
+      const snap = snapshot()
+      if (snap.readiness === undefined || snap.readiness === 'ready') return snap
+      if (snap.readiness === 'none') return undefined
+      await new Promise<void>(resolve => {
+        const off = subscribeSnapshot(() => {
+          off()
+          resolve()
+        })
+      })
+    }
+  }
 
   async function finish(id: string, bytes: Uint8Array) {
     try {
@@ -258,7 +315,20 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
   }
 
   async function handle(id: string, record: InboxRecord, bytes: Uint8Array, size: number) {
-    const snap = snapshot()
+    let snap = await readySnapshot()
+    // Closes that happened while this record waited are in the outbox before it is admitted.
+    await eventWrites
+    if (snap !== undefined) snap = await readySnapshot()
+    if (snap === undefined) {
+      await finish(
+        id,
+        errorResult(
+          id,
+          connectionError('CONFIGURATION_ERROR', 'No wallet is available', 'not-sent', { epoch: record.epoch })
+        )
+      )
+      return
+    }
     const reg = registered(transport.id)
     if (reg !== undefined && reg.attestation !== transport.attestation) {
       await finish(
@@ -359,6 +429,10 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
     },
 
     sweepExpired,
+
+    dispose() {
+      unsubscribeClosed()
+    },
 
     async processPending() {
       await this.recover()

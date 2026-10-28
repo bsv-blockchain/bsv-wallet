@@ -126,6 +126,8 @@ export interface BindingRegistry {
   close(epoch: string, reason: InternalCloseReason): void
   closeAll(reason: InternalCloseReason): void
   live(): Binding[]
+  /** The monotonic close counter, restored from the persisted ring by `load()`. */
+  closeSeq(): number
 }
 
 interface Tombstone {
@@ -450,6 +452,8 @@ export function createBindingRegistry(deps: BindingRegistryDeps): BindingRegistr
       for (const epoch of [...liveByEpoch.keys()]) this.close(epoch, reason)
     },
 
-    live: () => [...liveByEpoch.values()]
+    live: () => [...liveByEpoch.values()],
+
+    closeSeq: () => closeSeq
   }
 }
