@@ -1,5 +1,5 @@
 #!/bin/bash
-# Dev link: pack the toolbox and this kit with a unique prerelease version and install both into a host app,
+# Dev link: pack the toolbox and this kit with a unique version (not a prerelease: CocoaPods will not resolve one) and install both into a host app,
 # so the host sees WT changes without the npm `file:` tarball cache serving a stale copy.
 #
 #   link-kit.sh <host-dir>
@@ -12,7 +12,7 @@ set -euo pipefail
 HOST="${1:?usage: link-kit.sh <host-dir>}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 TOOLBOX="$(cd "$HERE/../expo-wallet-toolbox" && pwd)"
-VERSION="0.0.0-dev.$(date +%s)"
+VERSION="0.0.$(date +%s)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
