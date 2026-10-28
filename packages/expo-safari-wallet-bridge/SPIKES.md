@@ -54,6 +54,37 @@ Experiment: HOST app.config.js plus a scratch plugin (`PKG/.scratch/withBridgeSp
 - `esbuild` pinned `0.28.2` (published 2026-08-08, older than two weeks) and `@bacons/apple-targets` `5.0.0` are both devDependencies as the plan says; but the plugin needs apple-targets at the host's prebuild, so Task 12 must make it a runtime `dependency` of the kit (or the host adds it). Left for Task 12; not changed here.
 - Existing HOST comment in `app.config.js` says never to add `keychain-access-groups` / `application-groups` to the app, and `__tests__/isolation.test.js` pins it. Task 20 must update both (the kit needs them by design, spec 6.2).
 
-## S2 to S7
+## S6 (shared sealing key and keychain upgrade)
+
+Result: the default `S6.group` passes (explicit bridge keychain group, host group listed first). `S6.appgroup` was not needed. Run 2026-10-28 on the iPhone 18 Pro Simulator (iOS 27.0), HOST worktree `safari-bridge`, Debug configuration.
+
+### Method (differs from the plan text in two places)
+
+- Baseline: HOST built without the kit (`prebuild --clean`, `pod install`, `xcodebuild`) and installed. The Simulator keychain outlives an uninstall and the app rebuilds its wallet from it, so the baseline was reached by uninstall, install, launch (no onboarding screen appeared; the wallet came up on first launch). It is an upgrade test over a wallet whose keychain items already existed, which is what the criterion needs. Identity key `03cdf55ea3b67109430aadd35d78ed438a8ace846148c4c0aec2e9f994d09f1408`, wallet DB `wallet-d09f1408-mainnet-1793197266.db`, five secure-store/Vault-state items in agrp `SV8SWTHA2H.org.bsvblockchain.wallet` (acct hex prefixes `17E385DF`, `4BD2488A`, `6991606`, `9F148F73`, `A4FE4C89`, data lengths 2776, 2130, 2386, 2223, 2073).
+- The Vault (mainnet only, needs a YubiKey) cannot be exercised on the Simulator. It stays a device gate (Task 22).
+- Upgrade: the same app rebuilt with the scratch plugin (`.scratch/withBridgeS6.js`: Safari target, app entitlements `keychain-access-groups = [$(AppIdentifierPrefix)org.bsvblockchain.wallet, ...wallet.bridge]` plus `group.org.bsvblockchain.wallet`, `ios.appleTeamId`), a throwaway Expo module `spike-module` (symlinked into HOST `modules/`), and the throwaway `spikeKeyWrite` / `spikeKeyHash` in `Stub.swift`. `simctl install` over the existing install (no uninstall), launched through the dev-client URL. HOST `app.config.js`, `app/_layout.tsx`, `metro.config.js` edits and the `modules/` symlink were reverted afterwards (`git status` clean); `Stub.swift` restored.
+
+### Criteria
+
+| Criterion | Result | Evidence |
+| --- | --- | --- |
+| 1. Same wallet, same identity key, no re-onboarding | pass | After install-over the app opened on Home (dragon avatar, 0.00 balance, no Welcome); `users.identityKey` is unchanged; `Documents/SQLite` still holds only `wallet-d09f1408-mainnet-1793197266.db` |
+| 2. New secure-store item in host group; old items unchanged | pass | `keychain-2-debug.db`: the five original rows keep agrp `SV8SWTHA2H.org.bsvblockchain.wallet`, identical acct hex and data length. After the upgrade there are two new rows in that same agrp (the `expo-secure-store` probe `bsv-bridge-s6-ss` and the `bsv-bridge-s6-probe` item that `spikePrefix()` writes with no explicit group, which also corroborates that the default group is the host group) |
+| 3. Appex reads what the app wrote under the bridge group | pass | App (module, `NSLog`) wrote a 32-byte generic password, `AfterFirstUnlockThisDeviceOnly`, not synchronised, explicit group `SV8SWTHA2H.org.bsvblockchain.wallet.bridge`; SHA-256 `8cfdc01181d1ad7909d2fc7cc85f0da03c21dfd2ddc9a1de7f2df66f7d467c5c`. The Safari popup of the appex (native message, handler calls `spikeKeyHash`) printed `S6 reply: {"hash":"SV8SWTHA2H.org.bsvblockchain.wallet.bridge\|8cfdc011...467c5c"}`, the same hash. The item's agrp ends `.bridge`. Screenshot `docs/superpowers/evidence/ios-kit/01-s6-popup.png` |
+
+Keychain rows after the run, by group: host group 7 rows (5 original + 2 new), bridge group 2 rows (the sealing-key stand-in `bsv-bridge-s6-spike` and a second `bsv-bridge-s6-probe`). The second probe row is the extension's own `spikePrefix()` lookup, which adds an item with no explicit group; it lands in the appex's first (and only) group, `...bridge`. It is a spike artefact, not a leak: the real appex never writes keys (spec 6.2), so Task 10 must not use the add-then-read prefix trick (read the team prefix from the Info.plist `BSVBridgeKeychainGroup` value instead, which the plugin writes already resolved).
+
+Simulator caveats: the Simulator does not enforce access groups faithfully, so group isolation, the real signing check and the upgrade over real Vault items remain device gates (Task 22).
+
+### Facts later tasks must use
+
+- The live Simulator keychain database is `~/Library/Developer/CoreSimulator/Devices/<udid>/data/Library/Keychains/keychain-2-debug.db` (table `genp`, columns `agrp`, `svce`, `acct`, `data`; `svce` is hashed on this iOS). `keychain-2.db`, which the plan names, is a 0-byte file on iOS 27.0 and gives `no such table`.
+- Metro cannot start from a HOST that lives under `.claude/worktrees/`: the host `metro.config.js` blocks the regex `/\/\.claude\/worktrees\/.*/`, which matches the HOST project root itself and makes every module unresolvable (`Unable to resolve module ./index`). The experiment used a working-tree-only change (not committed) that anchors the pattern to `<projectRoot>/.claude/worktrees` and `<projectRoot>/.worktrees`. Tasks 13, 20, 21 and 22 need the same edit while HOST is a worktree; revert it before committing in HOST (or commit the anchored form deliberately).
+- Dev-client launch: the app's own scheme `bsv-wallet://` opens the app but does not point it at Metro; use `xcrun simctl openurl <udid> "exp+bsv-wallet://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8082"` (Metro on 8082) once the app is running. The first `openurl` after an install-over can time out (code 60); start the app by tapping it, then retry.
+- Enabling the extension in the Simulator: Settings > Apps > Safari > Extensions rendered blank; use Safari's page menu > Manage Extensions (scroll the menu with `touch_path`, a `swipe` taps rows) > toggle the extension, then the page menu entry (first use asks for site access) opens the popup.
+- apple-targets entitlements and `keychain-access-groups` pass-through as in S1; the generated app entitlements put the host group first and `.bridge` second, matching the spec.
+- A full Debug build of HOST from a clean `ios/` takes about 15 minutes; `prebuild --clean` deletes `ios/build` (DerivedData lives there), so avoid `--clean` unless needed.
+
+## S2 to S5, S7
 
 Not run yet.
