@@ -1,2 +1,3 @@
-// SPIKE ONLY (Task 13, S3): records that the MAIN-world entry ran, and when.
-;(window as any).__bsvProbeMain = { t: Math.round(performance.now()), readyState: document.readyState, top: window === window.top }
+// Page-world script (the manifest's second content entry, "world": "MAIN"). It carries no authority.
+// Replaced in Task 16; present so the bundle has all entries.
+export {}
