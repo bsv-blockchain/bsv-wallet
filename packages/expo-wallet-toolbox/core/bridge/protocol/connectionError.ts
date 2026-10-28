@@ -36,6 +36,8 @@ export interface ConnectionError {
   delivery: Delivery
   epoch?: string
   cause?: string
+  /** A mutating call whose result failed validation: the transaction it names, when it reported one. */
+  txid?: string
 }
 
 export const CONNECTION_ERROR_CODES: readonly ConnectionErrorCode[] = Object.freeze([
@@ -56,11 +58,12 @@ export function connectionError(
   code: ConnectionErrorCode,
   message: string,
   delivery: Delivery,
-  extra: { epoch?: string; cause?: string } = {}
+  extra: { epoch?: string; cause?: string; txid?: string } = {}
 ): ConnectionError {
   const e: ConnectionError = { domain: 'brc185', code, message: truncateUtf8(String(message), 4096), delivery }
   if (extra.epoch !== undefined) e.epoch = extra.epoch
   if (extra.cause !== undefined) e.cause = extra.cause
+  if (extra.txid !== undefined) e.txid = extra.txid
   return e
 }
 

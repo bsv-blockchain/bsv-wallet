@@ -101,7 +101,7 @@ export interface ArgRefusal {
 }
 
 /** Calls that can carry transaction bytes. Everything else passes untouched. */
-const SIZED_CALLS = new Set(['createAction', 'signAction', 'internalizeAction'])
+const SIZED_CALLS = new Set(['createAction', 'signAction', 'internalizeAction', 'acquireCertificate'])
 
 /**
  * XR-026: these carry only small byte-array fields (a hash, a short
@@ -132,7 +132,10 @@ const refuse = (field: string, actual: number, limit: number, why?: string): Arg
 /** Bytes represented by a hex string, or 0 for anything that is not one. */
 const hexBytes = (v: unknown): number => (typeof v === 'string' ? Math.floor(v.length / 2) : 0)
 
-const arrayBytes = (v: unknown): number => (Array.isArray(v) ? v.length : 0)
+// Typed arrays and ArrayBuffers are byte arrays too. An in-process caller can pass one, and
+// counting it as zero would let a multi-megabyte inputBEEF past the cap.
+const arrayBytes = (v: unknown): number =>
+  Array.isArray(v) ? v.length : ArrayBuffer.isView(v) || v instanceof ArrayBuffer ? v.byteLength : 0
 
 const asRecord = (v: unknown): Record<string, unknown> | null =>
   v != null && typeof v === 'object' ? (v as Record<string, unknown>) : null
@@ -175,6 +178,18 @@ export function checkWalletArgs(call: string, args: unknown, limits: WalletArgLi
 
   try {
     let total = 0
+
+    // ── acquireCertificate ──
+    // Carries only strings. Bound the sum of every field value, keyring value and URL by the
+    // aggregate, so a page cannot park megabytes in a certificate request.
+    if (call === 'acquireCertificate') {
+      const sum = (v: unknown): number => {
+        if (typeof v === 'string') return v.length
+        const r = asRecord(v)
+        return r ? Object.values(r).reduce<number>((n, x) => n + (typeof x === 'string' ? x.length : 0), 0) : 0
+      }
+      total += sum(a.fields) + sum(a.keyringForSubject) + sum(a.certifierUrl) + sum(a.privilegedReason)
+    }
 
     // ── internalizeAction ──
     if (call === 'internalizeAction') {
