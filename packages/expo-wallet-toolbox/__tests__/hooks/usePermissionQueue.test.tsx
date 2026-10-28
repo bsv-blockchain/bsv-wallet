@@ -107,3 +107,51 @@ describe('usePermissionQueue', () => {
     expect(onFocusRelinquished).not.toHaveBeenCalled()
   })
 })
+
+describe('usePermissionQueue: a clear that races the deferred focus step', () => {
+  it('does not take focus or open the modal on a queue that was emptied meanwhile', async () => {
+    let resolveFocused!: (v: boolean) => void
+    const openModal = jest.fn()
+    const onFocusRequested = jest.fn()
+    const onFocusRelinquished = jest.fn()
+    const hook = renderHook(() =>
+      usePermissionQueue<Item>({
+        openModal,
+        isFocused: () => new Promise<boolean>(r => (resolveFocused = r)),
+        onFocusRequested,
+        onFocusRelinquished
+      })
+    )
+    await act(async () => {
+      hook.result.current.enqueue({ requestID: 'a' })
+      await Promise.resolve()
+    })
+    // A withdrawal lands before isFocused() resolves.
+    await act(async () => hook.result.current.clear())
+    expect(openModal).toHaveBeenLastCalledWith(false)
+    openModal.mockClear()
+    await act(async () => resolveFocused(false))
+    expect(onFocusRequested).not.toHaveBeenCalled()
+    expect(openModal).not.toHaveBeenCalled()
+  })
+
+  it('a clear followed by a new first item opens once, for the new item', async () => {
+    const openModal = jest.fn()
+    const onFocusRequested = jest.fn()
+    const hook = renderHook(() =>
+      usePermissionQueue<Item>({
+        openModal,
+        isFocused: async () => false,
+        onFocusRequested,
+        onFocusRelinquished: jest.fn()
+      })
+    )
+    await act(async () => {
+      hook.result.current.enqueue({ requestID: 'a' })
+      hook.result.current.clear()
+      hook.result.current.enqueue({ requestID: 'b' })
+    })
+    expect(onFocusRequested).toHaveBeenCalledTimes(1)
+    expect(openModal).toHaveBeenLastCalledWith(true)
+  })
+})

@@ -34,6 +34,19 @@ import {
 const DEV_BTMS_PREVIEW = false
 
 /** How long Authorize stays inert when a connection or unverified prompt reaches the head (spec 6.4). */
+const managerTokens = new WeakMap<object, number>()
+let managerTokenCount = 0
+/** A stable small number per manager object, '-' for a prompt that has none. */
+function managerToken(manager: unknown): string {
+  if (manager === null || typeof manager !== 'object') return '-'
+  let n = managerTokens.get(manager)
+  if (n === undefined) {
+    n = ++managerTokenCount
+    managerTokens.set(manager, n)
+  }
+  return String(n)
+}
+
 const TAP_PROTECTION_MS = 700
 
 // ---------------------------------------------------------------------------
@@ -753,9 +766,15 @@ const PermissionSheet: React.FC = () => {
   // 700 ms it is at the head of the queue, so a tap aimed at the previous sheet cannot land on it.
   // Keyed on the head's identity, so a request queueing behind it does not restart the window.
   const needsTapDelay = active !== null && (active.kind === 'connection' || active.unverified === true)
-  const headKey = active ? `${active.kind}|${active.requestID}|${active.originator}|${active.description}` : ''
+  // The manager is part of the identity: a replacement manager restarts its request counters, so a
+  // re-raised prompt can repeat the kind, id, originator and description of the one before it.
+  const headKey = active
+    ? `${active.kind}|${managerToken(active.manager)}|${active.requestID}|${active.originator}|${active.description}`
+    : ''
   const [armedKey, setArmedKey] = useState('')
   useEffect(() => {
+    // A new head, or none, is never armed from an earlier head's window.
+    setArmedKey('')
     if (!needsTapDelay) return
     const timer = setTimeout(() => setArmedKey(headKey), TAP_PROTECTION_MS)
     return () => clearTimeout(timer)

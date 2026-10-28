@@ -40,6 +40,9 @@ export function usePermissionQueue<T>(opts: UsePermissionQueueOptions): Permissi
   // item is still queued without waiting for a render.
   const itemsRef = useRef<T[]>([])
   const wasOriginallyFocusedRef = useRef(false)
+  // Which "first item" the deferred focus/modal step belongs to. A clear or an advance to empty
+  // moves it on, so a step that was scheduled for a queue that has since been emptied does nothing.
+  const openGenRef = useRef(0)
 
   const replace = useCallback((next: T[]) => {
     itemsRef.current = next
@@ -47,6 +50,7 @@ export function usePermissionQueue<T>(opts: UsePermissionQueueOptions): Permissi
   }, [])
 
   const emptied = useCallback(() => {
+    openGenRef.current += 1
     openModal?.(false)
     if (!wasOriginallyFocusedRef.current) onFocusRelinquished()
   }, [openModal, onFocusRelinquished])
@@ -56,9 +60,15 @@ export function usePermissionQueue<T>(opts: UsePermissionQueueOptions): Permissi
       const wasEmpty = itemsRef.current.length === 0
       replace([...itemsRef.current, item])
       if (wasEmpty) {
-        // Schedule focus/modal on next microtask, after the state is set.
+        // Schedule focus/modal on next microtask, after the state is set. Both steps re-check
+        // that this queue is still the one that was filled: a withdrawal in between has already
+        // closed the modal and given focus back, and must not be undone.
+        const gen = ++openGenRef.current
+        const stale = () => gen !== openGenRef.current || itemsRef.current.length === 0
         Promise.resolve().then(() => {
+          if (stale()) return
           isFocused().then(currentlyFocused => {
+            if (stale()) return
             wasOriginallyFocusedRef.current = currentlyFocused
             if (!currentlyFocused) onFocusRequested()
             openModal?.(true)

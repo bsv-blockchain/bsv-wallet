@@ -647,46 +647,46 @@ describe('tap protection and connection answers', () => {
     }
   }
 
-  const mount = (queues: Record<string, unknown>) =>
-    render(
-      <WalletContext.Provider
+  const tree = (queues: Record<string, unknown>) => (
+    <WalletContext.Provider
+      value={{
+        protocolRequests: [],
+        basketRequests: [],
+        certificateRequests: [],
+        spendingRequests: [],
+        groupRequests: [],
+        btmsRequests: [],
+        mandalaRequests: [],
+        advanceProtocolQueue: jest.fn(),
+        advanceBasketQueue: jest.fn(),
+        advanceCertificateQueue: jest.fn(),
+        advanceSpendingQueue: jest.fn(),
+        advanceGroupQueue: jest.fn(),
+        advanceBtmsQueue: jest.fn(),
+        advanceMandalaQueue: jest.fn(),
+        settings: {},
+        ...queues
+      }}
+    >
+      <UserContext.Provider
         value={{
-          protocolRequests: [],
-          basketRequests: [],
-          certificateRequests: [],
-          spendingRequests: [],
-          groupRequests: [],
-          btmsRequests: [],
-          mandalaRequests: [],
-          advanceProtocolQueue: jest.fn(),
-          advanceBasketQueue: jest.fn(),
-          advanceCertificateQueue: jest.fn(),
-          advanceSpendingQueue: jest.fn(),
-          advanceGroupQueue: jest.fn(),
-          advanceBtmsQueue: jest.fn(),
-          advanceMandalaQueue: jest.fn(),
-          settings: {},
-          ...queues
+          protocolAccessModalOpen: true,
+          setProtocolAccessModalOpen: jest.fn(),
+          basketAccessModalOpen: false,
+          setBasketAccessModalOpen: jest.fn(),
+          certificateAccessModalOpen: false,
+          setCertificateAccessModalOpen: jest.fn(),
+          spendingAuthorizationModalOpen: false,
+          setSpendingAuthorizationModalOpen: jest.fn()
         }}
       >
-        <UserContext.Provider
-          value={{
-            protocolAccessModalOpen: true,
-            setProtocolAccessModalOpen: jest.fn(),
-            basketAccessModalOpen: false,
-            setBasketAccessModalOpen: jest.fn(),
-            certificateAccessModalOpen: false,
-            setCertificateAccessModalOpen: jest.fn(),
-            spendingAuthorizationModalOpen: false,
-            setSpendingAuthorizationModalOpen: jest.fn()
-          }}
-        >
-          <ExchangeRateContext.Provider value={{}}>
-            <PermissionSheet />
-          </ExchangeRateContext.Provider>
-        </UserContext.Provider>
-      </WalletContext.Provider>
-    )
+        <ExchangeRateContext.Provider value={{}}>
+          <PermissionSheet />
+        </ExchangeRateContext.Provider>
+      </UserContext.Provider>
+    </WalletContext.Provider>
+  )
+  const mount = (queues: Record<string, unknown>) => render(tree(queues))
   const press = async (index: 0 | 1) => {
     const handler = (globalThis as any).__presses.at(-2 + index) as () => unknown
     await act(async () => {
@@ -725,6 +725,49 @@ describe('tap protection and connection answers', () => {
     await press(1)
     await advanceBy(450)
     expect(manager.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
+  })
+
+  it('a re-raised prompt with the same identity but another manager is locked again', async () => {
+    const mk = () => ({
+      grantPermission: jest.fn().mockResolvedValue(undefined),
+      denyPermission: jest.fn().mockResolvedValue(undefined)
+    })
+    const first = mk()
+    const second = mk()
+    const request = (manager: unknown) => ({
+      protocolRequests: [
+        { requestID: 'p1', protocolSecurityLevel: 2, protocolID: 'x y z', originator: UNVERIFIED, manager }
+      ]
+    })
+    const view = mount(request(first))
+    await advanceBy(750)
+    // The first prompt is withdrawn and the replacement manager raises one with the same ids.
+    view.rerender(tree(request(second)))
+    await press(1)
+    await advanceBy(450)
+    expect(second.grantPermission).not.toHaveBeenCalled()
+    await advanceBy(300)
+    await press(1)
+    await advanceBy(450)
+    expect(second.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
+    expect(first.grantPermission).not.toHaveBeenCalled()
+  })
+
+  it('an empty queue forgets the armed window', async () => {
+    const manager = { grantPermission: jest.fn().mockResolvedValue(undefined), denyPermission: jest.fn() }
+    const request = {
+      protocolRequests: [
+        { requestID: 'p1', protocolSecurityLevel: 2, protocolID: 'x y z', originator: UNVERIFIED, manager }
+      ]
+    }
+    const view = mount(request)
+    await advanceBy(750)
+    view.rerender(tree({}))
+    await advanceBy(10)
+    view.rerender(tree(request))
+    await press(1)
+    await advanceBy(450)
+    expect(manager.grantPermission).not.toHaveBeenCalled()
   })
 
   it('a verified prompt is not delayed', async () => {
