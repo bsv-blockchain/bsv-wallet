@@ -71,6 +71,15 @@ describe('demo page', () => {
     expect(els.log.textContent).toMatch(/ERR getVersion -> Error: not connected/)
   })
 
+  it('a plain wallet error object is logged with its code and message', async () => {
+    const { els, client } = setup()
+    ;(client.invoke as jest.Mock).mockRejectedValueOnce({ code: 6, message: 'Insufficient funds' })
+    await els.connect.click()
+    await els.createAction.click()
+    expect(els.log.textContent).toMatch(/ERR createAction -> 6: Insufficient funds/)
+    expect(els.log.textContent).not.toContain('[object Object]')
+  })
+
   it('createAction button sends the marker in the description', async () => {
     const { els, calls } = setup()
     await els.connect.click()

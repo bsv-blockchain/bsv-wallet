@@ -190,3 +190,63 @@ Adding the `bridge-race-helper` executable target makes SwiftPM's auto scheme `B
 - Plugin fix found by HBUILD: apple-targets writes the appex `OTHER_LDFLAGS = (-framework, SafariServices)` without `$(inherited)`, which drops the Pods xcconfig's `-ObjC -framework BsvBridgeQueue`; the appex link failed with undefined `BsvBridgeQueue` symbols (the Task 16 build had linked it). `plugin/index.js` now prepends `$(inherited)` through `withXcodeProjectBeta` (apple-targets' own project mod, registered before `withAppleTargets` so it runs after it). Pinned by `__tests__/plugin/linkerFlags.test.js`; verified in a regenerated pbxproj and a clean `xcodebuild` (BUILD SUCCEEDED).
 - Baselines with the kit linked: HOST `tsc` shows 15 errors, 12 more than the recorded 3, all because `link-kit.sh` replaces the host's npm toolbox with this branch's 0.21.0 (`keyArt`, `purchase`, `StorePurchase`, `title` props that a newer published toolbox has); none is in a file Task 20 touched. HOST jest: 3 failed suites (`handleChange`, `handlePurchaseRegistry`, `design`; 7 tests) for the same reason, all other suites pass, including the four new ones.
 - Simulator: app launched from the Debug build on the iPhone 18 Pro through Metro 8082; the guide is visible in Settings (`docs/superpowers/evidence/ios-kit/04-guide.png`) and on Home.
+
+## Task 22 notes (integration on the Simulator)
+
+Run 2026-10-28 on the iPhone 18 Pro (iOS 27.0), HOST Debug build through Metro 8082, demo page on `http://localhost:3000` (development profile). Evidence screenshots are in `docs/superpowers/evidence/ios-kit/` (`10` to `21`; `15-origin-refused-before-fix.png` shows finding 1).
+
+### Suites (step 1)
+
+| Suite | Result |
+| --- | --- |
+| `TSC` (WT) | 0 errors, equal to the baseline |
+| `TBJ` (whole toolbox) | 388 suites passed, 1 skipped, 6836 tests passed, 9 skipped, no `--forceExit` |
+| `KJ` (whole kit) | 30 suites, 281 tests passed (one test added in this task) |
+| `SW` | 73 XCTest cases, 0 failures (the Swift Testing runner reports 0 tests) |
+| `XC` | `-scheme BsvBridgeQueue-Package` (Task 9 note): 69 tests, 0 failures, `** TEST SUCCEEDED **` |
+| `HJ` (HOST) | 23 of 27 suites pass. Failures: `handleChange`, `handlePurchaseRegistry`, `design` (the same published-toolbox mismatch as the Task 20 note) and `isolation.test.js`'s first test, which timed out at jest's 5 s while the machine was loaded (it passes alone). |
+| `HTSC` (HOST) | 15 errors, the Task 20 figure (3 baseline plus 12 from linking this branch's toolbox) |
+
+### E2E (step 2), per item
+
+| # | Result | Evidence and notes |
+| --- | --- | --- |
+| 1 | pass | `10-describe.png`, `11-connect.png`: `describe` returns the descriptor and `connect` returns an epoch with the app never opened. Needs Safari's per-site grant (see Findings). |
+| 2 | pass | `12-local-answers.png`: `getVersion` (`bsv-wallet-bridge-1`) and `isAuthenticated` (`true`) with no prompt and no app wake. |
+| 3 | partly | Safari's "Open this page in Bitcoin SV Wallet?" appeared on `createAction` and Open foregrounded the app (seen in three runs; the one screenshot kept was overwritten, so there is no file), `14-connect-sheet.png` (Connect sheet: the manifest groups as a bullet list, no toggles, "Verified by Safari", Don't connect / Connect). Not reached: the payment sheet, the done screen with "Sent to localhost" and "Payment approved", and the page's success. The Simulator wallet holds $0.00 on Mainnet and this task may not move funds, so after Connect the `createAction` failed on funds before any sheet (`19-createaction-unfunded.png`; the page showed `[object Object]`, fixed in the demo in this task and now logs the wallet error's code and message). Device gate: run it with a funded wallet. |
+| 4 | not run | Needs a successful first `createAction`. `connected=1` in the `__DEV__` mirror log after Connect shows the grant exists; the second call without a sheet is the unverified part. |
+| 5 | partly | `20-getpublickey-connected.png`: for a connected site `getPublicKey({identityKey:true})` answered at once, no app wake (the app stayed backgrounded). Not checked: equality with the app's displayed identity key, and the unconnected-site path through the sheet. |
+| 6 | pass | `16-dont-connect.png`, `17-decline-backoff.png`: Don't connect leaves `mirror written, connected=0`, the page gets `USER_CANCELLED` / `not-sent` ("The connection was declined"), and a call 4 s later gets `RESOURCE_LIMIT` / `not-sent` ("This site was just declined"), the 30 s backoff. A call after the backoff raised the sheet again and Connect gave `connected=1`. |
+| 7 | not run | Cold start. |
+| 8 | not run | Wallet locked. |
+| 9 | not run | Tab close and reopen. |
+| 10 | not run | Cancel on Safari's prompt. |
+| 11 | pass | `21-csp-strict.png`: `http://localhost:3000/?csp=strict` (`script-src 'self'`) still announces and `describe` succeeds, so the primary `world: MAIN` injection works under a strict page CSP (S3 stands). |
+| 12 | not run | Logout and Delete Wallet. |
+| 13 | pass | Markers `BRIDGE-MARKER-af28ddb9c4ac`, `-3bcce18bc…` and `-44fcbcde3b68` were sent in `createAction` descriptions. `grep -r` over the App Group container and over every file modified under the Simulator's data directory in the last 30 minutes (352 files, which includes the extension's `PluginKitPlugin` and Safari's `Library/WebKit` data) found none. The container held 10 files, all sealed. The debug `rawBytes()` check is the Swift `MarkerTests` (passes in `SW`). |
+| 14 | not run | The iOS 18.6 runtime has only iPad Simulators, none booted. S3 on 18.6 (`"world": "MAIN"`) therefore stays unverified; the script-tag fallback is built and tested (`bundle.test.ts`). |
+
+### Step 3 (two kit builds on one Simulator)
+
+Not run: a second HOST variant (different `ios.bundleIdentifier` and `extensionName`) needs a second prebuild, `pod install` and a roughly 15 minute `xcodebuild`, and the time went into getting the first build's flows working. What is covered without it: `ids.test.js` (two bundle ids never collide in any derived value), Swift tests (each queue is keyed by its own App Group and keychain group), and the plugin snapshot. The multi-wallet E2E (two announcements distinguishable by `continuityKey`, requests reaching only the chosen wallet) remains to do.
+
+### Findings from the run
+
+1. **HOST did not set `allowLocalhostHttp`.** The extension's development profile attested `http://localhost:3000`, the app then answered `PROTOCOL_ERROR` / "Origin refused" because the toolbox gates its own copy of the rule on `configureToolbox({ browserBridge: { allowLocalhostHttp } })` and `__DEV__`. Fixed in HOST (`e00f5fa`, `browserBridge: { allowLocalhostHttp: __DEV__ }`) and documented in the README. The Task 20 tests did not catch it because no test sends a real localhost origin through the app.
+2. **Safari's per-site grant.** After `simctl terminate` of Safari (and a relaunch) the page menu showed "Bitcoin SV Wallet: Permission Required". Until the grant was given again (tap the item, "Always Allow...", "Always Allow on Every Website") every `describe` ended with `rejected announcement: describe deadline` and the appex was never launched (no `SafariBridge` process in the log). Not a bug in the kit, but an easy way to misread a failure; the setup guide covers it. Do not terminate Safari between E2E steps.
+3. **Cold `describe`** misses the 1000 ms controller deadline whenever the appex is cold (S2: 1.7 to 1.95 s); the next attempt succeeds. Unchanged from S2; a controller-side retry belongs to project 3.
+4. **Demo error text.** The page printed `[object Object]` for a wallet error object. Fixed in `demo/demo.ts` with a test.
+5. **App relaunch needs Metro.** The Debug app shows its bundle only while Metro runs on 8082 in the HOST worktree; the mirror log line `[safari-bridge] mirror written, connected=N` is the `__DEV__` signal used for items 5 and 6.
+
+## Device gates for the owner
+
+1. Keychain access-group sharing between the app and the extension under real signing (the Simulator does not enforce entitlements).
+2. Data-protection class: the sealed files are readable after first unlock and not before; the appex answers `CONFIGURATION_ERROR` / `not-sent` before first unlock, never hangs.
+3. The keychain upgrade over real Vault and secure-store items (spec 6.13 item 9). **Release blocker.**
+4. Real "Always Allow" flows on iOS 17, 18 and current, including the grant being dropped when Safari is restarted.
+5. Private Browsing (extension enabled there; separate continuity key context).
+6. Face ID with a wake from a locked phone.
+7. Cold-appex `sign` latency against the 1 s budget, and the payload rows of S2 (48 KiB and 1 MiB) on the iPhone.
+8. EAS signing of the extension, and registering `org.bsvblockchain.wallet.safari` and the App Group capability for both identifiers in the developer account.
+9. A TestFlight build.
+10. The unrun E2E items above: 3 (with a funded wallet: payment sheet, done screen, "Sent to localhost", return by the ◀ Safari chip, success on the page), 4, 7 to 10, 12, 14, and step 3 (two kit builds).

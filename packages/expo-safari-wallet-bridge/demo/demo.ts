@@ -48,7 +48,14 @@ export function actionDescription(label: string, marker: string): string {
 
 const describeError = (e: unknown): string => {
   if (isConnectionError(e)) return `${e.code} (delivery ${e.delivery}): ${e.message}`
-  return e instanceof Error ? `${e.name}: ${e.message}` : String(e)
+  if (e instanceof Error) return `${e.name}: ${e.message}`
+  // A wallet error arrives as a plain { code, message } object, which String() would print as [object Object].
+  if (typeof e === 'object' && e !== null) {
+    const { code, message } = e as { code?: unknown; message?: unknown }
+    if (typeof message === 'string') return typeof code === 'undefined' ? message : `${String(code)}: ${message}`
+    return JSON.stringify(e)
+  }
+  return String(e)
 }
 
 export interface DemoOptions {

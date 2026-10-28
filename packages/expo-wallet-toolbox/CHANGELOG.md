@@ -12,6 +12,25 @@
   methods, the bridge's refusals and the recorded deviations from BRC-185 / BRC-219; a snapshot
   test keeps it deliberate.
 
+### Browser bridge: seams for a native transport (iOS Safari kit)
+
+- **Exports.** The transport API (inbox processor, store contract, origin constants) is exported for
+  a native transport to import, the contract suite `__tests__/bridge/inboxContract` runs against any
+  store, and the origin and permission-policy constants moved into a pure module so
+  an extension bundle can import them without the app's config.
+- **Events gap and retention.** The inbox event log keeps at most 1024 events and 24 hours; a reader
+  that asks after a trimmed cursor gets an explicit gap instead of silence. `flushEvents()` writes
+  pending events before a transport reads them. The store contract's raw-bytes hook is owned by the
+  harness, not the adapter.
+- **`onPromptRaised`** transport hook: fires when a wallet prompt is raised for a binding, so a
+  transport can tell a call needed approval.
+- **Merged Connect sheet.** One sheet lists the site's manifest groups (no toggles) and Connect mints
+  every listed item at once; the later group check raises no second sheet. "Don't connect" mints and
+  records nothing and starts a 30 second backoff (`RESOURCE_LIMIT`, "This site was just declined").
+  Unattested origins keep the plain sheet. New copy in all 12 locales (`bridge_*` keys).
+- **`usePermissionSheetBusy()`** (from `PermissionSheet`): true while a permission sheet is open or
+  queued, so a done screen never covers one.
+
 ## 0.21.0
 
 ### Breaking
