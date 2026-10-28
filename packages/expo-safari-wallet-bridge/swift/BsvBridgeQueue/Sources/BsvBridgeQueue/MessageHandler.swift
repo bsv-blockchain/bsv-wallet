@@ -23,7 +23,7 @@ private struct HandlerError: Error {
 }
 
 private let knownOps: Set<String> = [
-  "sync", "identity", "sign", "stage", "stageBegin", "stageChunk", "stageEnd", "withdraw", "results", "ack", "nudge"
+  "sync", "identity", "sign", "stage", "stageBegin", "stageChunk", "stageEnd", "withdraw", "results", "ack", "nudge", "echo"
 ]
 
 /// Default and bounds for a `results` part (the messaging channel's size is measured by spike S2).
@@ -190,6 +190,12 @@ private func dispatch(_ op: String, _ r: [String: Any], _ env: BridgeEnv) throws
     guard let ids = r["ids"] as? [String] else { throw HandlerError.bad("ids must be a list of strings") }
     ids.forEach { store.ack(id: $0) }
     return [:]
+
+  case "echo":  // SPIKE ONLY (Task 13): returns the data it was given, optionally after a delay
+    if let delay = r["delayMs"] as? NSNumber, delay.doubleValue > 0 {
+      Thread.sleep(forTimeInterval: min(delay.doubleValue, 60000) / 1000)
+    }
+    return ["data": r["data"] ?? "", "size": ((r["data"] as? String) ?? "").utf8.count]
 
   default:  // nudge
     env.nudge()
