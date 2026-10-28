@@ -90,6 +90,12 @@ export interface TransportHandle {
 /** What the provider attaches: the way to withdraw prompts and pending consent for a departed wallet. */
 export interface BridgeHostHooks {
   withdrawPrompts(oldManagers: SigningPolicyPermissionsManager[]): void
+  /**
+   * True when the install may have a wallet that has not been built yet (a cold start). The
+   * snapshot is then `building` from attach, never `none`, until the first publish reports what
+   * the provider actually has (spec 6.15 item 9).
+   */
+  hasWallet?: boolean
 }
 
 const REVISION_KEY = 'bsv-bridge-wallet-revision'
@@ -313,6 +319,7 @@ export function getTransport(id: string): TransportRegistration | undefined {
  */
 export function attachBridgeHost(hooks: BridgeHostHooks): () => void {
   rt.hooks = hooks
+  if (hooks.hasWallet === true && rt.snapshot.readiness === 'none') setSnapshot({ readiness: 'building' })
   unregisterTeardown?.()
   const state = rt
   unregisterTeardown = registerSessionTeardown(['logout', 'profile', 'network', 'rebuild'], reason => {

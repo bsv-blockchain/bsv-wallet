@@ -132,6 +132,39 @@ describe('bridge runtime', () => {
     expect(getBridgeSnapshot().walletRevision).toBe('1')
   })
 
+  it('walletRevision bumps on profile, network and rebuild manager replacement', async () => {
+    await start()
+    publish(publication())
+    expect(getBridgeSnapshot().walletRevision).toBe('0')
+    // The three replacement causes all end in the provider publishing a new manager object,
+    // whatever teardown preceded it; the revision is install-wide and monotonic.
+    for (const [i, reason] of (['profile', 'network', 'rebuild'] as const).entries()) {
+      runSessionTeardown(reason)
+      publish(publication({ attestedManager: manager(), network: reason === 'network' ? 'test' : 'main' }))
+      expect(getBridgeSnapshot().walletRevision).toBe(String(i + 1))
+    }
+    expect(await AsyncStorage.getItem('bsv-bridge-wallet-revision')).toBe('3')
+  })
+
+  it('attach on an install with a wallet is building from attach until first publish, never none', async () => {
+    await initBridgeRuntime()
+    const seen: string[] = []
+    onSnapshotChange(s => seen.push(s.readiness))
+    detach = attachBridgeHost({ withdrawPrompts, hasWallet: true })
+    expect(getBridgeSnapshot().readiness).toBe('building')
+    expect(seen).not.toContain('none')
+    publish(publication({ readiness: 'building' }))
+    expect(getBridgeSnapshot().readiness).toBe('building')
+    publish(publication({ readiness: 'ready' }))
+    expect(getBridgeSnapshot().readiness).toBe('ready')
+    expect(seen).not.toContain('none')
+  })
+
+  it('attach without a wallet stays none', async () => {
+    await start()
+    expect(getBridgeSnapshot().readiness).toBe('none')
+  })
+
   it('reads the persisted revision on the next launch and does not bump on its first build', async () => {
     await AsyncStorage.setItem('bsv-bridge-wallet-revision', '7')
     await start()
