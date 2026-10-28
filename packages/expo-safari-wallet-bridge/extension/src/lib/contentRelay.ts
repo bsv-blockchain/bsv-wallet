@@ -55,6 +55,8 @@ export interface ContentDeps {
     connect(info?: { name?: string }): BrowserPort
   }
   timers?: { setTimeout(fn: () => void, ms: number): unknown; clearTimeout(t: any): void }
+  /** This wallet's channel on the shared window (see `ProviderMainOptions.channel`); defaults to `BRIDGE_SCHEME`. */
+  channel?: string
   /** Transport failures (the background was unloaded mid-call) are retried this many times in total. */
   transportAttempts?: number
 }
@@ -84,6 +86,7 @@ export function createContentRelay(deps: ContentDeps): ContentRelay {
   const { win, runtime } = deps
   const timers = deps.timers ?? { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: t => clearTimeout(t) }
   const attempts = Math.max(1, deps.transportAttempts ?? 3)
+  const channel = deps.channel ?? (typeof BRIDGE_SCHEME === 'string' ? BRIDGE_SCHEME : '')
 
   let pagePort: ContentPort | undefined
   let bgPort: BrowserPort | undefined
@@ -301,11 +304,11 @@ export function createContentRelay(deps: ContentDeps): ContentRelay {
   // ---- window wiring ---------------------------------------------------------------------------------------
 
   function hello(): void {
-    win.postMessage({ type: MSG_CONTENT_READY }, '*')
+    win.postMessage({ type: MSG_CONTENT_READY, ch: channel }, '*')
   }
 
   function onWindowMessage(e: any): void {
-    if (e.source !== win || !isRecord(e.data) || disposed) return
+    if (e.source !== win || !isRecord(e.data) || e.data.ch !== channel || disposed) return
     if (e.data.type === MSG_MAIN_READY) {
       if (!pagePort) hello()
     } else if (e.data.type === MSG_PORT) {

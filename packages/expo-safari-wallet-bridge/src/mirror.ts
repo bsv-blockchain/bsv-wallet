@@ -111,7 +111,9 @@ export function createMirrorWriter(deps: MirrorWriterDeps): MirrorWriter {
       const bytes = Utils.toBase64(Utils.toArray(JSON.stringify(mirror), 'utf8'))
       await deps.native.writeMirror(bytes)
       if (typeof __DEV__ !== 'undefined' && __DEV__)
-        console.log(`[safari-bridge] mirror written, connected=${mirror.connected.length}`)
+        console.log(
+          `[safari-bridge] mirror written, readiness=${mirror.snapshot.readiness}, connected=${mirror.connected.length}`
+        )
     } catch (e) {
       // After a reset the module rejects every write; that is the intended end state, not a warning.
       if (!disabled) console.warn('[safari-bridge] mirror write failed', e)

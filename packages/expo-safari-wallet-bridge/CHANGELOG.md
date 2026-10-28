@@ -11,4 +11,6 @@
   toast) and `SafariSetupGuide`.
 - Config plugin `withSafariBridge`: extension target, entitlements, URL type, `BSVBridge*` Info.plist
   keys, bundled extension JS, Podfile wiring. Everything is derived from `ios.bundleIdentifier`.
+- Page-world and content scripts pair over a channel named by the wallet's own scheme, so several wallets'
+  extensions can share one page without crossing their message ports.
 - Stand-in BRC-185 page client (`src/testing/pageClient`) and the Simulator demo page (`demo/`).

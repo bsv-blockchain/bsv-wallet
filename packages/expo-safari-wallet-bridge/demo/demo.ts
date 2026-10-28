@@ -40,6 +40,13 @@ export const randomMarker = (rand: (n: number) => Uint8Array): string =>
   'BRIDGE-MARKER-' + Array.from(rand(6), b => b.toString(16).padStart(2, '0')).join('')
 
 /** BRC-100 limits a description to 50 characters; the marker always wins over the label. */
+/** Page client options from `?deadline=<ms>` (100 to 30000); anything else keeps the BRC-185 default. */
+export function describeOptions(search: string | undefined): { describeDeadlineMs?: number } {
+  const raw = new URLSearchParams(search ?? '').get('deadline')
+  const ms = raw === null ? NaN : Number(raw)
+  return Number.isFinite(ms) && ms >= 100 && ms <= 30000 ? { describeDeadlineMs: ms } : {}
+}
+
 export function actionDescription(label: string, marker: string): string {
   const trimmed = label.trim()
   const both = trimmed ? `${trimmed} ${marker}` : marker
@@ -99,7 +106,9 @@ export function wireDemo({ doc, client, rand, now = () => new Date() }: DemoOpti
     },
     async connect() {
       if (!providers.length) await actions.describe()
-      const provider = providers[0]
+      // With two wallets announcing, the optional field picks the one whose name contains the text.
+      const want = (doc.getElementById('wallet')?.value ?? '').trim().toLowerCase()
+      const provider = want ? providers.find(p => p.descriptor.name.toLowerCase().includes(want)) : providers[0]
       if (!provider) throw new Error('no wallet announced')
       connection = await client.connect(provider, reason => log('info', `closed: ${reason}`))
       return { epoch: connection.epoch }
@@ -136,7 +145,9 @@ if (typeof document !== 'undefined' && document.getElementById('demo-root')) {
   const w = window as unknown as PageClientWindow
   wireDemo({
     doc: document as unknown as DemoDocument,
-    client: createPageClient(w),
+    // `?deadline=<ms>` widens the describe deadline: with two wallets announcing at once on a loaded
+    // Simulator the slower cold extension otherwise misses the 1000 ms budget (spike S2). Test tool only.
+    client: createPageClient(w, describeOptions((w as unknown as { location: { search?: string } }).location.search)),
     rand: n => crypto.getRandomValues(new Uint8Array(n))
   })
 }

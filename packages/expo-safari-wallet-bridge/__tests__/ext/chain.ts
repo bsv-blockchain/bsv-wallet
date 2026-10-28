@@ -248,7 +248,7 @@ export function createWorld(appexInit: Partial<FakeAppex> = {}, opts: { scheme?:
       const replies: any[] = []
       const ch = new MessageChannel()
       ch.port1.onmessage = e => replies.push(e.data)
-      win.postMessage({ type: 'bsv-bridge:port' }, '*', [ch.port2])
+      win.postMessage({ type: 'bsv-bridge:port', ch: '' }, '*', [ch.port2])
       let rid = 0
       const raw: RawFrame = {
         win,

@@ -2,7 +2,7 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { BUTTONS, actionDescription, wireDemo, type DemoElement } from '../demo/demo'
+import { BUTTONS, actionDescription, describeOptions, wireDemo, type DemoElement } from '../demo/demo'
 import type { PageClient } from '../src/testing/pageClient'
 import { buildExtension } from '../plugin/buildExtension'
 import { deriveIds } from '../plugin/ids'
@@ -87,6 +87,10 @@ describe('demo page', () => {
     const args = calls.find(c => c[0] === 'createAction')![1] as { description: string }
     expect(args.description).toBe('Demo payment BRIDGE-MARKER-abababababab')
     expect(els.log.textContent).toContain('BRIDGE-MARKER-abababababab')
+    expect(describeOptions('?deadline=3000')).toEqual({ describeDeadlineMs: 3000 })
+    expect(describeOptions('?deadline=5')).toEqual({})
+    expect(describeOptions('?deadline=abc')).toEqual({})
+    expect(describeOptions(undefined)).toEqual({})
     expect(actionDescription('x'.repeat(60), 'BRIDGE-MARKER-abababababab')).toBe('BRIDGE-MARKER-abababababab')
   })
 

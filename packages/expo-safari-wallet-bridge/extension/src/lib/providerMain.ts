@@ -4,7 +4,7 @@
  * script over one `MessagePort`. It never touches `window.CWI` and never announces unsolicited.
  *
  * The handshake with the content script is order independent: each side posts a hello when it starts, and the
- * first `content-ready` this side hears is answered with a port (once; later ones are ignored, so a page that
+ * first `content-ready` of its own channel this side hears is answered with a port (once; later ones are ignored, so a page that
  * forges the hello can only talk to itself).
  */
 import {
@@ -48,6 +48,12 @@ export interface PagePort {
 }
 
 export interface ProviderMainOptions {
+  /**
+   * Names this wallet's script pair on the shared window. Two wallets' extensions run in the same page, and
+   * both page-world scripts hear both content scripts' hellos: without a channel a page-world script answers
+   * another wallet's hello and the two wallets' ports cross. Defaults to the `BRIDGE_SCHEME` build constant.
+   */
+  channel?: string
   /** How long a call waits for the content script's port before failing (default 3000 ms). */
   portWaitMs?: number
   setTimeout?: (fn: () => void, ms: number) => unknown
@@ -92,6 +98,7 @@ export function createProviderMain(win: ProviderWindow, opts: ProviderMainOption
   const setT = opts.setTimeout ?? ((fn, ms) => setTimeout(fn, ms))
   const clearT = opts.clearTimeout ?? ((t: any) => clearTimeout(t))
   const portWaitMs = opts.portWaitMs ?? 3000
+  const channel = opts.channel ?? (typeof BRIDGE_SCHEME === 'string' ? BRIDGE_SCHEME : '')
 
   let port: PagePort | undefined
   let disposed = false
@@ -154,10 +161,18 @@ export function createProviderMain(win: ProviderWindow, opts: ProviderMainOption
   }
 
   function onWindowMessage(e: any): void {
-    if (e.source !== win || !isRecord(e.data) || e.data.type !== MSG_CONTENT_READY || port || disposed) return
+    if (
+      e.source !== win ||
+      !isRecord(e.data) ||
+      e.data.type !== MSG_CONTENT_READY ||
+      e.data.ch !== channel ||
+      port ||
+      disposed
+    )
+      return
     const ch = new win.MessageChannel()
     attach(ch.port1)
-    win.postMessage({ type: MSG_PORT }, '*', [ch.port2])
+    win.postMessage({ type: MSG_PORT, ch: channel }, '*', [ch.port2])
   }
 
   function withPort<T>(send: (p: PagePort) => Promise<T>): Promise<T> {
@@ -283,7 +298,7 @@ export function createProviderMain(win: ProviderWindow, opts: ProviderMainOption
   win.addEventListener(EVENT_REQUEST_PROVIDER, onRequestProvider)
   win.addEventListener('message', onWindowMessage)
   // No unsolicited announce: this only tells our content script that we are here.
-  win.postMessage({ type: MSG_MAIN_READY }, '*')
+  win.postMessage({ type: MSG_MAIN_READY, ch: channel }, '*')
 
   return {
     handle,
