@@ -11,6 +11,7 @@ import {
   type DispatchRequest,
   type Outcome
 } from '../../core/bridge/dispatcher'
+import { connectionError } from '../../core/bridge/protocol/connectionError'
 import { findTokenModuleVariant, isValidVersionString } from '../../core/bridge/policy'
 import { BRIDGE_METHODS } from '../../core/bridge/protocol/methods'
 import {
@@ -619,6 +620,60 @@ describe('dispatcher: re-check and call', () => {
     ;(b as any).walletRevision = '99'
     const out = await send(b, 'getHeight')
     expect(connErr(out)).toMatchObject({ code: 'PROVIDER_CHANGED', delivery: 'not-sent', cause: 'account-changed' })
+    expect(attested.wallet.getHeight).not.toHaveBeenCalled()
+  })
+
+  it('beforeCall (an inbox claim) runs before the re-check and the wallet call', async () => {
+    const b = connect()
+    const order: string[] = []
+    attested.wallet.getHeight.mockImplementation(async () => {
+      order.push('wallet')
+      return { height: 1 }
+    })
+    const out = await send(
+      b,
+      'getHeight',
+      {},
+      {
+        beforeCall: async () => {
+          order.push('claim')
+        }
+      }
+    )
+    expect(out).toEqual({ ok: true, result: { height: 1 } })
+    expect(order).toEqual(['claim', 'wallet'])
+  })
+
+  it('a revision change during the claim is PROVIDER_CHANGED, wallet not called', async () => {
+    const b = connect()
+    const out = await send(
+      b,
+      'getHeight',
+      {},
+      {
+        beforeCall: async () => {
+          // The wallet is replaced while the claim is in flight, with no close event for this binding.
+          publishAll('ready', { attested: fakeManager() })
+        }
+      }
+    )
+    expect(connErr(out)).toMatchObject({ code: 'PROVIDER_CHANGED', delivery: 'not-sent', cause: 'account-changed' })
+    expect(attested.wallet.getHeight).not.toHaveBeenCalled()
+  })
+
+  it('a claim that refuses with a connection error settles with it, wallet not called', async () => {
+    const b = connect()
+    const out = await send(
+      b,
+      'getHeight',
+      {},
+      {
+        beforeCall: async () => {
+          throw connectionError('PROTOCOL_ERROR', 'Record changed', 'not-sent')
+        }
+      }
+    )
+    expect(connErr(out)).toMatchObject({ code: 'PROTOCOL_ERROR', delivery: 'not-sent' })
     expect(attested.wallet.getHeight).not.toHaveBeenCalled()
   })
 

@@ -53,6 +53,13 @@ export interface DispatchRequest {
   method: string
   args: unknown
   sizeBytes: number
+  /**
+   * Awaited once, after consent and before the final readiness wait and the synchronous re-check.
+   * The durable inbox claims its record here (spec 6.8): the claim is the at-most-once point, and
+   * the re-check then runs after it. A rejection with a `ConnectionError` settles the request with
+   * it; the wallet is not called.
+   */
+  beforeCall?: () => Promise<void>
 }
 
 export type Outcome =
@@ -380,6 +387,16 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
             )
           }
           getBindingRegistry().markConsented(binding.epoch, approved.originator)
+        }
+      }
+
+      if (req.beforeCall) {
+        try {
+          await untilClosed(req.beforeCall())
+        } catch (e) {
+          if (e instanceof Early) throw e
+          if (isConnectionError(e)) throw refuse({ ...e, epoch: e.epoch ?? binding.epoch })
+          throw e
         }
       }
 
