@@ -5,5 +5,8 @@ let package = Package(
   name: "BsvBridgeQueue",
   platforms: [.iOS(.v15), .macOS(.v13)],
   products: [.library(name: "BsvBridgeQueue", targets: ["BsvBridgeQueue"])],
-  targets: [.target(name: "BsvBridgeQueue")]
+  targets: [
+    .target(name: "BsvBridgeQueue"),
+    .testTarget(name: "BsvBridgeQueueTests", dependencies: ["BsvBridgeQueue"])
+  ]
 )
