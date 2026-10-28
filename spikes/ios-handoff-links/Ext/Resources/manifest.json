@@ -3,8 +3,33 @@
   "name": "Handoff Spike",
   "version": "1.0",
   "description": "spike",
-  "background": { "scripts": ["background.js"], "persistent": false },
-  "action": { "default_popup": "popup.html", "default_title": "Handoff" },
-  "permissions": ["tabs"],
-  "host_permissions": ["https://deggen.ngrok.app/*"]
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "persistent": false
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Handoff"
+  },
+  "permissions": [
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://deggen.ngrok.app/*",
+    "http://localhost/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "https://deggen.ngrok.app/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }

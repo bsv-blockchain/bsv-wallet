@@ -35,3 +35,27 @@ Physical devices; real provisioning; iOS 17/18; iPad/macOS; Private Browsing/Loc
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+
+## Page-triggered handoff (no popup tap)
+
+Question: can the extension open `bsvbridgespike://` when the trigger is a web page request, with no tap on the extension popup? Same simulator setup (iPhone 18 Pro, iOS 27.0). Added `Ext/Resources/content.js` (content script, matches `http://localhost/*` and the ngrok host), a `/t` test page in `server/server.js`, and a `tabs.create` / `tabs.update` handler in `background.js`. Page to content script is `window.postMessage`, content script to background is `runtime.sendMessage`. Evidence is `evidence/13` to `20`.
+
+| Variant | Trigger path | System prompt | App opened (`onOpenURL`) | Tabs afterwards | Errors |
+|---|---|---|---|---|---|
+| A | page click, postMessage, content script, sendMessage, background `tabs.create(scheme)` | Yes: "Open this page in HandoffSpike?" on a new blank tab | Yes, on Open | Original page tab survives; the blank tab closes after Open; Cancel strands a blank Start Page tab | None |
+| B | same as A, fired from a 3 s `setTimeout` armed by a tap | Yes, same prompt | Yes (not clicked through in this run; run B0 did) | same as A | None. `navigator.userActivation.isActive` was still true (sticky activation from the arming tap), so this is not a clean no-gesture test |
+| B0 | same as A, auto-fired 3 s after load, no touch at all | Yes, same prompt (`userActivation.isActive=false` in the content script) | Yes, on Open | same as A | None |
+| C1 | content script sets `location.href = scheme` inside the message event | Yes, but a different one: "Open in HandoffSpike?" over the existing page | Yes, on Open | No new tab; page and tab stay | None |
+| C2 | content script creates and clicks `<a href=scheme>` | Yes, same "Open in HandoffSpike?" prompt | Cancel tested: page intact | No new tab | None |
+| D | background `tabs.update(sender.tab.id, {url: scheme})` | Yes: "Open this page in HandoffSpike?", shown over the original page | Yes, on Open | No extra tab at all; original page survives, also after Cancel | None |
+
+Other notes:
+- Nothing is silent. Every variant shows an OS confirmation, whatever the gesture state. Absence of a user gesture does not block it (B0), so the prompt is the only guard.
+- Every variant tried (A, C1, C2, D) was triggered by a trusted tap on the page. Only B0 had no gesture.
+- D and C1/C2 are the cleanest. Neither creates a blank tab, and Cancel leaves the user on the original page instead of a stranded Start Page tab. After Open, the OS "Safari" status-bar chip returns to the same page.
+- Permissions: the content script did not run until the user granted site access. In Safari the "aA" menu then the extension entry gives: "Handoff Spike would like to access localhost" with "Allow for One Day", "Always Allow...", "Cancel" (evidence/13). I picked "Allow for One Day"; I did not test "Always Allow" or "Allow on Every Website". `host_permissions` in the manifest does not skip this prompt. Messaging worked as soon as the content script was injected, with no extra permission for `runtime.sendMessage` or `tabs.update` on the sender tab (the manifest has the `tabs` permission).
+- Not tested: iPhone physical device, `Always Allow`, B0 with C1 or D, iOS 17/18, Private Browsing.
+
+Recommendation: for a page-initiated approval, use a content script that relays to background `tabs.update(sender.tab.id, {url: scheme})` (D), or set `location.href` from the content script (C1). Both avoid the blank-tab leftovers of `tabs.create`; accept one "Open in ..." confirmation and ask users for "Always Allow" on the site.
+
+— Claude Opus 5.5 (Claude Code)
