@@ -144,7 +144,7 @@ const MANDALA_OUTPOINT_LIST_PAGE = 1000
 const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
 
 import type { AppChain } from '../config'
-import { effectiveUnverified, resolvePermissionPolicy } from '../bridge/permissionPolicy'
+import { effectiveUnverified, loadStoredPolicy, resolvePermissionPolicy } from '../bridge/permissionPolicy'
 import { hasUnattestedTransport, onUnattestedTransportChange } from '../bridge/runtimeFlags'
 import { buildUnverifiedPermissionsManager } from '../bridge/unverifiedManager'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
@@ -2129,12 +2129,18 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           resolveMandalaOutput: resolveMandalaOutputForRelinquish
         })
 
+        // The user's stored prompt policy for this profile (spec 6.5), authenticated by the admin
+        // key. It applies from this build on; absent or not authentic means the defaults.
+        const builtPolicy = resolvePermissionPolicy(
+          await loadStoredPolicy(profileScopedKey(''), wallet as never, adminOriginator)
+        )
+
         // Setup permissions with provided callbacks and BTMS module.
         const permissionsManager = new SigningPolicyPermissionsManager(wallet, adminOriginator, {
           differentiatePrivilegedOperations: true,
           // The prompt settings live in core/bridge/permissionPolicy.ts (default: exactly the
           // configuration this literal used to hold).
-          ...resolvePermissionPolicy().verified,
+          ...builtPolicy.verified,
           permissionModules: { btms: btmsModule, mandala: mandalaModule }
         } as any)
 
@@ -2220,7 +2226,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           const unverified = buildUnverifiedPermissionsManager(
             wallet,
             adminOriginator,
-            effectiveUnverified(resolvePermissionPolicy())
+            effectiveUnverified(builtPolicy)
           )
           bindPromptCallbacks(unverified)
           newManagers.unverifiedSigningPermissionsManager = unverified
@@ -3259,6 +3265,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       reviewImportedCoinsRef.current = opts?.reviewImportedCoins === true
       // Any build already in flight belongs to the configuration being replaced.
       const token = buildGenRef.current.bump()
+      // The bridge's bindings and published managers belong to the wallet being torn down: close
+      // and drop them before anything yields (spec G9), not when the next build publishes.
+      runSessionTeardown('rebuild')
       await teardownBuiltWallet()
 
       // Re-finalize with current config — triggers auto-build effect

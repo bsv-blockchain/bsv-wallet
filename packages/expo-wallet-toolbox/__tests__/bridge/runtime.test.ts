@@ -1,5 +1,6 @@
 jest.mock('expo-secure-store', () => require('../__mocks__/secureStoreFake').fake)
 
+import { Hash, Utils } from '@bsv/sdk'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
 import { runSessionTeardown } from '../../core/context/sessionTeardown'
@@ -9,8 +10,14 @@ import {
   computeAccountContext,
   getBindingRegistry,
   getBridgeSnapshot,
+  getPublishedManagers,
   getTransport,
   initBridgeRuntime,
+  listConnectedSites,
+  getPermissionPolicy,
+  revokeSite,
+  setActiveConsent,
+  setPermissionPolicy,
   onBindingClosed,
   onSnapshotChange,
   publish,
@@ -20,6 +27,7 @@ import {
   type BridgeManager,
   type PublishInput
 } from '../../core/bridge/runtime'
+import type { ConnectedSite } from '../../core/bridge/consent'
 import { hasUnattestedTransport } from '../../core/bridge/runtimeFlags'
 import { isConnectionError } from '../../core/bridge/protocol/connectionError'
 
@@ -265,5 +273,150 @@ describe('bridge runtime', () => {
       h.unregister()
       expect(hasUnattestedTransport()).toBe(false)
     })
+  })
+})
+
+describe('session teardown', () => {
+  it("logout sweeps every profile's connected-sites key, and only logout does", async () => {
+    await start()
+    await AsyncStorage.setItem('bsv-bridge-sites', '{"records":[]}')
+    await AsyncStorage.setItem('bsv-bridge-sites:__p1', '{"records":[]}')
+    await AsyncStorage.setItem('unrelated', 'x')
+    runSessionTeardown('profile')
+    await new Promise(r => setTimeout(r, 0))
+    expect(await AsyncStorage.getItem('bsv-bridge-sites:__p1')).not.toBeNull()
+    runSessionTeardown('logout')
+    await new Promise(r => setTimeout(r, 0))
+    expect(await AsyncStorage.getItem('bsv-bridge-sites')).toBeNull()
+    expect(await AsyncStorage.getItem('bsv-bridge-sites:__p1')).toBeNull()
+    expect(await AsyncStorage.getItem('unrelated')).toBe('x')
+  })
+
+  it.each(['rebuild', 'network', 'profile'] as const)(
+    '%s closes the bindings and drops the published managers at once, before the wallet is gone',
+    async reason => {
+      await start()
+      publish(publication())
+      explicit('e1')
+      expect(getPublishedManagers().attested).toBeDefined()
+      runSessionTeardown(reason)
+      expect(getBindingRegistry().live()).toHaveLength(0)
+      expect(getPublishedManagers()).toEqual({ attested: undefined, unverified: undefined })
+      expect(getBridgeSnapshot().readiness).toBe('building')
+      expect(withdrawConsent).toHaveBeenCalled()
+    }
+  )
+
+  it('the next build after a rebuild teardown is still a wallet replacement', async () => {
+    await start()
+    publish(publication())
+    runSessionTeardown('rebuild')
+    publish(publication())
+    expect(getBridgeSnapshot()).toMatchObject({ walletRevision: '1', readiness: 'ready' })
+  })
+})
+
+describe('connected sites and permission policy APIs', () => {
+  function stubConsent() {
+    const calls: string[] = []
+    const key = Utils.toArray('k'.repeat(32), 'utf8')
+    return {
+      calls,
+      consent: {
+        store: {
+          listConnectedSites: jest.fn(
+            async (): Promise<ConnectedSite[]> => [
+              {
+                applicationOrigin: 'https://a.example',
+                originator: 'a.example',
+                attestation: 'browser',
+                transport: 'tb',
+                approvedAt: 1
+              }
+            ]
+          ),
+          revokeSite: jest.fn(async (o: string, a: string) => void calls.push(`revoke ${o} ${a}`)),
+          dropRequestsFor: jest.fn()
+        },
+        adminWallet: {
+          createHmac: async (a: any) => ({ hmac: Hash.sha256hmac(key, a.data) }),
+          verifyHmac: async (a: any) => ({
+            valid: Utils.toHex(Hash.sha256hmac(key, a.data)) === Utils.toHex(a.hmac)
+          })
+        } as any,
+        adminOriginator: 'admin.test',
+        profileKey: () => ''
+      }
+    }
+  }
+
+  it('listConnectedSites reads the live store, and is empty without one', async () => {
+    await start()
+    expect(await listConnectedSites()).toEqual([])
+    const { consent } = stubConsent()
+    setActiveConsent(consent)
+    expect(await listConnectedSites()).toHaveLength(1)
+  })
+
+  it("revokeSite deletes the record and closes only that origin's bindings of that attestation", async () => {
+    await start()
+    const { consent, calls } = stubConsent()
+    setActiveConsent(consent)
+    publish(publication())
+    registerTransport({ id: 'tb', attestation: 'browser', bindingMode: 'explicit', requestAttention: jest.fn() })
+    registerTransport({
+      id: 'tu',
+      attestation: 'unattested',
+      bindingMode: 'explicit',
+      requestAttention: jest.fn(),
+      deliverReconnectToken: jest.fn()
+    })
+    const connect = (epoch: string, transportId: string, origin: string, attestation: 'browser' | 'unattested') =>
+      getBindingRegistry().connectExplicit({
+        epoch,
+        transportId,
+        applicationOrigin: origin,
+        attestation,
+        launchProofVerified: true,
+        instanceId: 'i',
+        continuityKey: 'k',
+        accountContext: 'ctx',
+        walletRevision: '0'
+      })
+    connect('e-browser', 'tb', 'https://a.example', 'browser')
+    connect('e-unverified', 'tu', 'https://a.example', 'unattested')
+    connect('e-other', 'tb', 'https://b.example', 'browser')
+    const closes: string[] = []
+    onBindingClosed(e => closes.push(`${e.epoch}:${e.reason}`))
+
+    await revokeSite('https://a.example', 'unattested')
+    expect(calls).toEqual(['revoke https://a.example unattested'])
+    expect(closes).toEqual(['e-unverified:revoked'])
+    expect(
+      getBindingRegistry()
+        .live()
+        .map(b => b.epoch)
+        .sort()
+    ).toEqual(['e-browser', 'e-other'])
+
+    await revokeSite('https://a.example', 'browser')
+    expect(closes).toEqual(['e-unverified:revoked', 'e-browser:revoked'])
+  })
+
+  it('revokeSite without a mounted store is CONFIGURATION_ERROR', async () => {
+    await start()
+    await expect(revokeSite('https://a.example', 'browser')).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' })
+  })
+
+  it('a stored policy round-trips through set/get and changes the effective flags', async () => {
+    await start()
+    setActiveConsent(stubConsent().consent)
+    expect((await getPermissionPolicy()).verified.seekBasketListingPermissions).toBe(false)
+    const base = await getPermissionPolicy()
+    await setPermissionPolicy({
+      verified: { ...base.verified, seekBasketListingPermissions: true },
+      unverified: base.unverified
+    })
+    expect((await getPermissionPolicy()).verified.seekBasketListingPermissions).toBe(true)
   })
 })

@@ -233,10 +233,11 @@ describe('BrowserBridgeProvider', () => {
         walletRevision: getBridgeSnapshot().walletRevision
       })
 
-    // Before any wallet: nothing is installed.
+    // Before any wallet the dispatcher is installed already (a request would park, 6.6): an
+    // unknown connection is refused as such, not as an unavailable bridge.
     const view = render(<Harness building />)
     await flush()
-    expect(await send('nope')).toMatchObject({ ok: false, connectionError: { code: 'CONFIGURATION_ERROR' } })
+    expect(await send('nope')).toMatchObject({ ok: false, connectionError: { code: 'PROVIDER_CHANGED' } })
 
     view.rerender(<Harness stack={fakeWalletStack()} />)
     await flush()
@@ -253,5 +254,120 @@ describe('BrowserBridgeProvider', () => {
     expect(await parked).toMatchObject({ ok: false })
     expect(getPendingConnections()).toEqual([])
     expect(await send('e1')).toMatchObject({ ok: false, connectionError: { code: 'CONFIGURATION_ERROR' } })
+  })
+
+  it('a request while the wallet is building parks until it is ready (6.6)', async () => {
+    registerTransport({ id: 't', attestation: 'browser', bindingMode: 'explicit', requestAttention: jest.fn() })
+    const view = render(<Harness stack={fakeWalletStack()} />)
+    await flush()
+    const accountContext = getBridgeSnapshot().accountContext
+    getBindingRegistry().connectExplicit({
+      epoch: 'e1',
+      transportId: 't',
+      applicationOrigin: 'https://a.example',
+      attestation: 'browser',
+      instanceId: 'i',
+      continuityKey: 'k',
+      accountContext,
+      walletRevision: '0'
+    })
+    // Same wallet, but the build is running again (a network or profile switch in flight).
+    view.rerender(<Harness built={false} building />)
+    await flush()
+    expect(getBridgeSnapshot().readiness).toBe('building')
+    const settled = jest.fn()
+    dispatch({
+      transport: 't',
+      request: {
+        epoch: 'e1',
+        instanceId: 'i',
+        continuityKey: 'k',
+        origin: 'https://a.example',
+        method: 'getHeight',
+        args: {},
+        sizeBytes: 10
+      }
+    }).then(settled)
+    await flush()
+    expect(settled).not.toHaveBeenCalled()
+    expect(getPendingConnections()).toEqual([])
+    view.unmount()
+  })
+
+  it('a rebuild settles a pending consent through the binding close, not as a declined connection', async () => {
+    registerTransport({ id: 't', attestation: 'browser', bindingMode: 'explicit', requestAttention: jest.fn() })
+    const view = render(<Harness stack={fakeWalletStack('02aa')} />)
+    await flush()
+    getBindingRegistry().connectExplicit({
+      epoch: 'e1',
+      transportId: 't',
+      applicationOrigin: 'https://a.example',
+      attestation: 'browser',
+      instanceId: 'i',
+      continuityKey: 'k',
+      accountContext: getBridgeSnapshot().accountContext,
+      walletRevision: '0'
+    })
+    const parked = dispatch({
+      transport: 't',
+      request: {
+        epoch: 'e1',
+        instanceId: 'i',
+        continuityKey: 'k',
+        origin: 'https://a.example',
+        method: 'getHeight',
+        args: {},
+        sizeBytes: 10
+      }
+    })
+    await flush()
+    expect(getPendingConnections()).toHaveLength(1)
+
+    // The wallet flips to not-built mid-rebuild: the request is still waiting, not declined.
+    view.rerender(<Harness built={false} building />)
+    await flush()
+    expect(getPendingConnections()).toHaveLength(1)
+
+    view.rerender(<Harness stack={fakeWalletStack('02aa')} />)
+    await flush()
+    expect(await parked).toMatchObject({
+      ok: false,
+      connectionError: { code: 'PROVIDER_CHANGED', cause: 'account-changed' }
+    })
+    expect(getPendingConnections()).toEqual([])
+    view.unmount()
+  })
+
+  it('retries a failed account-context derivation instead of staying building forever', async () => {
+    jest.useFakeTimers()
+    try {
+      const stack = fakeWalletStack('02aa')
+      const getPublicKey = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('keychain locked'))
+        .mockRejectedValueOnce(new Error('keychain locked'))
+        .mockResolvedValue({ publicKey: '02aa' })
+      stack.permissions.getPublicKey = getPublicKey
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      const view = render(<Harness stack={stack} />)
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(10)
+      })
+      expect(getBridgeSnapshot().readiness).toBe('building')
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(1100)
+      })
+      expect(getPublicKey).toHaveBeenCalledTimes(2)
+      expect(getBridgeSnapshot().readiness).toBe('building')
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(2100)
+      })
+      expect(getPublicKey).toHaveBeenCalledTimes(3)
+      expect(getBridgeSnapshot().readiness).toBe('ready')
+      warn.mockRestore()
+      view.unmount()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })

@@ -11,17 +11,21 @@
  * was registered at build time, readiness, network and account context. What the runtime does with
  * a replaced manager (revision bump, binding close, prompt withdrawal) is in `runtime.ts`.
  *
- * Wiring: once a wallet is in hand it also builds the `ConsentStore` (authenticated by the
- * admin-scoped wallet, wrapped exactly as `PairScreen` wraps it for `connectionAuthority`),
- * installs the dispatcher on it, registers the store's withdrawal with the runtime and hands the
- * store to the PermissionSheet's `connection` kind. A rebuilt wallet gets a fresh store; teardown
- * and unmount withdraw its requests and uninstall all of it.
+ * Wiring: as soon as the runtime is loaded it builds the `ConsentStore`, installs the dispatcher
+ * on it, registers the store's withdrawal with the runtime and hands the store to the
+ * PermissionSheet's `connection` kind. The dispatcher is installed whether or not a wallet is
+ * built, so a request that arrives while the wallet is still building parks (6.6) instead of
+ * failing. The store reaches the admin-scoped wallet (wrapped exactly as `PairScreen` wraps it for
+ * `connectionAuthority`) through a lookup that always reads the current one, and the dispatcher
+ * only touches the store once readiness is `ready`. A wallet replacement settles pending consent
+ * through the binding close (`account-changed`), not by declining it; unmount withdraws the
+ * requests and uninstalls all of it.
  *
  * Readiness: `blocked` while the secrets layer is locked, `ready` once a manager and its account
  * context are in hand, `building` while a build runs or the context is still being derived, and
  * `none` otherwise.
  */
-import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { WalletInterface } from '@bsv/sdk'
 import { profileScopedKey } from '../profiles/profileStore'
@@ -30,21 +34,25 @@ import { guardVaultAccess } from '../services/vault/guard'
 import { getUnlockState, subscribeUnlockState } from '../services/secrets'
 import { useWallet, useWalletManagers, useWalletStatus } from '../context/WalletContext'
 import type { SigningPolicyPermissionsManager } from '../services/signingPermissionPolicy'
-import { createConsentStore } from './consent'
+import { createConsentStore, type HmacCapableWallet } from './consent'
 import { createDispatcher, installDispatcher } from './dispatcher'
 import { setConsentSheetSource } from './consentSheetSource'
-import { resolvePermissionPolicy } from './permissionPolicy'
+import { loadStoredPolicy, resolvePermissionPolicy, type PermissionPolicy } from './permissionPolicy'
 import {
   attachBridgeHost,
   computeAccountContext,
   initBridgeRuntime,
   publish,
   registerConsentWithdrawal,
+  setActiveConsent,
   getBridgeSnapshot,
   setBridgeBaseVersion,
   type BridgeManager,
   type BridgeReadiness
 } from './runtime'
+
+const ACCOUNT_CONTEXT_RETRY_MS = 1000
+const ACCOUNT_CONTEXT_RETRY_MAX_MS = 30_000
 
 interface ContextFor {
   signing: SigningPolicyPermissionsManager
@@ -88,55 +96,112 @@ export const BrowserBridgeProvider: React.FC<{ children?: React.ReactNode; baseV
   const signing = managers.signingPermissionsManager
   const wallet = managers.permissionsManager as unknown as (WalletInterface & object) | undefined
 
-  // The account context of the wallet it was derived from, never of its predecessor.
+  // The account context of the wallet it was derived from, never of its predecessor. A failed
+  // derivation (a locked keychain, a transient secure-store error) is retried with a growing
+  // delay; readiness stays `building` meanwhile, so requests park and the dispatcher's own
+  // `wallet-not-ready` nudge stays true.
   const [contextFor, setContextFor] = useState<ContextFor | undefined>(undefined)
+  const [contextAttempt, setContextAttempt] = useState(0)
+  const contextFailures = useRef(0)
   useEffect(() => {
     if (!loaded || !walletBuilt || !signing || !wallet) return
     let current = true
+    let retry: ReturnType<typeof setTimeout> | undefined
     wallet
       .getPublicKey({ identityKey: true }, adminOriginator)
       .then(({ publicKey }) => computeAccountContext(publicKey, selectedNetwork))
       .then(value => {
+        contextFailures.current = 0
         if (current) setContextFor({ signing, network: selectedNetwork, value })
       })
-      .catch(e =>
+      .catch(e => {
         console.warn('[BrowserBridgeProvider] No account context:', e instanceof Error ? e.message : String(e))
-      )
+        if (!current) return
+        const delay = Math.min(
+          ACCOUNT_CONTEXT_RETRY_MAX_MS,
+          ACCOUNT_CONTEXT_RETRY_MS * 2 ** Math.min(contextFailures.current++, 8)
+        )
+        retry = setTimeout(() => setContextAttempt(n => n + 1), delay)
+      })
+    return () => {
+      current = false
+      if (retry !== undefined) clearTimeout(retry)
+    }
+  }, [loaded, walletBuilt, signing, wallet, adminOriginator, selectedNetwork, contextAttempt, unlock.status])
+
+  // The admin-scoped wallet the consent store authenticates with. Read through `adminRef`, so the
+  // one store (below) always uses the current wallet and never a stale one.
+  const adminWallet = useMemo(
+    () => (wallet ? capWalletArgs(guardVaultAccess(wallet, adminOriginator)) : undefined),
+    [wallet, adminOriginator]
+  )
+  const adminRef = useRef(adminWallet)
+  adminRef.current = adminWallet
+
+  // The user's stored prompt policy, as the wallet was built with it: what the sheet discloses.
+  const storedPolicyRef = useRef<PermissionPolicy | undefined>(undefined)
+  useEffect(() => {
+    storedPolicyRef.current = undefined
+    if (!loaded || !adminWallet) return
+    let current = true
+    loadStoredPolicy(profileScopedKey(''), adminWallet, adminOriginator).then(
+      p => {
+        if (current) storedPolicyRef.current = p
+      },
+      () => undefined
+    )
     return () => {
       current = false
     }
-  }, [loaded, walletBuilt, signing, wallet, adminOriginator, selectedNetwork])
+  }, [loaded, adminWallet, adminOriginator])
 
-  // Consent store and dispatcher for this wallet. The store's records are tagged by this wallet's
-  // admin key, so a different wallet never shares one; the profile key is read live, so the store
-  // notices a profile switch that has not yet produced a new wallet.
+  // Consent store and dispatcher, installed once the runtime is loaded and kept across wallet
+  // replacements. The store's records are tagged by the admin key, so a different wallet never
+  // shares one; the profile key is read live, so the store notices a profile switch that has not
+  // yet produced a new wallet.
   useEffect(() => {
-    if (!loaded || !walletBuilt || !wallet) return
-    const adminWallet = capWalletArgs(guardVaultAccess(wallet, adminOriginator))
+    if (!loaded) return
+    const lookup = (): HmacCapableWallet => {
+      const w = adminRef.current
+      if (!w) throw new Error('No wallet is available')
+      return w
+    }
+    const lazyAdmin: HmacCapableWallet = {
+      createHmac: (args, originator) => lookup().createHmac(args, originator),
+      verifyHmac: (args, originator) => lookup().verifyHmac(args, originator)
+    }
     const store = createConsentStore({
       storage: AsyncStorage,
-      adminWallet,
+      adminWallet: lazyAdmin,
       adminOriginator,
       profileKey: () => profileScopedKey(''),
       now: () => Date.now(),
       randomBytes: n => globalThis.crypto.getRandomValues(new Uint8Array(n))
     })
     const unregister = registerConsentWithdrawal(() => store.withdrawAll())
+    const unregisterActive = setActiveConsent({
+      store,
+      adminWallet: lazyAdmin,
+      adminOriginator,
+      profileKey: () => profileScopedKey('')
+    })
     const dispatcher = createDispatcher({ consent: store })
     installDispatcher(dispatcher)
     setConsentSheetSource({
       store,
       context: () => ({ walletRevision: Number(getBridgeSnapshot().walletRevision), profileKey: profileScopedKey('') }),
-      // The policy the unverified manager was built with (WalletContext): the host's statement.
-      policy: () => resolvePermissionPolicy()
+      // The policy the unverified manager was built with (WalletContext): the host's statement
+      // plus the user's stored policy.
+      policy: () => resolvePermissionPolicy(storedPolicyRef.current)
     })
     return () => {
       store.withdrawAll()
       unregister()
+      unregisterActive()
       setConsentSheetSource(undefined)
       installDispatcher(undefined)
     }
-  }, [loaded, walletBuilt, wallet, adminOriginator])
+  }, [loaded, adminOriginator])
 
   const unverifiedSigning = managers.unverifiedSigningPermissionsManager
   const unverifiedWallet = managers.unverifiedPermissionsManager as unknown as WalletInterface | undefined

@@ -18,7 +18,14 @@ import * as SecureStore from 'expo-secure-store'
 import { registerSessionTeardown } from '../context/sessionTeardown'
 import type { SigningPolicyPermissionsManager } from '../services/signingPermissionPolicy'
 import { createBindingRegistry, type Binding, type BindingRegistry, type CloseEvent } from './bindings'
-import type { KeyValue } from './consent'
+import {
+  sweepConsentStorage,
+  type ConnectedSite,
+  type ConsentStore,
+  type HmacCapableWallet,
+  type KeyValue
+} from './consent'
+import { loadStoredPolicy, resolvePermissionPolicy, saveStoredPolicy, type PermissionPolicy } from './permissionPolicy'
 import { connectionError } from './protocol/connectionError'
 import type { Attestation } from './protocol/origin'
 import { getBrowserBridgeConfig } from '../toolboxConfig'
@@ -89,6 +96,15 @@ const SECRET_KEY = 'bsv-bridge-install-secret'
 const CONTEXT_DOMAIN = 'bsv-bridge-account-context-v1'
 const secureOptions = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY }
 
+/** What the provider registers so the site and policy APIs can reach the store without React. */
+export interface ActiveConsent {
+  store: Pick<ConsentStore, 'listConnectedSites' | 'revokeSite' | 'dropRequestsFor'>
+  /** Admin-scoped, guarded wallet: authenticates the stored policy. */
+  adminWallet: Pick<HmacCapableWallet, 'createHmac' | 'verifyHmac'>
+  adminOriginator: string
+  profileKey: () => string
+}
+
 interface RuntimeState {
   storage: KeyValue
   bindings: BindingRegistry
@@ -97,6 +113,8 @@ interface RuntimeState {
   snapshotListeners: Set<(s: BridgeSnapshot) => void>
   hooks: BridgeHostHooks | undefined
   consentWithdrawals: Set<() => void>
+  /** The provider's current consent store and the admin wallet that authenticates it. */
+  consent: ActiveConsent | undefined
   snapshot: BridgeSnapshot
   attested: BridgeManager | undefined
   unverified: BridgeManager | undefined
@@ -127,6 +145,7 @@ function createState(storage: KeyValue): RuntimeState {
     snapshotListeners: new Set(),
     hooks: undefined,
     consentWithdrawals: new Set(),
+    consent: undefined,
     snapshot: freshSnapshot(),
     attested: undefined,
     unverified: undefined,
@@ -289,14 +308,25 @@ export function getTransport(id: string): TransportRegistration | undefined {
 export function attachBridgeHost(hooks: BridgeHostHooks): () => void {
   rt.hooks = hooks
   unregisterTeardown?.()
+  const state = rt
   unregisterTeardown = registerSessionTeardown(['logout', 'profile', 'network', 'rebuild'], reason => {
     // Pending consent and bindings belong to the departing wallet. The prompts themselves are
     // withdrawn by WalletContext at the same sites, and again at the next rising edge.
     if (rt.isLoaded) rt.bindings.closeAll('account-changed')
     withdrawConsent()
-    if (reason === 'logout') void deleteInstallSecret()
+    // The managers are being retired and the wallet torn down behind an await. Drop them from the
+    // published set now, so nothing dispatches to a retired manager over a wallet that is being
+    // destroyed, and park (or fail) new requests until the provider publishes the next build.
+    rt.attested = undefined
+    rt.unverified = undefined
+    setSnapshot({ readiness: reason === 'logout' ? 'none' : 'building' })
+    if (reason === 'logout') {
+      void deleteInstallSecret()
+      // Logout and Delete Wallet end the session: remembered sites go with it, every profile's
+      // key, so restoring the same seed does not reconnect a site silently (spec 6.4).
+      sweepConsentStorage(state.storage).catch(e => console.warn('[bridge] could not clear connected sites', e))
+    }
   })
-  const state = rt
   return () => {
     if (state !== rt || rt.hooks !== hooks) return
     unregisterTeardown?.()
@@ -327,6 +357,55 @@ export function registerConsentWithdrawal(fn: () => void): () => void {
   return () => {
     rt.consentWithdrawals.delete(fn)
   }
+}
+
+/** Registers the live consent store for the site and policy APIs. Returns the unregister function. */
+export function setActiveConsent(c: ActiveConsent | undefined): () => void {
+  const state = rt
+  state.consent = c
+  return () => {
+    if (state.consent === c) state.consent = undefined
+  }
+}
+
+/** The sites the user has connected on this profile (spec 6.4). Empty when no wallet is mounted. */
+export async function listConnectedSites(): Promise<ConnectedSite[]> {
+  return (await rt.consent?.store.listConnectedSites()) ?? []
+}
+
+/**
+ * Forgets a connected site and closes its live bindings of that attestation with `revoked`
+ * (spec 6.4). Bindings of the same origin under the other attestation are untouched. The record is
+ * deleted first, so a binding that reconnects in between is asked again.
+ */
+export async function revokeSite(origin: string, attestation: Attestation): Promise<void> {
+  const state = rt
+  if (state.consent === undefined) {
+    throw connectionError('CONFIGURATION_ERROR', 'The wallet bridge is not available', 'not-sent')
+  }
+  await state.consent.store.revokeSite(origin, attestation)
+  if (state !== rt || !state.isLoaded) return
+  for (const b of state.bindings.live()) {
+    if (b.applicationOrigin !== origin || b.attestation !== attestation) continue
+    state.consent.store.dropRequestsFor(b.epoch)
+    state.bindings.close(b.epoch, 'revoked')
+  }
+}
+
+/** The effective permission policy: defaults, the host's statement, then the user's stored policy. */
+export async function getPermissionPolicy(): Promise<PermissionPolicy> {
+  const c = rt.consent
+  if (c === undefined) return resolvePermissionPolicy()
+  return resolvePermissionPolicy(await loadStoredPolicy(c.profileKey(), c.adminWallet, c.adminOriginator))
+}
+
+/** Stores the user's policy for this profile. It applies from the next wallet build (spec 6.5). */
+export async function setPermissionPolicy(policy: PermissionPolicy): Promise<void> {
+  const c = rt.consent
+  if (c === undefined) {
+    throw connectionError('CONFIGURATION_ERROR', 'The wallet bridge is not available', 'not-sent')
+  }
+  await saveStoredPolicy(c.profileKey(), policy, c.adminWallet, c.adminOriginator)
 }
 
 function withdrawConsent(): void {
