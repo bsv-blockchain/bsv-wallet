@@ -139,6 +139,11 @@ export interface InboxProcessorDeps {
   transport: { id: string; attestation: Attestation }
   /** The runtime's current revision and context. Defaults to `getBridgeSnapshot`. */
   snapshot?: () => Pick<BridgeSnapshot, 'walletRevision' | 'accountContext'>
+  /**
+   * The registered transport for an id: trust comes from the registration, never from what the
+   * caller of `createInboxProcessor` says (6.2). Defaults to the runtime's `getTransport`.
+   */
+  registeredTransport?: (id: string) => { attestation: Attestation } | undefined
 }
 
 export interface InboxProcessor {
@@ -172,6 +177,12 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
     (() => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       return (require('./runtime') as typeof import('./runtime')).getBridgeSnapshot()
+    })
+  const registered =
+    deps.registeredTransport ??
+    ((id: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return (require('./runtime') as typeof import('./runtime')).getTransport(id)
     })
   let recovered: Promise<void> | undefined
 
@@ -248,11 +259,24 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
 
   async function handle(id: string, record: InboxRecord, bytes: Uint8Array, size: number) {
     const snap = snapshot()
+    const reg = registered(transport.id)
+    if (reg !== undefined && reg.attestation !== transport.attestation) {
+      await finish(
+        id,
+        errorResult(
+          id,
+          connectionError('PROTOCOL_ERROR', 'Attestation does not match the transport', 'not-sent', {
+            epoch: record.epoch
+          })
+        )
+      )
+      return
+    }
     const admitted = deps.bindings.admitImplicit(
       {
         epoch: record.epoch,
         transportId: transport.id,
-        attestation: transport.attestation,
+        attestation: reg?.attestation ?? transport.attestation,
         origin: record.origin,
         instanceId: record.instanceId,
         continuityKey: record.continuityKey,

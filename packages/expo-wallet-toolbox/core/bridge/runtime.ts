@@ -21,6 +21,7 @@ import { createBindingRegistry, type Binding, type BindingRegistry, type CloseEv
 import type { KeyValue } from './consent'
 import { connectionError } from './protocol/connectionError'
 import type { Attestation } from './protocol/origin'
+import { getBrowserBridgeConfig } from '../toolboxConfig'
 import { setUnattestedTransportPresent } from './runtimeFlags'
 
 export type BridgeReadiness = 'ready' | 'building' | 'blocked' | 'none'
@@ -138,7 +139,13 @@ function createState(storage: KeyValue): RuntimeState {
   state.bindings = createBindingRegistry({
     tombstoneStorage: storage,
     now: () => Date.now(),
-    onClosed: e => fanOutClose(e)
+    onClosed: e => fanOutClose(e),
+    transportInfo: id => {
+      const t = state.transports.get(id)
+      return t === undefined ? undefined : { attestation: t.attestation, bindingMode: t.bindingMode }
+    },
+    allowLocalhostHttp: () =>
+      typeof __DEV__ !== 'undefined' && __DEV__ === true && getBrowserBridgeConfig().allowLocalhostHttp === true
   })
   return state
 }

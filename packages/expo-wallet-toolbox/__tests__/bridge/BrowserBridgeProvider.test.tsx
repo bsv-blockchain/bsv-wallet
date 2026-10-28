@@ -25,6 +25,7 @@ import {
   assertBridgeHost,
   getBindingRegistry,
   getBridgeSnapshot,
+  getTransport,
   resetBridgeRuntimeForTests
 } from '../../core/bridge/runtime'
 
@@ -146,6 +147,9 @@ describe('BrowserBridgeProvider', () => {
     const view = render(<Harness stack={first} withdrawPrompts={withdrawPrompts} />)
     await flush()
     const ctx = getBridgeSnapshot().accountContext
+    if (!getTransport('t')) {
+      registerTransport({ id: 't', attestation: 'browser', bindingMode: 'explicit', requestAttention: jest.fn() })
+    }
     getBindingRegistry().connectExplicit({
       epoch: 'e1',
       transportId: 't',
@@ -170,6 +174,9 @@ describe('BrowserBridgeProvider', () => {
     const withdrawPrompts = jest.fn()
     const view = render(<Harness stack={fakeWalletStack('02aa')} withdrawPrompts={withdrawPrompts} />)
     await flush()
+    if (!getTransport('t')) {
+      registerTransport({ id: 't', attestation: 'browser', bindingMode: 'explicit', requestAttention: jest.fn() })
+    }
     getBindingRegistry().connectExplicit({
       epoch: 'e1',
       transportId: 't',

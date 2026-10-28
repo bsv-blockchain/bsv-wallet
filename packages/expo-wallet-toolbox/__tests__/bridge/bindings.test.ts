@@ -376,3 +376,84 @@ describe('reconnect token', () => {
     expect(reg.takeReconnectToken(a.epoch)).toBeUndefined()
   })
 })
+
+describe('trust inputs (spec 6.3, 6.2)', () => {
+  async function trusted(allowHttp = false) {
+    const events: CloseEvent[] = []
+    const reg = createBindingRegistry({
+      tombstoneStorage: memoryKv(),
+      now: () => 10 * DAY,
+      onClosed: e => events.push(e),
+      transportInfo: id =>
+        id === 'ext'
+          ? { attestation: 'browser', bindingMode: 'implicit' }
+          : id === 'page'
+            ? { attestation: 'browser', bindingMode: 'explicit' }
+            : id === 'loop'
+              ? { attestation: 'unattested', bindingMode: 'explicit' }
+              : undefined,
+      allowLocalhostHttp: () => allowHttp
+    })
+    await reg.load()
+    return { reg, events }
+  }
+
+  it.each([
+    ['an http origin', 'http://example.com'],
+    ['a userinfo origin', 'https://user@example.com'],
+    ['an uppercase host', 'https://EXAMPLE.com'],
+    ['a default port', 'https://example.com:443'],
+    ['the admin host', 'https://admin.invalid']
+  ])('admitImplicit refuses %s as PROTOCOL_ERROR and takes no slot', async (_n, origin) => {
+    const { reg, events } = await trusted()
+    const res = reg.admitImplicit(rec({ origin }), CUR)
+    expect(isConnectionError(res) && res).toMatchObject({ code: 'PROTOCOL_ERROR', delivery: 'not-sent' })
+    expect(reg.live()).toHaveLength(0)
+    expect(events).toHaveLength(0)
+  })
+
+  it('connectExplicit refuses a non-canonical origin', async () => {
+    const { reg } = await trusted()
+    expect(() => reg.connectExplicit(explicit({ transportId: 'page', origin: 'http://example.com' }))).toThrow(
+      expect.objectContaining({ code: 'PROTOCOL_ERROR' })
+    )
+    expect(reg.live()).toHaveLength(0)
+  })
+
+  it('accepts http://localhost only when the host allows it', async () => {
+    const off = await trusted(false)
+    expect(() => off.reg.connectExplicit(explicit({ transportId: 'page', origin: 'http://localhost:3000' }))).toThrow(
+      expect.objectContaining({ code: 'PROTOCOL_ERROR' })
+    )
+    const on = await trusted(true)
+    expect(on.reg.connectExplicit(explicit({ transportId: 'page', origin: 'http://localhost:3000' }))).toMatchObject({
+      originator: 'localhost'
+    })
+  })
+
+  it('refuses an attestation that differs from the registered transport', async () => {
+    const { reg } = await trusted()
+    // The queue transport is registered as browser; a record claiming unattested is not believed.
+    const res = reg.admitImplicit(rec({ attestation: 'unattested' }), CUR)
+    expect(isConnectionError(res) && res).toMatchObject({ code: 'PROTOCOL_ERROR' })
+    expect(() => reg.connectExplicit(explicit({ transportId: 'loop', attestation: 'browser' }))).toThrow(
+      expect.objectContaining({ code: 'PROTOCOL_ERROR' })
+    )
+    expect(reg.live()).toHaveLength(0)
+  })
+
+  it('refuses an unknown transport and the wrong binding mode', async () => {
+    const { reg } = await trusted()
+    expect(isConnectionError(reg.admitImplicit(rec({ transportId: 'nope' }), CUR))).toBe(true)
+    // `page` is explicit-only.
+    expect(isConnectionError(reg.admitImplicit(rec({ transportId: 'page' }), CUR))).toBe(true)
+    expect(() => reg.connectExplicit(explicit({ transportId: 'ext' }))).toThrow(
+      expect.objectContaining({ code: 'PROTOCOL_ERROR' })
+    )
+  })
+
+  it('a valid implicit record still admits, with the hostname as the browser originator', async () => {
+    const { reg } = await trusted()
+    expect(reg.admitImplicit(rec(), CUR)).toMatchObject({ originator: 'example.com', state: 'live' })
+  })
+})

@@ -3,25 +3,18 @@
  * runtime or React imports, so they are unit-testable on their own.
  */
 
-/** The token-module schemes an unverified manager refuses (`refusingModule`). */
-const TOKEN_SCHEMES = new Set(['btms', 'mandala'])
-
 /**
- * What the permissions manager routes on: a raw, exact-case `startsWith('p ')` and the scheme as
- * `split(' ')[1]`. Such names reach the unverified manager's stub module, which refuses them.
- */
-function routesToTokenModule(name: string): boolean {
-  return name.startsWith('p ') && TOKEN_SCHEMES.has(name.split(' ')[1])
-}
-
-/**
- * The names the wallet underneath normalises (`trim().toLowerCase()`) into a token-module name
- * that the manager did not route. Whitespace runs are collapsed as well, which the wallet does
- * not do: a name like `p  btms` is already refused by the manager's own scheme lookup, but
- * refusing it here too costs nothing and keeps the rule independent of that detail.
+ * The names an unverified origin must never reach: anything the wallet underneath would treat as a
+ * token-module name. `trim().toLowerCase()` is what the wallet applies, and whitespace runs are
+ * collapsed as well, which the wallet does not do: refusing them here costs nothing and keeps the
+ * rule independent of that detail.
+ *
+ * Exact-case `p btms ...` / `p mandala ...` names are refused here too. The permissions manager
+ * sends them to the refusing stub module only for the methods that call `delegateToPModuleIfNeeded`;
+ * `revealSpecificKeyLinkage` does not, and with the linkage-revelation flag off it would answer
+ * without a prompt. So the pre-scan, not the stub, is what keeps the namespace closed.
  */
 function isTokenModuleVariant(name: string): boolean {
-  if (routesToTokenModule(name)) return false
   const folded = name.trim().toLowerCase().replace(/\s+/g, ' ')
   return folded.startsWith('p btms') || folded.startsWith('p mandala')
 }

@@ -9,6 +9,7 @@ import {
   computeAccountContext,
   getBindingRegistry,
   getBridgeSnapshot,
+  getTransport,
   initBridgeRuntime,
   onBindingClosed,
   onSnapshotChange,
@@ -35,11 +36,15 @@ function publication(over: Partial<PublishInput> = {}): PublishInput {
 }
 
 function explicit(epoch: string) {
+  if (!getTransport('t1')) {
+    registerTransport({ id: 't1', attestation: 'browser', bindingMode: 'explicit', requestAttention: jest.fn() })
+  }
   return getBindingRegistry().connectExplicit({
     epoch,
     transportId: 't1',
     applicationOrigin: 'https://a.example',
-    attestation: 'browser',
+    attestation: getTransport('t1')!.attestation,
+    launchProofVerified: true,
     instanceId: 'i',
     continuityKey: 'k',
     accountContext: 'ctx',

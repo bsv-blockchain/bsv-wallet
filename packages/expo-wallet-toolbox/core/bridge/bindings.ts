@@ -13,10 +13,10 @@
  * transport's step before `connectExplicit`; this module only compares what each request repeats.
  */
 import type { KeyValue } from './consent'
-import { connectionError, type ConnectionError } from './protocol/connectionError'
+import { connectionError, isConnectionError, type ConnectionError } from './protocol/connectionError'
 import type { InternalCloseReason } from './protocol/envelopes'
 import { MAX_BINDINGS_PER_ORIGIN, MAX_BINDINGS_TOTAL, TOMBSTONE_RING_SIZE, TOMBSTONE_TTL_MS } from './protocol/limits'
-import type { Attestation } from './protocol/origin'
+import { canonicalizeBridgeOrigin, OriginRefused, type Attestation } from './protocol/origin'
 
 /** The wallet revision is a persisted counter; the queue stores it as a string. Compared as text. */
 export type WalletRevision = string | number
@@ -57,6 +57,14 @@ export interface BindingRegistryDeps {
   tombstoneStorage: KeyValue
   now: () => number
   onClosed: (e: CloseEvent) => void
+  /**
+   * The registered transport, which is where trust comes from (spec 6.2): its attestation and
+   * binding mode. When given, a binding on an unknown transport, or one whose attestation or mode
+   * differs from the registration, is refused. Absent in unit tests that exercise the registry alone.
+   */
+  transportInfo?: (id: string) => { attestation: Attestation; bindingMode: 'implicit' | 'explicit' } | undefined
+  /** Host policy for `http://localhost:<port>` origins (development builds only). */
+  allowLocalhostHttp?: () => boolean
 }
 
 export interface ExplicitConnectInput {
@@ -217,6 +225,40 @@ export function createBindingRegistry(deps: BindingRegistryDeps): BindingRegistr
     return undefined
   }
 
+  /**
+   * The core's own check of the trust inputs it is handed (spec 6.3): the origin must be canonical
+   * for its attestation, and the attestation and binding mode must be the registered transport's.
+   * Returns the canonical originator for a `browser` binding.
+   */
+  function validateTrust(
+    epoch: string,
+    transportId: string,
+    origin: string,
+    attestation: Attestation,
+    mode: 'implicit' | 'explicit'
+  ): { originator: string | undefined } | ConnectionError {
+    if (deps.transportInfo) {
+      const info = deps.transportInfo(transportId)
+      if (!info) return connectionError('CONFIGURATION_ERROR', 'Transport is not registered', 'not-sent', { epoch })
+      if (info.attestation !== attestation || info.bindingMode !== mode) {
+        return connectionError('PROTOCOL_ERROR', 'Attestation does not match the transport', 'not-sent', { epoch })
+      }
+    }
+    try {
+      const canon = canonicalizeBridgeOrigin({
+        origin,
+        attestation,
+        allowLocalhostHttp: deps.allowLocalhostHttp?.() === true
+      })
+      return { originator: canon.originator }
+    } catch (e) {
+      if (e instanceof OriginRefused) {
+        return connectionError('PROTOCOL_ERROR', 'Origin refused', 'not-sent', { epoch })
+      }
+      throw e
+    }
+  }
+
   function create(
     base: Omit<Binding, 'createdAt' | 'state' | 'consented' | 'launchProofVerified'>,
     launchProofVerified: boolean | undefined
@@ -262,6 +304,14 @@ export function createBindingRegistry(deps: BindingRegistryDeps): BindingRegistr
           { epoch: input.epoch }
         )
       }
+      const trust = validateTrust(
+        input.epoch,
+        input.transportId,
+        input.applicationOrigin,
+        input.attestation,
+        'explicit'
+      )
+      if (isConnectionError(trust)) throw trust
       const dead = ring.get(input.epoch)
       if (dead) throw tombstoneError(input.epoch, dead)
       if (liveByEpoch.has(input.epoch)) {
@@ -274,7 +324,7 @@ export function createBindingRegistry(deps: BindingRegistryDeps): BindingRegistr
           epoch: input.epoch,
           transportId: input.transportId,
           applicationOrigin: input.applicationOrigin,
-          originator: input.originator,
+          originator: trust.originator ?? input.originator,
           attestation: input.attestation,
           instanceId: input.instanceId,
           continuityKey: input.continuityKey,
@@ -292,6 +342,8 @@ export function createBindingRegistry(deps: BindingRegistryDeps): BindingRegistr
 
     admitImplicit(record, current) {
       assertLoaded()
+      const trust = validateTrust(record.epoch, record.transportId, record.origin, record.attestation, 'implicit')
+      if (isConnectionError(trust)) return trust
       const who = {
         epoch: record.epoch,
         transportId: record.transportId,
@@ -333,7 +385,7 @@ export function createBindingRegistry(deps: BindingRegistryDeps): BindingRegistr
           epoch: record.epoch,
           transportId: record.transportId,
           applicationOrigin: record.origin,
-          originator: record.originator,
+          originator: trust.originator ?? record.originator,
           attestation: record.attestation,
           instanceId: record.instanceId,
           continuityKey: record.continuityKey,

@@ -803,6 +803,12 @@ describe('dispatcher: routing and pre-scan', () => {
 
   const variantCases: Array<[string, string, unknown]> = [
     ['basket', 'listOutputs', { basket: 'P Mandala' }],
+    ['exact-case basket', 'listOutputs', { basket: 'p mandala token' }],
+    [
+      'exact-case protocol name on revealSpecificKeyLinkage (never delegated to the stub)',
+      'revealSpecificKeyLinkage',
+      { ...GOLDEN.revealSpecificKeyLinkage.args, protocolID: [2, 'p btms x'] }
+    ],
     ['basket with leading space', 'listOutputs', { basket: ' p btms x' }],
     ['double space', 'listOutputs', { basket: 'p  btms' }],
     [
@@ -843,8 +849,9 @@ describe('dispatcher: routing and pre-scan', () => {
     expect(attested.wallet.listOutputs).toHaveBeenCalledTimes(1)
   })
 
-  it('leaves exact-case token-module names to the manager stub, and ordinary names alone', async () => {
-    expect(findTokenModuleVariant({ basket: 'p mandala token' })).toBeUndefined()
+  it('refuses exact-case token-module names too, and leaves ordinary names alone', async () => {
+    expect(findTokenModuleVariant({ basket: 'p mandala token' })).toBe('p mandala token')
+    expect(findTokenModuleVariant({ protocolID: [2, 'p btms x'], keyID: '1' })).toBe('p btms x')
     expect(findTokenModuleVariant({ basket: 'pasta' })).toBeUndefined()
     expect(findTokenModuleVariant({ labels: ['plain', 'p other x'] })).toBeUndefined()
     expect(findTokenModuleVariant({ basket: 'P Mandala' })).toBe('P Mandala')

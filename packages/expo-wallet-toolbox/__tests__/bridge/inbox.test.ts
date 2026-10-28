@@ -40,6 +40,7 @@ let store: MemoryInboxStore
 let bindings: BindingRegistry
 let dispatched: DispatchRequest[]
 let dispatchImpl: (req: DispatchRequest) => Promise<Outcome>
+let registeredAttestation: 'browser' | 'unattested'
 let snap: { walletRevision: string; accountContext: string }
 
 const OK: Outcome = { ok: true, result: { height: 1 } }
@@ -78,7 +79,8 @@ function processor(over: { store?: InboxStore } = {}) {
     now: () => t,
     bindings,
     transport: { id: 'q1', attestation: 'browser' },
-    snapshot: () => snap
+    snapshot: () => snap,
+    registeredTransport: () => ({ attestation: registeredAttestation })
   })
 }
 
@@ -92,6 +94,7 @@ beforeEach(async () => {
   bindings = createBindingRegistry({ tombstoneStorage: memoryKv(), now: () => t, onClosed: () => {} })
   await bindings.load()
   dispatched = []
+  registeredAttestation = 'browser'
   snap = { walletRevision: '1', accountContext: 'ctx' }
   dispatchImpl = async req => {
     await req.beforeCall?.()
@@ -273,7 +276,8 @@ describe('inbox processor', () => {
         now: () => t,
         bindings,
         transport: { id: 'q1', attestation: 'browser' },
-        snapshot: () => snap
+        snapshot: () => snap,
+        registeredTransport: () => ({ attestation: 'browser' })
       })
       await p.recover()
       expect(await after.stat(ID(1))).toMatchObject({ state: 'pending' })
@@ -369,5 +373,41 @@ describe('inbox processor', () => {
     const r = { v: 1 as const, id: ID(1), ok: true as const, result: { a: [1, 2] } }
     expect(decodeInboxResult(encodeInboxResult(r))).toEqual(r)
     expect(decodeInboxResult(bytes('nope'))).toBeUndefined()
+  })
+})
+
+describe('inbox processor: trust comes from the registration', () => {
+  it('refuses a processor whose attestation differs from the registered transport, and admits nothing', async () => {
+    registeredAttestation = 'unattested'
+    await stage(record(1))
+    await processor().processPending()
+    expect(dispatched).toHaveLength(0)
+    expect(bindings.live()).toHaveLength(0)
+    expect(await result(1)).toMatchObject({ ok: false, error: { code: 'PROTOCOL_ERROR', delivery: 'not-sent' } })
+  })
+
+  it('a hostile origin string in a record is refused by the registry before any sheet', async () => {
+    const trustedBindings = createBindingRegistry({
+      tombstoneStorage: memoryKv(),
+      now: () => t,
+      onClosed: () => {},
+      transportInfo: () => ({ attestation: 'browser', bindingMode: 'implicit' })
+    })
+    await trustedBindings.load()
+    await stage(record(2, { origin: 'http://EVIL.example' }))
+    await createInboxProcessor({
+      store,
+      dispatch: async ({ request }) => {
+        dispatched.push(request)
+        return OK
+      },
+      now: () => t,
+      bindings: trustedBindings,
+      transport: { id: 'q1', attestation: 'browser' },
+      snapshot: () => snap,
+      registeredTransport: () => ({ attestation: 'browser' })
+    }).processPending()
+    expect(dispatched).toHaveLength(0)
+    expect(await result(2)).toMatchObject({ ok: false, error: { code: 'PROTOCOL_ERROR' } })
   })
 })
