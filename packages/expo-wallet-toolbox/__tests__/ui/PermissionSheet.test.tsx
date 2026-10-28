@@ -476,3 +476,314 @@ describe('PermissionSheet answers', () => {
     expect(advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Browser bridge: unverified presentation and the connection sheet (spec 6.4, 6.5)
+// ---------------------------------------------------------------------------
+
+const {
+  DEFAULT_UNVERIFIED_SEEK_FLAGS,
+  DEFAULT_VERIFIED_SEEK_FLAGS,
+  SEEK_FLAG_DISCLOSURE,
+  SEEK_FLAG_KEYS,
+  effectiveUnverified
+} = require('../../core/bridge/permissionPolicy')
+const { setConsentSheetSource } = require('../../core/bridge/consentSheetSource')
+
+const UNVERIFIED = 'shop.example.gabcdefghij.unverified.invalid'
+
+describe('unverified prompts', () => {
+  const protocol = { requestID: 'r', originator: UNVERIFIED, protocolSecurityLevel: 2, protocolID: 'some app protocol' }
+  const open = {
+    protocolAccessModalOpen: true,
+    basketAccessModalOpen: true,
+    certificateAccessModalOpen: true,
+    spendingAuthorizationModalOpen: true
+  }
+  const mandalaMessage = JSON.stringify({ type: 'mandala_access' })
+  const btmsMessage = JSON.stringify({ type: 'btms_spend', sendAmount: 1, tokenName: 'T' })
+
+  // One queue at a time, so each kind is the head.
+  const cases: [string, Record<string, unknown>][] = [
+    [
+      'spending',
+      { spendingRequests: [{ requestID: 's', originator: UNVERIFIED, authorizationAmount: 5, lineItems: [] }] }
+    ],
+    ['group', { groupRequests: [{ requestID: 'g', originator: UNVERIFIED, permissions: {} }] }],
+    ['certificate', { certificateRequests: [{ requestID: 'c', originator: UNVERIFIED, fieldsArray: [] }] }],
+    ['protocol', { protocolRequests: [protocol] }],
+    ['basket', { basketRequests: [{ requestID: 'b', originator: UNVERIFIED, basket: 'x' }] }],
+    ['btms', { btmsRequests: [{ originator: UNVERIFIED, message: btmsMessage }] }],
+    ['mandala', { mandalaRequests: [{ originator: UNVERIFIED, message: mandalaMessage }] }]
+  ]
+
+  it.each(cases)('%s shows the plain hostname and is marked unverified', (kind, queues) => {
+    const active = deriveActive({ ...baseCtx([]), ...open, ...queues } as any, formatSats)
+    expect(active?.kind).toBe(kind)
+    expect(active?.originator).toBe('shop.example')
+    expect(active?.unverified).toBe(true)
+  })
+
+  it('a verified originator is untouched and not marked', () => {
+    const active = deriveActive(
+      { ...baseCtx([]), ...open, protocolRequests: [{ ...protocol, originator: 'shop.example' }] } as any,
+      formatSats
+    )
+    expect(active).toMatchObject({ originator: 'shop.example', unverified: false })
+  })
+
+  it("keeps the site's own words apart from the wallet's for an unverified origin", () => {
+    const unverified = deriveActive(
+      {
+        ...baseCtx([]),
+        ...open,
+        basketRequests: [{ requestID: 'b', originator: UNVERIFIED, reason: 'Totally official', basket: 'x' }]
+      } as any,
+      formatSats
+    )
+    expect(unverified?.description).toBe('wants to access a transaction basket')
+    expect(unverified?.siteSays).toBe('Totally official')
+    const verified = deriveActive(
+      {
+        ...baseCtx([]),
+        ...open,
+        basketRequests: [{ requestID: 'b', originator: 'shop.example', reason: 'Totally official', basket: 'x' }]
+      } as any,
+      formatSats
+    )
+    expect(verified?.description).toBe('Totally official')
+    expect(verified?.siteSays).toBeUndefined()
+  })
+})
+
+describe('connection prompts', () => {
+  const pending = (over: Record<string, unknown> = {}) => ({
+    requestId: 'c1',
+    origin: 'https://shop.example',
+    attestation: 'browser' as const,
+    transportId: 'safari-extension',
+    connectedBefore: false,
+    walletRevision: 1,
+    profileKey: '0',
+    ...over
+  })
+  const flagsFor = (attestation: string) =>
+    attestation === 'unattested'
+      ? effectiveUnverified({ verified: DEFAULT_VERIFIED_SEEK_FLAGS, unverified: DEFAULT_UNVERIFIED_SEEK_FLAGS })
+      : DEFAULT_VERIFIED_SEEK_FLAGS
+  const derive = (p: ReturnType<typeof pending>) =>
+    deriveActive({ ...baseCtx([]), connectionRequests: [p], connectionFlags: flagsFor } as any, formatSats)
+
+  it('titles the raw origin and lists capabilities from the effective flags', () => {
+    const active = derive(pending())!
+    expect(active.kind).toBe('connection')
+    expect(active.originator).toBe('https://shop.example')
+    expect(active.unverified).toBe(false)
+    const { allows, asksFirst } = active.connection!
+    // Verified defaults: baskets are open, signing and grouped requests ask first.
+    expect(allows).toContain('bridge.policy.seekBasketInsertionPermissions.off')
+    expect(asksFirst).toEqual([
+      'bridge.policy.seekGroupedPermission.on',
+      'bridge.policy.seekProtocolPermissionsForSigning.on'
+    ])
+  })
+
+  it('moves basket changes under "asks first" for an unverified site', () => {
+    const active = derive(pending({ attestation: 'unattested' }))!
+    expect(active.unverified).toBe(true)
+    const { allows, asksFirst } = active.connection!
+    expect(allows).not.toContain('bridge.policy.seekBasketInsertionPermissions.off')
+    expect(asksFirst).toEqual(
+      expect.arrayContaining([
+        'bridge.policy.seekBasketInsertionPermissions.on',
+        'bridge.policy.seekBasketListingPermissions.on',
+        'bridge.policy.seekBasketRemovalPermissions.on'
+      ])
+    )
+  })
+
+  it('says payments go through automatically for a verified site, ask first for an unverified one', () => {
+    expect(derive(pending())!.connection!.payments).toBe('bridge_payments_verified')
+    expect(derive(pending({ attestation: 'unattested' }))!.connection!.payments).toBe('bridge_payments_unverified')
+  })
+
+  it('carries the "connected before" flag', () => {
+    expect(derive(pending({ attestation: 'unattested', connectedBefore: true }))!.connection!.connectedBefore).toBe(
+      true
+    )
+  })
+
+  it('waits behind an open spending prompt', () => {
+    const spending = { requestID: 'spend:1', originator: 'a.example', authorizationAmount: 5, lineItems: [] }
+    const active = deriveActive(
+      {
+        ...baseCtx([]),
+        spendingRequests: [spending],
+        spendingAuthorizationModalOpen: true,
+        connectionRequests: [pending()],
+        connectionFlags: flagsFor
+      } as any,
+      formatSats
+    )
+    expect(active?.kind).toBe('spending')
+  })
+})
+
+describe('tap protection and connection answers', () => {
+  const { WalletContext, UserContext, ExchangeRateContext } = require('@bsv/expo-wallet-toolbox')
+
+  const consentStub = (pendingList: any[]) => {
+    const listeners = new Set<() => void>()
+    return {
+      listeners,
+      store: {
+        listPending: () => pendingList,
+        answerConsent: jest.fn().mockResolvedValue(undefined),
+        onChange: (fn: () => void) => {
+          listeners.add(fn)
+          return () => listeners.delete(fn)
+        }
+      }
+    }
+  }
+
+  const mount = (queues: Record<string, unknown>) =>
+    render(
+      <WalletContext.Provider
+        value={{
+          protocolRequests: [],
+          basketRequests: [],
+          certificateRequests: [],
+          spendingRequests: [],
+          groupRequests: [],
+          btmsRequests: [],
+          mandalaRequests: [],
+          advanceProtocolQueue: jest.fn(),
+          advanceBasketQueue: jest.fn(),
+          advanceCertificateQueue: jest.fn(),
+          advanceSpendingQueue: jest.fn(),
+          advanceGroupQueue: jest.fn(),
+          advanceBtmsQueue: jest.fn(),
+          advanceMandalaQueue: jest.fn(),
+          settings: {},
+          ...queues
+        }}
+      >
+        <UserContext.Provider
+          value={{
+            protocolAccessModalOpen: true,
+            setProtocolAccessModalOpen: jest.fn(),
+            basketAccessModalOpen: false,
+            setBasketAccessModalOpen: jest.fn(),
+            certificateAccessModalOpen: false,
+            setCertificateAccessModalOpen: jest.fn(),
+            spendingAuthorizationModalOpen: false,
+            setSpendingAuthorizationModalOpen: jest.fn()
+          }}
+        >
+          <ExchangeRateContext.Provider value={{}}>
+            <PermissionSheet />
+          </ExchangeRateContext.Provider>
+        </UserContext.Provider>
+      </WalletContext.Provider>
+    )
+  const press = async (index: 0 | 1) => {
+    const handler = (globalThis as any).__presses.at(-2 + index) as () => unknown
+    await act(async () => {
+      await handler()
+    })
+  }
+  const advanceBy = (ms: number) =>
+    act(async () => {
+      jest.advanceTimersByTime(ms)
+    })
+
+  beforeEach(() => {
+    ;(globalThis as any).__presses = []
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    setConsentSheetSource(undefined)
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
+  it('an unverified prompt ignores Authorize for 700 ms, then grants', async () => {
+    const manager = {
+      grantPermission: jest.fn().mockResolvedValue(undefined),
+      denyPermission: jest.fn().mockResolvedValue(undefined)
+    }
+    mount({
+      protocolRequests: [
+        { requestID: 'p1', protocolSecurityLevel: 2, protocolID: 'x y z', originator: UNVERIFIED, manager }
+      ]
+    })
+    await press(1)
+    await advanceBy(450)
+    expect(manager.grantPermission).not.toHaveBeenCalled()
+    await advanceBy(300)
+    await press(1)
+    await advanceBy(450)
+    expect(manager.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
+  })
+
+  it('a verified prompt is not delayed', async () => {
+    const manager = {
+      grantPermission: jest.fn().mockResolvedValue(undefined),
+      denyPermission: jest.fn().mockResolvedValue(undefined)
+    }
+    mount({
+      protocolRequests: [
+        { requestID: 'p1', protocolSecurityLevel: 2, protocolID: 'x y z', originator: 'a.example', manager }
+      ]
+    })
+    await press(1)
+    await advanceBy(450)
+    expect(manager.grantPermission).toHaveBeenCalledTimes(1)
+  })
+
+  it('a connection request is delayed 700 ms, then approved through the consent store', async () => {
+    const entry = {
+      requestId: 'c1',
+      origin: 'https://shop.example',
+      attestation: 'browser',
+      transportId: 'safari-extension',
+      connectedBefore: false,
+      walletRevision: 1,
+      profileKey: '0'
+    }
+    const stub = consentStub([])
+    setConsentSheetSource({ store: stub.store as any, context: () => ({ walletRevision: 1, profileKey: '0' }) })
+    const view = mount({})
+    expect(view.toJSON()).toBeNull()
+    // The store raises a request: the sheet picks it up through onChange.
+    ;(stub.store as any).listPending = () => [entry]
+    await act(async () => {
+      stub.listeners.forEach(fn => fn())
+    })
+    await press(1)
+    await advanceBy(450)
+    expect(stub.store.answerConsent).not.toHaveBeenCalled()
+    await advanceBy(300)
+    await press(1)
+    await advanceBy(450)
+    expect(stub.store.answerConsent).toHaveBeenCalledWith('c1', true, { walletRevision: 1, profileKey: '0' })
+  })
+
+  it('Reject answers the connection request without a delay', async () => {
+    const entry = {
+      requestId: 'c2',
+      origin: 'https://shop.example',
+      attestation: 'unattested',
+      transportId: 'loopback',
+      connectedBefore: true,
+      walletRevision: 1,
+      profileKey: '0'
+    }
+    const stub = consentStub([entry])
+    setConsentSheetSource({ store: stub.store as any, context: () => ({ walletRevision: 1, profileKey: '0' }) })
+    mount({})
+    await press(0)
+    expect(stub.store.answerConsent).toHaveBeenCalledWith('c2', false, { walletRevision: 1, profileKey: '0' })
+  })
+})

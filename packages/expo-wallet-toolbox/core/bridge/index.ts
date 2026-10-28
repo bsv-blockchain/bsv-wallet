@@ -13,3 +13,4 @@ export {
 } from './runtime'
 export type { Binding, CloseEvent } from './bindings'
 export type { ConnectionError } from './protocol/connectionError'
+export { setConsentSheetSource, type ConsentSheetSource } from './consentSheetSource'
