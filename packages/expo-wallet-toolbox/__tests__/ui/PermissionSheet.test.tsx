@@ -29,9 +29,9 @@ jest.mock('../../ui/components/ui/Sheet', () => ({
 }))
 jest.mock('../../ui/components/ui/PressableScale', () => ({
   __esModule: true,
-  default: ({ onPress }: { onPress?: () => void }) => {
+  default: ({ onPress, children }: { onPress?: () => void; children?: unknown }) => {
     ;(globalThis as any).__presses.push(onPress)
-    return null
+    return children ?? null
   }
 }))
 jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }))
@@ -607,6 +607,13 @@ describe('connection prompts', () => {
     expect(derive(pending({ attestation: 'unattested' }))!.connection!.payments).toBe('bridge_payments_unverified')
   })
 
+  it('carries the previewed group onto the connection prompt, and null as absent', () => {
+    const groupPermissions = { protocolPermissions: [{ protocolID: [1, 'abc def'] as [number, string] }] }
+    expect(derive(pending({ groupPermissions }))!.groupPermissions).toEqual(groupPermissions)
+    expect(derive(pending({ groupPermissions: null }))!.groupPermissions).toBeUndefined()
+    expect(derive(pending())!.groupPermissions).toBeUndefined()
+  })
+
   it('carries the "connected before" flag', () => {
     expect(derive(pending({ attestation: 'unattested', connectedBefore: true }))!.connection!.connectedBefore).toBe(
       true
@@ -811,6 +818,102 @@ describe('tap protection and connection answers', () => {
     await press(1)
     await advanceBy(450)
     expect(stub.store.answerConsent).toHaveBeenCalledWith('c1', true, { walletRevision: 1, profileKey: '0' })
+  })
+
+  describe('merged Connect sheet', () => {
+    const group = {
+      spendingAuthorization: { amount: 2500, description: 'Monthly allowance' },
+      protocolPermissions: [{ protocolID: [1, 'fast grouped alpha'] as [number, string], description: 'Alpha' }],
+      basketAccess: [{ basket: 'tokens', description: 'Your tokens' }],
+      certificateAccess: [{ type: 'ticket', description: 'Entry', fields: ['name'] }]
+    }
+    const connect = (over: Record<string, unknown> = {}) => ({
+      requestId: 'm1',
+      origin: 'https://shop.example',
+      attestation: 'browser',
+      transportId: 'safari-extension',
+      connectedBefore: false,
+      walletRevision: 1,
+      profileKey: '0',
+      ...over
+    })
+    const open = (entry: Record<string, unknown>) => {
+      const stub = consentStub([entry])
+      setConsentSheetSource({ store: stub.store as any, context: () => ({ walletRevision: 1, profileKey: '0' }) })
+      return { stub, view: mount({}) }
+    }
+    const { Switch } = require('react-native')
+
+    it('no switch or checkbox is rendered for any listed group', () => {
+      const { view } = open(connect({ groupPermissions: group }))
+      expect(view.UNSAFE_queryAllByType(Switch)).toHaveLength(0)
+      expect(view.queryAllByRole('checkbox')).toHaveLength(0)
+      expect(view.queryAllByRole('switch')).toHaveLength(0)
+    })
+
+    it('lists spending, protocols, baskets and certificates after the connect information', () => {
+      const { view } = open(connect({ groupPermissions: group }))
+      for (const text of ['bridge_allows_header', 'spending_section', 'protocols_section', 'baskets_section']) {
+        expect(view.queryByText(text)).not.toBeNull()
+      }
+      expect(view.queryByText('certificates_section')).not.toBeNull()
+      expect(view.queryByText('tokens')).not.toBeNull()
+      expect(view.queryByText('ticket')).not.toBeNull()
+    })
+
+    it('lists spending for a verified site and omits it when the group has none (unattested)', () => {
+      const verified = open(connect({ groupPermissions: group })).view
+      expect(verified.queryByText('spending_section')).not.toBeNull()
+      verified.unmount()
+      const { spendingAuthorization: _stripped, ...noSpending } = group
+      const unattested = open(connect({ attestation: 'unattested', groupPermissions: noSpending })).view
+      expect(unattested.queryByText('spending_section')).toBeNull()
+      expect(unattested.queryByText('protocols_section')).not.toBeNull()
+    })
+
+    it('is the plain sheet when groupPermissions is null', () => {
+      for (const groupPermissions of [null, undefined]) {
+        const { view } = open(connect({ groupPermissions }))
+        expect(view.queryByText('bridge_allows_header')).not.toBeNull()
+        for (const text of ['spending_section', 'protocols_section', 'baskets_section', 'certificates_section']) {
+          expect(view.queryByText(text)).toBeNull()
+        }
+        view.unmount()
+      }
+    })
+
+    it("buttons are Connect and Don't connect", () => {
+      const { view } = open(connect({ groupPermissions: group }))
+      expect(view.queryByText('bridge_connect')).not.toBeNull()
+      expect(view.queryByText('bridge_dont_connect')).not.toBeNull()
+      expect(view.queryByText('authorize')).toBeNull()
+      expect(view.queryByText('reject')).toBeNull()
+    })
+
+    it('other kinds keep the shared Reject and Authorize labels', () => {
+      const view = mount({
+        protocolRequests: [
+          { requestID: 'p1', protocolSecurityLevel: 2, protocolID: 'x y z', originator: 'a.example', manager: {} }
+        ]
+      })
+      expect(view.queryByText('authorize')).not.toBeNull()
+      expect(view.queryByText('reject')).not.toBeNull()
+      expect(view.queryByText('bridge_connect')).toBeNull()
+    })
+
+    it("Don't connect answers decline at once (the store starts the 30 s backoff)", async () => {
+      const { stub } = open(connect({ groupPermissions: group }))
+      await press(0)
+      expect(stub.store.answerConsent).toHaveBeenCalledWith('m1', false, { walletRevision: 1, profileKey: '0' })
+    })
+
+    it('Connect answers consent, after the tap-protection delay', async () => {
+      const { stub } = open(connect({ groupPermissions: group }))
+      await advanceBy(750)
+      await press(1)
+      await advanceBy(450)
+      expect(stub.store.answerConsent).toHaveBeenCalledWith('m1', true, { walletRevision: 1, profileKey: '0' })
+    })
   })
 
   it('Reject answers the connection request without a delay', async () => {

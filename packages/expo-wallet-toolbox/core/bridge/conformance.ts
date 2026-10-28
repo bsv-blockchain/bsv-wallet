@@ -135,7 +135,7 @@ export const BRIDGE_DEVIATIONS: readonly Deviation[] = [
   {
     id: 'wait-for-authentication-sheet',
     summary:
-      'waitForAuthentication can raise the grouped-permission sheet for a connected origin, which conflicts with BRC-219 "probes must not prompt"; only after the user has connected the site.'
+      'waitForAuthentication can raise the grouped-permission sheet for a connected origin, which conflicts with BRC-219 "probes must not prompt"; only after the user has connected the site. Where the manifest group was previewed at connect (merged Connect sheet), Connect mints it and this call no longer prompts; it prompts only for a manifest that has since gained items or when minting failed.'
   },
   {
     id: 'list-actions-deadline',
