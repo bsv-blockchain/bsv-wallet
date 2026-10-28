@@ -139,6 +139,7 @@ const MANDALA_OUTPOINT_LIST_PAGE = 1000
 const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
 
 import type { AppChain } from '../config'
+import { resolvePermissionPolicy } from '../bridge/permissionPolicy'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
 import { NETWORKS, isAppChain } from '../networks'
 import { getBackupUrl, getHandleRegistryConfig, getMandalaEndpoints, getPushAdapter } from '../toolboxConfig'
@@ -2046,34 +2047,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // Setup permissions with provided callbacks and BTMS module.
         const permissionsManager = new SigningPolicyPermissionsManager(wallet, adminOriginator, {
           differentiatePrivilegedOperations: true,
-          seekBasketInsertionPermissions: false,
-          seekBasketListingPermissions: false,
-          seekBasketRemovalPermissions: false,
-          seekCertificateAcquisitionPermissions: false,
-          seekCertificateDisclosurePermissions: false,
-          seekCertificateRelinquishmentPermissions: false,
-          seekCertificateListingPermissions: false,
-          // A site whose manifest declares metanet.groupPermissions is asked
-          // for them all in one sheet during waitForAuthentication. The request
-          // holds that origin's permission lock until answered, so it MUST be
-          // handled (onGroupedPermissionRequested, below) or the site hangs.
-          seekGroupedPermission: true,
-          seekPermissionsForIdentityKeyRevelation: false,
-          seekPermissionsForIdentityResolution: false,
-          seekPermissionsForKeyLinkageRevelation: false,
-          seekPermissionsForPublicKeyRevelation: false,
-          seekPermissionWhenApplyingActionLabels: false,
-          seekPermissionWhenListingActionsByLabel: false,
-          seekProtocolPermissionsForEncrypting: false,
-          seekProtocolPermissionsForHMAC: false,
-          // On, unlike Metanet Desktop: the vault guard no longer refuses
-          // external BRC-29 ([2,'3241645161d8']) signing outright, and that
-          // namespace also derives this wallet's own address-rail keys
-          // (counterparty 'anyone'), so a site signing under it must be
-          // asked first -- for BRC-29, on every signature. BRC-103/104 auth
-          // signing is exempt (SigningPolicyPermissionsManager).
-          seekProtocolPermissionsForSigning: true,
-          seekSpendingPermissions: true,
+          // The prompt settings live in core/bridge/permissionPolicy.ts (default: exactly the
+          // configuration this literal used to hold).
+          ...resolvePermissionPolicy().verified,
           permissionModules: { btms: btmsModule, mandala: mandalaModule }
         } as any)
 

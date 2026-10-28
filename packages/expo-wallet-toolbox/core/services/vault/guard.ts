@@ -192,6 +192,11 @@ const CONNECTION_AUTHORITY_PROTOCOL_NAMES = new Set(['connection authority'])
  * RPC method, authenticating nothing. */
 const PENDING_ABORT_AUTHORITY_PROTOCOL_NAMES = new Set(['pending abort authority'])
 
+/** Browser bridge: the `bridge site authority` namespace tags site-consent records and the
+ * stored permission policy (core/bridge/permissionPolicy.ts). Reserved for the same reason as
+ * `connection authority`: a connected origin must not be able to mint or verify the tag. */
+const BRIDGE_SITE_AUTHORITY_PROTOCOL_NAMES = new Set(['bridge site authority'])
+
 function matchesProtocolNamespace(args: unknown, names: Set<string>): boolean {
   if (args === null || typeof args !== 'object' || Array.isArray(args)) return false
   const protocolID = (args as { protocolID?: unknown }).protocolID
@@ -208,6 +213,10 @@ function requestsVaultProtocol(args: unknown): boolean {
 
 function requestsConnectionAuthorityProtocol(args: unknown): boolean {
   return matchesProtocolNamespace(args, CONNECTION_AUTHORITY_PROTOCOL_NAMES)
+}
+
+function requestsBridgeSiteAuthorityProtocol(args: unknown): boolean {
+  return matchesProtocolNamespace(args, BRIDGE_SITE_AUTHORITY_PROTOCOL_NAMES)
 }
 
 function requestsPendingAbortAuthorityProtocol(args: unknown): boolean {
@@ -702,6 +711,7 @@ export function guardVaultAccess<T extends WalletInterface>(
             requestsVaultProtocol(args) ||
             requestsConnectionAuthorityProtocol(args) ||
             requestsPendingAbortAuthorityProtocol(args) ||
+            requestsBridgeSiteAuthorityProtocol(args) ||
             requestsAddressRailKey(args))
         ) {
           return deny(String(method), originator)

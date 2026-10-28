@@ -1210,3 +1210,15 @@ for (const { method, args } of CERT_CASES) {
     expect(calls.find(c => c.method === method)).toBeDefined()
   })
 }
+
+test.each([
+  ['createHmac', [2, 'bridge site authority']],
+  ['verifyHmac', [2, ' Bridge Site Authority ']]
+] as const)('reserves the bridge-site-authority protocol from external %s calls (%p)', async (method, protocolID) => {
+  const { wallet, calls } = fakeWallet()
+  const guarded = guardVaultAccess(wallet, ADMIN)
+  await expect(
+    (guarded[method] as any)({ protocolID, keyID: 'permission-policy', counterparty: 'self', data: [1] }, 'evil.com')
+  ).rejects.toBeInstanceOf(VaultAccessDenied)
+  expect(calls.find(call => call.method === method)).toBeUndefined()
+})
