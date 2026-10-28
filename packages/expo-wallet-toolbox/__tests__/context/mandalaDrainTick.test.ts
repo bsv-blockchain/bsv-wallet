@@ -128,7 +128,7 @@ describe('tearing a wallet down stops its tick', () => {
  */
 describe('the published manager carries the abort guard', () => {
   const wiring = (() => {
-    const start = source.indexOf('newManagers.permissionsManager = guardVaultAccess(')
+    const start = source.indexOf('const guardedStack = ')
     if (start < 0) throw new Error('the permissions manager wiring has moved or been renamed')
     return source.slice(start, source.indexOf('// THE MANDALA RUNTIME', start))
   })()

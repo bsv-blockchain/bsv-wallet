@@ -144,7 +144,9 @@ const MANDALA_OUTPOINT_LIST_PAGE = 1000
 const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
 
 import type { AppChain } from '../config'
-import { resolvePermissionPolicy } from '../bridge/permissionPolicy'
+import { effectiveUnverified, resolvePermissionPolicy } from '../bridge/permissionPolicy'
+import { hasUnattestedTransport, onUnattestedTransportChange } from '../bridge/runtimeFlags'
+import { buildUnverifiedPermissionsManager } from '../bridge/unverifiedManager'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
 import { NETWORKS, isAppChain } from '../networks'
 import { getBackupUrl, getHandleRegistryConfig, getMandalaEndpoints, getPushAdapter } from '../toolboxConfig'
@@ -400,6 +402,12 @@ interface ManagerState {
   /** The attested manager itself, before the guard and conformance wrappers
    * `permissionsManager` carries. What `withdrawPrompts` retires. */
   signingPermissionsManager?: SigningPolicyPermissionsManager
+  /** The manager for unverified (unattested) browser origins, behind the same wrapper stack as
+   * `permissionsManager`. Present only when a transport that can deliver unattested calls was
+   * registered when the wallet was built (spec 6.5). */
+  unverifiedPermissionsManager?: WalletPermissionsManager
+  /** The unverified manager itself, before its wrappers. What `withdrawPrompts` retires. */
+  unverifiedSigningPermissionsManager?: SigningPolicyPermissionsManager
   settingsManager?: WalletSettingsManager
 }
 
@@ -1241,8 +1249,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   /** Withdraws the prompts of the managers currently published, before the
    * wallet they belong to is torn down. */
   const withdrawCurrentPrompts = useCallback(() => {
-    const current = managersRef.current.signingPermissionsManager
-    withdrawPromptsRef.current(current ? [current] : [])
+    const { signingPermissionsManager, unverifiedSigningPermissionsManager } = managersRef.current
+    withdrawPromptsRef.current(
+      [signingPermissionsManager, unverifiedSigningPermissionsManager].filter(
+        (m): m is SigningPolicyPermissionsManager => m !== undefined
+      )
+    )
   }, [])
 
   const updateSettings = useCallback(
@@ -2128,30 +2140,26 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
         permissionsManager.onRetire(buildPrompts.retire)
 
-        // Bound per manager: each queue item records the manager that raised
-        // it, and the sheet answers that one (see RaisedBy).
-        if (protocolPermissionCallback) {
-          permissionsManager.bindCallback('onProtocolPermissionRequested', (args: any) =>
-            protocolPermissionCallback(args, permissionsManager)
-          )
+        const bindPromptCallbacks = (mgr: SigningPolicyPermissionsManager) => {
+          // Bound per manager: each queue item records the manager that raised
+          // it, and the sheet answers that one (see RaisedBy).
+          if (protocolPermissionCallback) {
+            mgr.bindCallback('onProtocolPermissionRequested', (args: any) => protocolPermissionCallback(args, mgr))
+          }
+          if (basketAccessCallback) {
+            mgr.bindCallback('onBasketAccessRequested', (args: any) => basketAccessCallback(args, mgr))
+          }
+          if (spendingAuthorizationCallback) {
+            mgr.bindCallback('onSpendingAuthorizationRequested', (args: any) =>
+              spendingAuthorizationCallback(args, mgr)
+            )
+          }
+          mgr.bindCallback('onGroupedPermissionRequested', ((args: any) => groupedPermissionCallback(args, mgr)) as any)
+          if (certificateAccessCallback) {
+            mgr.bindCallback('onCertificateAccessRequested', (args: any) => certificateAccessCallback(args, mgr))
+          }
         }
-        if (basketAccessCallback) {
-          permissionsManager.bindCallback('onBasketAccessRequested', (args: any) =>
-            basketAccessCallback(args, permissionsManager)
-          )
-        }
-        if (spendingAuthorizationCallback) {
-          permissionsManager.bindCallback('onSpendingAuthorizationRequested', (args: any) =>
-            spendingAuthorizationCallback(args, permissionsManager)
-          )
-        }
-        permissionsManager.bindCallback('onGroupedPermissionRequested', ((args: any) =>
-          groupedPermissionCallback(args, permissionsManager)) as any)
-        if (certificateAccessCallback) {
-          permissionsManager.bindCallback('onCertificateAccessRequested', (args: any) =>
-            certificateAccessCallback(args, permissionsManager)
-          )
-        }
+        bindPromptCallbacks(permissionsManager)
         newManagers.signingPermissionsManager = permissionsManager
 
         // Publish one idempotently guarded manager for both trusted in-app
@@ -2189,19 +2197,35 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // `mandalaRef.current`, whose `undefined` also covers a runtime that
         // threw or is mid-rebuild, both of which can leave real settlement
         // rows unreadable rather than absent.
-        newManagers.permissionsManager = guardVaultAccess(
-          wrapAbortActionForSettlements(
-            wrapCreateActionForTokenInputs(
-              conformWalletResults(adminOriginator, permissionsManager),
-              listMandalaTokenOutpoints,
-              adminOriginator
+        // The unverified manager gets the same stack (spec 6.5); without
+        // wrapCreateActionForTokenInputs a createAction naming Mandala token outpoints as inputs
+        // would never reach its token-module refusal.
+        const guardedStack = (mgr: SigningPolicyPermissionsManager) =>
+          guardVaultAccess(
+            wrapAbortActionForSettlements(
+              wrapCreateActionForTokenInputs(
+                conformWalletResults(adminOriginator, mgr),
+                listMandalaTokenOutpoints,
+                adminOriginator
+              ),
+              () => mandalaRef.current?.store,
+              () => mandalaEndpoints !== undefined
             ),
-            () => mandalaRef.current?.store,
-            () => mandalaEndpoints !== undefined
-          ),
-          adminOriginator,
-          { lookup: phoneStorage }
-        )
+            adminOriginator,
+            { lookup: phoneStorage }
+          )
+        newManagers.permissionsManager = guardedStack(permissionsManager)
+
+        if (hasUnattestedTransport()) {
+          const unverified = buildUnverifiedPermissionsManager(
+            wallet,
+            adminOriginator,
+            effectiveUnverified(resolvePermissionPolicy())
+          )
+          bindPromptCallbacks(unverified)
+          newManagers.unverifiedSigningPermissionsManager = unverified
+          newManagers.unverifiedPermissionsManager = guardedStack(unverified)
+        }
 
         // THE MANDALA RUNTIME'S ONE CONSTRUCTION SITE.
         //
@@ -3254,6 +3278,20 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       await waitForRebuild(token)
     },
     [selectedNetwork, teardownBuiltWallet, finalizeConfig, waitForRebuild]
+  )
+
+  // A transport that can deliver unattested calls registered after this wallet was built: the
+  // unverified manager is made in the build, so build again to get it (spec 6.5). Normally the
+  // provider registers before the first build and this never fires.
+  const rebuildWalletRef = useRef(rebuildWallet)
+  rebuildWalletRef.current = rebuildWallet
+  useEffect(
+    () =>
+      onUnattestedTransportChange(present => {
+        if (!present || !walletBuiltRef.current || managersRef.current.unverifiedPermissionsManager) return
+        void rebuildWalletRef.current().catch(() => {})
+      }),
+    []
   )
 
   // Switch network: tear down wallet, update config, and rebuild on new chain.
