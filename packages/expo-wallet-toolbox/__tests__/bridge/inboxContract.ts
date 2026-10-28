@@ -9,6 +9,8 @@ export interface StoreHarness {
   store: InboxStore
   /** The same persisted state opened by a new process (new boot id). */
   restart(): InboxStore
+  /** What the adapter holds at rest; the plaintext-marker test fails loudly when a harness omits it. */
+  rawBytes?: () => Uint8Array[]
 }
 
 export interface Clock {
@@ -139,9 +141,58 @@ export function runInboxStoreContract(name: string, makeStore: (clock: Clock) =>
     it('close events are written and read after a sequence number, in order', async () => {
       await store.writeEvent({ v: 1, closeSeq: 2, instanceId: 'i', epoch: 'e2', reason: 'lost' })
       await store.writeEvent({ v: 1, closeSeq: 1, instanceId: 'i', epoch: 'e1', reason: 'revoked' })
-      expect((await store.readEventsAfter(0)).map(e => e.closeSeq)).toEqual([1, 2])
-      expect((await store.readEventsAfter(1)).map(e => e.epoch)).toEqual(['e2'])
-      expect(await store.readEventsAfter(2)).toEqual([])
+      expect((await store.readEventsAfter(0)).events.map(e => e.closeSeq)).toEqual([1, 2])
+      expect((await store.readEventsAfter(1)).events.map(e => e.epoch)).toEqual(['e2'])
+      expect(await store.readEventsAfter(2)).toEqual({ events: [], gap: false })
+    })
+
+    const writeEvents = async (from: number, to: number) => {
+      for (let n = from; n <= to; n++) {
+        await store.writeEvent({ v: 1, closeSeq: n, instanceId: 'i', epoch: `e${n}`, reason: 'lost' })
+      }
+    }
+
+    it('retention by count (1025th event trims the first)', async () => {
+      await writeEvents(1, 1024)
+      expect((await store.readEventsAfter(0)).events).toHaveLength(1024)
+      await writeEvents(1025, 1025)
+      const r = await store.readEventsAfter(0)
+      expect(r.events).toHaveLength(1024)
+      expect(r.events[0].closeSeq).toBe(2)
+      expect(r.gap).toBe(true)
+    })
+
+    it('gap is true after trimming past the cursor', async () => {
+      await writeEvents(1, 1026)
+      expect((await store.readEventsAfter(1)).gap).toBe(true)
+      expect((await store.readEventsAfter(1)).events[0].closeSeq).toBe(3)
+    })
+
+    it('no gap at the boundary (seq equals evictedThrough)', async () => {
+      await writeEvents(1, 1026)
+      // Events 1 and 2 were trimmed, so evictedThrough is 2.
+      expect((await store.readEventsAfter(1)).gap).toBe(true)
+      const atBoundary = await store.readEventsAfter(2)
+      expect(atBoundary.gap).toBe(false)
+      expect(atBoundary.events[0].closeSeq).toBe(3)
+      expect((await store.readEventsAfter(500)).gap).toBe(false)
+    })
+
+    it('no gap when nothing was ever trimmed', async () => {
+      await writeEvents(1, 3)
+      expect((await store.readEventsAfter(0)).gap).toBe(false)
+    })
+
+    it('retention by age (24 h)', async () => {
+      await writeEvents(1, 1)
+      clock.advance(23 * 60 * 60_000)
+      await writeEvents(2, 2)
+      expect((await store.readEventsAfter(0)).events.map(e => e.closeSeq)).toEqual([1, 2])
+      clock.advance(60 * 60_000 + 1)
+      const r = await store.readEventsAfter(0)
+      expect(r.events.map(e => e.closeSeq)).toEqual([2])
+      expect(r.gap).toBe(true)
+      expect((await store.readEventsAfter(1)).gap).toBe(false)
     })
 
     it('state survives a restart under a new boot id', async () => {
@@ -165,7 +216,8 @@ export function runInboxStoreContract(name: string, makeStore: (clock: Clock) =>
       await store.accept(ID(2))
       await store.writeResult(ID(3 - 1), bytes(JSON.stringify({ result: MARKER })))
       await store.writeEvent({ v: 1, closeSeq: 1, instanceId: MARKER, epoch: MARKER, reason: 'lost' })
-      const raw = store.rawBytes()
+      if (!h.rawBytes) throw new Error('the store harness must supply rawBytes for the plaintext-marker test')
+      const raw = h.rawBytes()
       expect(raw.length).toBeGreaterThan(0)
       expect(raw.some(containsMarker)).toBe(false)
       // The check can fail: it does see a marker when one is present.
