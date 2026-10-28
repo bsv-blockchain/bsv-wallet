@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "{{NAME}}",
+  "version": "{{VERSION}}",
+  "description": "Lets a page in Safari use your wallet app.",
+  "background": { "scripts": ["background.js"], "persistent": false },
+  "action": { "default_popup": "popup.html", "default_title": "{{NAME}}" },
+  "permissions": ["nativeMessaging", "storage", "tabs"],
+  "host_permissions": [],
+  "content_scripts": [
+    { "matches": [], "js": ["content.js"], "all_frames": true, "run_at": "document_start" },
+    { "matches": [], "js": ["provider-main.js"], "all_frames": true, "run_at": "document_start", "world": "MAIN" }
+  ]
+}

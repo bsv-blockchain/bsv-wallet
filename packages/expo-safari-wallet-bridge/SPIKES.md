@@ -100,3 +100,15 @@ Adding the `bridge-race-helper` executable target makes SwiftPM's auto scheme `B
 - Added `Nudge.swift` to the Swift package (`BridgeNudge.name/post/observe`, Darwin notification `<appGroup>.bridge.nudge`) so the extension handler (Task 12 `nudge: () -> Void`) and the module agree on one name.
 - Native rejections carry `error.code`: `ERR_NOT_FOUND`, `ERR_KEY_MISSING`, `ERR_RESET`, `ERR_UNAVAILABLE`. The adapter maps only `ERR_NOT_FOUND` to contract return values.
 - `FakeNative.restart()` models a restart whose `init` already ran (the contract harness's `restart()` is synchronous); `initSync()` exists for the same reason.
+
+## Task 12 notes (config plugin and extension build)
+
+- Defaults in effect (`S1.root`, `S1.kc`, `S1.pod`, `S6.group`); no fallback code paths were needed. The plugin writes the target into `<projectRoot>/.expo/safari-bridge/SafariBridge/` (host `targets/` is never created; `hostUntouched.test.js` pins it) and calls `@bacons/apple-targets/app.plugin` with `root`.
+- `@bacons/apple-targets` and `esbuild` moved from devDependencies to dependencies of the kit, as the S1 notes required (the host's prebuild needs both).
+- The extension JS is built synchronously (`esbuild.buildSync`) because apple-targets globs the target directory while the plugin function runs; the bundle exists before `withSafariBridge` returns. Bundle format is IIFE, target `safari16`, unminified.
+- apple-targets writes its own `Info.plist` only when none exists, so the plugin ships `extension/templates/Info.plist` (display name, the three `BSVBridge*` keys, `NSExtension` with principal class `$(PRODUCT_MODULE_NAME).SafariWebExtensionHandler`). `$(AppIdentifierPrefix)` in the Info.plist values is expanded by Xcode at build; the real expansion is proven in Task 13's `HBUILD`.
+- `expo-target.config.js` is a static template that reads `bridge-target.json` (written by the plugin); this keeps the config file free of string templating.
+- The extension deployment target follows an `expo-build-properties` `ios.deploymentTarget` entry, else the `deploymentTarget` plugin option, else 16.0.
+- The Podfile mod follows S1: `pod 'BsvBridgeQueue', :path => <relative path from ios/>` in the app target and a top-level `target 'SafariBridge'` block with the matching `use_frameworks!` line; idempotent; a missing `target '<App>' do` anchor throws `SafariBridge: anchor ... not found`.
+- `SafariWebExtensionHandler.swift` type-checks against the built `BsvBridgeQueue` module (`swiftc -typecheck -application-extension`, iOS 16 Simulator target). It never creates the sealing key (`createIfMissing: false`).
+- The page-world entry is `provider-main.js` (content entry with `"world": "MAIN"`); `content.ts` and `provider-main.ts` are empty placeholders until Task 16.

@@ -1,0 +1,114 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`plugin output snapshot of app entitlements, appex entitlements, Info.plist, target settings, EAS appExtensions 1`] = `
+{
+  "appEntitlements": {
+    "com.apple.developer.nfc.readersession.formats": [
+      "TAG",
+    ],
+    "com.apple.security.application-groups": [
+      "group.org.bsvblockchain.wallet",
+    ],
+    "keychain-access-groups": [
+      "$(AppIdentifierPrefix)org.bsvblockchain.wallet",
+      "$(AppIdentifierPrefix)org.bsvblockchain.wallet.bridge",
+    ],
+  },
+  "appInfoPlist": {
+    "BSVBridgeAppGroup": "group.org.bsvblockchain.wallet",
+    "BSVBridgeKeychainGroup": "$(AppIdentifierPrefix)org.bsvblockchain.wallet.bridge",
+    "BSVBridgeScheme": "org.bsvblockchain.wallet",
+    "CFBundleURLTypes": [
+      {
+        "CFBundleURLSchemes": [
+          "bsv-wallet",
+        ],
+      },
+      {
+        "CFBundleURLName": "org.bsvblockchain.wallet.bridge",
+        "CFBundleURLSchemes": [
+          "org.bsvblockchain.wallet",
+        ],
+      },
+    ],
+  },
+  "appexInfoPlist": "<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Bitcoin SV Wallet</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>BSVBridgeAppGroup</key>
+	<string>group.org.bsvblockchain.wallet</string>
+	<key>BSVBridgeKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)org.bsvblockchain.wallet.bridge</string>
+	<key>BSVBridgeScheme</key>
+	<string>org.bsvblockchain.wallet</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.Safari.web-extension</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).SafariWebExtensionHandler</string>
+	</dict>
+</dict>
+</plist>
+",
+  "easAppExtensions": [
+    {
+      "bundleIdentifier": "org.bsvblockchain.wallet.safari",
+      "entitlements": {
+        "com.apple.developer.default-data-protection": "NSFileProtectionCompleteUntilFirstUserAuthentication",
+        "com.apple.security.application-groups": [
+          "group.org.bsvblockchain.wallet",
+        ],
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)org.bsvblockchain.wallet.bridge",
+        ],
+      },
+      "targetName": "SafariBridge",
+    },
+  ],
+  "podfile": "target 'Wallet' do
+  pod 'BsvBridgeQueue', :path => '<kit>/swift/BsvBridgeQueue'
+  use_expo_modules!
+end
+
+target 'SafariBridge' do
+  use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
+  pod 'BsvBridgeQueue', :path => '<kit>/swift/BsvBridgeQueue'
+end
+",
+  "targetSettings": {
+    "bundleIdentifier": "org.bsvblockchain.wallet.safari",
+    "deploymentTarget": "16.0",
+    "displayName": "Bitcoin SV Wallet",
+    "entitlements": {
+      "com.apple.developer.default-data-protection": "NSFileProtectionCompleteUntilFirstUserAuthentication",
+      "com.apple.security.application-groups": [
+        "group.org.bsvblockchain.wallet",
+      ],
+      "keychain-access-groups": [
+        "$(AppIdentifierPrefix)org.bsvblockchain.wallet.bridge",
+      ],
+    },
+    "name": "SafariBridge",
+  },
+}
+`;

@@ -6,13 +6,13 @@
   "license": "Open BSV",
   "main": "src/index.ts",
   "types": "src/index.ts",
+  "dependencies": {
+    "@bacons/apple-targets": "5.0.0",
+    "esbuild": "0.28.2"
+  },
   "peerDependencies": {
     "@bsv/expo-wallet-toolbox": "*",
     "@bsv/sdk": "*",
     "expo-modules-core": "*"
-  },
-  "devDependencies": {
-    "@bacons/apple-targets": "5.0.0",
-    "esbuild": "0.28.2"
   }
 }
