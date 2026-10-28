@@ -10,13 +10,22 @@ import type { Mirror } from '../../shared/mirror'
 import type { BridgeRequest, ContinuityContext } from '../../shared/native'
 import type { NativeReply, NativeRequest } from '../../extension/src/lib/nativeClient'
 import { createNativeClient } from '../../extension/src/lib/nativeClient'
+import { fromBase64, sha256Hex, toBase64 } from '../../extension/src/lib/bytes'
 import type { ExtDeps } from '../../extension/src/lib/reconcile'
 
 export interface FakeBrowser {
   session: BrowserStorageArea
   /** Raw contents, for assertions. */
   data: Record<string, unknown>
-  tabs: { updates: Array<{ tabId: number; url?: string }> }
+  tabs: {
+    updates: Array<{ tabId: number; url?: string }>
+    /** Tab ids `tabs.query` reports. */
+    open: Set<number>
+    update(tabId: number, props: { url?: string }): Promise<unknown>
+    query(info: Record<string, unknown>): Promise<Array<{ id: number }>>
+    /** Makes `update` reject. */
+    failUpdate: boolean
+  }
   runtime: { nativeMessages: unknown[] }
 }
 
@@ -38,7 +47,20 @@ export function createFakeBrowser(): FakeBrowser {
       for (const k of Array.isArray(keys) ? keys : [keys]) delete data[k]
     }
   }
-  return { session, data, tabs: { updates: [] }, runtime: { nativeMessages: [] } }
+  const tabs: FakeBrowser['tabs'] = {
+    updates: [],
+    open: new Set(),
+    failUpdate: false,
+    async update(tabId, props) {
+      if (tabs.failUpdate) throw new Error('tabs.update failed')
+      tabs.updates.push({ tabId, ...props })
+      return {}
+    },
+    async query() {
+      return [...tabs.open].map(id => ({ id }))
+    }
+  }
+  return { session, data, tabs, runtime: { nativeMessages: [] } }
 }
 
 export const SEED = new Uint8Array(
@@ -63,6 +85,23 @@ export interface FakeAppex {
   down: boolean
   /** Do not answer at all. */
   hang: boolean
+  /** Ops whose request is dropped before the appex sees it (the transport rejects). */
+  dropRequest: Set<string>
+  /** Ops the appex executes but whose reply is lost (the transport rejects after the effect). */
+  dropReply: Set<string>
+  /** The next N replies of an op are lost after the appex executed it. */
+  failNext: Record<string, number>
+  /** The app is awake and drains at once: new records are `accepted`, so `withdraw` loses. */
+  autoAccept: boolean
+  /** Records by id: the bytes and their state, as the Swift queue keeps them. */
+  records: Map<string, { bytes: Uint8Array; digest: string; state: 'pending' | 'accepted' | 'withdrawn' }>
+  uploads: Map<string, { parts: number; size: number; digest: string; chunks: Map<number, Uint8Array> }>
+  /** Result bytes by id (the app wrote them). */
+  resultBytes: Map<string, Uint8Array>
+  purged: Set<string>
+  acked: string[]
+  /** Split results into parts of this many bytes (default: whole). */
+  partBytes: number
 }
 
 export function createFakeAppex(init: Partial<FakeAppex> = {}): FakeAppex {
@@ -75,6 +114,16 @@ export function createFakeAppex(init: Partial<FakeAppex> = {}): FakeAppex {
     keyMissing: false,
     down: false,
     hang: false,
+    dropRequest: new Set(),
+    dropReply: new Set(),
+    failNext: {},
+    autoAccept: false,
+    records: new Map(),
+    uploads: new Map(),
+    resultBytes: new Map(),
+    purged: new Set(),
+    acked: [],
+    partBytes: 1 << 30,
     ...init
   }
   const known = [
@@ -96,6 +145,92 @@ export function createFakeAppex(init: Partial<FakeAppex> = {}): FakeAppex {
     if (state.down) throw new Error('native messaging unavailable')
     if (!known.includes(m.op)) return { ok: false, code: 'BAD_REQUEST', message: 'unknown op' }
     if (state.keyMissing) return { ok: false, code: 'KEY_MISSING', message: 'The sealing key is not available' }
+    if (state.dropRequest.has(m.op)) throw new Error('dropped request')
+    const reply = handle(m)
+    if (state.dropReply.has(m.op)) throw new Error('dropped reply')
+    if ((state.failNext[m.op] ?? 0) > 0) {
+      state.failNext[m.op]--
+      throw new Error('dropped reply')
+    }
+    return reply
+  }
+
+  function createRecord(id: string, bytes: Uint8Array): NativeReply {
+    const digest = sha256Hex(bytes)
+    const have = state.records.get(id)
+    if (have) {
+      return have.digest === digest
+        ? { ok: true, status: 'exists' }
+        : { ok: false, code: 'EXISTS_DIFFERENT', message: 'The id is taken' }
+    }
+    state.records.set(id, { bytes, digest, state: state.autoAccept ? 'accepted' : 'pending' })
+    return { ok: true, status: 'created' }
+  }
+
+  function handle(m: BridgeRequest): NativeReply {
+    switch (m.op) {
+      case 'stage':
+        return createRecord(m.id, fromBase64(m.bytes))
+      case 'stageBegin':
+        state.uploads.set(m.id, { parts: m.parts, size: m.size, digest: m.digest, chunks: new Map() })
+        return { ok: true }
+      case 'stageChunk': {
+        const up = state.uploads.get(m.id)
+        if (!up || m.n < 0 || m.n >= up.parts) return { ok: false, code: 'BAD_REQUEST', message: 'bad chunk' }
+        up.chunks.set(m.n, fromBase64(m.bytes))
+        return { ok: true }
+      }
+      case 'stageEnd': {
+        const up = state.uploads.get(m.id)
+        if (!up && state.records.has(m.id)) return { ok: true, status: 'exists' }
+        if (!up) return { ok: false, code: 'BAD_REQUEST', message: 'not begun' }
+        const parts: Uint8Array[] = []
+        for (let n = 0; n < up.parts; n++) {
+          const c = up.chunks.get(n)
+          if (!c) return { ok: false, code: 'BAD_REQUEST', message: 'missing chunk' }
+          parts.push(c)
+        }
+        const joined = Buffer.concat(parts)
+        if (joined.length !== up.size || sha256Hex(joined) !== up.digest) {
+          state.uploads.delete(m.id)
+          return { ok: false, code: 'BAD_REQUEST', message: 'bad digest' }
+        }
+        state.uploads.delete(m.id)
+        return createRecord(m.id, new Uint8Array(joined))
+      }
+      case 'withdraw': {
+        const r = state.records.get(m.id)
+        if (r && r.state === 'pending') {
+          r.state = 'withdrawn'
+          return { ok: true, won: true }
+        }
+        return { ok: true, won: false }
+      }
+      case 'results': {
+        const results = m.ids.map(({ id, part = 0 }): import('../../shared/native').ResultItem => {
+          if (state.purged.has(id)) return { id, state: 'purged' }
+          const bytes = state.resultBytes.get(id)
+          if (!bytes) return { id, state: 'none' }
+          const size = m.maxPartBytes ?? state.partBytes
+          const parts = Math.max(1, Math.ceil(bytes.length / size))
+          const slice = bytes.subarray(part * size, (part + 1) * size)
+          return { id, state: 'result', part, parts, bytes: toBase64(slice) }
+        })
+        return { ok: true, results }
+      }
+      case 'ack':
+        state.acked.push(...m.ids)
+        for (const id of m.ids) {
+          state.resultBytes.delete(id)
+          state.purged.delete(id)
+        }
+        return { ok: true }
+      default:
+        return handleBasic(m)
+    }
+  }
+
+  function handleBasic(m: BridgeRequest): NativeReply {
     switch (m.op) {
       case 'sync': {
         const events = state.events.filter(e => e.closeSeq > m.cursor)
