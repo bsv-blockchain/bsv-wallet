@@ -4,6 +4,7 @@ import * as SecureStore from 'expo-secure-store'
 import { WalletClient, PrivateKey, ProtoWallet, Utils } from '@bsv/sdk'
 import type { WalletProtocol } from '@bsv/sdk'
 import connectionStore from '../stores/ConnectionStore'
+import { registerSessionTeardown } from './sessionTeardown'
 import type { Connection } from '../stores/ConnectionStore'
 import {
   buildPairingSignatureMessage,
@@ -214,7 +215,9 @@ export function useWalletConnection() {
 let activeDisconnect: (() => void) | null = null
 
 /** Tear down any live paired RPC socket. No-op if no WalletConnectionProvider
- * is mounted or no session is currently connected. */
+ * is mounted or no session is currently connected. Shim kept for existing
+ * callers and tests; WalletContext now goes through runSessionTeardown, where
+ * the provider registers this same disconnect for logout and profile. */
 export function disconnectActivePairedSession(): void {
   activeDisconnect?.()
 }
@@ -315,7 +318,10 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
   // unmount stops a stale/unmounted provider's disconnect from being called.
   useEffect(() => {
     activeDisconnect = disconnect
+    // A network switch keeps the identity, so pairings survive it.
+    const unregister = registerSessionTeardown(['logout', 'profile'], () => disconnect())
     return () => {
+      unregister()
       if (activeDisconnect === disconnect) activeDisconnect = null
     }
   }, [disconnect])

@@ -179,7 +179,7 @@ import { MANDALA_BASKET } from '../mandala/types'
 import { mandalaSettlementDeps, type CancelParkedSettlementDeps } from '../offline/cancelParked'
 import { drainMandalaInbox } from '../pay/rails/handle'
 import { forgetSessionPsks, sealedFramePayloadDecoder } from '../offline/tokenFrames'
-import { disconnectActivePairedSession } from './WalletConnectionContext'
+import { runSessionTeardown } from './sessionTeardown'
 import connectionStore from '../stores/ConnectionStore'
 import { loadUserAvatarIcon } from '../userAvatar'
 import { createServices, chaintracksUrlFor } from '../services/walletServiceConfig'
@@ -3201,6 +3201,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // The ref, not the state: the fallback below runs inside the same call.
       const from = selectedNetworkRef.current
       if (network === from || switchInFlightRef.current) return
+      runSessionTeardown('network')
       logWithTimestamp(F, `Switching network from ${from} to ${network}`)
       const token = buildGenRef.current.bump()
       // Same hold-off as switchProfile: no build may start on the old network
@@ -3282,7 +3283,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       let __tBuild = 0
       try {
         // Pairings belong to the departing identity.
-        disconnectActivePairedSession()
+        runSessionTeardown('profile')
         profileTransitionRef.current = true
         try {
           await teardownBuiltWallet()
@@ -3972,7 +3973,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // XR-018: a live paired RPC socket otherwise outlives logout/wallet
     // deletion — the peer would keep dispatching allowlisted BRC-100 methods
     // against a wallet the user believes they've logged out of.
-    disconnectActivePairedSession()
+    runSessionTeardown('logout')
     // The IIFE's promise IS returned (unlike the old fire-and-forget version):
     // XR-107 needs the caller to await the verified outcome of the secret
     // erasure below, not just the synchronous kickoff. This does not

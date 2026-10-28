@@ -23,6 +23,7 @@ import {
   useWalletConnection,
   disconnectActivePairedSession
 } from '../../core/context/WalletConnectionContext'
+import { runSessionTeardown } from '../../core/context/sessionTeardown'
 import { buildPairingSignatureMessage } from '../../core/services/walletConnectionValidation'
 
 const mockWebSockets: any[] = []
@@ -111,4 +112,25 @@ test('XR-018: disconnectActivePairedSession() closes the live socket of a connec
 
 test('XR-018: disconnectActivePairedSession() is a safe no-op with no live session or no mounted provider', () => {
   expect(() => disconnectActivePairedSession()).not.toThrow()
+})
+
+test('relay registers for logout and profile only (a network switch keeps the pairing)', async () => {
+  const { result, unmount } = renderHook(() => useWalletConnection(), {
+    wrapper: ({ children }) => <WalletConnectionProvider>{children}</WalletConnectionProvider>
+  })
+  await act(async () => {
+    await result.current.connect((await signedPairingParams()) as any, fakeMobileWallet() as any)
+  })
+  const ws = mockWebSockets[0]
+
+  act(() => runSessionTeardown('network'))
+  act(() => runSessionTeardown('rebuild'))
+  expect(ws.close).not.toHaveBeenCalled()
+
+  act(() => runSessionTeardown('profile'))
+  expect(ws.close).toHaveBeenCalledTimes(1)
+  unmount()
+
+  // Unmount unregisters: a later logout touches nothing.
+  expect(() => runSessionTeardown('logout')).not.toThrow()
 })
