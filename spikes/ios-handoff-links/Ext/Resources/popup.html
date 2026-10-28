@@ -1,0 +1,13 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width">
+<body style="font:16px sans-serif;padding:12px;min-width:300px">
+<p><a id="a1" href="bsvbridgespike://approve?id=123">1. custom scheme link</a></p>
+<p><a id="a2" href="https://deggen.ngrok.app/approve?id=123">2. universal link</a></p>
+<p><a id="a3" href="https://deggen.ngrok.app/approve?id=123" target="_blank">2b. universal link target=_blank</a></p>
+<p><button id="b1">3. tabs.create scheme</button></p>
+<p><button id="b2">4. window.open scheme</button></p>
+<p><button id="b3">5. location.href scheme</button></p>
+<p><button id="b4">6. background tabs.create scheme</button></p>
+<p><button id="b5">7. tabs.create universal</button></p>
+<pre id="log"></pre>
+<script src="popup.js"></script>
