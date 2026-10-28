@@ -11,8 +11,8 @@
  * `not-sent` for a refusal before the call, and for a call that failed on a read-only method
  * (nothing can have changed); `unknown` for a call that failed on a mutating method.
  *
- * Production wiring of the `ConsentStore` (it needs the admin-scoped wallet) is not done here: the
- * host creates the store and hands it to `createDispatcher`, then `installDispatcher`.
+ * The `ConsentStore` needs the admin-scoped wallet, so it is not created here: `BrowserBridgeProvider`
+ * creates it per wallet, hands it to `createDispatcher`, then `installDispatcher`.
  */
 import { WERR_INVALID_PARAMETER, normalizeBRC100WalletByteFields, stringifyBRC100 } from '@bsv/sdk'
 import { snapshotWalletResultRequest, validateWalletArgs, validateWalletResult } from '@bsv/sdk'
@@ -349,8 +349,14 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
       await ensureReady()
       if (!binding.consented) {
         const record = await untilClosed(deps.consent.lookup(binding.applicationOrigin, binding.attestation))
-        if (record !== undefined && binding.attestation === 'browser') {
-          getBindingRegistry().markConsented(binding.epoch, record.originator)
+        // The connect-time token is checked once, here, and forgotten whatever the result. A
+        // missing record and a wrong token look the same to the page: not connected, then the
+        // sheet (whose "connected before" line is the spec's only disclosure).
+        const presented = getBindingRegistry().takeReconnectToken(binding.epoch)
+        if (record !== undefined) {
+          if (binding.attestation === 'browser' || deps.consent.checkReconnect(record, presented)) {
+            getBindingRegistry().markConsented(binding.epoch, record.originator)
+          }
         }
         if (!binding.consented) {
           if ((args as { seekPermission?: unknown }).seekPermission === false) {

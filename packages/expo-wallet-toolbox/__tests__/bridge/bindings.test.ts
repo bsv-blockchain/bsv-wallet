@@ -353,3 +353,26 @@ describe('markConsented', () => {
     expect(b.originator).toBe('example.com')
   })
 })
+
+describe('reconnect token', () => {
+  it('is held beside the binding, handed out once, and dropped on close', async () => {
+    const { reg } = await setup()
+    const a = explicit({ attestation: 'unattested', launchProofVerified: true, reconnectToken: 'tok-a' })
+    const b = reg.connectExplicit(a)
+    expect(JSON.stringify(b)).not.toContain('tok-a')
+    expect(reg.takeReconnectToken(a.epoch)).toBe('tok-a')
+    expect(reg.takeReconnectToken(a.epoch)).toBeUndefined()
+
+    const c = explicit({ attestation: 'unattested', launchProofVerified: true, reconnectToken: 'tok-c' })
+    reg.connectExplicit(c)
+    reg.close(c.epoch, 'disconnected')
+    expect(reg.takeReconnectToken(c.epoch)).toBeUndefined()
+  })
+
+  it('is ignored on a verified binding', async () => {
+    const { reg } = await setup()
+    const a = explicit({ reconnectToken: 'tok' })
+    reg.connectExplicit(a)
+    expect(reg.takeReconnectToken(a.epoch)).toBeUndefined()
+  })
+})

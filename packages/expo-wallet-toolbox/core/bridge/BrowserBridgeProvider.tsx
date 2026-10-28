@@ -11,20 +11,36 @@
  * was registered at build time, readiness, network and account context. What the runtime does with
  * a replaced manager (revision bump, binding close, prompt withdrawal) is in `runtime.ts`.
  *
+ * Wiring: once a wallet is in hand it also builds the `ConsentStore` (authenticated by the
+ * admin-scoped wallet, wrapped exactly as `PairScreen` wraps it for `connectionAuthority`),
+ * installs the dispatcher on it, registers the store's withdrawal with the runtime and hands the
+ * store to the PermissionSheet's `connection` kind. A rebuilt wallet gets a fresh store; teardown
+ * and unmount withdraw its requests and uninstall all of it.
+ *
  * Readiness: `blocked` while the secrets layer is locked, `ready` once a manager and its account
  * context are in hand, `building` while a build runs or the context is still being derived, and
  * `none` otherwise.
  */
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { WalletInterface } from '@bsv/sdk'
+import { profileScopedKey } from '../profiles/profileStore'
+import { capWalletArgs } from '../services/capWalletArgs'
+import { guardVaultAccess } from '../services/vault/guard'
 import { getUnlockState, subscribeUnlockState } from '../services/secrets'
 import { useWallet, useWalletManagers, useWalletStatus } from '../context/WalletContext'
 import type { SigningPolicyPermissionsManager } from '../services/signingPermissionPolicy'
+import { createConsentStore } from './consent'
+import { createDispatcher, installDispatcher } from './dispatcher'
+import { setConsentSheetSource } from './consentSheetSource'
+import { resolvePermissionPolicy } from './permissionPolicy'
 import {
   attachBridgeHost,
   computeAccountContext,
   initBridgeRuntime,
   publish,
+  registerConsentWithdrawal,
+  getBridgeSnapshot,
   setBridgeBaseVersion,
   type BridgeManager,
   type BridgeReadiness
@@ -90,6 +106,37 @@ export const BrowserBridgeProvider: React.FC<{ children?: React.ReactNode; baseV
       current = false
     }
   }, [loaded, walletBuilt, signing, wallet, adminOriginator, selectedNetwork])
+
+  // Consent store and dispatcher for this wallet. The store's records are tagged by this wallet's
+  // admin key, so a different wallet never shares one; the profile key is read live, so the store
+  // notices a profile switch that has not yet produced a new wallet.
+  useEffect(() => {
+    if (!loaded || !walletBuilt || !wallet) return
+    const adminWallet = capWalletArgs(guardVaultAccess(wallet, adminOriginator))
+    const store = createConsentStore({
+      storage: AsyncStorage,
+      adminWallet,
+      adminOriginator,
+      profileKey: () => profileScopedKey(''),
+      now: () => Date.now(),
+      randomBytes: n => globalThis.crypto.getRandomValues(new Uint8Array(n))
+    })
+    const unregister = registerConsentWithdrawal(() => store.withdrawAll())
+    const dispatcher = createDispatcher({ consent: store })
+    installDispatcher(dispatcher)
+    setConsentSheetSource({
+      store,
+      context: () => ({ walletRevision: Number(getBridgeSnapshot().walletRevision), profileKey: profileScopedKey('') }),
+      // The policy the unverified manager was built with (WalletContext): the host's statement.
+      policy: () => resolvePermissionPolicy()
+    })
+    return () => {
+      store.withdrawAll()
+      unregister()
+      setConsentSheetSource(undefined)
+      installDispatcher(undefined)
+    }
+  }, [loaded, walletBuilt, wallet, adminOriginator])
 
   const unverifiedSigning = managers.unverifiedSigningPermissionsManager
   const unverifiedWallet = managers.unverifiedPermissionsManager as unknown as WalletInterface | undefined

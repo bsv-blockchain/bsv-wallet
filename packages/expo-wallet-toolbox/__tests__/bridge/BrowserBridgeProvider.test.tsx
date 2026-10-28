@@ -18,7 +18,10 @@ import * as SecureStore from 'expo-secure-store'
 import { WalletContext, WalletManagersContext } from '../../core/context/WalletContext'
 import { runSessionTeardown } from '../../core/context/sessionTeardown'
 import { BrowserBridgeProvider } from '../../core/bridge/BrowserBridgeProvider'
+import { dispatch } from '../../core/bridge/dispatcher'
+import { getPendingConnections } from '../../core/bridge/consentSheetSource'
 import {
+  registerTransport,
   assertBridgeHost,
   getBindingRegistry,
   getBridgeSnapshot,
@@ -194,5 +197,54 @@ describe('BrowserBridgeProvider', () => {
     const { getPublishedManagers } = require('../../core/bridge/runtime')
     expect(getPublishedManagers().unverified).toBeDefined()
     view.unmount()
+  })
+
+  it('wires the consent store, dispatcher and sheet source once the wallet is ready, and removes them on unmount', async () => {
+    registerTransport({ id: 't', attestation: 'browser', bindingMode: 'explicit', requestAttention: jest.fn() })
+    const send = (epoch: string) =>
+      dispatch({
+        transport: 't',
+        request: {
+          epoch,
+          instanceId: 'i',
+          continuityKey: 'k',
+          origin: 'https://a.example',
+          method: 'getHeight',
+          args: {},
+          sizeBytes: 10
+        }
+      })
+    const connect = (epoch: string) =>
+      getBindingRegistry().connectExplicit({
+        epoch,
+        transportId: 't',
+        applicationOrigin: 'https://a.example',
+        attestation: 'browser',
+        instanceId: 'i',
+        continuityKey: 'k',
+        accountContext: getBridgeSnapshot().accountContext,
+        walletRevision: getBridgeSnapshot().walletRevision
+      })
+
+    // Before any wallet: nothing is installed.
+    const view = render(<Harness building />)
+    await flush()
+    expect(await send('nope')).toMatchObject({ ok: false, connectionError: { code: 'CONFIGURATION_ERROR' } })
+
+    view.rerender(<Harness stack={fakeWalletStack()} />)
+    await flush()
+    expect(getBridgeSnapshot().readiness).toBe('ready')
+    connect('e1')
+    const parked = send('e1')
+    await flush()
+    expect(getPendingConnections()).toMatchObject([
+      { origin: 'https://a.example', attestation: 'browser', connectedBefore: false, profileKey: '' }
+    ])
+
+    // Unmount withdraws the request and uninstalls the dispatcher and the sheet source.
+    view.unmount()
+    expect(await parked).toMatchObject({ ok: false })
+    expect(getPendingConnections()).toEqual([])
+    expect(await send('e1')).toMatchObject({ ok: false, connectionError: { code: 'CONFIGURATION_ERROR' } })
   })
 })

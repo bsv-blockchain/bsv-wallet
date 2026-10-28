@@ -90,11 +90,10 @@ let detachHost: () => void
 
 /**
  * Stands in for project 4's loopback transport: it opens an explicit unattested binding with a
- * verified launch proof and, when the page presents a reconnect token, runs the same check the real
- * transport must (lookup, then `checkReconnect`) before marking the binding connected.
+ * verified launch proof and passes along the reconnect token the page presented. The core checks it.
  */
 async function pageConnects(token?: string): Promise<Binding> {
-  const binding = getBindingRegistry().connectExplicit({
+  return getBindingRegistry().connectExplicit({
     epoch: `epoch-${++nextEpoch}`,
     transportId: 'loopback',
     applicationOrigin: ORIGIN,
@@ -103,13 +102,9 @@ async function pageConnects(token?: string): Promise<Binding> {
     continuityKey: 'ck',
     accountContext: getBridgeSnapshot().accountContext,
     walletRevision: getBridgeSnapshot().walletRevision,
-    launchProofVerified: true
+    launchProofVerified: true,
+    reconnectToken: token
   })
-  const record = await consent.lookup(ORIGIN, 'unattested')
-  if (record !== undefined && consent.checkReconnect(record, token)) {
-    getBindingRegistry().markConsented(binding.epoch, record.originator)
-  }
-  return binding
 }
 
 const send = (b: Binding, method: string, args: unknown = {}) =>
@@ -220,8 +215,9 @@ describe('integration: unverified site over an explicit unattested transport wit
     // 3. Disconnect, then reconnect with the token: no sheet, same originator.
     getBindingRegistry().close(first.epoch, 'disconnected')
     const second = await pageConnects(token1)
-    expect(second.consented).toBe(true)
+    expect(second.consented).toBe(false) // checked by the core at the first interactive request
     expect(await send(second, 'getHeight')).toEqual({ ok: true, result: { height: 800000 } })
+    expect(second.consented).toBe(true)
     expect(consent.listPending()).toHaveLength(0)
     expect((unverifiedWallet.getHeight.mock.calls[0] as any[])[1]).toBe(originator1)
     expect(delivered).toHaveLength(1)
@@ -229,8 +225,15 @@ describe('integration: unverified site over an explicit unattested transport wit
     // 4. Reconnect without the token (and with a wrong one): never silent; the sheet says "connected before".
     getBindingRegistry().close(second.epoch, 'disconnected')
     const wrong = await pageConnects(b64uEncode(new Uint8Array(32).fill(7)))
+    const wrongSend = send(wrong, 'getHeight')
+    await tick()
     expect(wrong.consented).toBe(false)
+    expect(consent.listPending()).toMatchObject([{ origin: ORIGIN, attestation: 'unattested', connectedBefore: true }])
+    expect(unverifiedWallet.getHeight).toHaveBeenCalledTimes(1)
+    // Closing the page withdraws its request (no decline, so no backoff).
     getBindingRegistry().close(wrong.epoch, 'disconnected')
+    expect(connErr(await wrongSend)).toMatchObject({ code: 'DISCONNECTED' })
+    expect(consent.listPending()).toHaveLength(0)
     const third = await pageConnects()
     expect(third.consented).toBe(false)
     const reparked = send(third, 'getHeight')
@@ -276,6 +279,41 @@ describe('integration: unverified site over an explicit unattested transport wit
     expect(prompts).toHaveLength(1)
     expect(prompts[0].originator).toBe(originator2)
     expect(underlying.createSignature).toHaveBeenCalledTimes(1)
+  })
+
+  it('approving after a wrong token starts fresh: new grant tag, old token dead, token never on the binding', async () => {
+    const first = await pageConnects()
+    const p1 = send(first, 'getHeight')
+    await tick()
+    await approveSheet()
+    await p1
+    const originator1 = (unverifiedWallet.getHeight.mock.calls[0] as any[])[1] as string
+    const token1 = delivered[0].token
+    getBindingRegistry().close(first.epoch, 'disconnected')
+
+    const wrong = await pageConnects(b64uEncode(new Uint8Array(32).fill(9)))
+    expect(JSON.stringify(wrong)).not.toContain(b64uEncode(new Uint8Array(32).fill(9)))
+    const p2 = send(wrong, 'getHeight')
+    await tick()
+    expect(consent.listPending()).toMatchObject([{ connectedBefore: true }])
+    expect(unverifiedWallet.getHeight).toHaveBeenCalledTimes(1)
+    await approveSheet()
+    await p2
+    expect(delivered).toHaveLength(2)
+    const originator2 = (unverifiedWallet.getHeight.mock.calls[1] as any[])[1] as string
+    expect(originator2).not.toBe(originator1)
+
+    getBindingRegistry().close(wrong.epoch, 'disconnected')
+    const stale = await pageConnects(token1)
+    const p3 = send(stale, 'getHeight')
+    await tick()
+    expect(consent.listPending()).toHaveLength(1)
+    getBindingRegistry().close(stale.epoch, 'disconnected')
+    await p3
+    const fresh = await pageConnects(delivered[1].token)
+    expect(await send(fresh, 'getHeight')).toEqual({ ok: true, result: { height: 800000 } })
+    expect((unverifiedWallet.getHeight.mock.calls[2] as any[])[1]).toBe(originator2)
+    expect(consent.listPending()).toHaveLength(0)
   })
 
   it('a declined sheet is USER_CANCELLED and reaches no wallet', async () => {

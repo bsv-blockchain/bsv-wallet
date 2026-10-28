@@ -76,7 +76,7 @@ describe('consent sheet source', () => {
     )
   })
 
-  it('hands the reconnect token to the transport of each live binding of that origin', async () => {
+  it('hands the reconnect token only to the bindings parked behind the request', async () => {
     publish({
       attestedManager: { wallet: {} as any, signing: {} as any },
       readiness: 'ready',
@@ -113,7 +113,15 @@ describe('consent sheet source', () => {
       instanceId: 'i2',
       launchProofVerified: true
     })
-    const s = stub([entry()], { record: {}, reconnectToken: 'tok' })
+    // Same origin and transport, but it never asked: it must not be handed the credential.
+    reg.connectExplicit({
+      ...base,
+      epoch: 'e3',
+      applicationOrigin: 'https://shop.example',
+      instanceId: 'i3',
+      launchProofVerified: true
+    })
+    const s = stub([entry()], { record: {}, reconnectToken: 'tok', epochs: ['e1'] })
     setConsentSheetSource({ store: s.store as any, context: () => ({ walletRevision: 1, profileKey: '0' }) })
 
     await answerConnection('c1', true)

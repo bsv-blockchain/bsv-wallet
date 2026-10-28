@@ -66,8 +66,8 @@ export function connectionFlags(attestation: Attestation): SeekFlags {
 
 /**
  * Answers a pending connection request. Approve of an unverified site hands the new reconnect
- * token to the transport of each live binding waiting on that origin; a transport that cannot
- * take it (it never registered `deliverReconnectToken`) simply does not get one.
+ * token, through its own transport, to each live binding that was parked behind this request; a
+ * transport that cannot take it (it never registered `deliverReconnectToken`) does not get one.
  */
 export async function answerConnection(requestId: string, approve: boolean): Promise<void> {
   const src = source
@@ -80,11 +80,15 @@ export async function answerConnection(requestId: string, approve: boolean): Pro
   // (and its tests) must not need just to render a request.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getBindingRegistry, getTransport } = require('./runtime') as typeof import('./runtime')
-  const transport = getTransport(pending.transportId)
-  if (transport?.deliverReconnectToken === undefined) return
+  // Only the bindings that were parked behind this request get the token, each through its own
+  // transport. A binding of the same origin that never asked (connected already, or another
+  // instance that has sent no interactive request) is not handed a credential for the site.
+  const waiting = new Set(result.epochs)
   for (const b of getBindingRegistry().live()) {
-    if (b.transportId !== pending.transportId || b.applicationOrigin !== pending.origin) continue
+    if (!waiting.has(b.epoch) || b.applicationOrigin !== pending.origin) continue
     if (b.attestation !== 'unattested') continue
+    const transport = getTransport(b.transportId)
+    if (transport?.deliverReconnectToken === undefined) continue
     try {
       transport.deliverReconnectToken(b, result.reconnectToken)
     } catch (e) {

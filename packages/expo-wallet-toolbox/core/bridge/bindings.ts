@@ -70,6 +70,12 @@ export interface ExplicitConnectInput {
   accountContext: string
   walletRevision: WalletRevision
   launchProofVerified?: boolean
+  /**
+   * Unattested only: the reconnect token the page presented at connect (6.4, 6.7). Held in memory
+   * beside the binding, never on it, so no snapshot, log line or error can carry it. The
+   * dispatcher takes it once, at the binding's first interactive request.
+   */
+  reconnectToken?: string
 }
 
 /** An inbox record (6.8) plus what the registered transport contributes: its id and attestation. */
@@ -107,6 +113,8 @@ export interface BindingRegistry {
   resolve(transportId: string, request: ResolveRequest): Binding | ConnectionError
   /** Records the originator minted at consent and marks the binding consented. */
   markConsented(epoch: string, originator: string): void
+  /** Returns the connect-time reconnect token once and forgets it. Undefined when none was presented. */
+  takeReconnectToken(epoch: string): string | undefined
   close(epoch: string, reason: InternalCloseReason): void
   closeAll(reason: InternalCloseReason): void
   live(): Binding[]
@@ -121,6 +129,8 @@ const RING_KEY = 'bsv-bridge-binding-tombstones-v1'
 
 export function createBindingRegistry(deps: BindingRegistryDeps): BindingRegistry {
   const liveByEpoch = new Map<string, Binding>()
+  // Off the Binding object on purpose (see ExplicitConnectInput.reconnectToken).
+  const reconnectTokens = new Map<string, string>()
   // Map keeps insertion order, which is close order: the first entry is the oldest.
   const ring = new Map<string, Tombstone>()
   let evictedThrough = 0
@@ -259,7 +269,7 @@ export function createBindingRegistry(deps: BindingRegistryDeps): BindingRegistr
       }
       const over = checkLimits(input.epoch, input.applicationOrigin)
       if (over) throw over
-      return create(
+      const created = create(
         {
           epoch: input.epoch,
           transportId: input.transportId,
@@ -274,6 +284,10 @@ export function createBindingRegistry(deps: BindingRegistryDeps): BindingRegistr
         },
         input.launchProofVerified
       )
+      if (input.attestation === 'unattested' && typeof input.reconnectToken === 'string' && input.reconnectToken) {
+        reconnectTokens.set(input.epoch, input.reconnectToken)
+      }
+      return created
     },
 
     admitImplicit(record, current) {
@@ -363,8 +377,15 @@ export function createBindingRegistry(deps: BindingRegistryDeps): BindingRegistr
       b.consented = true
     },
 
+    takeReconnectToken(epoch) {
+      const token = reconnectTokens.get(epoch)
+      reconnectTokens.delete(epoch)
+      return token
+    },
+
     close(epoch, reason) {
       assertLoaded()
+      reconnectTokens.delete(epoch)
       const b = liveByEpoch.get(epoch)
       if (!b) return
       b.state = 'closed'

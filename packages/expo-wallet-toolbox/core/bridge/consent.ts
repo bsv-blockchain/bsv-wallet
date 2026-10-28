@@ -97,7 +97,7 @@ export interface ConsentStore {
     requestId: string,
     approve: boolean,
     ctx: ConsentAnswerContext
-  ): Promise<{ record: SiteRecord; reconnectToken?: string } | undefined>
+  ): Promise<{ record: SiteRecord; reconnectToken?: string; epochs: string[] } | undefined>
   dropRequestsFor(epoch: string): void
   withdrawAll(): void
   listPending(): PendingConsent[]
@@ -326,6 +326,8 @@ export function createConsentStore(deps: ConsentStoreDeps): ConsentStore {
     if (host === undefined) return undefined
     p.answering = true
     const profileKey = p.profileKey
+    // The bindings parked behind this request, as of the answer (a closed one has already left).
+    const epochs = [...p.epochs]
     let reconnectToken: string | undefined
     try {
       const unsigned: Unsigned = {
@@ -364,7 +366,7 @@ export function createConsentStore(deps: ConsentStoreDeps): ConsentStore {
         notify()
         await write
         p.settle('approved')
-        return { record, reconnectToken }
+        return { record, reconnectToken, epochs }
       })
     } catch {
       // A locked wallet or a failed write: nothing was stored, so the site is not connected.
