@@ -10,8 +10,7 @@ const page = (title, body, head = '') =>
   `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title>${head}<body style="font:16px -apple-system;padding:16px">${body}`
 
 const logger = `
-var PID=Math.random().toString(36).slice(2,6)
-function plog(tag, data){ try{ fetch('/log',{method:'POST',body:JSON.stringify({tag:tag,t:Date.now(),pid:PID,data:data||null}),keepalive:true}) }catch(e){} }
+function plog(tag, data){ try{ fetch('/log',{method:'POST',body:JSON.stringify({tag:tag,t:Date.now(),data:data||null}),keepalive:true}) }catch(e){} }
 `
 const routes = {
   '/probe': q => page('probe', `<h3>probe</h3><pre id=out>waiting</pre><iframe src="/frame${q.get('run')==='s5-frame'?'?handoff=1':''}" style="width:100%;height:80px"></iframe><script>${logger}
@@ -21,8 +20,7 @@ const cmd=q.get('run')
 const t0=performance.now()
 window.addEventListener('message',e=>{ if(e.data&&e.data.source==='bsv-probe-reply'){ document.getElementById('out').textContent=JSON.stringify(e.data.reply).slice(0,500); plog('page-reply',{cmd:e.data.cmd,ms:Math.round(performance.now()-t0)}) } })
 window.run=(c,extra)=>window.postMessage(Object.assign({source:'bsv-probe',cmd:c},extra||{}),'*')
-if(cmd==='s4'){ if(!q.has('noport')) plog('s4-note',{port:true}); setTimeout(()=>window.run('s4-set'),300); [45000,120000].forEach(ms=>setTimeout(()=>window.run('s4-check'),ms)) }
-else if(cmd && cmd!=='s5-frame') setTimeout(()=>window.run(cmd, Object.fromEntries(q)),300)
+if(cmd) setTimeout(()=>window.run(cmd, Object.fromEntries(q)),300)
 for(const ev of ['visibilitychange','pageshow','pagehide','focus','blur','freeze','resume']){
   (ev==='visibilitychange'||ev==='freeze'||ev==='resume'?document:window).addEventListener(ev,()=>plog('s7-'+ev,{vis:document.visibilityState,focus:document.hasFocus()}))
 }
