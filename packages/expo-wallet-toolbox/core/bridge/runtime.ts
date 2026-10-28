@@ -15,6 +15,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Hash, Utils, type WalletInterface } from '@bsv/sdk'
 import * as SecureStore from 'expo-secure-store'
+import { AppState } from 'react-native'
 import { registerSessionTeardown } from '../context/sessionTeardown'
 import type { SigningPolicyPermissionsManager } from '../services/signingPermissionPolicy'
 import { createBindingRegistry, type Binding, type BindingRegistry, type CloseEvent } from './bindings'
@@ -361,6 +362,28 @@ export function registerConsentWithdrawal(fn: () => void): () => void {
   rt.consentWithdrawals.add(fn)
   return () => {
     rt.consentWithdrawals.delete(fn)
+  }
+}
+
+/**
+ * A manager permission prompt was raised for `originator`. When the app is not in the foreground
+ * and a live binding of that originator is waiting on it, the transport is asked to bring the user
+ * to the sheet (`requestAttention('prompt')`, spec 6.2): the call itself has no deadline and would
+ * otherwise wait unseen. The originator is the one the wallet call carried, so only the bindings
+ * that can have raised it are told.
+ */
+export function notifyPromptRaised(
+  originator: string,
+  isActive: () => boolean = () => AppState.currentState === 'active'
+): void {
+  if (!rt.isLoaded || isActive()) return
+  for (const b of rt.bindings.live()) {
+    if (b.originator !== originator) continue
+    try {
+      rt.transports.get(b.transportId)?.requestAttention('prompt', b)
+    } catch (e) {
+      console.warn('[bridge] requestAttention failed', e)
+    }
   }
 }
 

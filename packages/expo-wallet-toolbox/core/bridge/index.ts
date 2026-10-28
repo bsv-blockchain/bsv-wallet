@@ -3,8 +3,13 @@ export { BrowserBridgeProvider } from './BrowserBridgeProvider'
 export {
   DEFAULT_BASE_VERSION,
   getBridgeSnapshot,
+  getPermissionPolicy,
+  listConnectedSites,
+  notifyPromptRaised,
   onSnapshotChange,
   registerTransport,
+  revokeSite,
+  setPermissionPolicy,
   type AttentionReason,
   type BridgeReadiness,
   type BridgeSnapshot,

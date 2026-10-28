@@ -1,11 +1,13 @@
 import { useState, useCallback, useRef } from 'react'
 
-interface UsePermissionQueueOptions {
+interface UsePermissionQueueOptions<T = unknown> {
   /** Open/close the associated modal. Omit for queues without a modal (e.g. BTMS). */
   openModal?: (open: boolean) => void
   isFocused: () => Promise<boolean>
   onFocusRequested: () => void | Promise<void>
   onFocusRelinquished: () => void | Promise<void>
+  /** Called synchronously for every item added, whether or not the queue was empty. */
+  onEnqueue?: (item: T) => void
 }
 
 interface PermissionQueue<T> {
@@ -32,8 +34,8 @@ const idOf = (item: unknown): string | undefined => (item as { requestID?: strin
  * Deduplicates the identical queue logic used by basket, certificate,
  * protocol, spending, and BTMS permission systems.
  */
-export function usePermissionQueue<T>(opts: UsePermissionQueueOptions): PermissionQueue<T> {
-  const { openModal, isFocused, onFocusRequested, onFocusRelinquished } = opts
+export function usePermissionQueue<T>(opts: UsePermissionQueueOptions<T>): PermissionQueue<T> {
+  const { openModal, isFocused, onFocusRequested, onFocusRelinquished, onEnqueue } = opts
   const [requests, setRequests] = useState<T[]>([])
   // The queue's current contents, updated in the same step as the state, so a
   // caller (a withdrawal, an answer by ID) can tell synchronously whether an
@@ -59,6 +61,11 @@ export function usePermissionQueue<T>(opts: UsePermissionQueueOptions): Permissi
     (item: T) => {
       const wasEmpty = itemsRef.current.length === 0
       replace([...itemsRef.current, item])
+      try {
+        onEnqueue?.(item)
+      } catch (e) {
+        console.warn('[permissionQueue] onEnqueue failed', e)
+      }
       if (wasEmpty) {
         // Schedule focus/modal on next microtask, after the state is set. Both steps re-check
         // that this queue is still the one that was filled: a withdrawal in between has already
@@ -76,7 +83,7 @@ export function usePermissionQueue<T>(opts: UsePermissionQueueOptions): Permissi
         })
       }
     },
-    [isFocused, onFocusRequested, openModal, replace]
+    [isFocused, onFocusRequested, openModal, replace, onEnqueue]
   )
 
   const advance = useCallback(

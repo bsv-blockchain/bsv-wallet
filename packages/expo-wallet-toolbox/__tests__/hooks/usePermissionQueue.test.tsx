@@ -155,3 +155,39 @@ describe('usePermissionQueue: a clear that races the deferred focus step', () =>
     expect(openModal).toHaveBeenLastCalledWith(true)
   })
 })
+
+describe('usePermissionQueue: onEnqueue', () => {
+  it('is called for every item, not only the first', async () => {
+    const onEnqueue = jest.fn()
+    const hook = renderHook(() =>
+      usePermissionQueue<Item>({
+        isFocused: async () => true,
+        onFocusRequested: jest.fn(),
+        onFocusRelinquished: jest.fn(),
+        onEnqueue
+      })
+    )
+    await act(async () => {
+      hook.result.current.enqueue({ requestID: 'a' })
+      hook.result.current.enqueue({ requestID: 'b' })
+    })
+    expect(onEnqueue.mock.calls.map(c => c[0].requestID)).toEqual(['a', 'b'])
+  })
+
+  it('a throwing callback never loses the item', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const hook = renderHook(() =>
+      usePermissionQueue<Item>({
+        isFocused: async () => true,
+        onFocusRequested: jest.fn(),
+        onFocusRelinquished: jest.fn(),
+        onEnqueue: () => {
+          throw new Error('boom')
+        }
+      })
+    )
+    await act(async () => hook.result.current.enqueue({ requestID: 'a' }))
+    expect(hook.result.current.requests.map(r => r.requestID)).toEqual(['a'])
+    warn.mockRestore()
+  })
+})

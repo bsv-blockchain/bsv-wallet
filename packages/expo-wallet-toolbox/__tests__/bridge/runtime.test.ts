@@ -14,6 +14,7 @@ import {
   getTransport,
   initBridgeRuntime,
   listConnectedSites,
+  notifyPromptRaised,
   getPermissionPolicy,
   revokeSite,
   setActiveConsent,
@@ -438,5 +439,56 @@ describe('closeSeq across a restart', () => {
     await initBridgeRuntime()
     expect(getBridgeSnapshot().closeSeq).toBe(2)
     expect(getBindingRegistry().closeSeq()).toBe(2)
+  })
+})
+
+describe('requestAttention for a parked manager prompt (6.2)', () => {
+  async function bound(originator: string) {
+    await start()
+    publish(publication())
+    const requestAttention = jest.fn()
+    registerTransport({ id: 'tp', attestation: 'browser', bindingMode: 'explicit', requestAttention })
+    const b = getBindingRegistry().connectExplicit({
+      epoch: 'e1',
+      transportId: 'tp',
+      applicationOrigin: 'https://a.example',
+      attestation: 'browser',
+      instanceId: 'i',
+      continuityKey: 'k',
+      accountContext: 'ctx',
+      walletRevision: '0'
+    })
+    getBindingRegistry().markConsented(b.epoch, originator)
+    return { requestAttention, binding: b }
+  }
+
+  it('asks the transport for attention when the app is backgrounded', async () => {
+    const { requestAttention, binding } = await bound('a.example')
+    notifyPromptRaised('a.example', () => false)
+    expect(requestAttention).toHaveBeenCalledWith('prompt', binding)
+  })
+
+  it('does nothing in the foreground, for another originator, or without a live binding', async () => {
+    const { requestAttention } = await bound('a.example')
+    notifyPromptRaised('a.example', () => true)
+    notifyPromptRaised('b.example', () => false)
+    getBindingRegistry().close('e1', 'lost')
+    notifyPromptRaised('a.example', () => false)
+    expect(requestAttention).not.toHaveBeenCalled()
+  })
+
+  it('defaults to the real AppState', async () => {
+    const { requestAttention } = await bound('a.example')
+    const { AppState } = require('react-native')
+    const original = AppState.currentState
+    try {
+      AppState.currentState = 'background'
+      notifyPromptRaised('a.example')
+      AppState.currentState = 'active'
+      notifyPromptRaised('a.example')
+    } finally {
+      AppState.currentState = original
+    }
+    expect(requestAttention).toHaveBeenCalledTimes(1)
   })
 })

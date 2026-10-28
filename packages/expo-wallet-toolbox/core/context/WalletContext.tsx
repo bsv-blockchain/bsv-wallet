@@ -145,6 +145,7 @@ const MANDALA_OUTPOINT_LIST_MAX_PAGES = 1000
 
 import type { AppChain } from '../config'
 import { effectiveUnverified, loadStoredPolicy, resolvePermissionPolicy } from '../bridge/permissionPolicy'
+import { notifyPromptRaised } from '../bridge/runtime'
 import { hasUnattestedTransport, onUnattestedTransportChange } from '../bridge/runtimeFlags'
 import { buildUnverifiedPermissionsManager } from '../bridge/unverifiedManager'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
@@ -1134,7 +1135,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     setSpendingAuthorizationModalOpen
   } = useContext(UserContext)
 
-  const focusOpts = { isFocused, onFocusRequested, onFocusRelinquished }
+  // A prompt raised for a connected site while the app is in the background must pull the user to
+  // the sheet; the bridge decides whether that applies (live binding of this originator, not active).
+  const notePromptRaised = useCallback((item: unknown) => {
+    const originator = (item as { originator?: unknown } | null)?.originator
+    if (typeof originator === 'string') notifyPromptRaised(originator)
+  }, [])
+  const focusOpts = { isFocused, onFocusRequested, onFocusRelinquished, onEnqueue: notePromptRaised }
 
   const basketQueue = usePermissionQueue<BasketAccessRequest>({
     ...focusOpts,
