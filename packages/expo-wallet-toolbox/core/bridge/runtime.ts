@@ -74,6 +74,12 @@ export interface TransportRegistration {
   /** Called when a request is parked: waiting for consent, for the wallet, or for a prompt in the background. */
   requestAttention(reason: AttentionReason, binding: Binding): void
   onClosed?(event: CloseEvent): void
+  /**
+   * A manager permission prompt was raised for the binding's originator. Called for every live binding of
+   * that originator whether or not the app is active (a transport can use it for receipts); unlike
+   * `requestAttention('prompt')` it is not behind the active-app gate. A throw is logged and isolated.
+   */
+  onPromptRaised?(binding: Binding): void
   /** Mandatory for `unattested`, absent otherwise: delivers the token the core minted at approval. */
   deliverReconnectToken?(binding: Binding, token: string): void
 }
@@ -377,17 +383,26 @@ export function registerConsentWithdrawal(fn: () => void): () => void {
  * and a live binding of that originator is waiting on it, the transport is asked to bring the user
  * to the sheet (`requestAttention('prompt')`, spec 6.2): the call itself has no deadline and would
  * otherwise wait unseen. The originator is the one the wallet call carried, so only the bindings
- * that can have raised it are told.
+ * that can have raised it are told. `onPromptRaised` is called for each of them regardless of the
+ * app state.
  */
 export function notifyPromptRaised(
   originator: string,
   isActive: () => boolean = () => AppState.currentState === 'active'
 ): void {
-  if (!rt.isLoaded || isActive()) return
+  if (!rt.isLoaded) return
+  const active = isActive()
   for (const b of rt.bindings.live()) {
     if (b.originator !== originator) continue
+    const transport = rt.transports.get(b.transportId)
     try {
-      rt.transports.get(b.transportId)?.requestAttention('prompt', b)
+      transport?.onPromptRaised?.(b)
+    } catch (e) {
+      console.warn('[bridge] onPromptRaised failed', e)
+    }
+    if (active) continue
+    try {
+      transport?.requestAttention('prompt', b)
     } catch (e) {
       console.warn('[bridge] requestAttention failed', e)
     }

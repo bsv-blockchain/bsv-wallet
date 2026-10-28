@@ -525,3 +525,93 @@ describe('requestAttention for a parked manager prompt (6.2)', () => {
     expect(requestAttention).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('onPromptRaised (6.15 item 5)', () => {
+  async function boundWith(originator: string, onPromptRaised: any, id = 'tp', instanceId = 'i') {
+    registerTransport({
+      id,
+      attestation: 'browser',
+      bindingMode: 'explicit',
+      requestAttention: jest.fn(),
+      onPromptRaised
+    })
+    const b = getBindingRegistry().connectExplicit({
+      epoch: 'e-' + id,
+      transportId: id,
+      applicationOrigin: 'https://a.example',
+      attestation: 'browser',
+      instanceId,
+      continuityKey: 'k',
+      accountContext: 'ctx',
+      walletRevision: '0'
+    })
+    getBindingRegistry().markConsented(b.epoch, originator)
+    return b
+  }
+
+  it('fires in the foreground', async () => {
+    await start()
+    publish(publication())
+    const onPromptRaised = jest.fn()
+    const b = await boundWith('a.example', onPromptRaised)
+    notifyPromptRaised('a.example', () => true)
+    expect(onPromptRaised).toHaveBeenCalledTimes(1)
+    expect(onPromptRaised).toHaveBeenCalledWith(b)
+  })
+
+  it('fires only for bindings of that originator', async () => {
+    await start()
+    publish(publication())
+    const mine = jest.fn()
+    const other = jest.fn()
+    await boundWith('a.example', mine, 'ta', 'i1')
+    await boundWith('b.example', other, 'tb', 'i2')
+    notifyPromptRaised('a.example', () => true)
+    expect(mine).toHaveBeenCalledTimes(1)
+    expect(other).not.toHaveBeenCalled()
+  })
+
+  it('requestAttention prompt still skipped when active', async () => {
+    await start()
+    publish(publication())
+    const requestAttention = jest.fn()
+    registerTransport({
+      id: 'tp',
+      attestation: 'browser',
+      bindingMode: 'explicit',
+      requestAttention,
+      onPromptRaised: jest.fn()
+    })
+    const b = getBindingRegistry().connectExplicit({
+      epoch: 'e1',
+      transportId: 'tp',
+      applicationOrigin: 'https://a.example',
+      attestation: 'browser',
+      instanceId: 'i',
+      continuityKey: 'k',
+      accountContext: 'ctx',
+      walletRevision: '0'
+    })
+    getBindingRegistry().markConsented(b.epoch, 'a.example')
+    notifyPromptRaised('a.example', () => true)
+    expect(requestAttention).not.toHaveBeenCalled()
+    notifyPromptRaised('a.example', () => false)
+    expect(requestAttention).toHaveBeenCalledWith('prompt', b)
+  })
+
+  it('a throwing onPromptRaised does not stop the others', async () => {
+    await start()
+    publish(publication())
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const thrower = jest.fn(() => {
+      throw new Error('boom')
+    })
+    const ok = jest.fn()
+    await boundWith('a.example', thrower, 'ta', 'i1')
+    await boundWith('a.example', ok, 'tb', 'i2')
+    expect(() => notifyPromptRaised('a.example', () => true)).not.toThrow()
+    expect(thrower).toHaveBeenCalledTimes(1)
+    expect(ok).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+})
