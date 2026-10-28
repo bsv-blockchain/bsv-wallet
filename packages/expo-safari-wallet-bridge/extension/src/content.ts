@@ -15,7 +15,9 @@ if (!isTop) {
   browser.runtime.sendMessage({ type: 'probe', cmd: 'frame-hello', args: {}, frame: true }).catch(() => {})
 }
 
-if (isTop) {
+if (isTop) browser.runtime.sendMessage({ type: 'probe', cmd: 'meta', args: {} }).catch(() => {})
+
+if (isTop && location.search.indexOf('noport') < 0) {
   // S4: a port from the top frame; report when it disconnects.
   try {
     const port = browser.runtime.connect({ name: 'probe' })
