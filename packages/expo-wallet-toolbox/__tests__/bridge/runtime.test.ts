@@ -20,6 +20,7 @@ import {
   setActiveConsent,
   setPermissionPolicy,
   onBindingClosed,
+  onConnectedSitesChange,
   onSnapshotChange,
   publish,
   registerConsentWithdrawal,
@@ -370,7 +371,8 @@ describe('connected sites and permission policy APIs', () => {
             ]
           ),
           revokeSite: jest.fn(async (o: string, a: string) => void calls.push(`revoke ${o} ${a}`)),
-          dropRequestsFor: jest.fn()
+          dropRequestsFor: jest.fn(),
+          onChange: jest.fn((_fn: () => void) => () => undefined)
         },
         adminWallet: {
           createHmac: async (a: any) => ({ hmac: Hash.sha256hmac(key, a.data) }),
@@ -390,6 +392,35 @@ describe('connected sites and permission policy APIs', () => {
     const { consent } = stubConsent()
     setActiveConsent(consent)
     expect(await listConnectedSites()).toHaveLength(1)
+  })
+
+  it('onConnectedSitesChange fires on connect and revoke and follows a swapped store', async () => {
+    await start()
+    const make = () => {
+      const fns = new Set<() => void>()
+      const { consent } = stubConsent()
+      consent.store.onChange = jest.fn((fn: () => void) => {
+        fns.add(fn)
+        return () => void fns.delete(fn)
+      })
+      return { consent, emit: () => fns.forEach(f => f()), fns }
+    }
+    const a = make()
+    const b = make()
+    const un = setActiveConsent(a.consent)
+    const seen = jest.fn()
+    onConnectedSitesChange(seen)
+    a.emit() // a site connected or revoked
+    expect(seen).toHaveBeenCalledTimes(1)
+    setActiveConsent(b.consent) // swap: fires once, old store detached, new store attached
+    expect(seen).toHaveBeenCalledTimes(2)
+    expect(a.fns.size).toBe(0)
+    a.emit()
+    expect(seen).toHaveBeenCalledTimes(2)
+    b.emit()
+    expect(seen).toHaveBeenCalledTimes(3)
+    un() // stale unregister of the replaced store is a no-op
+    expect(b.fns.size).toBe(1)
   })
 
   it("revokeSite deletes the record and closes only that origin's bindings of that attestation", async () => {

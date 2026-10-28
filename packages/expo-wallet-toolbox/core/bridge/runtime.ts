@@ -111,7 +111,7 @@ const secureOptions = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_
 
 /** What the provider registers so the site and policy APIs can reach the store without React. */
 export interface ActiveConsent {
-  store: Pick<ConsentStore, 'listConnectedSites' | 'revokeSite' | 'dropRequestsFor'>
+  store: Pick<ConsentStore, 'listConnectedSites' | 'revokeSite' | 'dropRequestsFor' | 'onChange'>
   /** Admin-scoped, guarded wallet: authenticates the stored policy. */
   adminWallet: Pick<HmacCapableWallet, 'createHmac' | 'verifyHmac'>
   adminOriginator: string
@@ -124,6 +124,9 @@ interface RuntimeState {
   transports: Map<string, TransportRegistration>
   closeListeners: Set<(e: CloseEvent) => void>
   snapshotListeners: Set<(s: BridgeSnapshot) => void>
+  connectedSitesListeners: Set<() => void>
+  /** Unsubscribes the forward from the active store's `onChange`. */
+  consentForward: (() => void) | undefined
   hooks: BridgeHostHooks | undefined
   consentWithdrawals: Set<() => void>
   /** The provider's current consent store and the admin wallet that authenticates it. */
@@ -156,6 +159,8 @@ function createState(storage: KeyValue): RuntimeState {
     transports: new Map(),
     closeListeners: new Set(),
     snapshotListeners: new Set(),
+    connectedSitesListeners: new Set(),
+    consentForward: undefined,
     hooks: undefined,
     consentWithdrawals: new Set(),
     consent: undefined,
@@ -412,9 +417,41 @@ export function notifyPromptRaised(
 /** Registers the live consent store for the site and policy APIs. Returns the unregister function. */
 export function setActiveConsent(c: ActiveConsent | undefined): () => void {
   const state = rt
+  state.consentForward?.()
+  state.consentForward = undefined
   state.consent = c
+  if (c !== undefined) state.consentForward = c.store.onChange(() => notifyConnectedSites(state))
+  // The set of connected sites just changed hands, even if neither store reports a change.
+  notifyConnectedSites(state)
   return () => {
-    if (state.consent === c) state.consent = undefined
+    if (state.consent !== c) return
+    state.consentForward?.()
+    state.consentForward = undefined
+    state.consent = undefined
+    notifyConnectedSites(state)
+  }
+}
+
+function notifyConnectedSites(state: RuntimeState): void {
+  for (const fn of [...state.connectedSitesListeners]) {
+    try {
+      fn()
+    } catch (e) {
+      console.warn('[bridge] connected sites listener failed', e)
+    }
+  }
+}
+
+/**
+ * Called when a site is connected or revoked on the active profile, and when the provider swaps the
+ * consent store (spec 6.5: the cross-process mirror lists the connected sites). Forwards the active
+ * store's `ConsentStore.onChange` and follows a swapped store. Returns the unsubscribe function.
+ */
+export function onConnectedSitesChange(fn: () => void): () => void {
+  const state = rt
+  state.connectedSitesListeners.add(fn)
+  return () => {
+    state.connectedSitesListeners.delete(fn)
   }
 }
 

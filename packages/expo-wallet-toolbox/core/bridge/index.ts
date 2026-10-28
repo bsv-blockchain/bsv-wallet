@@ -11,6 +11,7 @@ export {
   onBindingClosed,
   listConnectedSites,
   notifyPromptRaised,
+  onConnectedSitesChange,
   onSnapshotChange,
   registerTransport,
   revokeSite,
