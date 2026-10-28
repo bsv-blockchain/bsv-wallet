@@ -12,7 +12,7 @@ Android docs, the Solana reference repos, our own code). Raw output: 10 agents, 
 | --- | --- |
 | Page discovers and picks one of several wallets | **Feasible, already specified.** BRC-185 (Ty Everett + Deggen, merged 2026-10-13) defines the events, handle, signed descriptors, neutral chooser and per-origin memory. Nothing implements it yet. |
 | iOS Safari extension as transport | **Feasible.** The extension can announce a provider, take a browser-attested origin, stage requests and show an in-Safari summary. |
-| Approve a spend/signature **inside Safari** with this wallet | **Not feasible** without a second wallet. The wallet (SQLite, permission tokens, KEK, guard) lives in the app's RN runtime; nothing in iOS lets the extension reach or wake it. |
+| Approve a spend/signature **inside Safari** with this wallet | **Not feasible with today's architecture.** The wallet (SQLite, permission tokens, KEK, guard) lives in the app's RN runtime, and nothing in iOS lets the extension reach or wake it. Apple's framework does not forbid it (WWDC26 shows biometric authentication inside a Safari native extension handler), so a future execution engine shared by both processes, with coordinated state and one permission policy, could serve one wallet in both. That is a separate research option, not this plan. |
 | Android Chrome to wallet app | **Feasible with caveats.** Needs Chrome's loopback-network permission (Chrome 142+, WebSockets since 147), a gesture per launch, and an unattested-origin policy. The "modal" ceiling is a bottom sheet over Chrome (an app switch that looks like a modal). |
 | Approve **inside Chrome** on Android | **Not feasible.** Chrome for Android has no extensions. |
 | Library code in the toolbox | **Feasible.** The request processor is mostly reuse; native parts belong in a sibling package. |
@@ -76,8 +76,10 @@ Verified against primary sources:
   sometimes never fires. Every step must be durable and idempotent (request id, expiry, App Group
   file state).
 - Users must enable the extension and grant per-site access before content scripts run, and enable
-  it again separately for Private Browsing. **Chrome for iOS and in-app browsers cannot run Safari
-  extensions**, so on iPhone "Safari/Chrome" collapses to Safari only.
+  it again separately for Private Browsing. **Chrome for iOS and in-app browsers do not run Safari
+  extensions today**, so on iPhone "Safari/Chrome" collapses to Safari only for now. iOS 18.4's
+  `WKWebExtension` lets browser makers host web extensions, so support is browser-specific and
+  belongs in a tested compatibility matrix rather than a permanent exclusion.
 - App Store 4.4.2: request the minimum host permissions. A Safari update that widens host
   permissions disables the extension for existing users (Safari 16.4).
 - Expo: `@bacons/apple-targets` supports a `safari` target type. It is experimental and needs a
