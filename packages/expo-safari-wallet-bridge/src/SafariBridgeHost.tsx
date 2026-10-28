@@ -1,13 +1,13 @@
 /**
  * The app runtime of the Safari bridge (spec 6.7): startup order, drain triggers and the logout reset.
- * Receipts, the done screen and the toast are Task 19; until then this renders `null`.
+ * Calls are wrapped for receipts (spec 6.7); the done screen and the toast (spec 6.12) are rendered here.
  *
  * One instance runs per `native`: a Fast Refresh or provider remount shares it (reference counted), so
  * there is one processor and `recover()` runs once. After a logout reset the instance is final until
  * `native.init()` runs again; the host re-runs the startup by itself once a new wallet appears
  * (the snapshot goes `none`, then leaves it), because the app is not restarted between wallets.
  */
-import { useEffect, useRef } from 'react'
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { AppState, Linking } from 'react-native'
 import { createInboxProcessor, type InboxProcessor } from '@bsv/expo-wallet-toolbox/core/bridge/inbox'
 import { dispatch } from '@bsv/expo-wallet-toolbox/core/bridge/dispatcher'
@@ -23,10 +23,17 @@ import {
   type TransportHandle
 } from '@bsv/expo-wallet-toolbox/core/bridge/runtime'
 import { registerSessionTeardown } from '@bsv/expo-wallet-toolbox/core/context/sessionTeardown'
+import { formatAmount } from '@bsv/expo-wallet-toolbox/core/amountFormatHelpers'
+import { ExchangeRateContext } from '@bsv/expo-wallet-toolbox/core/context/ExchangeRateContext'
+import { WalletContext } from '@bsv/expo-wallet-toolbox/core/context/WalletContext'
+import { usePermissionSheetBusy } from '@bsv/expo-wallet-toolbox/ui/components/ui/PermissionSheet'
 import type { BsvBridgeNative } from '../shared/native'
 import { parseHandoffUrl } from './handoffUrl'
 import { createMirrorWriter, type MirrorWriter } from './mirror'
 import { createNativeInboxStore } from './nativeStore'
+import { createReceiptDispatch, createReceiptTracker, type Receipt } from './receipts'
+import { DoneScreen } from './ui/DoneScreen'
+import { Toast } from './ui/Toast'
 
 export const SAFARI_TRANSPORT_ID = 'safari-extension'
 const SWEEP_INTERVAL_MS = 60_000
@@ -52,6 +59,10 @@ interface Slot {
   running: Running
   /** Cancels a pending restart-after-reset watch. */
   cancelRestart: (() => void) | undefined
+  /** Formats satoshis in the user's display currency; the component keeps it current. */
+  format: (sats: number) => string
+  /** Receipt listeners (the component). */
+  receiptListeners: Set<(receipt: Receipt) => void>
 }
 
 let slot: Slot | undefined
@@ -112,21 +123,31 @@ async function run(s: Slot, running: Running): Promise<void> {
   await waitAttached(running)
   if (running.dead) return
 
+  const tracker = createReceiptTracker()
+  const receiptDispatch = createReceiptDispatch(dispatch, tracker, {
+    format: sats => s.format(sats),
+    onReceipt: receipt => {
+      for (const listener of [...s.receiptListeners]) listener(receipt)
+    }
+  })
+
   // 3. Register before the processor can handle anything. Never pass deliverReconnectToken.
   const handle: TransportHandle = registerTransport({
     id: SAFARI_TRANSPORT_ID,
     attestation: 'browser',
     bindingMode: 'implicit',
-    // The handoff already put the app in front; Task 19 makes this mark the drain as "needed the app".
-    requestAttention: () => undefined,
-    onPromptRaised: () => undefined
+    // The handoff already put the app in front, so nothing is shown; the tracker marks the call as "needed the app".
+    requestAttention: (reason, binding) => {
+      if (reason === 'consent' || reason === 'wallet-not-ready') tracker.mark(binding.epoch)
+    },
+    onPromptRaised: binding => tracker.mark(binding.epoch)
   })
   running.cleanups.push(() => handle.unregister())
 
   // 4. The processor, then crash recovery.
   const processor: InboxProcessor = createInboxProcessor({
     store,
-    dispatch,
+    dispatch: receiptDispatch,
     bindings: getBindingRegistry(),
     now: Date.now,
     transport: { id: SAFARI_TRANSPORT_ID, attestation: 'browser' }
@@ -251,7 +272,9 @@ function acquire(native: BsvBridgeNative, getIdentityKey: () => Promise<string |
       getIdentityKey,
       refs: 0,
       running: undefined as unknown as Running,
-      cancelRestart: undefined
+      cancelRestart: undefined,
+      format: sats => `${sats} sats`,
+      receiptListeners: new Set()
     }
     slot = s
     s.running = startRunning(s)
@@ -271,9 +294,66 @@ function acquire(native: BsvBridgeNative, getIdentityKey: () => Promise<string |
   }
 }
 
-export function SafariBridgeHost({ native, getIdentityKey }: SafariBridgeHostProps): null {
+/** The display-currency formatter, exact (no abbreviation), from the same settings the permission sheet uses. */
+function useFormatSats(): (sats: number) => string {
+  const { settings } = useContext(WalletContext)
+  const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
+  const currency = settings?.currency || 'BSV'
+  return useCallback(
+    (sats: number) => formatAmount(sats, currency, satoshisPerUSD, { usdToFiat }),
+    [currency, satoshisPerUSD, usdToFiat]
+  )
+}
+
+export function SafariBridgeHost({ native, getIdentityKey }: SafariBridgeHostProps): React.ReactElement | null {
   const keyRef = useRef(getIdentityKey)
   keyRef.current = getIdentityKey
-  useEffect(() => acquire(native, () => keyRef.current()), [native])
-  return null
+  const format = useFormatSats()
+  const formatRef = useRef(format)
+  formatRef.current = format
+  const busy = usePermissionSheetBusy()
+  const [receipts, setReceipts] = useState<Receipt[]>([])
+  const [toast, setToast] = useState<{ ok: boolean; id: number } | null>(null)
+  const [active, setActive] = useState(AppState.currentState === 'active')
+  const toastId = useRef(0)
+
+  useEffect(() => {
+    const release = acquire(native, () => keyRef.current())
+    const s = slot
+    if (s === undefined) return release
+    s.format = sats => formatRef.current(sats)
+    const listener = (receipt: Receipt) => {
+      // A receipt that lands while the app is away has nobody to read it.
+      if (AppState.currentState !== 'active') return
+      if (receipt.ok && receipt.neededApproval) setReceipts(prev => [...prev, receipt])
+      else setToast({ ok: receipt.ok, id: ++toastId.current })
+    }
+    s.receiptListeners.add(listener)
+    return () => {
+      s.receiptListeners.delete(listener)
+      release()
+    }
+  }, [native])
+
+  // The done screen goes when the app leaves the foreground.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      setActive(state === 'active')
+      if (state !== 'active') {
+        setReceipts([])
+        setToast(null)
+      }
+    })
+    return () => sub?.remove?.()
+  }, [])
+
+  const dismiss = useCallback(() => setReceipts([]), [])
+  const hideToast = useCallback(() => setToast(null), [])
+  const doneShown = active && !busy && receipts.length > 0
+  return (
+    <>
+      <DoneScreen receipts={receipts} active={active} busy={busy} onDismiss={dismiss} />
+      <Toast toast={doneShown ? null : toast} onHide={hideToast} />
+    </>
+  )
 }

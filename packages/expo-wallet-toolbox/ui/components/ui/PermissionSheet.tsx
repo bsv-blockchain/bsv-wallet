@@ -680,6 +680,35 @@ function GroupPermissionSections({ group, unverified }: { group: GroupPermission
 // Component
 // ---------------------------------------------------------------------------
 
+/**
+ * True while any permission sheet is open or queued (every manager queue, the BTMS and mandala queues and
+ * the website connection requests). The Safari bridge's done screen stays hidden while this is true, and a
+ * later sheet replaces it (spec 6.12).
+ */
+export function usePermissionSheetBusy(): boolean {
+  const {
+    protocolRequests,
+    basketRequests,
+    certificateRequests,
+    spendingRequests,
+    groupRequests,
+    btmsRequests,
+    mandalaRequests
+  } = useContext(WalletContext)
+  const connections = useSyncExternalStore(subscribeConsentRequests, getPendingConnections, getPendingConnections)
+  return (
+    (protocolRequests?.length ?? 0) +
+      (basketRequests?.length ?? 0) +
+      (certificateRequests?.length ?? 0) +
+      (spendingRequests?.length ?? 0) +
+      (groupRequests?.length ?? 0) +
+      (btmsRequests?.length ?? 0) +
+      (mandalaRequests?.length ?? 0) +
+      connections.length >
+    0
+  )
+}
+
 const PermissionSheet: React.FC = () => {
   const { t } = useTranslation()
   const { colors } = useTheme()

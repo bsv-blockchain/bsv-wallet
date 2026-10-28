@@ -1,4 +1,15 @@
 jest.mock('expo-secure-store', () => require('../../expo-wallet-toolbox/__tests__/__mocks__/secureStoreFake').fake)
+// The host reads the display currency and the sheet queues; the real modules pull in the whole app.
+jest.mock('@bsv/expo-wallet-toolbox/core/context/WalletContext', () => ({
+  WalletContext: require('react').createContext({})
+}))
+jest.mock('@bsv/expo-wallet-toolbox/core/context/ExchangeRateContext', () => ({
+  ExchangeRateContext: require('react').createContext({})
+}))
+let mockSheetBusy = false
+jest.mock('@bsv/expo-wallet-toolbox/ui/components/ui/PermissionSheet', () => ({
+  usePermissionSheetBusy: () => mockSheetBusy
+}))
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
@@ -6,6 +17,7 @@ import React from 'react'
 import { AppState, Linking } from 'react-native'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import * as inbox from '@bsv/expo-wallet-toolbox/core/bridge/inbox'
+import { installDispatcher } from '@bsv/expo-wallet-toolbox/core/bridge/dispatcher'
 import { runSessionTeardown } from '@bsv/expo-wallet-toolbox/core/context/sessionTeardown'
 import {
   attachBridgeHost,
@@ -53,6 +65,8 @@ async function attach() {
 
 beforeEach(async () => {
   jest.restoreAllMocks()
+  mockSheetBusy = false
+  installDispatcher(undefined)
   await AsyncStorage.clear()
   ;(SecureStore as any).__reset()
   resetBridgeRuntimeForTests()
@@ -305,7 +319,7 @@ describe('SafariBridgeHost', () => {
     native.fireNudge()
     await settle(3)
     expect(processors[0].processPending.mock.calls.length).toBe(base + 1)
-    appStateHandlers.forEach(h => h('active'))
+    act(() => appStateHandlers.forEach(h => h('active')))
     await settle(3)
     expect(processors[0].processPending.mock.calls.length).toBe(base + 2)
   })
@@ -319,11 +333,64 @@ describe('SafariBridgeHost', () => {
       const base = processors[0].sweepExpired.mock.calls.length
       await act(async () => void (await jest.advanceTimersByTimeAsync(60_000)))
       expect(processors[0].sweepExpired.mock.calls.length).toBe(base + 1)
-      appStateHandlers.forEach(h => h('background'))
+      act(() => appStateHandlers.forEach(h => h('background')))
       await act(async () => void (await jest.advanceTimersByTimeAsync(120_000)))
       expect(processors[0].sweepExpired.mock.calls.length).toBe(base + 1)
     } finally {
       jest.useRealTimers()
     }
+  })
+  describe('receipts', () => {
+    const binding = (epoch: string) => ({ epoch }) as any
+    const request = (epoch: string, method = 'createSignature') => ({
+      epoch,
+      instanceId: 'i',
+      continuityKey: 'k',
+      origin: 'https://shop.example',
+      method,
+      args: {},
+      sizeBytes: 2
+    })
+    async function mountWithDispatch(run: (t: NonNullable<ReturnType<typeof getTransport>>, epoch: string) => void) {
+      installDispatcher({
+        dispatch: async ({ request: r }) => {
+          run(getTransport('safari-extension')!, r.epoch)
+          return { ok: true, result: {} }
+        }
+      })
+      await attach()
+      mount()
+      await settle()
+      const deps = (inbox.createInboxProcessor as jest.Mock).mock.calls[0][0]
+      return (epoch: string, method?: string) =>
+        deps.dispatch({ transport: 'safari-extension', request: request(epoch, method) })
+    }
+
+    it('a dispatched call that raised a consent attention shows the done screen', async () => {
+      const call = await mountWithDispatch((t, epoch) => t.requestAttention('consent', binding(epoch)))
+      await act(async () => void (await call('e1')))
+      expect(tree!.root.findAllByProps({ testID: 'bridge-done-screen' }).length).toBeGreaterThan(0)
+      expect(tree!.root.findAllByProps({ testID: 'bridge-toast' })).toHaveLength(0)
+    })
+
+    it('a prompt raised in the foreground shows the done screen too', async () => {
+      const call = await mountWithDispatch((t, epoch) => t.onPromptRaised?.(binding(epoch)))
+      await act(async () => void (await call('e1')))
+      expect(tree!.root.findAllByProps({ testID: 'bridge-done-screen' }).length).toBeGreaterThan(0)
+    })
+
+    it('an auto-approved call shows the toast and no done screen', async () => {
+      const call = await mountWithDispatch(() => undefined)
+      await act(async () => void (await call('e1')))
+      expect(tree!.root.findAllByProps({ testID: 'bridge-done-screen' })).toHaveLength(0)
+      expect(tree!.root.findAllByProps({ testID: 'bridge-toast' }).length).toBeGreaterThan(0)
+    })
+
+    it('backgrounding dismisses the done screen', async () => {
+      const call = await mountWithDispatch((t, epoch) => t.requestAttention('consent', binding(epoch)))
+      await act(async () => void (await call('e1')))
+      act(() => appStateHandlers.forEach(h => h('background')))
+      expect(tree!.root.findAllByProps({ testID: 'bridge-done-screen' })).toHaveLength(0)
+    })
   })
 })
