@@ -265,7 +265,10 @@ export function createConsentStore(deps: ConsentStoreDeps): ConsentStore {
 
   function remove(p: Pending): void {
     pending.delete(p.requestId)
-    if (slotByTransport.get(p.transportId) === p.requestId) slotByTransport.delete(p.transportId)
+    // Joining transports hold a slot on this request too, so clear every one that points at it.
+    for (const [transportId, held] of [...slotByTransport]) {
+      if (held === p.requestId) slotByTransport.delete(transportId)
+    }
   }
 
   function requestConsent(input: ConsentRequestInput) {
@@ -344,13 +347,14 @@ export function createConsentStore(deps: ConsentStoreDeps): ConsentStore {
       return await serial(async () => {
         const existing = await readRecords(profileKey)
         const tag = await tagFor(profileKey, unsigned)
-        // No await between this re-check and the write call: a wallet replacement, teardown or
-        // profile switch that happened while the tag was computed leaves nothing behind.
-        if (
-          pending.get(requestId) !== p ||
-          p.walletRevision !== ctx.walletRevision ||
-          deps.profileKey() !== profileKey
-        ) {
+        // No await between this re-check and the write call: a wallet replacement or teardown
+        // that happened while the tag was computed already withdrew the request (the revision
+        // is fixed for this entry, so withdrawal is how it shows). A profile switch leaves the
+        // request pending, so drop it here.
+        if (pending.get(requestId) !== p) return undefined
+        if (deps.profileKey() !== profileKey) {
+          remove(p)
+          notify()
           return undefined
         }
         const record: SiteRecord = { ...unsigned, tag }
@@ -370,7 +374,7 @@ export function createConsentStore(deps: ConsentStoreDeps): ConsentStore {
       return undefined
     } finally {
       p.answering = false
-      // If the re-check failed, the request was already withdrawn; settle it so no promise leaks.
+      // No-op after an approval (already settled); every other exit leaves the request declined.
       p.settle('declined')
     }
   }

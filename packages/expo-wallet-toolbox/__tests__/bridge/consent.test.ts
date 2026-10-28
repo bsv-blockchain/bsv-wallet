@@ -204,6 +204,48 @@ describe('consent store', () => {
     expect(s.store.listPending()).toHaveLength(1)
   })
 
+  it('a joining transport does not keep a slot after the request is answered', async () => {
+    const s = setup()
+    const a = s.store.requestConsent(req())
+    const b = s.store.requestConsent(req({ transportId: 't2', bindingEpoch: 'e2' }))
+    if ('refused' in a || 'refused' in b) throw new Error('refused')
+    await s.store.answerConsent(a.requestId, false, { walletRevision: 1, profileKey: '' })
+    s.state.now += 30_000
+    expect(
+      'requestId' in s.store.requestConsent(req({ origin: 'https://other.com', transportId: 't2', bindingEpoch: 'e3' }))
+    ).toBe(true)
+  })
+
+  it('a joining transport does not keep a slot after dropRequestsFor', () => {
+    const s = setup()
+    s.store.requestConsent(req())
+    s.store.requestConsent(req({ transportId: 't2', bindingEpoch: 'e2' }))
+    s.store.dropRequestsFor('e1')
+    s.store.dropRequestsFor('e2')
+    expect(
+      'requestId' in s.store.requestConsent(req({ origin: 'https://other.com', transportId: 't2', bindingEpoch: 'e3' }))
+    ).toBe(true)
+  })
+
+  it('a profile switch while the tag is computed drops the request', async () => {
+    const s = setup()
+    let release!: () => void
+    const gate = new Promise<void>(res => (release = res))
+    const inner = s.wallet.createHmac.getMockImplementation()!
+    s.wallet.createHmac.mockImplementation(async (args: any) => {
+      await gate
+      return inner(args)
+    })
+    const r = s.store.requestConsent(req())
+    if ('refused' in r) throw new Error('refused')
+    const answered = s.store.answerConsent(r.requestId, true, { walletRevision: 1, profileKey: '' })
+    s.state.profileKey = '__p1'
+    release()
+    expect(await answered).toBeUndefined()
+    expect(s.store.listPending()).toHaveLength(0)
+    await expect(r.promise).resolves.toBe('declined')
+  })
+
   it('answering frees the slot', async () => {
     const s = setup()
     await approve(s)
