@@ -324,6 +324,25 @@ describe('SafariBridgeHost', () => {
     expect(processors[0].processPending.mock.calls.length).toBe(base + 2)
   })
 
+  it('the native store sweep runs on a url wake and every 60 seconds, not only at init', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask'] })
+    try {
+      await attach()
+      const sweep = jest.spyOn(native, 'sweep')
+      mount()
+      for (let i = 0; i < 6; i++) await act(async () => void (await jest.advanceTimersByTimeAsync(60)))
+      const base = sweep.mock.calls.length
+      act(() => urlHandlers.forEach(h => h({ url: `${SCHEME}://bridge?v=1&n=abc` })))
+      await act(async () => void (await jest.advanceTimersByTimeAsync(10)))
+      expect(sweep.mock.calls.length).toBe(base + 1)
+      expect(sweep).toHaveBeenLastCalledWith({ nowMs: expect.any(Number) })
+      await act(async () => void (await jest.advanceTimersByTimeAsync(60_000)))
+      expect(sweep.mock.calls.length).toBe(base + 2)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('sweepExpired runs every 60 seconds while active only', async () => {
     jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask'] })
     try {
