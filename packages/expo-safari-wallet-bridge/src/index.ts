@@ -1,5 +1,12 @@
 /** Public API of `@bsv/expo-safari-wallet-bridge`. */
 export { createNativeInboxStore, type NativeInboxStoreOptions } from './nativeStore'
+export { parseHandoffUrl } from './handoffUrl'
+export {
+  SafariBridgeHost,
+  resetSafariBridge,
+  SAFARI_TRANSPORT_ID,
+  type SafariBridgeHostProps
+} from './SafariBridgeHost'
 export * from '../shared/constants'
 export { connectedHash, type Mirror, type MirrorSnapshot } from '../shared/mirror'
 export type { BsvBridgeNative } from '../shared/native'
