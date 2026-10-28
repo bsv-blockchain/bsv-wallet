@@ -25,7 +25,14 @@ import { localAnswer } from './localAnswers'
 import { pickup, type PickupItem } from './pickup'
 import { reconcile, type ClosedEpoch } from './reconcile'
 import { retryWithdrawals, stageInvoke, type StageDeps } from './stage'
-import { closeEpoch, detectGoneTabs, flushDisconnects, markTabClosing, reregister } from './tabs'
+import {
+  closeEpoch,
+  detectGoneTabs,
+  dropOrphanedUnresolved,
+  flushDisconnects,
+  markTabClosing,
+  reregister
+} from './tabs'
 import {
   BACKGROUND_PORT_NAME,
   isRecord,
@@ -210,7 +217,11 @@ export function createBackground(deps0: BackgroundDeps): Background {
     }
     if (!isUuidV4(m.epoch)) throw protocolError('The epoch must be a lowercase UUIDv4')
     const binding = await findBinding(frame, undefined, m.epoch)
-    if (!binding) return null // already closed: idempotent
+    if (!binding) {
+      // Already closed (idempotent). The page stops polling this epoch now, so release its calls.
+      await dropOrphanedUnresolved(deps.session, frame.tabId, m.epoch)
+      return null
+    }
     const key = bindingKey(binding.instanceId, binding.epoch)
     if (!(await closeEpoch(deps, key, deps.now()))) {
       // The disconnect record could not be staged now; keep it closing so the next wake retries it.
@@ -371,6 +382,7 @@ export function createBackground(deps0: BackgroundDeps): Background {
       track(
         markTabClosing(deps, tabId).then(async hit => {
           if (hit.length > 0) scheduleFlush()
+          await dropOrphanedUnresolved(session, tabId)
           await withSessionLock(session, async () => {
             const all = await loadNotices()
             await session.set({ [NOTICES_KEY]: all.filter(n => n.tabId !== tabId) })

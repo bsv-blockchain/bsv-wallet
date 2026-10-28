@@ -180,3 +180,24 @@ export async function flushDisconnects(deps: ExtDeps, now: number): Promise<stri
   for (const key of due) if (await closeEpoch(deps, key, now)) done.push(key)
   return done
 }
+
+/**
+ * Drops the unresolved calls of one tab whose epoch has no binding any more (reconcile closed it and
+ * left the entries for the page's next poll). Once the page disconnects or the tab goes away nothing
+ * polls those ids, and they would count against the in-flight limits for the rest of the session.
+ * `epoch` narrows it to one epoch (a page disconnect); without it every such entry of the tab goes.
+ */
+export async function dropOrphanedUnresolved(session: SessionArea, tabId: number, epoch?: string): Promise<void> {
+  await withSessionLock(session, async () => {
+    const bindings = await loadBindings(session)
+    const unresolved = await loadUnresolved(session)
+    let changed = false
+    for (const [id, e] of Object.entries(unresolved)) {
+      if (e.tabId !== tabId || (epoch !== undefined && e.epoch !== epoch)) continue
+      if (bindings[bindingKey(e.instanceId, e.epoch)]) continue
+      delete unresolved[id]
+      changed = true
+    }
+    if (changed) await saveUnresolved(session, unresolved)
+  })
+}

@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { createBackground } from '../../extension/src/lib/backgroundRouter'
-import { loadBindings } from '../../extension/src/lib/bindings'
+import { loadUnresolved } from '../../extension/src/lib/limits'
+import { loadBindings, saveBindings } from '../../extension/src/lib/bindings'
 import { utf8Bytes } from '../../extension/src/lib/bytes'
 import { CLOSING_GRACE_MS } from '../../shared/constants'
 import { connectedHash } from '../../shared/mirror'
@@ -219,6 +220,28 @@ describe('background router', () => {
       expect(world.browser.tabs.updates).toHaveLength(handoffs) // no handoff for a disconnect
       // the epoch that never staged is just forgotten
       expect(Object.keys(await loadBindings(world.browser.session))).toHaveLength(0)
+    })
+
+    it('unresolved calls of an epoch reconcile already closed are dropped when its tab goes away', async () => {
+      world = createWorld()
+      const instanceId = await bound(world)
+      const r: any = await world.bg.handleMessage(invokeMsg(instanceId), sender())
+      expect(r.ok).toBe(true)
+      expect(Object.keys(await loadUnresolved(world.browser.session))).toHaveLength(1)
+      // reconcile closed the epoch (binding gone) but left the entry for the page's next poll
+      await saveBindings(world.browser.session, {})
+      world.bg.onTabRemoved(1)
+      await world.bg.idle()
+      expect(await loadUnresolved(world.browser.session)).toEqual({})
+    })
+
+    it('a page disconnect of an epoch already closed drops its unresolved calls', async () => {
+      world = createWorld()
+      const instanceId = await bound(world)
+      await world.bg.handleMessage(invokeMsg(instanceId), sender())
+      await saveBindings(world.browser.session, {})
+      await world.bg.handleMessage({ bsv: 'disconnect', origin: ORIGIN, epoch: EPOCH }, sender())
+      expect(await loadUnresolved(world.browser.session)).toEqual({})
     })
 
     it('a tab closed while the background was unloaded is detected by tabs.query at next wake', async () => {
