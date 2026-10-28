@@ -119,58 +119,64 @@ export async function detectGoneTabs(
 }
 
 /**
- * Epochs that have been closing for at least `CLOSING_GRACE_MS` are dropped. If they staged something, a
- * disconnect record is written first (full tuple, no method or args, no handoff). A failed write leaves the
- * epoch closing and bound, to be retried at the next wake. Returns the epoch keys that were closed.
+ * Closes one epoch: if it staged something, a disconnect record is written first (full tuple, no method or
+ * args, no handoff). A failed write leaves the epoch bound (and closing, if it was), to be retried at the next
+ * wake. Returns true when the epoch is gone.
+ */
+export async function closeEpoch(deps: ExtDeps, key: string, now: number): Promise<boolean> {
+  const { session, native } = deps
+  const binding = (await loadBindings(session))[key]
+  const staged = (await loadStagedEpochs(session))[key] === true
+  if (binding && staged) {
+    const record: InboxRecord = {
+      v: 1,
+      id: uuidv4(),
+      kind: 'disconnect',
+      epoch: binding.epoch,
+      instanceId: binding.instanceId,
+      continuityKey: binding.continuityKey,
+      origin: binding.origin,
+      accountContext: binding.accountContext,
+      walletRevision: binding.walletRevision,
+      boundAt: binding.boundAt,
+      createdAt: now,
+      notAfter: now + INBOX_MAX_VALIDITY_MS
+    }
+    try {
+      await native.stage(record.id, toBase64(utf8Bytes(JSON.stringify(record))))
+    } catch {
+      return false
+    }
+  }
+  await withSessionLock(session, async () => {
+    const bindings = await loadBindings(session)
+    delete bindings[key]
+    await saveBindings(session, bindings)
+    const cl = await loadClosing(session)
+    delete cl[key]
+    const st = await loadStagedEpochs(session)
+    delete st[key]
+    // Calls still waiting on this epoch have no poller any more; they stop counting against the limits.
+    // Their records stay in the queue and resolve through the app's tombstone.
+    const unresolved = await loadUnresolved(session)
+    for (const [id, e] of Object.entries(unresolved))
+      if (bindingKey(e.instanceId, e.epoch) === key) delete unresolved[id]
+    await saveUnresolved(session, unresolved)
+    await session.set({ [CLOSING_KEY]: cl, [STAGED_KEY]: st })
+  })
+  return true
+}
+
+/**
+ * Epochs that have been closing for at least `CLOSING_GRACE_MS` are dropped (see `closeEpoch`). Returns the
+ * epoch keys that were closed.
  */
 export async function flushDisconnects(deps: ExtDeps, now: number): Promise<string[]> {
-  const { session, native } = deps
-  const closing = await loadClosing(session)
+  const closing = await loadClosing(deps.session)
   const due = Object.entries(closing)
     .filter(([, since]) => now - since >= CLOSING_GRACE_MS)
     .map(([key]) => key)
   const done: string[] = []
-  for (const key of due) {
-    const binding = (await loadBindings(session))[key]
-    const staged = (await loadStagedEpochs(session))[key] === true
-    if (binding && staged) {
-      const record: InboxRecord = {
-        v: 1,
-        id: uuidv4(),
-        kind: 'disconnect',
-        epoch: binding.epoch,
-        instanceId: binding.instanceId,
-        continuityKey: binding.continuityKey,
-        origin: binding.origin,
-        accountContext: binding.accountContext,
-        walletRevision: binding.walletRevision,
-        boundAt: binding.boundAt,
-        createdAt: now,
-        notAfter: now + INBOX_MAX_VALIDITY_MS
-      }
-      try {
-        await native.stage(record.id, toBase64(utf8Bytes(JSON.stringify(record))))
-      } catch {
-        continue
-      }
-    }
-    await withSessionLock(session, async () => {
-      const bindings = await loadBindings(session)
-      delete bindings[key]
-      await saveBindings(session, bindings)
-      const cl = await loadClosing(session)
-      delete cl[key]
-      const st = await loadStagedEpochs(session)
-      delete st[key]
-      // Calls still waiting on this epoch have no poller any more; they stop counting against the limits.
-      // Their records stay in the queue and resolve through the app's tombstone.
-      const unresolved = await loadUnresolved(session)
-      for (const [id, e] of Object.entries(unresolved))
-        if (bindingKey(e.instanceId, e.epoch) === key) delete unresolved[id]
-      await saveUnresolved(session, unresolved)
-      await session.set({ [CLOSING_KEY]: cl, [STAGED_KEY]: st })
-    })
-    done.push(key)
-  }
+  for (const key of due) if (await closeEpoch(deps, key, now)) done.push(key)
   return done
 }

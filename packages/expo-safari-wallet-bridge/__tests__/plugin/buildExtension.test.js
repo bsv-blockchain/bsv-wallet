@@ -54,7 +54,9 @@ describe('buildExtension', () => {
     }
     for (const file of ['background.js', 'content.js', 'provider-main.js', 'popup.js']) {
       const text = fs.readFileSync(path.join(outDir, file), 'utf8')
-      expect(text).not.toContain('react-native')
+      // 'react-native' is also a BRC-185 endpoint type name in the descriptor validator; what must not appear is the package.
+      expect(text).not.toMatch(/react-native\/|["']react-native["']\)|from ["']react-native["']/)
+      expect(text).not.toContain('node_modules/react-native')
       expect(text).not.toContain('__DEV__')
       expect(text).not.toContain('errorCodec')
       expect(text).not.toMatch(/process\.env/)
@@ -62,7 +64,10 @@ describe('buildExtension', () => {
     // Only the extension sources and P1's pure protocol modules are bundled from the toolbox.
     const toolbox = inputs.filter(input => input.includes('expo-wallet-toolbox'))
     expect(toolbox.length).toBeGreaterThan(0)
-    for (const input of toolbox) expect(input).toMatch(/core\/bridge\/protocol\/[a-zA-Z0-9]+\.ts$/)
+    // `protocol/origin.ts` imports `../unverifiedOriginator.ts`, itself pure (it imports only `protocol/limits`).
+    for (const input of toolbox) {
+      expect(input).toMatch(/core\/bridge\/(protocol\/[a-zA-Z0-9]+|unverifiedOriginator)\.ts$/)
+    }
     expect(toolbox.some(input => input.includes('errorCodec') || input.includes('core/config'))).toBe(false)
   })
 

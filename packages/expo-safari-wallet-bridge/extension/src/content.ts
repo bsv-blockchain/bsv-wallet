@@ -1,2 +1,4 @@
-// Per-frame relay (isolated world). Replaced in Task 16; present so the bundle has all entries.
-export {}
+// Per-frame relay (isolated world). All behaviour is in lib/contentRelay.
+import { createContentRelay } from './lib/contentRelay'
+
+createContentRelay({ win: window, runtime: browser.runtime })

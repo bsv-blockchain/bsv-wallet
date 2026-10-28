@@ -19,9 +19,21 @@ interface BrowserStorageArea {
   remove(keys: string | string[]): Promise<void>
 }
 
+interface BrowserPort {
+  name: string
+  sender?: BrowserMessageSender
+  postMessage(message: unknown): void
+  disconnect(): void
+  onMessage: BrowserEvent<(message: any) => void>
+  onDisconnect: BrowserEvent<() => void>
+}
+
 declare const browser: {
   runtime: {
     sendMessage(message: unknown): Promise<any>
+    connect(info?: { name?: string }): BrowserPort
+    onConnect: BrowserEvent<(port: BrowserPort) => void>
+    getURL(path: string): string
     sendNativeMessage(application: string, message: unknown): Promise<unknown>
     onMessage: BrowserEvent<
       (message: any, sender: BrowserMessageSender, sendResponse: (reply?: unknown) => void) => unknown
@@ -32,5 +44,6 @@ declare const browser: {
     update(tabId: number, props: { url?: string }): Promise<unknown>
     query(info: Record<string, unknown>): Promise<Array<{ id?: number; url?: string; incognito?: boolean }>>
     onRemoved: BrowserEvent<(tabId: number) => void>
+    onUpdated: BrowserEvent<(tabId: number, changeInfo: { url?: string; status?: string }) => void>
   }
 }
