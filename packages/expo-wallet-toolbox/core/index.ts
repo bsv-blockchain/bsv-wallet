@@ -132,6 +132,8 @@ export * from './directpay/deviceStore'
 export * from './directpay/receive'
 export * from './directpay/DirectPayManager'
 export * from './directpay/DirectPayProvider'
+// The browser bridge's public API (BRC-185 core): see './bridge/index'.
+export * from './bridge'
 export * from './peerpay/outbox'
 export * from './peerpay/control'
 export * from './peerpay/handleResendRequests'
