@@ -152,7 +152,13 @@ public class BsvBridgeModule: Module {
       self.lock.lock()
       let s = self.store
       self.lock.unlock()
-      s?.reset()
+      if let s {
+        s.reset()  // also deletes the continuity keys through `onReset`
+      } else if let config = try? Self.config() {
+        // Logout in a process that never ran `init`: the keychain items outlive the process.
+        Self.deleteContinuityKeys(group: config.keychainGroup)()
+        KeychainKeyProvider(group: config.keychainGroup, createIfMissing: false).deleteKey()
+      }
     }
 
     // Debug builds only: every stored file's raw bytes (base64), for the Simulator plaintext-marker test.
@@ -206,12 +212,18 @@ public class BsvBridgeModule: Module {
       let bridgeRoot = container.appendingPathComponent("bridge", isDirectory: true)
       let s = try BridgeStore(
         root: bridgeRoot, keys: KeychainKeyProvider(group: config.keychainGroup, createIfMissing: true))
+      // reset() must also rotate the provider identity (spec 6.4, 6.9): old epochs then fail PROVIDER_CHANGED.
+      s.onReset = Self.deleteContinuityKeys(group: config.keychainGroup)
       store = s
       root = bridgeRoot
       return s
     } catch {
       throw Self.map(error)
     }
+  }
+
+  private static func deleteContinuityKeys(group: String) -> () -> Void {
+    { KeychainContinuityKeyStore(group: group).deleteAll() }
   }
 
   private func requireStore() throws -> BridgeStore {

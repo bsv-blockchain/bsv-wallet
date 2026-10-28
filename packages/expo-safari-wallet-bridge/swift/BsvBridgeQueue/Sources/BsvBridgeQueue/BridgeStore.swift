@@ -57,6 +57,10 @@ public final class BridgeStore {
 
   /// Test-only crash simulation: called after a named step (`linked`, `renamedPending`,
   /// `renamedClaimed`, `resultLinked`). Throwing leaves the disk exactly as a crash there would.
+  /// Called by `reset()` after the sealing key is deleted: the module wires the continuity keys here
+  /// (spec 6.4, 6.9), so one synchronous call wipes both.
+  public var onReset: (() -> Void)?
+
   public var faultAfter: ((String) throws -> Void)?
 
   public init(root: URL, keys: KeyProvider, protection: ProtectionClass = .untilFirstUserAuthentication) throws {
@@ -84,6 +88,7 @@ public final class BridgeStore {
     cachedKey = nil
     lock.unlock()
     keys.deleteKey()
+    onReset?()
     try? FileManager.default.removeItem(at: layout.root)
   }
 

@@ -55,4 +55,17 @@ final class ResetTests: XCTestCase {
     XCTAssertTrue(try fresh.readEventsAfter(seq: 0, nowMs: h.t).gap)
     XCTAssertTrue(try fresh.create(id: ID(1), bytes: utf8("new"), nowMs: h.t))
   }
+
+  func testResetRunsTheResetHookSoContinuityKeysRotate() throws {
+    let hh = try Harness(keys: ResettableKeyProvider())
+    let ck = InMemoryContinuityKeyStore()
+    let continuity = Continuity(keychainGroup: "g", keys: ck)
+    hh.store.onReset = { continuity.resetAll() }
+    let before = try continuity.identity(context: "safari")
+    hh.store.reset()
+    XCTAssertTrue(ck.snapshot.isEmpty)
+    let after = try continuity.identity(context: "safari")
+    XCTAssertNotEqual(before.instanceId, after.instanceId)
+    XCTAssertNotEqual(before.publicKey, after.publicKey)
+  }
 }

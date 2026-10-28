@@ -79,6 +79,8 @@ export interface FakeAppex {
   mirror?: Mirror
   events: InboxCloseEvent[]
   gap: boolean
+  /** Reported with `gap` (the eviction watermark). */
+  gapThrough?: number
   /** Reply to every op with KEY_MISSING (wake before first unlock). */
   keyMissing: boolean
   /** Reject the transport instead of replying. */
@@ -239,7 +241,8 @@ export function createFakeAppex(init: Partial<FakeAppex> = {}): FakeAppex {
           mirrorState: state.mirrorState,
           ...(state.mirrorState === 'ok' && state.mirror ? { mirror: state.mirror } : {}),
           events,
-          gap: state.gap
+          gap: state.gap,
+          ...(state.gapThrough === undefined ? {} : { gapThrough: state.gapThrough })
         }
       }
       case 'identity':

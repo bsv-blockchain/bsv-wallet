@@ -85,3 +85,28 @@ final class ResettableKeyProvider: KeyProvider {
 }
 
 func pendingFile(_ h: Harness, _ n: Int) -> URL { h.root.appendingPathComponent("pending/\(ID(n))") }
+
+/// Like the extension's read-only keychain provider: once the key is deleted it stays missing.
+final class StaysMissingKeyProvider: KeyProvider {
+  private var key: SymmetricKey? = SymmetricKey(size: .bits256)
+  private var status: Int32 = errSecItemNotFound
+  private let lock = NSLock()
+  func sealingKey() throws -> SymmetricKey {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let key else { throw BridgeError.keyMissing(status) }
+    return key
+  }
+  func deleteKey() {
+    lock.lock()
+    key = nil
+    lock.unlock()
+  }
+  /// Models a wake before first unlock instead of a deleted item.
+  func lockDevice() {
+    lock.lock()
+    key = nil
+    status = errSecInteractionNotAllowed
+    lock.unlock()
+  }
+}

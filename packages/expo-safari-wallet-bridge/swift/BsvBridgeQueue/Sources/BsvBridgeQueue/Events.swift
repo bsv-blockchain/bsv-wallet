@@ -57,13 +57,28 @@ extension BridgeStore {
   /// than `evictedThrough`, or when an event file cannot be opened (a lost event is a gap, never a
   /// silent skip); a reader that sees `gap` closes every epoch it holds. Throws only for a missing key.
   public func readEventsAfter(seq: Int, nowMs: Int64) throws -> (events: [Data], gap: Bool) {
+    let r = try readEventsAfterDetailed(seq: seq, nowMs: nowMs)
+    return (r.events, r.gap)
+  }
+
+  /// As `readEventsAfter`, plus `gapThrough`: when `gap` is true, the highest seq the gap covers
+  /// (the eviction watermark, or an event that could not be opened). A reader that has closed
+  /// everything on a gap moves its cursor to at least this, so the same gap is not reported again.
+  public func readEventsAfterDetailed(seq: Int, nowMs: Int64) throws -> (events: [Data], gap: Bool, gapThrough: Int) {
     _ = nowMs
-    var gap = seq < evictedThrough
+    let evicted = evictedThrough
+    var gap = seq < evicted
+    var through = gap ? evicted : 0
     var out: [Data] = []
     for s in eventSeqs() where s > seq {
-      if let e = try openEvent(s) { out.append(e.bytes) } else { gap = true }
+      if let e = try openEvent(s) {
+        out.append(e.bytes)
+      } else {
+        gap = true
+        through = max(through, s)
+      }
     }
-    return (out, gap)
+    return (out, gap, through)
   }
 
   /// Trims to at most `bridgeMaxEvents` and `bridgeEventMaxAgeMs`, whichever trims more, and records

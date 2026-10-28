@@ -104,7 +104,10 @@ final class MessageHandlerTests: XCTestCase {
   // MARK: key missing, unknown op
 
   func testUnreadableKeyRepliesKeyMissingForEveryOpIncludingIdentity() throws {
-    let dead = try Harness(keys: UnavailableKeyProvider())
+    // Wake before first unlock: the item exists but is not readable yet (not `errSecItemNotFound`).
+    let locked = StaysMissingKeyProvider()
+    locked.lockDevice()
+    let dead = try Harness(keys: locked)
     let e = BridgeEnv(
       store: dead.store, continuity: Continuity(keychainGroup: "g", keys: InMemoryContinuityKeyStore()),
       clock: FixedClock(dead.t), nudge: { self.nudges += 1 })
@@ -184,6 +187,45 @@ final class MessageHandlerTests: XCTestCase {
     XCTAssertEqual((r["events"] as? [Any])?.count, 0)
     // Writes are refused until the next init.
     XCTAssertEqual(send(["op": "stage", "id": ID(1), "bytes": b64("x")], e)["code"] as? String, "UNAVAILABLE")
+  }
+
+  func testReadOnlyOpsAfterResetWithAMissingKeyReplyAbsent() throws {
+    let keys = StaysMissingKeyProvider()
+    let hh = try Harness(keys: keys)
+    try hh.store.writeMirror(utf8(json(["v": 1])))
+    // The extension's own store (a new instance, no cached key) after the app reset.
+    let ext = try BridgeStore(root: hh.root, keys: keys)
+    hh.store.reset()
+    let e = env(ext)
+    let s = send(["op": "sync", "cursor": 4], e)
+    XCTAssertEqual(s["ok"] as? Bool, true)
+    XCTAssertEqual(s["mirrorState"] as? String, "absent")
+    XCTAssertEqual((s["events"] as? [Any])?.count, 0)
+    XCTAssertEqual(s["gap"] as? Bool, false)
+    let r = send(["op": "results", "ids": [["id": ID(1)], ["id": ID(2)]]], e)
+    XCTAssertEqual(r["ok"] as? Bool, true)
+    XCTAssertEqual((r["results"] as? [[String: Any]])?.map { $0["state"] as? String }, ["none", "none"])
+    XCTAssertEqual(send(["op": "ack", "ids": [ID(1)]], e)["ok"] as? Bool, true)
+    // Staging cannot seal without a key: still a fault.
+    XCTAssertEqual(send(["op": "stage", "id": ID(1), "bytes": b64("x")], e)["code"] as? String, "KEY_MISSING")
+  }
+
+  func testPreFirstUnlockKeychainStaysKeyMissing() throws {
+    let keys = StaysMissingKeyProvider()
+    let hh = try Harness(keys: keys)
+    keys.lockDevice()
+    let ext = try BridgeStore(root: hh.root, keys: keys)
+    XCTAssertEqual(send(["op": "sync", "cursor": 0], env(ext))["code"] as? String, "KEY_MISSING")
+  }
+
+  func testSyncReportsWhereAGapEnds() throws {
+    try h.store.writeEvent(seq: 3, bytes: utf8(json(["closeSeq": 3])), nowMs: h.t)
+    try h.store.setEvictedThrough(9)
+    let r = send(["op": "sync", "cursor": 0, "nowMs": h.t])
+    XCTAssertEqual(r["gap"] as? Bool, true)
+    XCTAssertEqual(r["gapThrough"] as? Int, 9)
+    let after = send(["op": "sync", "cursor": 9, "nowMs": h.t])
+    XCTAssertEqual(after["gap"] as? Bool, false)
   }
 
   // MARK: staging, withdraw, results, ack, nudge

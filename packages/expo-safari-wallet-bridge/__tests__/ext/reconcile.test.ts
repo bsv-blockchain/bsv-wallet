@@ -159,6 +159,31 @@ describe('reconcile', () => {
     expect(await loadBindings(browser.session)).toEqual({})
   })
 
+  it('a gap with no surviving events converges: the cursor passes the eviction watermark', async () => {
+    const { deps, browser, appex } = await setup([binding(1)], {
+      mirrorState: 'ok',
+      mirror: makeMirror(),
+      gap: true,
+      gapThrough: 7
+    })
+    expect(reasons(await reconcile(deps))).toEqual([[uuid(1), 'lost', true]])
+    expect(await loadCursor(browser.session)).toBe(7)
+    // The app now reports no gap for cursor 7; an epoch bound afterwards survives.
+    appex.gap = false
+    await saveBindings(browser.session, { [bindingKey(INSTANCE, uuid(2))]: binding(2) })
+    expect(reasons(await reconcile(deps))).toEqual([])
+  })
+
+  it('a malformed event on a gap does not pin the cursor below it', async () => {
+    const { deps, browser } = await setup([binding(1)], {
+      mirrorState: 'ok',
+      mirror: makeMirror(),
+      events: [{ closeSeq: 5, reason: 'bogus' } as never]
+    })
+    await reconcile(deps)
+    expect(await loadCursor(browser.session)).toBe(5)
+  })
+
   it('an event that is not an event is a gap', async () => {
     const { deps } = await setup([binding(1)], {
       mirrorState: 'ok',

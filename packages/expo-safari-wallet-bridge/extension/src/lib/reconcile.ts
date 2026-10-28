@@ -124,6 +124,15 @@ export async function reconcile(deps: ExtDeps): Promise<ReconcileState> {
       // Step 5. The highest event actually read, not the mirror's closeSeq.
       let next = cursor
       for (const e of valid) if (e.closeSeq > next) next = e.closeSeq
+      if (gap) {
+        // Everything held was just closed, so the gap is handled: move past it, or the same gap
+        // (an evicted or unreadable event) would close every later epoch 'lost' again.
+        if (typeof reply.gapThrough === 'number' && reply.gapThrough > next) next = reply.gapThrough
+        for (const e of events) {
+          const seq = (e as { closeSeq?: unknown } | null)?.closeSeq
+          if (typeof seq === 'number' && Number.isSafeInteger(seq) && seq > next) next = seq
+        }
+      }
       if (next !== cursor) await saveCursor(session, next)
       // Step 6.
       const now = deps.now()

@@ -77,6 +77,8 @@ export interface SyncReply {
   mirror?: import('./mirror').Mirror
   events: InboxCloseEvent[]
   gap: boolean
+  /** With `gap`: the highest seq the gap covers; the reader's cursor must land at least here. */
+  gapThrough?: number
 }
 export interface IdentityReply {
   ok: true

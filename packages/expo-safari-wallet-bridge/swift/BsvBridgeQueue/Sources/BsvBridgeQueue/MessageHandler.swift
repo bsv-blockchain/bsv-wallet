@@ -50,8 +50,29 @@ public func handleBridgeMessage(_ request: [String: Any], env: BridgeEnv) -> [St
     var reply = try dispatch(op, request, env)
     reply["ok"] = true
     return reply
+  } catch BridgeError.keyMissing(let status) where status == errSecItemNotFound {
+    // The item is gone (logout or Delete Wallet reset it; the extension never creates one): there is
+    // nothing to read, which the extension must see as `absent`, not as a fault. Any other status
+    // (pre-first-unlock) stays KEY_MISSING.
+    if let reply = absentReply(op, request) { return reply }
+    return map(BridgeError.keyMissing(status))
   } catch {
     return map(error)
+  }
+}
+
+/// What the read-only ops answer when the sealing key does not exist.
+private func absentReply(_ op: String, _ r: [String: Any]) -> [String: Any]? {
+  switch op {
+  case "sync":
+    return ["ok": true, "mirrorState": "absent", "events": [Any](), "gap": false, "gapThrough": 0]
+  case "results":
+    let ids = (r["ids"] as? [[String: Any]])?.compactMap { $0["id"] as? String } ?? []
+    return ["ok": true, "results": ids.map { ["id": $0, "state": "none"] }]
+  case "ack":
+    return ["ok": true]
+  default:
+    return nil
   }
 }
 
@@ -128,11 +149,13 @@ private func dispatch(_ op: String, _ r: [String: Any], _ env: BridgeEnv) throws
     case .absent: reply["mirrorState"] = "absent"
     case .corrupt: reply["mirrorState"] = "corrupt"
     }
-    let (raw, gap) = try store.readEventsAfter(seq: cursor, nowMs: nowMs(r, env))
+    let (raw, gap, gapThrough) = try store.readEventsAfterDetailed(seq: cursor, nowMs: nowMs(r, env))
     let events = raw.compactMap(object)
     reply["events"] = events
     // An event that does not parse is a lost event: a gap, never a silent skip.
     reply["gap"] = gap || events.count != raw.count
+    // Where the reader's cursor must land after closing everything on a gap (0 when no gap).
+    reply["gapThrough"] = gapThrough
     return reply
 
   case "identity":
