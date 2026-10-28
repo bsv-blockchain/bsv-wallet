@@ -411,11 +411,13 @@ export async function revokeSite(origin: string, attestation: Attestation): Prom
   if (state.consent === undefined) {
     throw connectionError('CONFIGURATION_ERROR', 'The wallet bridge is not available', 'not-sent')
   }
-  await state.consent.store.revokeSite(origin, attestation)
+  // The provider may unwire the store during the await; the revoke still closes the site's bindings.
+  const store = state.consent.store
+  await store.revokeSite(origin, attestation)
   if (state !== rt || !state.isLoaded) return
   for (const b of state.bindings.live()) {
     if (b.applicationOrigin !== origin || b.attestation !== attestation) continue
-    state.consent.store.dropRequestsFor(b.epoch)
+    store.dropRequestsFor(b.epoch)
     state.bindings.close(b.epoch, 'revoked')
   }
 }
