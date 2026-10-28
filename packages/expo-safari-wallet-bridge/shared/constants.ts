@@ -10,11 +10,17 @@ import {
   MAX_IN_FLIGHT_TOTAL
 } from '@bsv/expo-wallet-toolbox/core/bridge/protocol/limits'
 
-/** Bytes per staged chunk. Default until Task 13 measures the native-messaging channel (spike S2). */
+/**
+ * Bytes per staged chunk. Spike S2 (Simulator): every size up to 5 MiB round-trips 10 of 10, so the 48 KiB
+ * default stands; a device gate (Task 22) repeats the 48 KiB and 1 MiB rows.
+ */
 export const STAGE_CHUNK_BYTES = 48 * 1024
-/** One handoff per this long, however many calls queue behind it. */
+/** One handoff per this long, however many calls queue behind it (spike S5: a repeat inside it is harmless). */
 export const HANDOFF_COALESCE_MS = 3000
-/** A native operation is abandoned after this long and retried. */
+/**
+ * A native operation is abandoned after this long and retried. Spike S2: a cold appex answers in 1.7 to 2 s,
+ * and spike S4: a request over about 30 s is lost with its background, so 5 s with 3 attempts is well inside both.
+ */
 export const NATIVE_TIMEOUT_MS = 5000
 export const NATIVE_RETRIES = 3
 /** An epoch whose tab went away stays answerable this long. */

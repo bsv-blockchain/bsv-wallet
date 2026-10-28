@@ -85,9 +85,57 @@ Simulator caveats: the Simulator does not enforce access groups faithfully, so g
 - apple-targets entitlements and `keychain-access-groups` pass-through as in S1; the generated app entitlements put the host group first and `.bridge` second, matching the spec.
 - A full Debug build of HOST from a clean `ios/` takes about 15 minutes; `prebuild --clean` deletes `ios/build` (DerivedData lives there), so avoid `--clean` unless needed.
 
-## S2 to S5, S7
+## Task 13 walking skeleton (HOST build) and spikes S2, S3, S4, S5, S7
 
-Not run yet.
+Run 2026-10-28 on the iPhone 18 Pro Simulator (iOS 27.0, Safari 27.0), HOST worktree `safari-bridge`, Debug, development profile, extension JS from the spike-probe commit (reverted afterwards; the probe code, an `echo` op in the Swift handler and `demo/serve.mjs` with a `/log` endpoint, is in git history only). No fallback branch is in effect: `S1.root`, `S1.kc`, `S1.pod`, `S6.group` held, and S3 passed with the MAIN-world entry (the `web_accessible_resources` fallback was not needed).
+
+### HBUILD and the walking skeleton
+
+- `prebuild --clean`, `pod install` and a full Debug `xcodebuild` succeed (about 15 minutes, `BUILD SUCCEEDED`). This is the first real compile of `BsvBridgeModule.swift` against ExpoModulesCore: it compiles, autolinks, and `init` runs (`BSVBRIDGE init {"scheme":"org.bsvblockchain.wallet","bootId":...}` in Metro) and creates the sealing key in the bridge group.
+- Post-build gate (Info.plist expansion, which Task 12 deferred to here): both `BitcoinSVWallet.app/Info.plist` and `PlugIns/SafariBridge.appex/Info.plist` carry `BSVBridgeKeychainGroup = SV8SWTHA2H.org.bsvblockchain.wallet.bridge` (`$(AppIdentifierPrefix)` is expanded), `BSVBridgeAppGroup = group.org.bsvblockchain.wallet`, `BSVBridgeScheme = org.bsvblockchain.wallet`; the app has the second URL type `org.bsvblockchain.wallet.bridge`; the appex is embedded (`org.bsvblockchain.wallet.safari`, point `com.apple.Safari.web-extension`); `nm` on the appex shows `handleBridgeMessage`. A `native sign` and the `echo` op round-trip against the real keychain key, so the group works end to end.
+- The Simulator offers the extension in Safari's page menu as soon as the app is installed (no Settings detour). First use asks for site access: "Allow for One Day" or "Always Allow..." (then "Always Allow on This Website"). Granting access while the page is open injects the content scripts into that page at once (no reload) and restarts the background; a reload is only needed for the MAIN-world global to precede page scripts.
+- The popup shows "Bitcoin SV Wallet is on" (`docs/superpowers/evidence/ios-kit/02-ping.png`).
+
+### Workspace and tooling facts (new in this task)
+
+- HOST `node_modules` needs per-entry symlinks to the kit's own `PKG/node_modules` for the two plugin dependencies, because `link-kit.sh` unpacks only the tarball: `node_modules/@bacons/apple-targets`, `node_modules/esbuild` and `node_modules/@esbuild/darwin-arm64` (apple-targets' own dependencies resolve from its real path in `PKG/node_modules`). Never `npm install` in HOST (it would write through the symlinks).
+- `scripts/link-kit.sh` now versions the dev packs `0.0.<epoch>`, not `0.0.0-dev.<epoch>`: CocoaPods does not resolve a prerelease podspec version, so `pod install` failed with "could not find compatible versions for pod BsvBridge".
+- HOST working-tree edits left in place (never to be committed; Task 20 makes the real change): `package.json` (kit `0.0.0` and `@bacons/apple-targets` `5.0.0`), `app.config.js` (plugin entry with `appleTeamId: 'SV8SWTHA2H'`, `extensionName: 'Bitcoin SV Wallet'`, `profile: 'development'`), `metro.config.js` (worktree block regex anchored to `<projectRoot>/.(claude/)?worktrees`, needed while HOST is a worktree). The spike `init` call in `app/_layout.tsx` was reverted: until Task 18 lands nothing in the app calls the kit, so the sealing key is absent and every native op answers `KEY_MISSING`.
+- Several simulators are booted at once on this machine (iPhone 17, iPad Pro 13, iPhone 18 Pro). `xcrun simctl ... booted` and the Simulator control tool without `device` pick an arbitrary one: always pass the UDID. (One `simctl install booted` of this build landed on the iPhone 17 before this was noticed; the app there was replaced by the same build.)
+- Iterating extension JS without a full rebuild: build with `node extension/build.mjs <dir> development`, copy the files over the ones inside `ios/build/.../BitcoinSVWallet.app/PlugIns/SafariBridge.appex/`, `simctl terminate` Safari and `simctl install` the `.app` again. Keychain, App Group and the granted site access survive. Each `simctl openurl` opens a new Safari tab, and old tabs keep running their timers, so tag probe pages with an id.
+- Safari's tab switcher "Private" first shows a Locked Private Browsing prompt ("Not Now" declines it); screenshots from the control tool lag one action behind, take a second one.
+
+### S2 (native-messaging payload and latency)
+
+Result: pass, nothing limits the size on the Simulator. `echo` of raw sizes 1 KiB, 16, 32, 48, 64, 96, 128, 256, 512 KiB, 1, 2 and 5 MiB (base64 on the wire, 4/3 larger) all returned the identical string, 10 of 10 runs each; no callback failed to fire and nothing timed out. Latency (warm, per call): 6 to 8 ms up to 128 KiB, 12 ms at 256 KiB, 17 ms at 512 KiB, 22 ms at 1 MiB, 34 ms at 2 MiB, 70 ms at 5 MiB (about 9 MB/s, almost all of it JSON and base64 handling).
+
+Decision: `STAGE_CHUNK_BYTES` stays at the 48 KiB default (the plan caps it there; the Simulator found no smaller reliable limit), and so does the Swift `defaultMaxPartBytes` for `results` parts. The Simulator does not model a device's memory pressure on the appex, so the size the real channel tolerates is a device gate (Task 22 repeats the 48 KiB and 1 MiB rows on the iPhone).
+
+Cold appex: the first native call after the extension (re)started took 1.9 s (the first `echo`), and `sign` right after Safari was killed and relaunched took 1.66, 1.76, 1.76, 1.79 and 1.95 s over 5 runs (the appex process launch plus Keychain read; the background wake adds another 0 to 1.8 s before the call is even sent, so the page sees 2.3 to 3.7 s). Warm `sign` is 14 ms. This is over the 1 s budget, so, per the spec, a `describe` that times out answers `CONFIGURATION_ERROR` and Task 14 must not shorten `NATIVE_TIMEOUT_MS` (5000 ms covers the cold start with margin; the 3 attempts stay).
+
+### S3 (MAIN-world entry at `document_start`)
+
+Result: pass on iOS 27.0. The second content entry with `"world": "MAIN"` and `run_at: document_start` defines its global before the page's first inline script (`readyState` `loading`, 15 ms after navigation start), and a page served with `Content-Security-Policy: script-src 'self'` (external script only) sees the global too (`04-s3-csp.png`). So the primary design stands; the `web_accessible_resources` fallback is not built. Late grant: access granted while the page was open injected the isolated-world scripts into that page at once; after a reload the MAIN global precedes page scripts. iOS 18.6: the runtime is installed but has only iPad simulators (shut down); not run, so the 18.6 behaviour of `"world": "MAIN"` is unverified (Task 22 or a device).
+
+### S4 (background lifetime)
+
+- `storage.session` survives a background unload and restart: a marker written by one boot was read by two later boots.
+- A background with no open port unloads when idle: a boot that last worked at +0 s was replaced by a new one within 20 s on one run, and within 45 s on another. `runtime.sendMessage` from a content script wakes it, and so does `tabs.onRemoved` (closing a tab on a dead background logged a new boot and the removed tab id).
+- An open `runtime.connect` port from the content script keeps the background alive: same boot after 45, 120 and 187 s idle. The port never disconnected, so whether a port `onDisconnect` reports an unload is unobserved.
+- A native request in flight keeps the background alive for at least 28 s (28 s echo completed on the same boot), but a 40 s request was lost: no reply, no error, and the page's `sendMessage` promise never settled (tested twice). Design consequence for Task 15/16: anything that can exceed about 30 s must be restartable from the page side (poll and resend), never a single awaited native call; the spec's 5 s native timeout is far inside this.
+
+### S5 (handoff)
+
+- `browser.tabs.update(tabId, { url: '<scheme>://bridge?v=1&n=...' })` from the background, with no user gesture, works: Safari shows "Open this page in "Bitcoin SV Wallet"?" with Cancel and Open (`03-s5-handoff-prompt.png`); Open foregrounds the app. The promise resolves in 4 to 34 ms.
+- A second `tabs.update` while the prompt is up (tested 1.5 s after the first) resolves without error and leaves a single prompt on screen. So `HANDOFF_COALESCE_MS = 3000` is workable: at most one prompt per burst, and a repeat inside the window is harmless.
+- Handoff from a subframe works: the background receives the message with `sender.frameId` non-zero, and `tabs.update(sender.tab.id, ...)` navigates the top tab and raises the prompt (isolated from the top frame). The fallback (top frame sets `location.href`) is not needed.
+
+### S7 (lifecycle, timers, sender facts)
+
+- Leaving Safari for the app (handoff Open) or the home screen: `visibilitychange` (hidden) and `blur` fire in the same millisecond; no `pagehide` or `freeze`. Coming back by the "◀ Safari" chip, by a manual switch, or by relaunching Safari: `focus` and `visibilitychange` (visible) fire, `focus` first and `visibilitychange` last; `pageshow` does not fire (the page was not unloaded). Visibility and focus are therefore the signals to poll on, not `pageshow`.
+- Timers while hidden: a 1 s `setInterval` kept running at one tick per 2 s for at least 20 s after the home button (for 19 s it was throttled, never stopped); it returns to 1 s on return. This is Simulator behaviour and a device may suspend sooner, so the poll must stay idempotent and restartable on `visibilitychange`.
+- `sender.origin` is `http://localhost:3000` (lowercase; Safari normalises the host before the extension sees it, `LocalHost` was typed). `sender.tab.incognito` was a boolean `false` in all normal tabs (about 20 samples). A private tab was not measured: the extension must be enabled for Private Browsing first (a Safari setting) and typing into the Simulator's private address bar did not navigate reliably. The spec's rule (non-boolean means private) is unaffected.
+- `sender.tab.id` is stable per tab; `frameId` is `0` for the top frame and a large integer for subframes.
 
 ## Task 9 note: XC scheme name
 
