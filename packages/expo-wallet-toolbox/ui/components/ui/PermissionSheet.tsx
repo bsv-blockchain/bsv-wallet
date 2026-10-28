@@ -1,6 +1,7 @@
 import React, { useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native'
 import type { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
+import type { SigningPolicyPermissionsManager } from '../../../core/services/signingPermissionPolicy'
 import Sheet from './Sheet'
 import PressableScale from './PressableScale'
 import { useTranslation } from 'react-i18next'
@@ -78,6 +79,8 @@ type GrantedGroupPermissions = Parameters<WalletPermissionsManager['grantGrouped
 export interface ActivePermission {
   kind: PermissionKind
   requestID: string
+  /** The manager that raised the request: the one the answer goes to. */
+  manager?: SigningPolicyPermissionsManager
   originator: string
   title: string
   description: string
@@ -203,6 +206,7 @@ export function deriveActive(
     return {
       kind: 'spending',
       requestID: r.requestID,
+      manager: r.manager,
       originator: r.originator || 'Unknown app',
       title: 'Spending Authorization',
       description: r.description || 'wants to spend from your wallet',
@@ -219,6 +223,7 @@ export function deriveActive(
     return {
       kind: 'group',
       requestID: r.requestID,
+      manager: r.manager,
       originator: r.originator,
       title: 'Permissions',
       description: 'wants these permissions',
@@ -240,6 +245,7 @@ export function deriveActive(
     return {
       kind: 'certificate',
       requestID: r.requestID,
+      manager: r.manager,
       originator: r.originator || 'Unknown app',
       title: r.renewal ? 'Certificate Access Renewal' : 'Certificate Access',
       description: r.description || 'wants to access certificate information',
@@ -262,6 +268,7 @@ export function deriveActive(
     return {
       kind: 'protocol',
       requestID: r.requestID,
+      manager: r.manager,
       originator: r.originator || 'Unknown app',
       title: r.renewal ? `${prompt.title} Renewal` : prompt.title,
       description: prompt.description ?? (r.description || 'wants to use a cryptographic protocol'),
@@ -275,6 +282,7 @@ export function deriveActive(
     return {
       kind: 'basket',
       requestID: r.requestID,
+      manager: r.manager,
       originator: r.originator || 'Unknown app',
       title: r.renewal ? 'Basket Access Renewal' : 'Basket Access',
       description: r.reason || 'wants to access a transaction basket',
@@ -493,7 +501,6 @@ const PermissionSheet: React.FC = () => {
     advanceGroupQueue,
     advanceBtmsQueue,
     advanceMandalaQueue,
-    managers,
     settings
   } = useContext(WalletContext)
 
@@ -521,6 +528,24 @@ const PermissionSheet: React.FC = () => {
   // Stores the executeGrant closure that is scheduled but not yet fired, so it
   // can be flushed synchronously if a higher-priority request preempts.
   const pendingGrantRef = useRef<(() => void) | null>(null)
+
+  // Whether the request a pending answer was meant for is still in its queue.
+  // A withdrawal (profile switch, logout) empties the queues, and the new
+  // wallet's manager can then raise a request with the very same ID, so a
+  // request is the same one only if it also came from the same manager.
+  const queuesRef = useRef({ protocolRequests, basketRequests, certificateRequests, spendingRequests, groupRequests })
+  queuesRef.current = { protocolRequests, basketRequests, certificateRequests, spendingRequests, groupRequests }
+  const stillQueued = useCallback((request: ActivePermission): boolean => {
+    const q = queuesRef.current
+    const list: any[] | undefined = {
+      protocol: q.protocolRequests,
+      basket: q.basketRequests,
+      certificate: q.certificateRequests,
+      spending: q.spendingRequests,
+      group: q.groupRequests
+    }[request.kind as 'protocol' | 'basket' | 'certificate' | 'spending' | 'group']
+    return !!list?.some(r => r.requestID === request.requestID && r.manager === request.manager)
+  }, [])
 
   // Clear the pending grant timer (or flush it) on unmount to prevent stale handler calls.
   useEffect(() => {
@@ -616,41 +641,45 @@ const PermissionSheet: React.FC = () => {
       // then asked for on its own when used. A hard deny would make the
       // site's waitForAuthentication throw.
       try {
-        await managers.permissionsManager?.dismissGroupedPermission(active.requestID)
+        await active.manager?.dismissGroupedPermission(active.requestID)
       } catch {
         // Already settled (e.g. the site went away) -- nothing left to answer.
       }
-      advanceGroupQueue()
+      if (stillQueued(active)) advanceGroupQueue(active.requestID)
     } else {
       try {
-        await managers.permissionsManager?.denyPermission(active.requestID)
+        await active.manager?.denyPermission(active.requestID)
       } catch {
         // User denial is expected -- not an error condition
       }
-      switch (active.kind) {
-        case 'protocol':
-          advanceProtocolQueue()
-          setProtocolAccessModalOpen(false)
-          break
-        case 'basket':
-          advanceBasketQueue()
-          setBasketAccessModalOpen(false)
-          break
-        case 'certificate':
-          advanceCertificateQueue()
-          setCertificateAccessModalOpen(false)
-          break
-        case 'spending':
-          advanceSpendingQueue()
-          setSpendingAuthorizationModalOpen(false)
-          break
+      // The answer went to the manager that raised the request; the queue
+      // loses it only if it is still the same one (see stillQueued).
+      if (stillQueued(active)) {
+        switch (active.kind) {
+          case 'protocol':
+            advanceProtocolQueue(active.requestID)
+            setProtocolAccessModalOpen(false)
+            break
+          case 'basket':
+            advanceBasketQueue(active.requestID)
+            setBasketAccessModalOpen(false)
+            break
+          case 'certificate':
+            advanceCertificateQueue(active.requestID)
+            setCertificateAccessModalOpen(false)
+            break
+          case 'spending':
+            advanceSpendingQueue(active.requestID)
+            setSpendingAuthorizationModalOpen(false)
+            break
+        }
       }
     }
     setDetailsExpanded(false)
   }, [
     granted,
     active,
-    managers.permissionsManager,
+    stillQueued,
     advanceProtocolQueue,
     advanceBasketQueue,
     advanceCertificateQueue,
@@ -678,41 +707,49 @@ const PermissionSheet: React.FC = () => {
         advanceBtmsQueue(true)
       } else if (request.kind === 'mandala') {
         advanceMandalaQueue(true)
+      } else if (!stillQueued(request)) {
+        // Withdrawn while the checkmark showed (a profile switch or logout
+        // emptied the queue): the manager that raised it is gone and what is
+        // queued now is not this request. Answer nothing, drop nothing.
       } else if (request.kind === 'group') {
         // Grants exactly the set shown. The manager mints the permission
         // tokens, then resolves the site's waitForAuthentication; if minting
         // fails it rejects that call itself.
-        managers.permissionsManager
+        request.manager
           ?.grantGroupedPermission({
             requestID: request.requestID,
             // The manager's own request object, passed back unchanged.
             granted: (request.groupPermissions ?? {}) as GrantedGroupPermissions
           })
           .catch((error: unknown) => console.warn('[permissions] grouped grant failed', error))
-        advanceGroupQueue()
+        advanceGroupQueue(request.requestID)
       } else if (request.kind === 'spending') {
-        managers.permissionsManager?.grantPermission({
-          requestID: request.requestID,
-          ephemeral: true,
-          amount: request.amount
-        })
-        advanceSpendingQueue()
+        request.manager
+          ?.grantPermission({
+            requestID: request.requestID,
+            ephemeral: true,
+            amount: request.amount
+          })
+          .catch((error: unknown) => console.warn('[permissions] grant failed', error))
+        advanceSpendingQueue(request.requestID)
         setSpendingAuthorizationModalOpen(false)
       } else {
-        managers.permissionsManager?.grantPermission({
-          requestID: request.requestID
-        })
+        request.manager
+          ?.grantPermission({
+            requestID: request.requestID
+          })
+          .catch((error: unknown) => console.warn('[permissions] grant failed', error))
         switch (request.kind) {
           case 'protocol':
-            advanceProtocolQueue()
+            advanceProtocolQueue(request.requestID)
             setProtocolAccessModalOpen(false)
             break
           case 'basket':
-            advanceBasketQueue()
+            advanceBasketQueue(request.requestID)
             setBasketAccessModalOpen(false)
             break
           case 'certificate':
-            advanceCertificateQueue()
+            advanceCertificateQueue(request.requestID)
             setCertificateAccessModalOpen(false)
             break
         }
@@ -723,7 +760,7 @@ const PermissionSheet: React.FC = () => {
       setGranted(false)
     },
     [
-      managers.permissionsManager,
+      stillQueued,
       advanceProtocolQueue,
       advanceBasketQueue,
       advanceCertificateQueue,

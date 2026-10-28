@@ -215,3 +215,115 @@ describe('BRC-29 asks every time', () => {
     expect(calls).toHaveLength(1)
   })
 })
+
+describe('retirement', () => {
+  const SITE = 'fast.brc.dev'
+  const GROUP = {
+    protocolPermissions: [{ protocolID: [1, 'fast grouped alpha'], description: 'Test protocol' }]
+  }
+  const denied = { code: 'ERR_PERMISSION_DENIED' }
+
+  /** A manager with every prompt kind this test raises turned on. Each handler
+   * records its requests and never answers. */
+  function retiring() {
+    const underlying = {
+      createSignature: async () => ({ signature: [1] }),
+      waitForAuthentication: async () => ({ authenticated: true }),
+      listOutputs: async () => ({ totalOutputs: 0, outputs: [] })
+    }
+    const pm = new SigningPolicyPermissionsManager(underlying as any, ADMIN, {
+      seekProtocolPermissionsForSigning: true,
+      seekSpendingPermissions: true,
+      seekGroupedPermission: true
+    } as any)
+    const raised = { protocol: [] as any[], spending: [] as any[], grouped: [] as any[] }
+    pm.bindCallback('onProtocolPermissionRequested', (r: any) => void raised.protocol.push(r))
+    pm.bindCallback('onSpendingAuthorizationRequested', (r: any) => void raised.spending.push(r))
+    pm.bindCallback('onGroupedPermissionRequested', (r: any) => void raised.grouped.push(r))
+    ;(pm as any).findSpendingToken = async () => undefined
+    jest.spyOn(pm as any, 'fetchManifestGroupPermissions').mockResolvedValue(GROUP)
+    const sign = (id: string) =>
+      pm.createSignature({ protocolID: [2, id], keyID: 'k', counterparty: 'self', data: [1] }, 'app.example')
+    const spend = () => pm.ensureSpendingAuthorization({ originator: 'app.example', satoshis: 5, lineItems: [] } as any)
+    return { pm, raised, sign, spend }
+  }
+  const tick = async () => await new Promise(resolve => setTimeout(resolve, 10))
+  const activeCount = (pm: unknown) => (pm as any).activeRequests.size
+
+  test('a retired manager denies protocol, spending and grouped prompts without calling handlers', async () => {
+    const { pm, raised, sign, spend } = retiring()
+    pm.retire()
+    expect(pm.isRetired()).toBe(true)
+    await expect(sign('some app protocol')).rejects.toMatchObject(denied)
+    await expect(spend()).rejects.toMatchObject(denied)
+    await expect(pm.waitForAuthentication({}, SITE)).rejects.toMatchObject(denied)
+    expect(raised).toEqual({ protocol: [], spending: [], grouped: [] })
+    expect(activeCount(pm)).toBe(0)
+  })
+
+  test('retire also runs onRetire hooks, once, in the same step', () => {
+    const { pm } = retiring()
+    const hook = jest.fn()
+    pm.onRetire(hook)
+    expect(hook).not.toHaveBeenCalled()
+    pm.retire()
+    pm.retire()
+    expect(hook).toHaveBeenCalledTimes(1)
+    const late = jest.fn()
+    pm.onRetire(late)
+    expect(late).toHaveBeenCalledTimes(1)
+  })
+
+  test('denyAllActiveRequests ends the calls waiting on a prompt', async () => {
+    const { pm, raised, sign, spend } = retiring()
+    const signing = sign('some app protocol')
+    const spending = spend()
+    const grouping = pm.waitForAuthentication({}, SITE)
+    await tick()
+    expect(raised.protocol).toHaveLength(1)
+    expect(raised.spending).toHaveLength(1)
+    expect(raised.grouped).toHaveLength(1)
+    expect(pm.hasActiveRequest(raised.protocol[0].requestID)).toBe(true)
+    pm.retire()
+    pm.denyAllActiveRequests()
+    for (const call of [signing, spending, grouping]) await expect(call).rejects.toMatchObject(denied)
+    expect(activeCount(pm)).toBe(0)
+    expect(pm.hasActiveRequest(raised.protocol[0].requestID)).toBe(false)
+  })
+
+  test('grouped lock is released after retire', async () => {
+    const { pm, raised } = retiring()
+    const holder = pm.waitForAuthentication({}, SITE)
+    await tick()
+    const queued = pm.waitForAuthentication({}, SITE) // parked on the per-originator lock
+    await tick()
+    expect(raised.grouped).toHaveLength(1)
+    pm.retire()
+    pm.denyAllActiveRequests()
+    await expect(holder).rejects.toMatchObject(denied)
+    await expect(queued).rejects.toMatchObject(denied)
+    expect(raised.grouped).toHaveLength(1)
+    expect(activeCount(pm)).toBe(0)
+    expect((pm as any).groupedPermissionFlowTail.size).toBe(0)
+  })
+
+  test('a call parked on its manifest fetch raises nothing once the manager is retired', async () => {
+    const { pm, raised } = retiring()
+    let release!: (v: unknown) => void
+    ;(pm as any).fetchManifestGroupPermissions.mockImplementation(() => new Promise(resolve => (release = resolve)))
+    const waiting = pm.waitForAuthentication({}, SITE)
+    await tick()
+    pm.retire()
+    pm.denyAllActiveRequests()
+    release(GROUP)
+    await expect(waiting).rejects.toMatchObject(denied)
+    expect(raised.grouped).toEqual([])
+    expect(activeCount(pm)).toBe(0)
+  })
+
+  test('deny never throws for a missing id', () => {
+    const { pm } = retiring()
+    expect(() => pm.denyAllActiveRequests()).not.toThrow()
+    expect(pm.hasActiveRequest('nope')).toBe(false)
+  })
+})

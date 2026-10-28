@@ -21,11 +21,25 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
   }
 })
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
-jest.mock('../../ui/components/ui/Sheet', () => ({ __esModule: true, default: () => null }))
-jest.mock('../../ui/components/ui/PressableScale', () => ({ __esModule: true, default: () => null }))
+// Sheet renders its children and PressableScale records its handler, so the
+// component tests below can press Reject (first) and Authorize (second).
+jest.mock('../../ui/components/ui/Sheet', () => ({
+  __esModule: true,
+  default: ({ children }: { children?: unknown }) => children ?? null
+}))
+jest.mock('../../ui/components/ui/PressableScale', () => ({
+  __esModule: true,
+  default: ({ onPress }: { onPress?: () => void }) => {
+    ;(globalThis as any).__presses.push(onPress)
+    return null
+  }
+}))
+jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }))
 jest.mock('../../ui/components/wallet/AmountDisplay', () => ({ __esModule: true, default: () => null }))
 
-import { deriveActive } from '../../ui/components/ui/PermissionSheet'
+import React from 'react'
+import { act, render } from '@testing-library/react-native'
+import PermissionSheet, { deriveActive } from '../../ui/components/ui/PermissionSheet'
 
 const formatSats = (satoshis: number) => ({ value: String(satoshis), unit: 'sats' })
 
@@ -255,5 +269,210 @@ describe('protocol prompts', () => {
       { label: 'Protocol', value: 'todo list' },
       { label: 'Security level', value: '1' }
     ])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The sheet answers by identity: the manager that raised the request, and
+// only while that request is still the one queued.
+// ---------------------------------------------------------------------------
+describe('PermissionSheet answers', () => {
+  const { WalletContext, UserContext, ExchangeRateContext } = require('@bsv/expo-wallet-toolbox')
+
+  const fakeManager = () => ({
+    grantPermission: jest.fn().mockResolvedValue(undefined),
+    denyPermission: jest.fn().mockResolvedValue(undefined),
+    grantGroupedPermission: jest.fn().mockResolvedValue(undefined),
+    dismissGroupedPermission: jest.fn().mockResolvedValue(undefined)
+  })
+  type FakeManager = ReturnType<typeof fakeManager>
+
+  const protocolRequest = (requestID: string, manager: FakeManager) => ({
+    requestID,
+    protocolSecurityLevel: 2,
+    protocolID: 'some app protocol',
+    originator: 'app.example',
+    manager
+  })
+  const groupRequest = (requestID: string, manager: FakeManager) => ({
+    requestID,
+    originator: 'app.example',
+    permissions: { protocolPermissions: [{ protocolID: [1, 'alpha beta'] }] },
+    manager
+  })
+
+  function setup(initial: Record<string, unknown>) {
+    const advance = {
+      advanceProtocolQueue: jest.fn(),
+      advanceBasketQueue: jest.fn(),
+      advanceCertificateQueue: jest.fn(),
+      advanceSpendingQueue: jest.fn(),
+      advanceGroupQueue: jest.fn(),
+      advanceBtmsQueue: jest.fn(),
+      advanceMandalaQueue: jest.fn()
+    }
+    // The current wallet's manager: what the old code answered, whatever raised the request.
+    const current = fakeManager()
+    const ui = {
+      protocolAccessModalOpen: true,
+      setProtocolAccessModalOpen: jest.fn(),
+      basketAccessModalOpen: false,
+      setBasketAccessModalOpen: jest.fn(),
+      certificateAccessModalOpen: false,
+      setCertificateAccessModalOpen: jest.fn(),
+      spendingAuthorizationModalOpen: false,
+      setSpendingAuthorizationModalOpen: jest.fn()
+    }
+    const tree = (queues: Record<string, unknown>) => (
+      <WalletContext.Provider
+        value={{
+          protocolRequests: [],
+          basketRequests: [],
+          certificateRequests: [],
+          spendingRequests: [],
+          groupRequests: [],
+          btmsRequests: [],
+          mandalaRequests: [],
+          ...advance,
+          managers: { permissionsManager: current },
+          settings: {},
+          ...queues
+        }}
+      >
+        <UserContext.Provider value={ui}>
+          <ExchangeRateContext.Provider value={{}}>
+            <PermissionSheet />
+          </ExchangeRateContext.Provider>
+        </UserContext.Provider>
+      </WalletContext.Provider>
+    )
+    const view = render(tree(initial))
+    const press = async (index: number) => {
+      const handler = (globalThis as any).__presses.at(-2 + index) as () => unknown
+      await act(async () => {
+        await handler()
+      })
+    }
+    return {
+      view,
+      advance,
+      current,
+      ui,
+      rerender: (queues: Record<string, unknown>) => view.rerender(tree(queues)),
+      deny: () => press(0),
+      /** Presses Reject without holding an act scope open, so a re-render can land while it waits. */
+      denyUnscoped: () => ((globalThis as any).__presses.at(-2) as () => Promise<void>)(),
+      allow: () => press(1)
+    }
+  }
+
+  beforeEach(() => {
+    ;(globalThis as any).__presses = []
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
+  const elapse = async () => {
+    await act(async () => {
+      jest.advanceTimersByTime(450)
+    })
+  }
+
+  it('grants the manager that raised the request, by request ID, never the current one', async () => {
+    const raised = fakeManager()
+    const { allow, current, advance, ui } = setup({ protocolRequests: [protocolRequest('p1', raised)] })
+    await allow()
+    await elapse()
+    expect(raised.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
+    expect(current.grantPermission).not.toHaveBeenCalled()
+    expect(advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
+    expect(ui.setProtocolAccessModalOpen).toHaveBeenCalledWith(false)
+  })
+
+  it('denies the manager that raised the request, by request ID', async () => {
+    const raised = fakeManager()
+    const { deny, current, advance } = setup({ protocolRequests: [protocolRequest('p1', raised)] })
+    await deny()
+    expect(raised.denyPermission).toHaveBeenCalledWith('p1')
+    expect(current.denyPermission).not.toHaveBeenCalled()
+    expect(advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
+  })
+
+  describe('grant after withdrawal within 400 ms drops nothing else', () => {
+    // R1 is allowed; a profile switch empties the queue inside the checkmark
+    // animation and the new manager raises R2, which may even reuse R1's ID.
+    it.each([
+      ['protocol, same request ID', 'p1', 'p1'],
+      ['protocol, new request ID', 'p1', 'p2']
+    ])('%s', async (_name, firstID, secondID) => {
+      const oldManager = fakeManager()
+      const newManager = fakeManager()
+      const { allow, rerender, advance, ui } = setup({ protocolRequests: [protocolRequest(firstID, oldManager)] })
+      await allow()
+      rerender({ protocolRequests: [protocolRequest(secondID, newManager)] })
+      await elapse()
+      expect(newManager.grantPermission).not.toHaveBeenCalled()
+      expect(newManager.denyPermission).not.toHaveBeenCalled()
+      expect(oldManager.grantPermission).not.toHaveBeenCalled()
+      expect(advance.advanceProtocolQueue).not.toHaveBeenCalled()
+      expect(ui.setProtocolAccessModalOpen).not.toHaveBeenCalled()
+    })
+
+    it('group, same request ID', async () => {
+      const oldManager = fakeManager()
+      const newManager = fakeManager()
+      const { allow, rerender, advance } = setup({ groupRequests: [groupRequest('group:app.example', oldManager)] })
+      await allow()
+      rerender({ groupRequests: [groupRequest('group:app.example', newManager)] })
+      await elapse()
+      expect(newManager.grantGroupedPermission).not.toHaveBeenCalled()
+      expect(oldManager.grantGroupedPermission).not.toHaveBeenCalled()
+      expect(advance.advanceGroupQueue).not.toHaveBeenCalled()
+    })
+
+    it('the queue emptied outright', async () => {
+      const oldManager = fakeManager()
+      const { allow, rerender, advance } = setup({ protocolRequests: [protocolRequest('p1', oldManager)] })
+      await allow()
+      rerender({ protocolRequests: [] })
+      await elapse()
+      expect(oldManager.grantPermission).not.toHaveBeenCalled()
+      expect(advance.advanceProtocolQueue).not.toHaveBeenCalled()
+    })
+
+    it('a deny that lands after the withdrawal leaves the new request queued', async () => {
+      const oldManager = fakeManager()
+      const newManager = fakeManager()
+      // The old manager answers late, after the withdrawal and the new request.
+      let answer!: (error: Error) => void
+      oldManager.denyPermission.mockReturnValue(new Promise((_resolve, reject) => (answer = reject)))
+      const { denyUnscoped, rerender, advance } = setup({ protocolRequests: [protocolRequest('p1', oldManager)] })
+      const pressed = denyUnscoped()
+      await act(async () => {
+        rerender({ protocolRequests: [protocolRequest('p1', newManager)] })
+      })
+      answer(new Error('Request ID not found.'))
+      await act(async () => {
+        await pressed
+      })
+      expect(newManager.denyPermission).not.toHaveBeenCalled()
+      expect(advance.advanceProtocolQueue).not.toHaveBeenCalled()
+    })
+  })
+
+  it('no unhandled rejection when the manager refuses a stale grant', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const raised = fakeManager()
+    raised.grantPermission.mockRejectedValue(new Error('Request ID not found.'))
+    const { allow, advance } = setup({ protocolRequests: [protocolRequest('p1', raised)] })
+    await allow()
+    await elapse()
+    await act(async () => {})
+    expect(raised.grantPermission).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('[permissions] grant failed', expect.any(Error))
+    expect(advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
   })
 })
