@@ -92,3 +92,11 @@ Not run yet.
 ## Task 9 note: XC scheme name
 
 Adding the `bridge-race-helper` executable target makes SwiftPM's auto scheme `BsvBridgeQueue` lose its test action. `XC` must use `-scheme BsvBridgeQueue-Package` (51 tests on the Simulator; `SW` runs 55 with the 4 macOS-only `RaceTests`).
+
+## Task 11 notes (native module)
+
+- `ios/BsvBridge.podspec` depends on the `BsvBridgeQueue` pod (default `S1.pod`). CocoaPods cannot find that pod from the dependency alone: Task 12's `withPodfile` mod must still add `pod 'BsvBridgeQueue', :path => <PKG>/swift/BsvBridgeQueue` (and the appex target block). The `S1.fileref` delta is a comment in the podspec.
+- `BsvBridgeModule.swift` was checked with `swiftc -parse` and the Expo DSL signatures were read from `expo-modules-core` 57.0.23; it could not be type-checked here (the prebuilt ExpoModulesCore is built by a different Swift compiler than the installed one). `BsvBridgeQueue` itself type-checks for the iOS Simulator and `swift test` passes (73). Task 13's `HBUILD` is the real compile.
+- Added `Nudge.swift` to the Swift package (`BridgeNudge.name/post/observe`, Darwin notification `<appGroup>.bridge.nudge`) so the extension handler (Task 12 `nudge: () -> Void`) and the module agree on one name.
+- Native rejections carry `error.code`: `ERR_NOT_FOUND`, `ERR_KEY_MISSING`, `ERR_RESET`, `ERR_UNAVAILABLE`. The adapter maps only `ERR_NOT_FOUND` to contract return values.
+- `FakeNative.restart()` models a restart whose `init` already ran (the contract harness's `restart()` is synchronous); `initSync()` exists for the same reason.
