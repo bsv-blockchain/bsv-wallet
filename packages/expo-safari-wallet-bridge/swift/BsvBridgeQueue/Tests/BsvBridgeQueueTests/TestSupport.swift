@@ -64,3 +64,24 @@ final class Harness {
     }
   }
 }
+
+/// A key that is generated on first use and forgotten by `deleteKey()`, like the keychain item.
+final class ResettableKeyProvider: KeyProvider {
+  private var key: SymmetricKey?
+  private let lock = NSLock()
+  func sealingKey() throws -> SymmetricKey {
+    lock.lock()
+    defer { lock.unlock() }
+    if let key { return key }
+    let k = SymmetricKey(size: .bits256)
+    key = k
+    return k
+  }
+  func deleteKey() {
+    lock.lock()
+    key = nil
+    lock.unlock()
+  }
+}
+
+func pendingFile(_ h: Harness, _ n: Int) -> URL { h.root.appendingPathComponent("pending/\(ID(n))") }

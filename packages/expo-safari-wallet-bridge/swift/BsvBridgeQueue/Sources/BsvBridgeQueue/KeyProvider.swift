@@ -15,6 +15,12 @@ public enum BridgeError: Error, Equatable {
 /// fixed key.
 public protocol KeyProvider {
   func sealingKey() throws -> SymmetricKey
+  /// Removes the stored key (`reset()`); a no-op for providers that hold no persistent item.
+  func deleteKey()
+}
+
+extension KeyProvider {
+  public func deleteKey() {}
 }
 
 public struct InMemoryKeyProvider: KeyProvider {

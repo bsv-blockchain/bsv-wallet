@@ -88,3 +88,7 @@ Simulator caveats: the Simulator does not enforce access groups faithfully, so g
 ## S2 to S5, S7
 
 Not run yet.
+
+## Task 9 note: XC scheme name
+
+Adding the `bridge-race-helper` executable target makes SwiftPM's auto scheme `BsvBridgeQueue` lose its test action. `XC` must use `-scheme BsvBridgeQueue-Package` (51 tests on the Simulator; `SW` runs 55 with the 4 macOS-only `RaceTests`).

@@ -50,9 +50,10 @@ func sha256Hex(_ data: Data) -> String {
 /// files (`accept`, `release`, `ack`, `withdraw`) never need the key.
 public final class BridgeStore {
   let layout: Layout
-  private let keys: KeyProvider
+  let keys: KeyProvider
   private let lock = NSLock()
   private var cachedKey: SymmetricKey?
+  private var isFinal = false
 
   /// Test-only crash simulation: called after a named step (`linked`, `renamedPending`,
   /// `renamedClaimed`, `resultLinked`). Throwing leaves the disk exactly as a crash there would.
@@ -61,6 +62,38 @@ public final class BridgeStore {
   public init(root: URL, keys: KeyProvider, protection: ProtectionClass = .untilFirstUserAuthentication) throws {
     self.layout = Layout(root: root, protection: protection)
     self.keys = keys
+    try layout.createDirectories()
+    layout.applyAttributesToTree()
+  }
+
+  // MARK: Reset
+
+  func checkWritable() throws {
+    lock.lock()
+    defer { lock.unlock() }
+    if isFinal { throw BridgeError.resetFinal }
+  }
+
+  /// App only (spec 6.4). Synchronous: deletes the key item, removes the whole container and writes
+  /// nothing. Final for this instance: every later write throws `BridgeError.resetFinal` until
+  /// `reopen()` (the module's next `init`). Anything sealed under the old key is noise even if a file
+  /// survives.
+  public func reset() {
+    lock.lock()
+    isFinal = true
+    cachedKey = nil
+    lock.unlock()
+    keys.deleteKey()
+    try? FileManager.default.removeItem(at: layout.root)
+  }
+
+  /// The next `init` after a reset: lifts the finality and recreates the container. The key provider
+  /// creates a fresh key on first use.
+  public func reopen() throws {
+    lock.lock()
+    isFinal = false
+    cachedKey = nil
+    lock.unlock()
     try layout.createDirectories()
     layout.applyAttributesToTree()
   }
@@ -76,15 +109,15 @@ public final class BridgeStore {
     return k
   }
 
-  private func fault(_ step: String) throws { try faultAfter?(step) }
+  func fault(_ step: String) throws { try faultAfter?(step) }
 
-  private static func be32(_ n: Int) -> Data {
+  static func be32(_ n: Int) -> Data {
     Data([UInt8((n >> 24) & 0xff), UInt8((n >> 16) & 0xff), UInt8((n >> 8) & 0xff), UInt8(n & 0xff)])
   }
 
-  private static let maxHeaderBytes = 4096
+  static let maxHeaderBytes = 4096
 
-  private func encode(_ header: Header, payload: Data?, kind: SealKind) throws -> Data {
+  func encode(_ header: Header, payload: Data?, kind: SealKind) throws -> Data {
     let k = try key()
     let enc = JSONEncoder()
     enc.outputFormatting = [.sortedKeys]
@@ -96,7 +129,7 @@ public final class BridgeStore {
   }
 
   /// `(raw prefix + sealed header, sealed payload if any)`; the first part is a valid header-only file.
-  private func split(_ file: Data) -> (headerOnly: Data, sealedHeader: Data, sealedPayload: Data?)? {
+  func split(_ file: Data) -> (headerOnly: Data, sealedHeader: Data, sealedPayload: Data?)? {
     guard file.count >= 4 else { return nil }
     let n = file.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
     guard n > 0, n <= Self.maxHeaderBytes, file.count >= 4 + n else { return nil }
@@ -108,7 +141,7 @@ public final class BridgeStore {
   }
 
   /// Reads only the header from disk (never the payload).
-  private func readHeaderPart(_ url: URL) -> Data? {
+  func readHeaderPart(_ url: URL) -> Data? {
     guard let h = try? FileHandle(forReadingFrom: url) else { return nil }
     defer { try? h.close() }
     guard let lenBytes = try? h.read(upToCount: 4), lenBytes.count == 4 else { return nil }
@@ -119,7 +152,7 @@ public final class BridgeStore {
   }
 
   /// Unseals a header; nil for a corrupt or foreign one, throws only when the key is unreadable.
-  private func openHeader(_ sealed: Data, id: String, kind: SealKind) throws -> Header? {
+  func openHeader(_ sealed: Data, id: String, kind: SealKind) throws -> Header? {
     let k = try key()
     guard let plain = try? Sealing.open(sealed, key: k, kind: kind, id: id),
       let h = try? JSONDecoder().decode(Header.self, from: plain), h.v == 1, h.id == id
@@ -127,20 +160,21 @@ public final class BridgeStore {
     return h
   }
 
-  private func headerOf(_ dir: Dir, _ id: String) throws -> Header? {
-    let kind: SealKind = dir == .results ? .result : .record
+  func headerOf(_ dir: Dir, _ id: String, kind explicit: SealKind? = nil) throws -> Header? {
+    let kind: SealKind = explicit ?? (dir == .results ? .result : .record)
     guard let part = readHeaderPart(layout.file(dir, id)), let s = split(part) else { return nil }
     return try openHeader(s.sealedHeader, id: id, kind: kind)
   }
 
-  private func writeTmp(_ data: Data) throws -> URL {
+  func writeTmp(_ data: Data) throws -> URL {
+    try checkWritable()
     let tmp = layout.tmpFile()
     try Posix.writeExclusive(tmp, data)
     layout.applyAttributes(tmp)
     return tmp
   }
 
-  private func requireId(_ id: String) throws {
+  func requireId(_ id: String) throws {
     guard Layout.validId(id) else { throw BridgeError.invalidId }
   }
 
@@ -161,6 +195,9 @@ public final class BridgeStore {
     let record = try writeTmp(try encode(header, payload: bytes, kind: .record))
     // The tombstone is a separate zero-byte file so it stays zero-byte when the record is deleted.
     let marker = try writeTmp(Data())
+    // The tombstone's modification time is its creation time on the caller's clock (the link shares
+    // the inode), so `sweep` can age it without a payload or the key.
+    try? FileManager.default.setAttributes([.modificationDate: Date.fromMs(nowMs)], ofItemAtPath: marker.path)
     defer { Posix.unlink(marker) }
     if let err = Posix.link(marker, layout.file(.ids, id)) {
       Posix.unlink(record)
@@ -209,10 +246,15 @@ public final class BridgeStore {
   public func release(id: String) -> Bool { move(id, .accepted, .pending) }
 
   /// `pending -> withdrawn` (the extension's cancel; it loses to a prior accept).
-  public func withdraw(id: String) -> Bool { move(id, .pending, .withdrawn) }
+  public func withdraw(id: String) -> Bool {
+    guard move(id, .pending, .withdrawn) else { return false }
+    // The withdrawn file keeps only its header. A crash before this leaves the arguments for `sweep`.
+    stripPayload(layout.file(.withdrawn, id))
+    return true
+  }
 
   private func move(_ id: String, _ from: Dir, _ to: Dir) -> Bool {
-    guard Layout.validId(id) else { return false }
+    guard Layout.validId(id), (try? checkWritable()) != nil else { return false }
     return Posix.rename(layout.file(from, id), layout.file(to, id)) == nil
   }
 
@@ -240,6 +282,7 @@ public final class BridgeStore {
   /// is unknown. Allowed from `pending`, `accepted` or `claimed`.
   public func writeResult(id: String, bytes: Data, nowMs: Int64) throws -> Bool {
     try requireId(id)
+    try checkWritable()
     guard Posix.exists(layout.file(.ids, id)) else { return false }
     let header = Header(
       v: 1, id: id, size: bytes.count, digest: sha256Hex(bytes), createdAt: nowMs,
@@ -274,7 +317,7 @@ public final class BridgeStore {
 
   /// Rewrites a sealed file as its header only, through `tmp` and an atomic replace.
   @discardableResult
-  private func stripPayload(_ url: URL) -> Bool {
+  func stripPayload(_ url: URL) -> Bool {
     guard let file = try? Data(contentsOf: url), let s = split(file), s.sealedPayload != nil,
       let tmp = try? writeTmp(s.headerOnly)
     else { return false }
