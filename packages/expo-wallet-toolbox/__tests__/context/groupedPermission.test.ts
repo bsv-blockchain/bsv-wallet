@@ -79,7 +79,8 @@ test('the wallet builder seeks grouped permission only if it also handles the re
   const handled = source.includes("bindCallback('onGroupedPermissionRequested'")
   expect(handled).toBe(true)
   // The flag itself now lives in the verified default of the permission policy.
-  expect(source).toContain('...resolvePermissionPolicy().verified')
+  expect(source).toContain('...builtPolicy.verified')
+  expect(source).toMatch(/builtPolicy = resolvePermissionPolicy\(\s*await loadStoredPolicy/)
   expect(readFileSync(join(__dirname, '../../core/bridge/permissionPolicy.ts'), 'utf8')).toMatch(
     /DEFAULT_VERIFIED_SEEK_FLAGS[^]*?seekGroupedPermission: true/
   )

@@ -2,7 +2,8 @@
  * Versioned vectors for project 3 (ts-stack) to reproduce (spec 6.10): the connect proof, the
  * inbox record, result and close event, the `brc185:*` envelopes and the error-codec objects for
  * codes 5, 6 and 7 and for `ConnectionError`. They are built here from fixed inputs by the core's
- * own encoders, and compared byte for byte with `fixtures/bridge-core-vectors.json`. A change to
+ * own encoders, and compared with `fixtures/bridge-core-vectors.json` as RFC 8785 (JCS) text, so
+ * the comparison is byte for byte on the canonical form and independent of how the file is formatted. A change to
  * any encoder makes this fail until the fixture is regenerated on purpose (flip `WRITE` once,
  * review the diff, flip it back) and `version` is raised if the change is not backwards compatible.
  */
@@ -162,7 +163,7 @@ describe('bridge core vectors (spec 6.10)', () => {
     const built = await build()
     const text = JSON.stringify(built, null, 2) + '\n'
     if (WRITE) fs.writeFileSync(FIXTURE, text)
-    expect(fs.readFileSync(FIXTURE, 'utf8')).toBe(text)
+    expect(canonicalize(JSON.parse(fs.readFileSync(FIXTURE, 'utf8')))).toBe(canonicalize(built))
   })
 
   it('the connect proof verifies against the identity key, and every envelope parses', async () => {
