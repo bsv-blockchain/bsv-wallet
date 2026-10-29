@@ -12,3 +12,8 @@ export { createSecureStoreContinuity, deriveContextIdentity } from './continuity
 
 export { setupAndroidBridge, resetAndroidBridge, getAndroidBridge, ANDROID_TRANSPORT_ID } from './setup'
 export type { SetupOptions } from './setup'
+
+export { AndroidBridgeHost, RETURN_HYSTERESIS_MS, RETURN_TIMER } from './AndroidBridgeHost'
+export type { AndroidBridgeHostProps } from './AndroidBridgeHost'
+export { AndroidBridgeNotices } from './AndroidBridgeNotices'
+export type { AndroidBridgeNoticesProps } from './AndroidBridgeNotices'

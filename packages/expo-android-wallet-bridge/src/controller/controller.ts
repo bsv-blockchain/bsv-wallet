@@ -30,6 +30,7 @@ import {
 import type { BsvAndroidBridgeNative, NativeRequest, NativeSubscription } from '../native'
 import type { Attention } from './attention'
 import type { LaunchRegistry } from './launchRegistry'
+import type { Notices } from './notices'
 import type { Session } from './session'
 import type { UnsettledGate } from './unsettledGate'
 
@@ -50,6 +51,7 @@ export interface ControllerDeps {
   clock: () => number
   transportId: string
   attention?: Attention
+  notices?: Notices
 }
 
 export interface Controller {
@@ -94,7 +96,7 @@ function header(headers: [string, string][], name: string): string | undefined {
 
 export function createController(deps: ControllerDeps): Controller {
   const { native, router, session, launchRegistry, ledger, gate, outbox, registry, continuity, transportId } = deps
-  const { attention } = deps
+  const { attention, notices } = deps
 
   /** Every request between arrival and the end of its write, so a late `onClientGone` marks only a live request. */
   const active = new Set<string>()
@@ -246,6 +248,7 @@ export function createController(deps: ControllerDeps): Controller {
     launchRegistry.ingest()
     if (launchRegistry.hasLive()) {
       attention?.noteLaunch()
+      notices?.noteLaunchAccepted()
       session.onLaunch()
     }
   }
@@ -256,6 +259,7 @@ export function createController(deps: ControllerDeps): Controller {
     native.addListener('onLaunch', () => {
       launchRegistry.ingest()
       attention?.noteLaunch()
+      if (launchRegistry.hasLive()) notices?.noteLaunchAccepted()
       session.onLaunch()
     }),
     native.addListener('onTimer', p => session.onTimer(p.name)),

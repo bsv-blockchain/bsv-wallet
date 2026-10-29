@@ -15,6 +15,7 @@ import type {
 import type { BridgeSnapshot } from '@bsv/expo-wallet-toolbox/core/bridge/runtime'
 import type { BsvAndroidBridgeNative } from '../native'
 import type { LaunchRegistry } from './launchRegistry'
+import type { NoticeSink } from './notices'
 
 export const BASE_PORT = 3321
 export const MAX_PORT_OFFSET = 63
@@ -54,6 +55,15 @@ interface Parked {
   resolve(r: ParkResult): void
 }
 
+/** Expo rejects with a coded error; the code is also in the message on some paths. */
+function isPortsExhausted(e: unknown): boolean {
+  const err = e as { code?: unknown; message?: unknown } | null
+  return (
+    err?.code === 'ERR_PORTS_EXHAUSTED' ||
+    (typeof err?.message === 'string' && err.message.includes('ERR_PORTS_EXHAUSTED'))
+  )
+}
+
 export function createSession(deps: {
   native: Pick<
     BsvAndroidBridgeNative,
@@ -71,8 +81,10 @@ export function createSession(deps: {
   closeLost(epoch: string): void
   getSnapshot(): BridgeSnapshot
   clock: () => number
+  /** Host-visible notices (ports exhausted, attached with no wallet). */
+  notices?: NoticeSink
 }): Session {
-  const { native, registry, ledger, closeLost, getSnapshot, clock } = deps
+  const { native, registry, ledger, closeLost, getSnapshot, clock, notices } = deps
 
   let state: SessionState = 'IDLE'
   const bindings = new Set<string>()
@@ -149,7 +161,9 @@ export function createSession(deps: {
       }
       try {
         await native.startServer({ basePort: BASE_PORT, maxOffset: MAX_PORT_OFFSET })
-      } catch {
+        notices?.clear('ports-exhausted')
+      } catch (e) {
+        if (isPortsExhausted(e)) notices?.raise('ports-exhausted')
         if (mine === generation) native.stopSession()
         return
       }
@@ -172,10 +186,12 @@ export function createSession(deps: {
     const s = getSnapshot()
     if (!s.hostAttached || parked.size === 0) return
     if (s.readiness === 'ready') {
+      notices?.clear('not-ready')
       settleAllParked('resume')
       // If a released connect then fails without opening a binding, ARMED must still be able to expire.
       if (state === 'ARMED' && (armedElapsed || chainElapsed)) native.setTimer('armed', RECHECK_MS)
     } else if (s.readiness === 'none') {
+      notices?.raise('not-ready')
       settleAllParked('unavailable')
       maybeExpire()
     }
@@ -189,7 +205,10 @@ export function createSession(deps: {
       const s = getSnapshot()
       if (!s.hostAttached) return 'park'
       if (s.readiness === 'ready') return 'go'
-      if (s.readiness === 'none') return 'none-fail'
+      if (s.readiness === 'none') {
+        notices?.raise('not-ready')
+        return 'none-fail'
+      }
       return 'park'
     },
 
@@ -252,6 +271,8 @@ export function createSession(deps: {
     },
 
     onSnapshot() {
+      const s = getSnapshot()
+      if (s.hostAttached && s.readiness !== 'none') notices?.clear('not-ready')
       reevaluate()
     },
 

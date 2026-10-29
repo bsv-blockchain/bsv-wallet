@@ -32,6 +32,7 @@ import { createSecureStoreContinuity, type ContinuityDeps } from './continuity/s
 import { createAttention, type Attention } from './controller/attention'
 import { createBindingLedger } from './controller/bindingLedger'
 import { createController, type Controller } from './controller/controller'
+import { createNotices, type Notices } from './controller/notices'
 import { createLaunchRegistry } from './controller/launchRegistry'
 import { createSession, type Session } from './controller/session'
 import { createTokenOutbox } from './controller/tokenOutbox'
@@ -66,6 +67,9 @@ export interface AndroidBridge {
   controller: Controller
   session: Session
   attention: Attention
+  /** Host-visible flags and the launch signal (for `AndroidBridgeHost` and `AndroidBridgeNotices`). */
+  notices: Notices
+  native: BsvAndroidBridgeNative
   continuity: ContinuityStore
   transport: TransportHandle
   /** Rotates every identity, closes every binding lost and stops the server and the session. */
@@ -113,6 +117,7 @@ export function createAndroidBridge(deps: AndroidBridgeDeps): AndroidBridge {
   const launchRegistry = createLaunchRegistry({ native, scheme: LAUNCH_SCHEME })
   const ledger = createBindingLedger(clock)
   const outbox = createTokenOutbox()
+  const notices = createNotices()
   const gate = createUnsettledGate({ closeDisconnected: epoch => late().closeDisconnected(epoch) })
   const session = createSession({
     native: sessionNative,
@@ -120,7 +125,8 @@ export function createAndroidBridge(deps: AndroidBridgeDeps): AndroidBridge {
     ledger,
     closeLost: epoch => late().closeLost(epoch),
     getSnapshot,
-    clock
+    clock,
+    notices
   })
   const attention = createAttention({ native, clock })
   attention.onWaitingChange(n => session.setWaiting(n))
@@ -156,7 +162,8 @@ export function createAndroidBridge(deps: AndroidBridgeDeps): AndroidBridge {
     getSnapshot,
     clock,
     transportId: ANDROID_TRANSPORT_ID,
-    attention
+    attention,
+    notices
   })
 
   const transport = registerTransport({
@@ -174,6 +181,8 @@ export function createAndroidBridge(deps: AndroidBridgeDeps): AndroidBridge {
     controller,
     session,
     attention,
+    notices,
+    native,
     continuity,
     transport,
     reset: () => late().reset(),
