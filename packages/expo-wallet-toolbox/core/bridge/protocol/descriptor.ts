@@ -55,8 +55,8 @@ export interface ProofSigner {
   sign(preimage: Uint8Array): Promise<Uint8Array>
 }
 
-const DESCRIBE_PREFIX = 'BRC-185 descriptor v1\n'
-const CONNECT_PREFIX = 'BRC-185 connect v1\n'
+export const DESCRIBE_PREFIX = 'BRC-185 descriptor v1\n'
+export const CONNECT_PREFIX = 'BRC-185 connect v1\n'
 
 const encoder = new TextEncoder()
 const utf8 = (s: string): Uint8Array => encoder.encode(s)
