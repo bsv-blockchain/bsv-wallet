@@ -185,7 +185,7 @@ describe('BridgeSheetRoot', () => {
     const first = render(<FirstRoot />)
     const second = render(<BridgeSheetRoot />)
     await advance(1)
-    const backdrops = second.UNSAFE_queryAllByProps({ accessibilityLabel: 'Close' })
+    const backdrops = second.UNSAFE_queryAllByProps({ testID: 'sheet-backdrop' })
     expect(backdrops.length).toBeGreaterThan(0)
     for (const b of backdrops) fireEvent.press(b)
     await advance(450)

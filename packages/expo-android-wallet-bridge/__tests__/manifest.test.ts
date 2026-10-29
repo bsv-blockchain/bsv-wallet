@@ -81,7 +81,7 @@ describe('library manifest (spec 6.3, M2)', () => {
     expect(a(sheet, 'excludeFromRecents')).toBe('true')
     expect(a(sheet, 'windowSoftInputMode')).toBe('adjustResize')
     expect(a(sheet, 'theme')).toBe('@style/Theme.BsvBridgeSheet')
-    // the configChanges list of the S4 diff
+    // the configChanges list of the S4 diff plus the review additions
     expect((a(sheet, 'configChanges') ?? '').split('|').sort()).toEqual(
       [
         'keyboard',
@@ -92,7 +92,13 @@ describe('library manifest (spec 6.3, M2)', () => {
         'uiMode',
         'smallestScreenSize',
         'locale',
-        'layoutDirection'
+        'layoutDirection',
+        // added by the whole-branch review: a font or display-size change must not recreate the sheet
+        'fontScale',
+        'density',
+        'colorMode',
+        'navigation',
+        'touchscreen'
       ].sort()
     )
     expect(a(sheet, 'noHistory')).toBeUndefined()
