@@ -80,3 +80,8 @@ funded and certificate workflows) are never part of Run all: each has its own Ru
 a confirmation. They spend real mainnet sats when the wallet is on mainnet. **Copy report** copies a JSON summary (card
 and case ids, status, duration, error code; no payloads or keys). Record the wallet build and this repo's commit with the
 report (the "Wallet build" field goes into it), as fast's `docs/wallet-testing.md` asks.
+
+A card that reports no progress for 120 s fails with code `timeout` (for example `waitForAuthentication` on a locked
+wallet), so the batch keeps going. The vendored noSend cards abort their action only when they succeed; the demo aborts
+any noSend action still outstanding when a card ends. If a failed run still leaves locked outputs (an abort by txid is
+not guaranteed to be accepted), release the pending action from the wallet's own action list.

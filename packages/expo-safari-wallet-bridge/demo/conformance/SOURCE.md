@@ -26,6 +26,13 @@ Test tool only (the demo is not in the package's published files, the extension 
 
 ## Local files in this directory (not vendored)
 
+- `snippets/wallet.ts` also tracks noSend actions: the vendored `createAction`, `signAction` and `abortAction` cards abort
+  only on their success path, so the wallet returned by `createWalletClient` records the reference (or txid) of every
+  `createAction({ options: { noSend: true } })` and forgets it on a successful `abortAction`. The controller aborts
+  whatever is left when a card ends (pass, fail or timeout). Best effort: a txid is not necessarily accepted as an
+  abort reference, so if a failed run leaves locked outputs, release them from the wallet's own action list.
+- `controller.ts` fails a card that reports no progress (no finished case) for 120 s with code `timeout`, so a wallet
+  that never answers (for example `waitForAuthentication` while locked) cannot freeze the batch; the late answer is ignored.
 - `snippets/wallet.ts`: REPLACES fast's `src/snippets/wallet.ts`. `createWalletClient(originator?)` returns an
   `@bsv/sdk` `WalletClient` over `createBridgeWallet` for the connection the demo currently holds, and throws
   `not connected: press connect first` before that. The originator is ignored (BRC-185 supplies the real page origin).

@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { PrivateKey, ProtoWallet, type WalletInterface } from '@bsv/sdk'
+import { PrivateKey, ProtoWallet, Script, Transaction, type WalletInterface } from '@bsv/sdk'
 import { createController } from '../demo/conformance/controller'
 import { CARDS, SAFE_CARDS, SPENDING_CARDS } from '../demo/conformance/registry'
 import type { Connection, PageClient } from '../src/testing/pageClient'
@@ -209,5 +209,68 @@ describe('conformance controller against an in-memory wallet', () => {
     const create = report.results.find(r => r.id === 'conformanceCreateAction')!
     expect(Object.keys(create).sort()).toEqual(['durationMs', 'errorCode', 'id', 'status'])
     expect(report.results.find(r => r.id === 'branchMetadataSequence')).toBeDefined()
+  })
+})
+
+describe('controller hang and cleanup guards', () => {
+  it('fails a card that stops answering with code "timeout" and lets the batch continue', async () => {
+    const base = memoryWallet()
+    const wallet = { ...(base as any), waitForAuthentication: () => new Promise(() => {}) } as WalletInterface
+    const { client, connection } = connect(wallet)
+    const ctl = createController({ idleTimeoutMs: 50 })
+    ctl.setConnection(client, connection)
+    await ctl.runAllSafe()
+    expect(ctl.results.get('conformanceWaitForAuthentication')).toMatchObject({ status: 'fail', errorCode: 'timeout' })
+    expect(ctl.results.get('conformanceGetVersion')!.status).toBe('pass')
+    expect(ctl.running).toBeUndefined()
+  })
+
+  const SOURCE = new Transaction(1, [], [{ satoshis: 1000, lockingScript: Script.fromASM('OP_NOP') }], 0)
+  const ATOMIC = new Transaction(
+    1,
+    [
+      {
+        sourceTransaction: SOURCE,
+        sourceOutputIndex: 0,
+        unlockingScript: Script.fromASM('OP_TRUE'),
+        sequence: 0xffffffff
+      }
+    ],
+    [{ satoshis: 1, lockingScript: Script.fromASM('OP_NOP') }],
+    0
+  )
+  const TXID = ATOMIC.id('hex')
+  const actionWallet = (abort: (calls: string[]) => Promise<{ aborted: boolean }>, calls: string[]) =>
+    ({
+      ...(memoryWallet() as any),
+      createAction: async () => ({ txid: ATOMIC.id('hex'), tx: ATOMIC.toAtomicBEEF() }),
+      abortAction: async ({ reference }: { reference: string }) => {
+        calls.push(reference)
+        return abort(calls)
+      }
+    }) as WalletInterface
+
+  it('aborts a noSend action left behind by a card whose own abort failed', async () => {
+    const calls: string[] = []
+    const wallet = actionWallet(async c => {
+      if (c.length === 1) throw Object.assign(new Error('boom'), { code: 9 })
+      return { aborted: true }
+    }, calls)
+    const { client, connection } = connect(wallet)
+    const ctl = createController({})
+    ctl.setConnection(client, connection)
+    await ctl.runCard('conformanceCreateAction')
+    expect(ctl.results.get('conformanceCreateAction')).toMatchObject({ status: 'fail' })
+    expect(calls).toEqual([TXID, TXID])
+  })
+
+  it('does not abort twice when the card aborted itself', async () => {
+    const calls: string[] = []
+    const { client, connection } = connect(actionWallet(async () => ({ aborted: true }), calls))
+    const ctl = createController({})
+    ctl.setConnection(client, connection)
+    await ctl.runCard('conformanceCreateAction')
+    expect(ctl.results.get('conformanceCreateAction')!.message).toBeUndefined()
+    expect(calls).toEqual([TXID])
   })
 })

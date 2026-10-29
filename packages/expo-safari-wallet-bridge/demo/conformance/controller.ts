@@ -10,7 +10,7 @@
 import type { Connection, PageClient } from '../../src/testing/pageClient'
 import { executeSnippet, type SnippetResult, type SnippetRunner } from './lib/snippet-runner'
 import { CARDS, type Card } from './registry'
-import { setBridgeConnection } from './snippets/wallet'
+import { releaseOutstandingNoSend, setBridgeConnection } from './snippets/wallet'
 
 export const FAST_SOURCE = 'fast-wallet-client-docs@63bd8c4'
 
@@ -43,9 +43,19 @@ export interface ControllerOptions {
   onChange?: () => void
   onLog?: (kind: 'ok' | 'err' | 'info', text: string) => void
   now?: () => Date
+  /** A card that reports no progress (no finished case) for this long fails with code `timeout`. Default 120 s. */
+  idleTimeoutMs?: number
 }
 
-export function createController({ cards = CARDS, onChange, onLog, now = () => new Date() }: ControllerOptions = {}) {
+export const DEFAULT_IDLE_TIMEOUT_MS = 120_000
+
+export function createController({
+  cards = CARDS,
+  onChange,
+  onLog,
+  now = () => new Date(),
+  idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS
+}: ControllerOptions = {}) {
   const results = new Map<string, CardRow>()
   let walletName: string | undefined
   let connected = false
@@ -66,16 +76,42 @@ export function createController({ cards = CARDS, onChange, onLog, now = () => n
   async function execute(card: Card): Promise<void> {
     running = card.id
     const caseRows: CaseRow[] = []
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let onIdle: ((r: SnippetResult) => void) | undefined
+    const arm = (): void => {
+      clearTimeout(timer)
+      timer = setTimeout(
+        () =>
+          onIdle?.({
+            status: 'failed',
+            durationMs: idleTimeoutMs,
+            errorCode: 'timeout',
+            message: `no progress for ${Math.round(idleTimeoutMs / 1000)} s (wallet not answering?)`
+          } as SnippetResult),
+        idleTimeoutMs
+      )
+    }
     const runner: SnippetRunner = {
       log: () => {},
       case: (id, r) => {
         caseRows.push(caseRow(id, r))
+        arm()
         changed()
       },
       shouldStop: () => stopRequested
     }
     changed()
-    const outcome = await executeSnippet(() => card.run(runner))
+    arm()
+    // A hung wallet call cannot be cancelled; the timeout releases the UI and a late answer is ignored.
+    const outcome = await Promise.race([
+      executeSnippet(() => card.run(runner)),
+      new Promise<SnippetResult>(resolve => {
+        onIdle = resolve
+      })
+    ])
+    clearTimeout(timer)
+    // cleanup must not hang the batch either when the wallet is not answering
+    await Promise.race([releaseOutstandingNoSend(), new Promise<void>(r => setTimeout(r, 10_000))])
     results.set(card.id, { ...caseRow(card.id, outcome), cases: caseRows, message: outcome.message })
     running = undefined
     onLog?.(
