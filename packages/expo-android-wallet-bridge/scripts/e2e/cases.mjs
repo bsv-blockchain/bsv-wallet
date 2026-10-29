@@ -342,13 +342,19 @@ export const CASES = [
       await front('chrome')
       await shot(ctx, '04-denied')
       must(/USER_CANCELLED|403/.test(res), `unexpected error ${res}`)
-      const v = await act(ctx, '#getPublicKey', /(OK|ERR) getPublicKey ->[^\n]*/, { timeoutMs: 20000 }).catch(e =>
-        String(e.message)
-      )
+      let answered = true
+      const v = await act(ctx, '#getPublicKey', /(OK|ERR) getPublicKey ->[^\n]*/, { timeoutMs: 20000 }).catch(e => {
+        answered = false
+        return String(e.message)
+      })
       // a further interactive request raises a fresh sheet again (nothing was granted): the page does not get a key
+      must(
+        !(answered && /^OK getPublicKey/.test(String(v))),
+        `follow-up getPublicKey succeeded after Deny: ${String(v).slice(0, 80)}`
+      )
       const again = await attentionNotification()
       await shell('input keyevent KEYCODE_BACK').catch(() => {})
-      return `denied: ${res.slice(0, 120)}; follow-up request did not silently succeed (${again ? 'raised a new prompt' : String(v).slice(0, 80)})`
+      return `denied: ${res.slice(0, 120)}; follow-up getPublicKey did not succeed (${again ? 'raised a new prompt' : String(v).slice(0, 80)})`
     }
   },
   {
