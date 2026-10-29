@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Emulator end-to-end runner (plan Task 24). Preconditions (EMU start, install of the host debug build, Metro on 8082,
 // `node demo/serve.mjs 3001`, `adb reverse` for 3001 and 8082, a test wallet) are listed in SPIKES.md.
-//   node run.mjs [--only 1,4,15] [--origin http://localhost:3001] [--out <evidence dir>]
+//   node run.mjs [--only 1,4,15 | --only O1,O2 | --only overlay] [--origin http://localhost:3001] [--out <evidence dir>] [--keep-chrome]
+// Overlay cases (M2, `O<n>`) write to <evidence dir>/overlay and never clear the M1 evidence; `--only overlay` runs all of them in
+// order after clearing that subdirectory and the logcat buffer (O13 reads the whole buffer).
 // Each case writes screenshots to the evidence directory; a result table goes to results.json and stdout. Exit code 1
 // when a case failed.
 import fs from 'node:fs'
@@ -9,7 +11,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromeVersion, clearLogcat, reverse, setSerial } from './adb.mjs'
 import { setupChrome } from './chrome.mjs'
-import { attach, CASES } from './cases.mjs'
+import { attach, CASES, OVERLAY_CASES } from './cases.mjs'
 import { release } from './sockets.mjs'
 
 const arg = (n, d) => {
@@ -17,8 +19,13 @@ const arg = (n, d) => {
   return i > 0 ? process.argv[i + 1] : d
 }
 const here = path.dirname(fileURLToPath(import.meta.url))
-const out = arg('out', path.resolve(here, '../../../../docs/superpowers/evidence/android-kit'))
-const only = arg('only')?.split(',').map(Number)
+const evidence = arg('out', path.resolve(here, '../../../../docs/superpowers/evidence/android-kit'))
+const onlyArg = arg('only')
+const allOverlay = onlyArg === 'overlay'
+const only = allOverlay ? undefined : onlyArg?.split(',').map(x => (/^\d+$/.test(x) ? Number(x) : x))
+const overlayRun = allOverlay || Boolean(only?.some(x => typeof x === 'string'))
+const out = overlayRun ? path.join(evidence, 'overlay') : evidence
+const cases = overlayRun ? OVERLAY_CASES : CASES
 const origin = arg('origin', 'http://localhost:3001')
 fs.mkdirSync(out, { recursive: true })
 
@@ -34,12 +41,14 @@ async function main() {
   console.log(`Chrome ${ctx.chrome}, origin ${origin}`)
   if (!arg('keep-chrome')) await setupChrome()
   if (!only) {
-    // A full run is the evidence: start from an empty directory and an empty logcat buffer (case 14 reads it whole).
-    for (const f of fs.readdirSync(out)) fs.rmSync(path.join(out, f), { recursive: true, force: true })
+    // A full run is the evidence: start from an empty directory and an empty logcat buffer (case 14 and O13 read it whole).
+    // The M1 run keeps the overlay subdirectory (its own evidence).
+    for (const f of fs.readdirSync(out))
+      if (overlayRun || f !== 'overlay') fs.rmSync(path.join(out, f), { recursive: true, force: true })
     await clearLogcat()
   }
   await attach(ctx)
-  for (const c of CASES) {
+  for (const c of cases) {
     if (only && !only.includes(c.id)) continue
     const t0 = Date.now()
     let r

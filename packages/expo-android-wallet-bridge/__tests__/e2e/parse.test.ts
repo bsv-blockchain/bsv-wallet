@@ -81,4 +81,34 @@ describe('e2e parse helpers', () => {
     expect(parse.parseNotification(dump, 'bridge-attention').text).toBe('Approval needed')
     expect(parse.parseNotification(dump, 'other')).toBeUndefined()
   })
+  describe('parseResumedActivities', () => {
+    const MAIN = 'org.bsvblockchain.wallet/.MainActivity'
+    const SHEET = 'org.bsvblockchain.wallet/org.bsv.walletbridge.BridgeSheetActivity'
+    const section = (...lines: string[]) =>
+      `  topDisplayFocusedRootTask=Task{20caa62 #1 type=home}\n  Resumed activities in task display areas (from top to bottom):\n${lines
+        .map(l => `    Resumed: ActivityRecord{abc u0 ${l} t42}`)
+        .join('\n')}${lines.length ? '\n' : ''}  ResumedActivity: ActivityRecord{abc u0 ${lines[0] ?? 'x/.Y'} t42}\n`
+
+    it('returns the main activity alone', () => {
+      expect(parse.parseResumedActivities(section(MAIN))).toEqual([MAIN])
+    })
+    it('returns the sheet alone and names its class', () => {
+      const r = parse.parseResumedActivities(section(SHEET))
+      expect(r).toEqual([SHEET])
+      expect(r[0]).toMatch(/BridgeSheetActivity$/)
+    })
+    it('returns nothing during a handover transient (no activity resumed)', () => {
+      // no "Resumed:" rows under the header, and no ResumedActivity line either
+      const transient =
+        '  Resumed activities in task display areas (from top to bottom):\n  ResumedActivity: null\n  topDisplayFocusedRootTask=Task{1 #1 type=home}\n'
+      expect(parse.parseResumedActivities(transient)).toEqual([])
+      expect(parse.parseResumedActivities('')).toEqual([])
+    })
+    it('returns both when two windows are resumed, newest first', () => {
+      expect(parse.parseResumedActivities(section(SHEET, MAIN))).toEqual([SHEET, MAIN])
+    })
+    it('falls back to the ResumedActivity line on dumps without the section', () => {
+      expect(parse.parseResumedActivities(`  mResumedActivity: ActivityRecord{9f u0 ${MAIN} t7}\n`)).toEqual([MAIN])
+    })
+  })
 })

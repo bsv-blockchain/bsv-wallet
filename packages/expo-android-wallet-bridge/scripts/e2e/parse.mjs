@@ -74,6 +74,34 @@ export function parseTopResumed(dumpsys) {
 }
 
 /**
+ * Component names (`package/class`) of every resumed activity from `dumpsys activity activities`, top first. Reads the
+ * "Resumed activities in task display areas (from top to bottom)" rows; dumps without that section fall back to the
+ * `ResumedActivity:` / `mResumedActivity:` lines. An empty list is the handover transient (no activity resumed).
+ * @returns {string[]}
+ */
+export function parseResumedActivities(dumpsys) {
+  const record = /ActivityRecord\{[^ ]+ u\d+ ([\w.$]+\/[\w.$]+)/
+  const lines = String(dumpsys).split('\n')
+  const head = lines.findIndex(l => /^\s*Resumed activities in task display areas/.test(l))
+  const out = []
+  if (head >= 0) {
+    for (let i = head + 1; i < lines.length; i++) {
+      const m = /^\s*Resumed:\s*(.*)$/.exec(lines[i])
+      if (!m) break
+      const r = record.exec(m[1])
+      if (r) out.push(r[1])
+    }
+    return out
+  }
+  for (const l of lines) {
+    const m = /^\s*m?ResumedActivity:\s*(.*)$/.exec(l)
+    const r = m && record.exec(m[1])
+    if (r && !out.includes(r[1])) out.push(r[1])
+  }
+  return out
+}
+
+/**
  * The first notification record whose `channel=<channel>`, from `dumpsys notification [--noredact]`.
  * @returns {{ text: string, visibility: string, raw: string } | undefined}
  */
