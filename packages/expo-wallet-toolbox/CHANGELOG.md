@@ -14,6 +14,13 @@
 
 ### Browser bridge: seams for the Android loopback kit
 
+- **`ContextRelay`** (`ui/bridgeSheet`). `ContextRelayPublisher` (first root, inside the providers) copies the
+  contexts `PermissionSheet` reads (`RELAYED_CONTEXTS`: theme, wallet, exchange rate, user) into a module store, and
+  `ContextRelaySubscriber` re-provides them on a second React root, rendering nothing until every entry is published.
+  A theme change reaches the second root without remounting it. Language is the i18n singleton and is not relayed;
+  safe-area insets are per native root and the second root mounts its own provider. A scan test fails when the
+  sheet's import closure reads a context that is not listed.
+
 - **`BridgeSnapshot.hostAttached`.** True once a host is attached and the runtime has loaded, false at start and
   after detach. Every change goes through `onSnapshotChange`, so a transport hears attach and detach even when
   readiness stays `none` (a cold start with no wallet).
