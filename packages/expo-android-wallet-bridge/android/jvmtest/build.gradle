@@ -10,7 +10,8 @@ repositories { mavenCentral() }
 ext.pureFiles = [
   'org/bsv/walletbridge/HttpParser.kt',
   'org/bsv/walletbridge/HttpWriter.kt',
-  'org/bsv/walletbridge/HostCheck.kt'
+  'org/bsv/walletbridge/HostCheck.kt',
+  'org/bsv/walletbridge/PortAllocator.kt'
 ]
 
 sourceSets {
