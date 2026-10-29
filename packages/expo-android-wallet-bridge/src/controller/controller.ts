@@ -263,7 +263,11 @@ export function createController(deps: ControllerDeps): Controller {
       session.onLaunch()
     }),
     native.addListener('onTimer', p => session.onTimer(p.name)),
-    native.addListener('onServerStopped', () => session.onServerStopped())
+    // 'stopped' is the echo of our own stopServer: the session already stopped itself, and a second stop would
+    // overtake a newer arm.
+    native.addListener('onServerStopped', p => {
+      if (p.reason !== 'stopped') session.onServerStopped()
+    })
   )
   // Host attach and readiness drive the parked connects (the host component does not need to).
   unsubs.push(

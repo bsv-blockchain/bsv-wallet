@@ -102,7 +102,10 @@ export function createFakeNative(opts: FakeNativeOptions = {}): FakeNative {
     },
     async stopServer() {
       fake.calls.push({ name: 'stopServer', args: [] })
+      const was = fake.serverRunning
       fake.serverRunning = false
+      // Kotlin echoes a JS-requested stop as onServerStopped {reason:'stopped'}.
+      if (was) emit('onServerStopped', { reason: 'stopped' })
     },
     async respond(id, status, headers, body) {
       fake.calls.push({ name: 'respond', args: [id, status] })

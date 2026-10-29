@@ -185,6 +185,18 @@ describe('controller over the real core', () => {
     expect(liveEpochs()).toEqual([])
   })
 
+  it('the echo of our own stopServer does not close live bindings', async () => {
+    const t = await mk()
+    const c = await t.connect(1)
+    const closed: CloseEvent[] = []
+    const off = onBindingClosed(e => closed.push(e))
+    t.native.emitServerStopped('stopped')
+    await flush()
+    off()
+    expect(closed).toEqual([])
+    expect(liveEpochs()).toEqual([c.epoch])
+  })
+
   it('user-disconnect closes every binding lost and returns the session to IDLE', async () => {
     const t = await mk()
     const c = await t.connect(1)
