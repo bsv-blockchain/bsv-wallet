@@ -1,14 +1,14 @@
 {
   "chrome": "155.0.8059.79",
   "origin": "http://localhost:3001",
-  "at": "2026-10-29T19:16:44.147Z",
+  "at": "2026-10-29T20:56:42.122Z",
   "results": [
     {
       "id": "O8",
       "name": "a prompt for another origin while the sheet is up shows in the same root, never a second Activity",
-      "status": "fail",
-      "note": "timed out waiting for origin B's prompt; resumed org.bsvblockchain.wallet/org.bsv.walletbridge.BridgeSheetActivity; B card running",
-      "ms": 149013
+      "status": "pass",
+      "note": "origin A's prompt, then origin B's (localhost:3202) arriving while it was up: one sheet Activity (create n 2) and one root, one bridge-approve at a time, B's prompt shown in the same root after A's; both requests passed",
+      "ms": 99181
     }
   ],
   "gates": []

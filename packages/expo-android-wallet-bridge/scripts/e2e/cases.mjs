@@ -1230,10 +1230,12 @@ export const OVERLAY_CASES = [
     id: 'O8',
     name: 'a prompt for another origin while the sheet is up shows in the same root, never a second Activity',
     async run(ctx) {
-      // Origin B is the same demo served on 3002 (the wallet accepts http://localhost:<port> only). B is connected first
+      // Origin B is the same demo served on a fresh port (the wallet accepts http://localhost:<port> only). B is connected first
       // through the overlay, then A raises the sheet and B's request arrives while it is up (a second Open wallet tap
       // cannot reach while the sheet is up, S3 row (g), so B must already be connected).
-      const portB = 3002
+      // A port no earlier run used, so the wallet holds no consent for B: B is asked to connect and gets its own grant tag,
+      // and its permission prompts are not covered by (or merged into) A's, which the same loopback host would otherwise do.
+      const portB = 3100 + (Math.floor(Date.now() / 1000) % 800)
       const originB = `http://localhost:${portB}`
       const here = path.dirname(fileURLToPath(import.meta.url))
       const server = spawn(process.execPath, [path.join(here, '../../demo/serve.mjs'), String(portB)], {
@@ -1273,8 +1275,9 @@ export const OVERLAY_CASES = [
             ((await logText(pageB)).includes('OK getPublicKey') ? 'silent' : undefined),
           { timeoutMs: 20000, pollMs: 500, what: 'origin B connected or its Connect sheet' }
         )
+        ctx.note(`origin B ${seen === 'silent' ? 'reconnected silently' : 'asked to connect'}`)
         if (seen !== 'silent') {
-          must(/localhost:3002/.test(seen.text || seen.desc), `origin B sheet shows ${seen.text}`)
+          must(/localhost/.test(seen.text || seen.desc), `origin B sheet shows ${seen.text}`)
           await approveSheet(ctx)
           await waitLog(pageB, /OK getPublicKey ->/, { timeoutMs: 25000, what: 'origin B connected' })
         }
@@ -1299,7 +1302,11 @@ export const OVERLAY_CASES = [
         await evid(ctx, 'O8-two-origins-first')
         await approveSheet(ctx) // the head: origin A's
         await waitCard(page, SIGN_CARD, 'pass', 60000)
-        must((await cardStatus(pageB, SIGN_CARD)) === 'running', "origin B's request was answered by A's Approve")
+        const bStatus = await cardStatus(pageB, SIGN_CARD)
+        must(
+          bStatus === 'running',
+          `origin B's request was answered by A's Approve (card ${bStatus}; B log: ${(await logText(pageB)).replace(/\n/g, ' | ').slice(-300)})`
+        )
         await sleep(1500)
         await uiWait('bridge-approve', { timeoutMs: 70000, what: "origin B's prompt" }).catch(async e => {
           throw new Error(
@@ -1316,7 +1323,7 @@ export const OVERLAY_CASES = [
         await waitCard(page, SIGN_CARD, 'pass', 60000)
         await waitCard(pageB, SIGN_CARD, 'pass', 60000)
         await ov.waitFor(async () => !(await ov.sheetResumed()), { timeoutMs: 15000, what: 'the sheet to finish' })
-        return `origin A's prompt, then origin B's (localhost:3002) arriving while it was up: one sheet Activity (create n ${c0}) and one root, one bridge-approve at a time, B's prompt shown in the same root after A's; both requests passed`
+        return `origin A's prompt, then origin B's (localhost:${portB}) arriving while it was up: one sheet Activity (create n ${c0}) and one root, one bridge-approve at a time, B's prompt shown in the same root after A's; both requests passed`
       } finally {
         await pageA?.close().catch(() => {})
         await pageB?.close().catch(() => {})

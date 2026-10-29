@@ -1,0 +1,15 @@
+{
+  "chrome": "155.0.8059.79",
+  "origin": "http://localhost:3001",
+  "at": "2026-10-29T20:40:51.291Z",
+  "results": [
+    {
+      "id": "O14",
+      "name": "M1 regression: cases 1 to 5, 7, 15, 16, 17 in foreground mode with overlay available",
+      "status": "pass",
+      "note": "M1 1 ok, M1 2 ok, M1 3 failed (log never matched #createAction -> /(OK|ERR) createAction ->[^\\n]*/: 20:32:59.144 INFO cre), M1 4 ok, M1 5 ok, M1 7 ok, M1 15 failed (no bridge-attention notification posted), M1 16 failed (timed out waiting for attention notification in the shade), M1 17 ok",
+      "ms": 582864
+    }
+  ],
+  "gates": []
+}

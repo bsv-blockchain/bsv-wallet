@@ -1,0 +1,43 @@
+{
+  "chrome": "155.0.8059.79",
+  "origin": "http://localhost:3001",
+  "at": "2026-10-29T20:19:14.405Z",
+  "results": [
+    {
+      "id": "O9",
+      "name": "dark mode while the sheet is up: re-themes without remounting",
+      "status": "pass",
+      "note": "night mode switched with the sheet and a prompt up: same Activity (create n 1), no remount (mount n 1), prompt still shown; text colours could not be read (FLAG_SECURE blanks screencap); the re-theme itself is pinned by the Task 8 relay test",
+      "ms": 67884
+    },
+    {
+      "id": "O10",
+      "name": "a second launch while the sheet is up resets the root",
+      "status": "pass",
+      "note": "second SHEETLAUNCH while up: one more \"newintent reset=true\", mount n 1 -> 2, no second Activity (create lines 9 unchanged)",
+      "ms": 62680
+    },
+    {
+      "id": "O11",
+      "name": "prompt pending when the wallet leaves: notification only, no background sheet (variant 11-N)",
+      "status": "pass",
+      "note": "variant 11-N: the prompt left pending raised only the generic attention notification (no site named); no sheet Activity was listed or created for 6 s in the background; the tap then showed it",
+      "ms": 76755
+    },
+    {
+      "id": "O12",
+      "name": "leak: 10 open and Back cycles, Activities count stable",
+      "status": "pass",
+      "note": "10 sheet create/Back cycles: Activities 2,2,2,2 before, 1,1,1,1 after (forced trim, three equal readings)",
+      "ms": 132280
+    },
+    {
+      "id": "O13",
+      "name": "plaintext check in logcat over the overlay run, M2 log lines are counts only",
+      "status": "pass",
+      "note": "logcat since the start of the run (68371 lines, 3 epochs launched): no k=, n=, launched epoch, e=<uuid>, reconnect token or binding header anywhere, system lines included; 67 BsvBridgeSheet lines, all counts only (create n/seq, newintent reset, mount n)",
+      "ms": 445
+    }
+  ],
+  "gates": []
+}
