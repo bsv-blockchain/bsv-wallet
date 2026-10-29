@@ -354,9 +354,11 @@ notificationPermission(): 'granted'|'denied'|'undetermined'
 requestNotificationPermission(): Promise<'granted'|'denied'>
 returnToBrowser(): void   // M1: moveTaskToBack of the wallet task (foreground mode); M2 adds the overlay finish()
 // M2 only:
-showSheet(reason: 'launch'|'consent'|'prompt'): void
+setHostState(s: {attached: boolean; ready: boolean}): void   // mirrors the toolbox host so the trampoline can pick the mode
+hostLifecycle(): {registered; mainAlive; mainResumed; sheetResumed}   // synchronous tracker snapshot; event: onHostLifecycle
+setSheetInteractive(on: boolean): void   // sheet window touchable only while a prompt is pending
+showSheet(reason: 'consent'|'prompt'): void   // declared no-op (variant 11-N)
 hideSheet(): void
-isMainActivityActive(): boolean
 ```
 
 Errors carry `CodedException` subclasses with stable codes (`ERR_PORTS_EXHAUSTED`, `ERR_BIND_FAILED`, `ERR_NO_ACTIVITY`);
@@ -1141,7 +1143,7 @@ locked-then-unlocked fake wallet.
 | Core calls              | Wallet in front (M1: `AppState` is `active`; M2: `sheetOwner() !== 'none'`, never `AppState`) | Action                                                                                                        |
 | ----------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `'consent'`, `'prompt'` | yes                                                                                           | nothing: the in-app sheet is visible                                                                          |
-| `'consent'`, `'prompt'` | no                                                                                            | try `showSheet` (M2, may be blocked in the background) and always post the heads-up notification              |
+| `'consent'`, `'prompt'` | no                                                                                            | M2 variant 11-N: `showSheet` is a declared no-op; post the heads-up notification only                         |
 | `'wallet-not-ready'`    | any                                                                                           | foreground mode: the wallet is already brought forward by the launch; a later one only posts the notification |
 
 `onPromptRaised` (fires whether or not the app is active) only updates the notification's waiting count. In M1 there is no
@@ -1169,7 +1171,7 @@ and finishes the Activity; the notification then says "N requests waiting. Tap t
 So an Activity is _guaranteed_ only in the moments the page's user click launches it. For a later request while Chrome is in
 front (the page calls `createAction` five minutes after connecting):
 
-1. `showSheet` is tried (M2; it works on some OEM builds and when the app was recently visible).
+1. M2 ships variant 11-N: `showSheet` is a declared no-op and the notification alone carries the heads-up. A background sheet (variant 11-W) is not implemented and waits for an owner decision.
 2. Always, a **heads-up notification** (channel `bridge-attention`, importance HIGH, `CATEGORY_MESSAGE`,
    **`VISIBILITY_PRIVATE` with a generic public version**) is posted. Its text is generic: "A website wants to continue.
    Tap to review." **No host name appears in it:** the host comes from the forgeable `Origin` header, may be an IDN or

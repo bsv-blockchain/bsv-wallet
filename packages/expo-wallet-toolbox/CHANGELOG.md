@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed (review of the Android bridge overlay)
+
+- `Sheet`: the open-spring completion no longer re-applies the open position once the sheet has been closed, and a
+  non-dismissible sheet hides its backdrop from screen readers.
+- `PermissionSheet`: no longer closes a queue's modal flag itself; the queue does it when it empties, so a request
+  enqueued just before an answer cannot be left behind a closed flag.
+
 ### Browser bridge core
 
 - **Transport-agnostic BRC-185 bridge engine** (`core/bridge`): origin rule, site consent with

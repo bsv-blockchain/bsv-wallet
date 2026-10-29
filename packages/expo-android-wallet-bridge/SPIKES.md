@@ -412,7 +412,7 @@ Tapjacking row (step 3): **GATE: tapjacking overlay test needs a second package.
 **S3 verdict: full overlay.** Rows (a) and (b) pass: Chrome stays visible and running behind the sheet and `finish()` returns to Chrome. Rows (c) to (i) shape later work, none the verdict:
 
 - (b), (d): Task 4 `ReturnPolicy` (finish returns to the task below; both-true row finishes the sheet, then moves main to back if it is the resumed raised-by-bridge task) and Task 10.
-- (i): Task 10 idle bound 5 s; Task 7 non-touchable window is not a dead-end fix; Task 13 O15 asserts the idle bound, not tap pass-through.
+- (i): Task 10 idle bound 5 s; Task 7 non-touchable window is not a dead-end fix; Task 13 O15 asserts the idle bound; after 6d163629 it also requires one tap to reach Chrome, which holds in every emulator run but is not claimed for real phones (owner gate 6).
 - (e): Task 6 Home rule is required.
 - (f): Task 13 case list unchanged (gate 6); (g): Task 14 limits copy.
 
@@ -609,7 +609,7 @@ On this emulator wallet (now funded and holding 15 to 25 permission tokens) a re
 
 ### M2 not shippable until the owner records gates 1, 2, 6 and 7
 
-**M2 is not shippable until gates 1, 2, 6 and 7 below are recorded as passed by the owner; until then the product ships foreground mode only.** This does not block the implementation or the merge of the code behind the existing M1 behaviour. Every overlay case O1 to O21 passes on the emulator (some substituted, see the table); the M1 baseline failures 3, 15 and 16 are unchanged.
+**M2 is not shippable until gates 1, 2, 6 and 7 below are recorded as passed by the owner; until then the product ships foreground mode only.** This does not block the implementation or the merge of the code behind the existing M1 behaviour. Overlay cases O1 to O21 pass on the emulator except O14, which is PARTIAL (M1 baseline cases 3, 15 and 16 fail), with O8, O11 and O17 substituted or deviated (see the table). The evidence is spread over the per-case `results-*.json` files from different builds; there is no single green full run on the final build. The first full-run file is kept as `results-first-run-superseded.json` (it records eight failures that were fixed and re-run later).
 
 ### Device gates for the owner (M2)
 
@@ -623,3 +623,16 @@ On this emulator wallet (now funded and holding 15 to 25 permission tokens) a re
 8. The second Open wallet tap on a real Chrome.
 9. The Chrome loopback permission dialog and the https/ngrok path with the overlay, and a release build with R8 on that path.
 10. O9's text colours: `cmd uimode night yes` with a prompt up on a real phone, and read the sheet's text and scrim colours before and after (the sheet is `FLAG_SECURE`, so `screencap` is blank here; the Task 8 relay test is the only automated coverage of the re-theme). Also on a real phone, a prompt that arrives with the wallet already stopped (O11 as the plan wrote it; this wallet cannot reach that state, see the baseline note).
+
+## Whole-branch review (M2)
+
+Fixed:
+- Notification tap with the wallet in front chose OVERLAY because the platform pauses `MainActivity` before the sheet's `onCreate`. A sequence-less start now treats a main pause under 500 ms old as still resumed (`SheetPolicy.TAP_PAUSE_GRACE_MS`, `BridgeState.mainPausedAtMs`), so it forwards to the wallet. JVM test added; no emulator case yet (see deferred).
+- Sheet `configChanges` now includes `fontScale|density|colorMode|navigation|touchscreen`, so a font or display-size change no longer recreates the sheet (which finished it with the prompt pending).
+- Toolbox `Sheet`: the open-spring completion no longer re-applies the open position after the sheet was closed (`visibleRef` guard); a non-dismissible backdrop is hidden from TalkBack.
+- Toolbox `PermissionSheet`: dropped its own modal-flag close (it read a render-lagging queue copy); `usePermissionQueue.advance` already closes the flag when the queue empties.
+- Docs: spec 7.4 and 6.2 now describe 11-N and the real native surface; README and this file reconciled on O15, "O1 to O21" and the stale first-run results file; stale task-number comment in `native.ts`.
+
+Deferred:
+- Emulator case that taps the session notification with the wallet foregrounded: needs the emulator and a rebuilt APK, not run here. The fix is covered by the JVM policy test only.
+- `FINISH` on a restored instance remains for process-death restore (O18); only config recreation was removed.

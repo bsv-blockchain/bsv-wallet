@@ -82,7 +82,7 @@ export interface BsvAndroidBridgeNative {
   setHostState(s: { attached: boolean; ready: boolean }): void
   /** Synchronous snapshot of the native lifecycle tracker. */
   hostLifecycle(): HostLifecycle
-  /** Whether the sheet window takes touches (declared in M2 Task 5, implemented in Task 7). */
+  /** Sets whether the sheet window takes touches: on while a prompt is pending, off when nothing is. */
   setSheetInteractive(on: boolean): void
   /** Raises the sheet without a browser launch. Declared as a no-op: only the owner-decision variant (11-W) gives it a body. */
   showSheet(reason: 'consent' | 'prompt'): void

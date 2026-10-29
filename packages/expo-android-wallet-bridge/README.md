@@ -91,7 +91,7 @@ the system Back gesture or the app switcher; the kit never forces it. Disconnect
   prompt: the request stays parked and the attention notification follows. Home (or any leave) finishes the sheet when it
   stops; the next launch starts a fresh sheet. A screen-off does not finish it.
 - **The idle sheet.** A launch with nothing pending shows an empty sheet whose window is non-touchable and paints no scrim,
-  and which finishes by itself after about 5 s. Android may still swallow taps meant for Chrome while it is up (S3 row i).
+  and which finishes by itself after about 5 s. In the emulator idle-window run (O15) a tap did reach Chrome, but S3 row (i) found taps swallowed under the translucent non-idle sheet, so real-phone tap behaviour is open (owner gate 6).
 - **The second tap.** While the sheet is up, a second "Open wallet" tap on the page does not reach the wallet (Chrome
   withholds external-intent launches while its Activity is paused; cause not isolated, S3 row g). Finish the sheet first.
 - **Notification fallback.** A prompt that arrives later, while the wallet is in the background, is not forced onto the screen
@@ -106,7 +106,7 @@ the system Back gesture or the app switcher; the kit never forces it. Disconnect
 - **Host adoption.** `AndroidBridgeSheetGate` around the main tree's `PermissionSheet`, and `AndroidBridgeHost` inside the
   four toolbox providers (step 3 above). `setupAndroidBridge` registers the `BsvBridgeSheet` root.
 - **Ship gate.** Not shippable until the owner records device gates 1, 2, 6 and 7 as passed (`SPIKES.md`, "Device gates for the
-  owner (M2)"). The emulator run (cases O1 to O22) is in `SPIKES.md`.
+  owner (M2)"). The emulator run (cases O1 to O21) is in `SPIKES.md`.
 
 ## Limits
 
