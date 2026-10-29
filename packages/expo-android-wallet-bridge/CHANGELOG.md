@@ -10,4 +10,9 @@
 - TypeScript controller: launch registry, binding ledger, session machine, unsettled-binding gate, reconnect-token outbox,
   attention notifications, `setupAndroidBridge`, `AndroidBridgeHost`, `AndroidBridgeNotices`, SecureStore continuity store.
 - Stand-in loopback page client, demo page with the shared BRC-100 conformance panel, and the emulator end-to-end driver.
-- Foreground mode only (milestone 1). The overlay over Chrome (milestone 2) is gated on a spike and not built.
+- Foreground mode (milestone 1).
+- Overlay mode (milestone 2, experimental, not shippable until the owner device gates pass): `BridgeSheetActivity` raises the
+  permission sheets over Chrome on a second React root when the wallet is warm and unlocked, with a guarded delegate, native
+  Back, the Home rule, `FLAG_SECURE`, hidden overlay windows, dropped obscured touches with a fallback to the wallet screen, an
+  idle non-touchable window, `LifecycleTracker`, `sheetOwner()`, `AndroidBridgeSheetGate`, the overlay `returnToBrowser` and a
+  notification tap that targets the sheet Activity. Background prompts stay notification-only (`showSheet` is not built).

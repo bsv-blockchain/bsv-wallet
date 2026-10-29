@@ -47,7 +47,10 @@ Requires Chrome 142 or newer on the phone (the loopback permission), and an Andr
    transport was registered at build time, and a late registration makes every Android dispatch fail `PROVIDER_CHANGED`.
    It registers the `android-loopback` transport, drains the launch record of a cold start, and opens no port.
 
-3. **Mount** `<AndroidBridgeHost />` beside `<PermissionSheet />` inside `BrowserBridgeProvider`. It feeds the
+3. **Mount** `<AndroidBridgeHost />` beside `<PermissionSheet />` inside `BrowserBridgeProvider`, inside the toolbox theme, wallet,
+   exchange-rate and user providers (it publishes those contexts to the overlay's second React root, and above any of them
+   it would publish defaults). Wrap the main tree's `<PermissionSheet />` in `<AndroidBridgeSheetGate>` so that only one
+   `PermissionSheet` exists across the two roots. It feeds the
    wallet-in-front signal, asks for `POST_NOTIFICATIONS` once at the first accepted launch, asks native to go back to the browser
    after the last pending item clears, and renders the notices (notifications off, ports exhausted, wallet not ready). It
    renders nothing off Android or before setup.
@@ -74,6 +77,37 @@ private notification ("A website wants to continue. Tap to review.", no site nam
 the request waits and the wallet shows a notice when opened. When the wallet was opened by the user, the way back is
 the system Back gesture or the app switcher; the kit never forces it. Disconnect is an action on the service notification.
 
+### Overlay mode (milestone 2, experimental)
+
+**Overlay mode is experimental until the owner device gates pass (see "Ship gate" below); until then ship foreground mode only.**
+
+- **When it appears.** On the page's launch click, when the wallet process is already running, unlocked and has its React
+  host attached and ready, and `MainActivity` is alive and not in front, the launch raises `BridgeSheetActivity`: a
+  translucent sheet (about 90 percent scrim) over Chrome, which stays visible and running behind it. Every other state (cold
+  start, locked, unknown, the tracker not caught up yet) uses foreground mode exactly as before.
+- **Finishing.** The sheet shows the same permission sheets as the wallet screen on a second React root of the same host.
+  When the last pending item clears it finishes, and Android returns to the task below it, which is Chrome.
+- **Back and Home.** Back finishes the sheet natively (button and predictive back), never through JS, and never answers the
+  prompt: the request stays parked and the attention notification follows. Home (or any leave) finishes the sheet when it
+  stops; the next launch starts a fresh sheet. A screen-off does not finish it.
+- **The idle sheet.** A launch with nothing pending shows an empty sheet whose window is non-touchable and paints no scrim,
+  and which finishes by itself after about 5 s. Android may still swallow taps meant for Chrome while it is up (S3 row i).
+- **The second tap.** While the sheet is up, a second "Open wallet" tap on the page does not reach the wallet (Chrome
+  withholds external-intent launches while its Activity is paused; cause not isolated, S3 row g). Finish the sheet first.
+- **Notification fallback.** A prompt that arrives later, while the wallet is in the background, is not forced onto the screen
+  (Android blocks background Activity starts, S6). The M1 notification is posted (no site named); its tap opens
+  `BridgeSheetActivity`, which shows the sheet when the wallet is warm and forwards to the wallet when it is not.
+  `showSheet` is deliberately not implemented: there is no owner decision to force background sheets.
+- **Protections.** `FLAG_SECURE` on every sheet; on API 31+ `setHideOverlayWindows(true)` (the sheet finishes and forwards
+  to the wallet if the platform refuses); touches carrying an obscured flag are dropped, and after 3 dropped touches the
+  sheet is replaced by the in-wallet sheet, so another app drawing over the sheet (including a benign screen filter) sends
+  the user to the wallet screen instead of leaving a prompt that cannot be answered. Approve keeps its 700 ms tap protection.
+  An outside tap or a swipe down never answers the prompt. The activity is `exported="false"` and takes only a sequence number.
+- **Host adoption.** `AndroidBridgeSheetGate` around the main tree's `PermissionSheet`, and `AndroidBridgeHost` inside the
+  four toolbox providers (step 3 above). `setupAndroidBridge` registers the `BsvBridgeSheet` root.
+- **Ship gate.** Not shippable until the owner records device gates 1, 2, 6 and 7 as passed (`SPIKES.md`, "Device gates for the
+  owner (M2)"). The emulator run (cases O1 to O22) is in `SPIKES.md`.
+
 ## Limits
 
 - Chrome only, 142 or newer; other browsers are untested. Incognito tabs do not launch (Chrome does not hand `intent://`
@@ -81,7 +115,7 @@ the system Back gesture or the app switcher; the kit never forces it. Disconnect
 - A launch on every connect, even for a returning site. Sessions live only while `MainActivity`'s React tree is mounted.
 - Process death drops every binding; a request in flight is `unknown` to the page. Bindings idle for 30 minutes are closed.
 - No port is open outside a session. At most 4 parked connects, 32 connections, 32 live launch records.
-- No overlay over Chrome (M2 is gated on a spike). See `CONFORMANCE.md` and spec section 12 for the full list.
+- The overlay is experimental and shows only at the launch click with a warm wallet; later prompts use the notification. See `CONFORMANCE.md` and spec section 12 for the full list.
 
 ## The two test paths
 

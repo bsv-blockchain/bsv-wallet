@@ -59,6 +59,12 @@ branches (code 6); insufficient funds on an unfunded test wallet; one `discoverB
   review (independent review is a release gate).
 - Behaviour on a real phone, any OEM, Android 17 work profile / private space (S8 not run), Incognito on a device, or the
   https path in a release build with R8 (device gates).
-- Overlay (M2), the legacy binary profile, encrypted association (spec 8.4: decision no for v1), iframe origin attestation (8.5).
+- The legacy binary profile, encrypted association (spec 8.4: decision no for v1), iframe origin attestation (8.5).
 - Protection against a second wallet implementing this kit: two apps allocate different ports and the page sees two
   wallets; only the launched package acknowledges.
+
+## Overlay (milestone 2)
+
+Nothing claimed above changes. The overlay sheet is a presentation surface of this wallet, not a BRC-185 surface: BRC-185 says
+nothing about how a wallet asks its user, and the overlay adds no endpoint, header or deviation. It is experimental until the owner
+device gates pass (`SPIKES.md`).

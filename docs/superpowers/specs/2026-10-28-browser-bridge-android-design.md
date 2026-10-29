@@ -211,7 +211,7 @@ shows the request. No second React root and no context relay exist in M1, and ne
 **M2: overlay.** `BridgeSheetActivity`, the second React root, `ContextRelay`, the sheet owner gate, lifecycle tracking,
 tapjacking protections, the overlay variant of `returnToBrowser`, `setHostState`, the test id `bridge-sheet-root`, and the
 guarded sheet delegate, native Back and Home rule found by S4 (7.4). **Status after revision 4: the owner wants M2; S4 is done
-(conditional pass, emulator only, `SPIKES.md`); the remaining gates are S3, S4b and S6.** S4 showed that a second React root
+(conditional pass, emulator only, `SPIKES.md`); S3 (full overlay), S6 (notification only, `showSheet` not adopted) and the emulator part of S4b are done (`SPIKES.md`, plan `docs/superpowers/plans/2026-10-29-browser-bridge-android-m2.md`); no spike overturned a design decision. Real-phone S4b, S3 and S6 rows remain owner device gates 1, 2, 6 and 7, which block shipping M2.** S4 showed that a second React root
 on the shared host works, but only with a guarded delegate: the plain default delegate lets the React host be destroyed under a
 live `MainActivity` (7.4). S4b (real phone, an R8 release build, the cold-start tracker race, the `useVaultKeys` listener)
 runs before the rest of M2 is trusted. If S4b or S3 fails in a way the design cannot absorb, M2 is dropped and foreground mode
