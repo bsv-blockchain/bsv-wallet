@@ -11,7 +11,10 @@ ext.pureFiles = [
   'org/bsv/walletbridge/HttpParser.kt',
   'org/bsv/walletbridge/HttpWriter.kt',
   'org/bsv/walletbridge/HostCheck.kt',
-  'org/bsv/walletbridge/PortAllocator.kt'
+  'org/bsv/walletbridge/PortAllocator.kt',
+  'org/bsv/walletbridge/LaunchIntent.kt',
+  'org/bsv/walletbridge/LaunchStore.kt',
+  'org/bsv/walletbridge/NotificationSpec.kt'
 ]
 
 sourceSets {
