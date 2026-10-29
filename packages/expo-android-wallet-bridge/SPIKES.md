@@ -71,3 +71,14 @@ Result: **PASS** (regression test `packages/expo-wallet-toolbox/__tests__/bridge
 - (e) `attachBridgeHost({hasWallet:false})` and its detach do NOT call `onSnapshotChange` while readiness stays `none`. Test asserts the current behaviour; this is the gap Task 2 closed: assertion (e) is now inverted (`hostAttached` on the snapshot makes attach and detach fire `onSnapshotChange`). No other seam is missing for S0.
 
 Fallbacks in effect: none.
+
+## Task 13 (Android module compile and autolink)
+
+Result: **PASS** (compile and autolink; behaviour is exercised by Tasks 22 and 24 on the emulator).
+- `scripts/link-kit.sh <HW>` (adapted from the iOS kit's) packs the toolbox and this kit into `HW/node_modules/@bsv/`. `@bsv/expo-android-wallet-bridge: 0.0.0` was added to `HW/package.json` as a scratch edit (working tree only, discarded before Task 23).
+- `HW` prebuild needed a second scratch edit: `app.config.js` loses the `@bsv/expo-safari-wallet-bridge/app.plugin` entry, because that plugin requires `@bacons/apple-targets`, which is not installed in `HW` (see Baseline). Android prebuild is otherwise unchanged. Also discarded before Task 23.
+- Autolinking: the project is named `bsv-expo-android-wallet-bridge` (Gradle, from the scoped package name), not `expo-android-wallet-bridge`. `:bsv-expo-android-wallet-bridge:compileDebugKotlin` -> BUILD SUCCESSFUL on the first compile; `:app:compileDebugKotlin` -> BUILD SUCCESSFUL. `org.bsv.walletbridge.BsvAndroidBridgeModule::class.java` appears in `ExpoModulesPackageList.kt`. In Expo SDK 57 that file is generated under `node_modules/expo/android/build/generated/expo/src/main/java/expo/modules/` (a build output reached through the `node_modules/expo` symlink into the main checkout), not under `app/build/generated`.
+- Merged debug manifest (`:app:processDebugMainManifest`) holds the trampoline (exported, `Theme.NoDisplay`, no intent filter) and the `specialUse` service with the subtype property. `SYSTEM_ALERT_WINDOW` appears in the merged debug manifest from the React Native debug manifest, not from this library (the library manifest has none; the manifest jest test pins that).
+- Whole-app `:app:assembleDebug` was not run for this task: the module and app Kotlin compile and manifest merge are the evidence; the APK is built in Task 22.
+- Decision: the trampoline takes the scheme from the matched intent's own data (`intent.data.scheme`) and validates host `launch` and size with `LaunchIntent.validate`, because the library cannot know the plugin's scheme at compile time. A caller that targets the exported trampoline directly can only store an unprovable record that JS burns (the same power a web page has).
+- Decision: `startServer` replaces (stops silently, events of the old generation are dropped) a server left running by a previous JS runtime, so a reload can restart.
