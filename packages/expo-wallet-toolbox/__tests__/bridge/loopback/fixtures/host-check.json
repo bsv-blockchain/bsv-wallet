@@ -1,0 +1,19 @@
+[
+  { "name": "ipv4 literal", "host": "127.0.0.1:3321", "port": 3321, "ipv4": true, "ipv6": true, "expected": true },
+  { "name": "ipv6 literal", "host": "[::1]:3321", "port": 3321, "ipv4": true, "ipv6": true, "expected": true },
+  { "name": "localhost both bound", "host": "localhost:3321", "port": 3321, "ipv4": true, "ipv6": true, "expected": true },
+  { "name": "ipv4 only ipv4 literal", "host": "127.0.0.1:3322", "port": 3322, "ipv4": true, "ipv6": false, "expected": true },
+  { "name": "ipv4 only refuses localhost", "host": "localhost:3322", "port": 3322, "ipv4": true, "ipv6": false, "expected": false },
+  { "name": "ipv4 only refuses [::1]", "host": "[::1]:3322", "port": 3322, "ipv4": true, "ipv6": false, "expected": false },
+  { "name": "wrong port", "host": "127.0.0.1:3322", "port": 3321, "ipv4": true, "ipv6": true, "expected": false },
+  { "name": "missing port", "host": "127.0.0.1", "port": 3321, "ipv4": true, "ipv6": true, "expected": false },
+  { "name": "missing host", "host": null, "port": 3321, "ipv4": true, "ipv6": true, "expected": false },
+  { "name": "empty host", "host": "", "port": 3321, "ipv4": true, "ipv6": true, "expected": false },
+  { "name": "uppercase LOCALHOST", "host": "LOCALHOST:3321", "port": 3321, "ipv4": true, "ipv6": true, "expected": false },
+  { "name": "trailing dot", "host": "localhost.:3321", "port": 3321, "ipv4": true, "ipv6": true, "expected": false },
+  { "name": "rebinding name", "host": "evil.example:3321", "port": 3321, "ipv4": true, "ipv6": true, "expected": false },
+  { "name": "emulator alias", "host": "10.0.2.2:3321", "port": 3321, "ipv4": true, "ipv6": true, "expected": false },
+  { "name": "unbracketed ipv6", "host": "::1:3321", "port": 3321, "ipv4": true, "ipv6": true, "expected": false },
+  { "name": "leading space", "host": " 127.0.0.1:3321", "port": 3321, "ipv4": true, "ipv6": true, "expected": false },
+  { "name": "userinfo", "host": "a@127.0.0.1:3321", "port": 3321, "ipv4": true, "ipv6": true, "expected": false }
+]

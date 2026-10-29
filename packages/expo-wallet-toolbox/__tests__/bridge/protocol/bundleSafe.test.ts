@@ -73,6 +73,13 @@ describe('protocol modules are bundle-safe', () => {
     expect(problems).toEqual([])
   })
 
+  it('loopback modules have a pure import graph', () => {
+    const dir = path.join(bridgeDir, 'loopback')
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.ts'))
+    expect(files.length).toBeGreaterThanOrEqual(4)
+    for (const f of files) expect(walk(path.join(dir, f)).problems).toEqual([])
+  })
+
   it('origin.ts reaches the pure constants module, not the app config', () => {
     const { files } = walk(path.join(protocolDir, 'origin.ts'))
     expect(files.map(f => path.relative(bridgeDir, f))).toContain('protocol/constants.ts')
