@@ -218,3 +218,13 @@ localhost origin. The https half through `https://deggen.ngrok.app` was NOT run:
 - ngrok https path for the Android demo in a release build with R8 (needs its own tunnel).
 - Play Console `specialUse` foreground-service declaration (property subtype text).
 - maestro for the host flows (`brew install maestro`, owner approval); the uiautomator sequence is used meanwhile.
+
+## Task 23: host adoption
+
+HW commit 810480b `feat(android-bridge): adopt the Android bridge kit` (branch `feat/android-wallet-bridge`).
+- Scratch Task 22 edits were saved to the session scratchpad and discarded with `git checkout -- <file>`; `link-kit.sh` re-run.
+- HTSC 15 errors and HJ 4 suites / 13 failed tests, identical to the baseline (new tests add 192 passing). The Android isolation tests run the kit's manifest mod alone, because a full config load needs `@bacons/apple-targets` (not installed in HW; the 5 iOS isolation tests fail on that, as in the baseline).
+- HBUILD (with the Safari plugin entry removed and the kit dependency added as scratch edits, both reverted): `:app:assembleDebug` succeeded; the debug APK manifest holds one exported `LaunchTrampolineActivity` with a single filter (`VIEW`, `DEFAULT`, `BROWSABLE`, scheme `bsv-wallet-bridge`, host `launch`). `SYSTEM_ALERT_WINDOW` there comes from the RN debug manifest (host `blockedPermissions` strips it in release).
+- `setupAndroidBridge` is placed before the startup prewarm in `index.js` (not just before `expo-router/entry`), so the transport exists before any wallet build can start.
+- `withIconAliasLinks.js` fixture is identical to the host file; no refresh needed.
+- Not committed: the kit dependency line in `package.json` (release), and the metro.config.js worktree hunk (saved in the scratchpad as task22-scratch.diff; reapply for Task 24 Metro runs).
