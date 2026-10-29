@@ -8,10 +8,12 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { b64uEncode } from '../../../../core/bridge/protocol/base64url'
 import type { ContinuityHandle } from '../../../../core/bridge/protocol/continuity'
+import type { ExplicitConnectInput } from '../../../../core/bridge/bindings'
 import { helloMac } from '../../../../core/bridge/loopback/launchProof'
 import {
   createLoopbackRouter,
   type LaunchRecordView,
+  type ParkResult,
   type RawRequest,
   type RouteHandler,
   type RouteKind,
@@ -49,6 +51,17 @@ export interface Harness {
     allowLocalhostHttp: boolean
     records: LaunchRecordView[]
     snapshotCalls: number
+    /** Connect knobs (Task 7). `snapshot` unset keeps the Task 6 rule that describe never reads it. */
+    snapshot?: { accountContext: string; walletRevision: string }
+    used: Set<string>
+    gateBusy: Set<string>
+    readiness: 'park' | 'none-fail' | 'go'
+    park: (id: string, origin: string, epoch: string) => Promise<ParkResult>
+    gone: Set<string>
+    /** Throw this from `connectExplicit` instead of returning a binding. */
+    connectError?: unknown
+    connected: ExplicitConnectInput[]
+    opened: { epoch: string; origin: string; secret: Uint8Array }[]
   }
   handle(req: Partial<RawRequest> & { target: string }): Promise<RoutePlan>
 }
@@ -59,7 +72,14 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
     bound: { port: PORT, ipv4: true, ipv6: true },
     allowLocalhostHttp: false,
     records: [],
-    snapshotCalls: 0
+    snapshotCalls: 0,
+    used: new Set(),
+    gateBusy: new Set(),
+    readiness: 'go',
+    park: async () => 'resume',
+    gone: new Set(),
+    connected: [],
+    opened: []
   }
   const rec = (name: string) => calls.push(name)
   const env: RouterEnv = {
@@ -81,14 +101,17 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
           r => helloMac(r.k, { origin: p.origin, challenge: p.challenge, host: p.host }) === p.hello
         )
       },
-      take: () => {
+      take: epoch => {
         rec('launches.take')
-        return undefined
+        const r = state.records.find(x => x.epoch === epoch)
+        if (!r || state.used.has(epoch)) return undefined
+        state.used.add(epoch)
+        return r
       }
     },
     unsettledGate: {
-      check: () => (rec('gate.check'), true),
-      claim: () => rec('gate.claim'),
+      check: origin => (rec('gate.check'), !state.gateBusy.has(origin)),
+      claim: origin => (rec('gate.claim'), state.gateBusy.add(origin)),
       release: () => rec('gate.release')
     },
     tokenOutbox: {
@@ -97,13 +120,13 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
       drop: () => rec('outbox.drop')
     },
     session: {
-      readiness: () => (rec('session.readiness'), 'go'),
-      parkConnect: async () => (rec('session.parkConnect'), 'resume'),
+      readiness: () => (rec('session.readiness'), state.readiness),
+      parkConnect: (id, origin, epoch) => (rec('session.parkConnect'), state.park(id, origin, epoch)),
       onConnect: () => rec('session.onConnect'),
       onBindingClosed: () => rec('session.onBindingClosed')
     },
     ledger: {
-      open: () => rec('ledger.open'),
+      open: (epoch, origin, secret) => (rec('ledger.open'), state.opened.push({ epoch, origin, secret })),
       secret: () => (rec('ledger.secret'), undefined),
       origin: () => (rec('ledger.origin'), undefined),
       touch: () => rec('ledger.touch'),
@@ -112,8 +135,8 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
       markSettled: () => rec('ledger.markSettled'),
       isSettled: () => (rec('ledger.isSettled'), false),
       markGone: () => rec('ledger.markGone'),
-      isGone: () => (rec('ledger.isGone'), false),
-      clearGone: () => rec('ledger.clearGone'),
+      isGone: id => (rec('ledger.isGone'), state.gone.has(id)),
+      clearGone: id => (rec('ledger.clearGone'), state.gone.delete(id)),
       idleSince: () => (rec('ledger.idleSince'), undefined),
       epochsForOrigin: () => (rec('ledger.epochsForOrigin'), []),
       close: () => rec('ledger.close')
@@ -124,13 +147,16 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
         throw new Error('registry is not available in this test')
       }
     }),
-    connectExplicit: () => {
+    connectExplicit: input => {
       rec('connectExplicit')
-      throw new Error('connectExplicit is not available in this test')
+      if (state.connectError !== undefined) throw state.connectError
+      state.connected.push(input)
+      return { epoch: input.epoch, state: 'live' } as unknown as ReturnType<RouterEnv['connectExplicit']>
     },
     snapshot: () => {
       state.snapshotCalls++
-      throw new Error('snapshot must not be read')
+      if (!state.snapshot) throw new Error('snapshot must not be read')
+      return state.snapshot as unknown as ReturnType<RouterEnv['snapshot']>
     },
     dispatch: async () => {
       rec('dispatch')

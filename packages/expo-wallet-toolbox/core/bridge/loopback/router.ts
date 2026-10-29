@@ -8,13 +8,21 @@
  * Nothing here logs. `k`, epochs, proofs, acks, binding secrets, tokens and bodies are never written anywhere.
  */
 import { b64uDecode } from '../protocol/base64url'
-import { connectionError, type ConnectionError } from '../protocol/connectionError'
-import { assertAdvertisesResponder, signDescribe, validateDescriptor, type Descriptor } from '../protocol/descriptor'
+import { connectionError, isConnectionError, type ConnectionError } from '../protocol/connectionError'
+import {
+  assertAdvertisesResponder,
+  signConnect,
+  signDescribe,
+  validateDescriptor,
+  type Descriptor
+} from '../protocol/descriptor'
+import { parseStrictJson } from '../protocol/json'
+import type { ContinuityHandle } from '../protocol/continuity'
 import { canonicalizeBridgeOrigin } from '../protocol/origin'
 import { BASE_HEADERS, corsHeaders, preflightHeaders, type CorsKind } from './cors'
 import { loopbackEndpoints } from './endpoints'
 import { isAllowedHost } from './hostCheck'
-import { describeAck } from './launchProof'
+import { bindingSecret, connectAck, describeAck, launchProof, timingSafeEqualB64u } from './launchProof'
 import type { RawRequest, RoutePlan, RouteResponse, RouterEnv, LoopbackRouter } from './routerTypes'
 import { STATUS, statusForConnectionError } from './status'
 
@@ -176,6 +184,30 @@ export function publicCors(origin: string): [string, string][] {
   return corsHeaders({ origin, kind: 'public' as CorsKind })
 }
 
+/**
+ * The descriptor this wallet advertises to one origin. Refuses to produce one the page would refuse, or one that
+ * does not name the endpoint that answered. `raw` is what gets signed: the page's check runs over exactly what was sent.
+ */
+function buildDescriptor(env: RouterEnv, identity: ContinuityHandle, host: string): { raw: Descriptor } | undefined {
+  const raw: Record<string, unknown> = {
+    version: 1,
+    instanceId: identity.instanceId,
+    name: env.descriptorBase.name,
+    instanceLabel: env.descriptorBase.instanceLabel,
+    vendor: env.descriptorBase.vendor,
+    continuityKey: identity.continuityKey,
+    endpoints: loopbackEndpoints(env.bound())
+  }
+  if (env.descriptorBase.icon !== undefined) raw.icon = env.descriptorBase.icon
+  try {
+    const descriptor = validateDescriptor(raw)
+    assertAdvertisesResponder(descriptor, { type: 'http-json', address: `http://${host}` })
+  } catch {
+    return undefined
+  }
+  return { raw: raw as unknown as Descriptor }
+}
+
 async function describe(ctx: GateContext): Promise<RoutePlan> {
   const { env, req, origin, host } = ctx
   const cors = publicCors(origin)
@@ -196,26 +228,11 @@ async function describe(ctx: GateContext): Promise<RoutePlan> {
   }
 
   const identity = await env.identity(origin)
-  const raw: Record<string, unknown> = {
-    version: 1,
-    instanceId: identity.instanceId,
-    name: env.descriptorBase.name,
-    instanceLabel: env.descriptorBase.instanceLabel,
-    vendor: env.descriptorBase.vendor,
-    continuityKey: identity.continuityKey,
-    endpoints: loopbackEndpoints(env.bound())
-  }
-  if (env.descriptorBase.icon !== undefined) raw.icon = env.descriptorBase.icon
-  // Refuse to sign a descriptor the page would refuse, and one that does not name the endpoint that answered.
-  let descriptor: Descriptor
-  try {
-    descriptor = validateDescriptor(raw)
-    assertAdvertisesResponder(descriptor, { type: 'http-json', address: `http://${host}` })
-  } catch {
-    return internalError(cors)
-  }
+  const built = buildDescriptor(env, identity, host)
+  if (!built) return internalError(cors)
+  const { raw } = built
   // Sign the raw object: the page's signature check runs over exactly what was sent.
-  const signed = await signDescribe(identity, { origin, challenge, descriptor: raw as unknown as Descriptor })
+  const signed = await signDescribe(identity, { origin, challenge, descriptor: raw })
 
   const headers = jsonHeaders(cors)
   if (hello !== undefined) {
@@ -234,15 +251,236 @@ async function describe(ctx: GateContext): Promise<RoutePlan> {
   return respond(STATUS.ok, headers, JSON.stringify(signed))
 }
 
+const CONNECT_MAX_BODY_BYTES = 4096
+const CONNECT_MEMBERS = ['epoch', 'challenge', 'instanceId', 'continuityKey', 'android']
+const ANDROID_MEMBERS = ['launchProof', 'reconnectToken']
+const LAUNCH_PROOF_MESSAGE = 'launch proof required'
+
+interface ConnectBody {
+  epoch: string
+  challenge: string
+  instanceId: string
+  continuityKey: string
+  launchProof: string
+  reconnectToken?: string
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/** Exactly the five members, no nulls, no extras; `android` holds `launchProof` and optionally `reconnectToken`. */
+function parseConnectBody(text: string): ConnectBody | undefined {
+  let v: unknown
+  try {
+    v = parseStrictJson(text)
+  } catch {
+    return undefined
+  }
+  if (!isPlainObject(v)) return undefined
+  const keys = Object.keys(v)
+  if (keys.length !== CONNECT_MEMBERS.length || !CONNECT_MEMBERS.every(k => keys.includes(k))) return undefined
+  const { epoch, challenge, instanceId, continuityKey, android } = v
+  if (typeof epoch !== 'string' || !EPOCH_RE.test(epoch)) return undefined
+  if (canonicalB64u32(typeof challenge === 'string' ? challenge : undefined) === undefined) return undefined
+  if (typeof instanceId !== 'string' || typeof continuityKey !== 'string') return undefined
+  if (!isPlainObject(android)) return undefined
+  const akeys = Object.keys(android)
+  if (!akeys.every(k => ANDROID_MEMBERS.includes(k)) || !akeys.includes('launchProof')) return undefined
+  const { launchProof: proof, reconnectToken } = android
+  if (typeof proof !== 'string') return undefined
+  if (akeys.includes('reconnectToken') && typeof reconnectToken !== 'string') return undefined
+  const out: ConnectBody = {
+    epoch,
+    challenge: challenge as string,
+    instanceId,
+    continuityKey,
+    launchProof: proof
+  }
+  if (typeof reconnectToken === 'string') out.reconnectToken = reconnectToken
+  return out
+}
+
+/** A `respond` plan as a plain response (the connect continuation settles with responses, not plans). */
+function asResponse(p: RoutePlan): RouteResponse {
+  if (p.kind !== 'respond') throw new Error('expected an immediate response')
+  return { status: p.status, headers: p.headers, body: p.body }
+}
+
+/**
+ * Connect (spec 6.5 steps 5 to 8, 6.7, 7.5). Everything that can refuse runs before `connectExplicit`, which is
+ * the last step of validation; the gate re-check, the snapshot read, `connectExplicit`, `ledger.open`,
+ * `unsettledGate.claim` and `session.onConnect` then run in one synchronous turn (Review Focus 6).
+ */
+async function connect(ctx: GateContext): Promise<RoutePlan> {
+  const { env, req, origin, host } = ctx
+  const cors = publicCors(origin)
+  const retry: [string, string][] = [['Retry-After', '5']]
+
+  // 415 before anything is touched; exactly one Content-Type, exactly `application/json`.
+  if (ctx.header('content-type') !== 'application/json') {
+    return errorResponse(connectionError('PROTOCOL_ERROR', 'Content-Type must be application/json', 'not-sent'), {
+      situation: 'unsupportedMediaType',
+      cors
+    })
+  }
+  if (utf8Length(req.body) > CONNECT_MAX_BODY_BYTES) {
+    return errorResponse(connectionError('RESOURCE_LIMIT', 'Request body is too large', 'not-sent'), {
+      situation: 'bodyTooLarge',
+      cors
+    })
+  }
+  const body = parseConnectBody(req.body)
+  if (!body) return protocolError('Connect body is malformed', cors)
+
+  // Identity for this origin must be the one the page pinned.
+  const identity = await env.identity(origin)
+  if (body.instanceId !== identity.instanceId || body.continuityKey !== identity.continuityKey) {
+    return errorResponse(
+      connectionError('PROVIDER_CHANGED', 'Wallet identity changed', 'not-sent', { epoch: body.epoch }),
+      { cors }
+    )
+  }
+  const built = buildDescriptor(env, identity, host)
+  if (!built) return internalError(cors)
+
+  // Unsettled-binding gate, before the launch proof is burnt so a second tab can retry on the same launch.
+  if (!env.unsettledGate.check(origin)) {
+    return errorResponse(connectionError('RESOURCE_LIMIT', 'Another connection is awaiting approval', 'not-sent'), {
+      cors,
+      headers: retry
+    })
+  }
+
+  // Launch proof: looked up and burnt at arrival, whatever the outcome. One fixed message for every cause.
+  const record = env.launches.take(body.epoch)
+  const message = record && {
+    wallet: { instanceId: identity.instanceId, continuityKey: identity.continuityKey },
+    epoch: body.epoch,
+    origin,
+    challenge: body.challenge,
+    host,
+    nonce: record.n
+  }
+  if (!record || !message || !timingSafeEqualB64u(body.launchProof, launchProof(record.k, message))) {
+    return errorResponse(connectionError('CONFIGURATION_ERROR', LAUNCH_PROOF_MESSAGE, 'not-sent'), {
+      situation: 'launchProof',
+      cors
+    })
+  }
+  const k = record.k
+
+  const finish = async (): Promise<RouteResponse> => {
+    // The page left while this connect waited: no binding for a request nobody is waiting on.
+    if (env.ledger.isGone(req.id)) {
+      env.ledger.clearGone(req.id)
+      return asResponse(
+        errorResponse(connectionError('CONNECTION_CLOSED', 'Client closed the connection', 'not-sent'), { cors })
+      )
+    }
+    // Synchronous from here to `onConnect`: nothing between the gate check and the claim may yield.
+    if (!env.unsettledGate.check(origin)) {
+      return asResponse(
+        errorResponse(connectionError('RESOURCE_LIMIT', 'Another connection is awaiting approval', 'not-sent'), {
+          cors,
+          headers: retry
+        })
+      )
+    }
+    const snap = env.snapshot()
+    try {
+      env.connectExplicit({
+        epoch: body.epoch,
+        transportId: env.transportId,
+        applicationOrigin: origin,
+        attestation: 'unattested',
+        instanceId: identity.instanceId,
+        continuityKey: identity.continuityKey,
+        accountContext: snap.accountContext,
+        walletRevision: snap.walletRevision,
+        launchProofVerified: true,
+        ...(body.reconnectToken !== undefined ? { reconnectToken: body.reconnectToken } : {})
+      })
+    } catch (e) {
+      if (isConnectionError(e)) return asResponse(errorResponse(e, { cors }))
+      return asResponse(internalError(cors))
+    }
+    const secret = bindingSecret(k, message)
+    env.ledger.open(body.epoch, origin, b64uDecode(secret))
+    env.unsettledGate.claim(origin, body.epoch)
+    env.session.onConnect(body.epoch)
+
+    try {
+      const signed = await signConnect(identity, {
+        origin,
+        epoch: body.epoch,
+        challenge: body.challenge,
+        descriptor: built.raw
+      })
+      const headers = jsonHeaders(cors)
+      headers.push(['BRC-185-Android-Ack', connectAck(k, message)])
+      return { status: STATUS.ok, headers, body: JSON.stringify(signed) }
+    } catch {
+      // Signing failed after the binding exists: take it back so the page can start over.
+      try {
+        env.registry.close(body.epoch, 'disconnected')
+      } catch {
+        /* the registry already dropped it */
+      }
+      env.ledger.close(body.epoch)
+      env.unsettledGate.release(body.epoch)
+      env.session.onBindingClosed(body.epoch)
+      return asResponse(internalError(cors))
+    }
+  }
+
+  const guarded = async (): Promise<RouteResponse> => {
+    try {
+      return await finish()
+    } catch {
+      return asResponse(internalError(cors))
+    }
+  }
+
+  const readiness = env.session.readiness()
+  if (readiness === 'none-fail') {
+    return errorResponse(connectionError('CONFIGURATION_ERROR', 'Wallet is not available', 'not-sent'), {
+      situation: 'notBuilt',
+      cors
+    })
+  }
+  if (readiness === 'go') return plan(await guarded())
+
+  // The wallet is not ready: hold the socket and wait to be released (or refused).
+  const settled = env.session
+    .parkConnect(req.id, origin, body.epoch)
+    .then(async (result): Promise<RouteResponse> => {
+      if (result === 'resume') return guarded()
+      if (result === 'full') {
+        return asResponse(
+          errorResponse(connectionError('RESOURCE_LIMIT', 'Too many connections are waiting', 'not-sent'), { cors })
+        )
+      }
+      return asResponse(
+        errorResponse(connectionError('CONFIGURATION_ERROR', 'Wallet is not available', 'not-sent'), {
+          situation: 'notBuilt',
+          cors
+        })
+      )
+    })
+    .catch(() => asResponse(internalError(cors)))
+  return { kind: 'hold', id: req.id, settled }
+}
+
 async function notYet(ctx: GateContext): Promise<RoutePlan> {
-  // Connect, RPC and disconnect are implemented by the connect and RPC tasks; until then the gate answers them
+  // RPC and disconnect are implemented by the RPC task; until then the gate answers them
   // with an internal error rather than pretending to serve them.
   return internalError(ctx.route.kind === 'connect' ? publicCors(ctx.origin) : [])
 }
 
 export const defaultRoutes: Record<RouteKind, RouteHandler> = {
   describe,
-  connect: notYet,
+  connect,
   disconnect: notYet,
   rpc: notYet
 }
