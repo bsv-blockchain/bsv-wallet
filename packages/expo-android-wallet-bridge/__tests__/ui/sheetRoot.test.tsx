@@ -178,6 +178,24 @@ describe('BridgeSheetRoot', () => {
     first.unmount()
   })
 
+  it('a tap on the sheet backdrop does not answer under the overlay root, and does in the main tree', async () => {
+    const c = consent([entry])
+    const first = render(<FirstRoot />)
+    const second = render(<BridgeSheetRoot />)
+    await advance(1)
+    expect(resumeSignal.getSheetBackdropDismisses()).toBe(false)
+    const backdrops = second.UNSAFE_queryAllByProps({ accessibilityLabel: 'Close' })
+    const pressable = backdrops.filter(b => typeof b.props.onPress === 'function')
+    expect(pressable.length).toBeGreaterThan(0)
+    for (const b of pressable) fireEvent.press(b)
+    await advance(450)
+    expect(c.store.answerConsent).not.toHaveBeenCalled()
+    second.unmount()
+    // unmounting the overlay root gives the backdrop its rejection back (the main tree)
+    expect(resumeSignal.getSheetBackdropDismisses()).toBe(true)
+    first.unmount()
+  })
+
   it('renders nothing unless the owner is overlay', async () => {
     consent([entry])
     native.setHostLifecycle({ mainResumed: true, sheetResumed: false })

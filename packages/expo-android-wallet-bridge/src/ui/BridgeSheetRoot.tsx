@@ -15,7 +15,10 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ContextRelaySubscriber } from '@bsv/expo-wallet-toolbox/ui/bridgeSheet/ContextRelay'
 import PermissionSheet, { usePermissionSheetBusy } from '@bsv/expo-wallet-toolbox/ui/components/ui/PermissionSheet'
-import { signalSheetResumed } from '@bsv/expo-wallet-toolbox/ui/components/ui/sheetResumeSignal'
+import {
+  setSheetBackdropDismisses,
+  signalSheetResumed
+} from '@bsv/expo-wallet-toolbox/ui/components/ui/sheetResumeSignal'
 import { getBsvAndroidBridge, type BsvAndroidBridgeNative } from '../native'
 import { useSheetOwnerDeferred } from './sheetOwner'
 
@@ -59,6 +62,8 @@ function Pending(): React.ReactElement {
 function Mounted(): React.ReactElement {
   useEffect(() => {
     mounts += 1
+    // An outside tap or a swipe down does nothing in the overlay (spec 7.4); only the Reject button rejects.
+    setSheetBackdropDismisses(false)
     // Counts only, never a value (O13).
     console.log(`BsvBridgeSheet sheet-root mount n=${mounts}`)
     // A sheet that mounted after the Activity resumed missed `AppState`'s `active`: nudge its open position when the
@@ -67,7 +72,10 @@ function Mounted(): React.ReactElement {
       if (l.sheetResumed) signalSheetResumed()
     })
     if (nativeOf().hostLifecycle().sheetResumed) signalSheetResumed()
-    return () => sub.remove()
+    return () => {
+      sub.remove()
+      setSheetBackdropDismisses(true)
+    }
   }, [])
   return (
     <GestureHandlerRootView style={styles.fill}>

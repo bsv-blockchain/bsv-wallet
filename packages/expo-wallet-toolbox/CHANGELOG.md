@@ -23,6 +23,9 @@
 - **`Sheet` re-applies its open position on mount and on a host signal.** `signalSheetResumed()`
   (`ui/components/ui/sheetResumeSignal`) nudges every open `Sheet`, for a host window that resumes without an
   `AppState` change the sheet can see (the Android bridge's second root). The open spring also re-applies once it settles.
+- **`setSheetBackdropDismisses(false)`** (same module). `PermissionSheet` treats a backdrop tap or a swipe down as a
+  rejection; a host window where an outside tap must do nothing (the Android bridge's overlay root) turns that off while
+  it is mounted. The default is unchanged.
 
 - **`BridgeSnapshot.hostAttached`.** True once a host is attached and the runtime has loaded, false at start and
   after detach. Every change goes through `onSnapshotChange`, so a transport hears attach and detach even when
