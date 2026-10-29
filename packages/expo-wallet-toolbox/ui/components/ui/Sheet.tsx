@@ -15,6 +15,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
 import ScreenGradient from './ScreenGradient'
+import { onSheetResumed } from './sheetResumeSignal'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -84,6 +85,12 @@ const Sheet: React.FC<SheetProps> = ({
   // Track whether the sheet is visible for rendering children
   const [rendered, setRendered] = React.useState(false)
 
+  // Nudges the open position by half a point and back, which makes a stale paint of the sheet repaint.
+  const reapplyOpen = React.useCallback(() => {
+    translateY.value = 0.5
+    translateY.value = withTiming(0, { duration: 60 })
+  }, [translateY])
+
   // Open / close driven by `visible` prop. Only PLAY the enter animation on an
   // actual closed→open transition — not on every re-run of this effect. In
   // fitContent mode, sheetHeight tracks onLayout-measured content height, which
@@ -97,6 +104,7 @@ const Sheet: React.FC<SheetProps> = ({
       if (!wasVisibleRef.current) {
         translateY.value = sheetHeight
         translateY.value = withSpring(0, { mass: 1, stiffness: 280, damping: 32 }, finished => {
+          if (finished) runOnJS(reapplyOpen)()
           if (finished && onOpenComplete) runOnJS(onOpenComplete)()
         })
       }
@@ -115,11 +123,16 @@ const Sheet: React.FC<SheetProps> = ({
     if (!visible) return
     const sub = AppState.addEventListener('change', state => {
       if (state !== 'active') return
-      translateY.value = 0.5
-      translateY.value = withTiming(0, { duration: 60 })
+      reapplyOpen()
     })
-    return () => sub.remove()
-  }, [visible, translateY])
+    // The Android bridge's sheet Activity resumes without an `AppState` change the second root can see (the sheet
+    // mounts after `active`); it signals instead. The open spring above also re-applies once it settles on mount.
+    const unsignal = onSheetResumed(reapplyOpen)
+    return () => {
+      sub.remove()
+      unsignal()
+    }
+  }, [visible, reapplyOpen])
 
   // Lift the sheet above the software keyboard so bottom-anchored content
   // (PIN field, primary button) stays visible. Without this a number-pad — which

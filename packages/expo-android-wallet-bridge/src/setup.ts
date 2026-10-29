@@ -37,6 +37,8 @@ import { createLaunchRegistry } from './controller/launchRegistry'
 import { createSession, type Session } from './controller/session'
 import { createTokenOutbox } from './controller/tokenOutbox'
 import { createUnsettledGate } from './controller/unsettledGate'
+import { setSheetOwnerSource } from './ui/sheetOwner'
+import { registerSheetRoot } from './ui/registerSheetRoot'
 
 export const ANDROID_TRANSPORT_ID = 'android-loopback'
 export const LAUNCH_SCHEME = 'bsv-wallet-bridge'
@@ -206,6 +208,10 @@ export function setupAndroidBridge(o: SetupOptions): void {
   if (instance) return
   const bridge = createAndroidBridge({ ...o, native: getBsvAndroidBridge() })
   instance = bridge
+  // The second React root (the overlay sheet) is registered before this returns, so a cold start by the sheet Activity
+  // finds `BsvBridgeSheet` in the registry; the owner reads the native lifecycle tracker.
+  setSheetOwnerSource(bridge.native)
+  registerSheetRoot()
   registerSessionTeardown(['logout'], () => void bridge.reset().catch(() => {}))
 }
 

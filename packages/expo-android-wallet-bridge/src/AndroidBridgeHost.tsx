@@ -9,7 +9,8 @@
  * - asks native to go back to the browser 600 ms after the last pending item cleared (a Kotlin timer: React Native's JS
  *   timers pause while Chrome is in front). Native performs it only when the bridge raised the wallet (Task 13).
  *   Nothing is requested when nothing was ever pending;
- * - renders `AndroidBridgeNotices` and nothing else.
+ * - mounts `ContextRelayPublisher`, which copies the main tree's contexts to the overlay sheet's second React root;
+ * - renders `AndroidBridgeNotices` besides.
  *
  * The notification counts (`setSession`) are published by the session itself on every binding and waiting change, so
  * they follow the ledger without a second writer here.
@@ -17,6 +18,7 @@
 import React, { useEffect } from 'react'
 import { AppState } from 'react-native'
 import { getBridgeSnapshot, onSnapshotChange } from '@bsv/expo-wallet-toolbox/core/bridge/runtime'
+import { ContextRelayPublisher } from '@bsv/expo-wallet-toolbox/ui/bridgeSheet/ContextRelay'
 import { AndroidBridgeNotices } from './AndroidBridgeNotices'
 import { getAndroidBridge, type AndroidBridge } from './setup'
 
@@ -89,5 +91,10 @@ export function AndroidBridgeHost({ bridge: given }: AndroidBridgeHostProps): Re
     }
   }, [bridge])
 
-  return <AndroidBridgeNotices bridge={bridge} />
+  return (
+    <>
+      <ContextRelayPublisher />
+      <AndroidBridgeNotices bridge={bridge} />
+    </>
+  )
 }

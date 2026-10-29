@@ -20,6 +20,9 @@
   A theme change reaches the second root without remounting it. Language is the i18n singleton and is not relayed;
   safe-area insets are per native root and the second root mounts its own provider. A scan test fails when the
   sheet's import closure reads a context that is not listed.
+- **`Sheet` re-applies its open position on mount and on a host signal.** `signalSheetResumed()`
+  (`ui/components/ui/sheetResumeSignal`) nudges every open `Sheet`, for a host window that resumes without an
+  `AppState` change the sheet can see (the Android bridge's second root). The open spring also re-applies once it settles.
 
 - **`BridgeSnapshot.hostAttached`.** True once a host is attached and the runtime has loaded, false at start and
   after detach. Every change goes through `onSnapshotChange`, so a transport hears attach and detach even when

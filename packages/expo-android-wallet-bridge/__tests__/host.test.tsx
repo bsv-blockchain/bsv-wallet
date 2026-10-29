@@ -1,11 +1,19 @@
 jest.mock('expo-secure-store', () => require('../../expo-wallet-toolbox/__tests__/__mocks__/secureStoreFake').fake)
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+jest.mock(
+  'expo-local-authentication',
+  () => require('../../expo-wallet-toolbox/__tests__/__mocks__/localAuthFake').fake
+)
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+  initReactI18next: { type: '3rdParty', init: () => {} }
+}))
 
 import React from 'react'
 import { AppState } from 'react-native'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { attachBridgeHost } from '@bsv/expo-wallet-toolbox/core/bridge/runtime'
 import { AndroidBridgeHost, RETURN_HYSTERESIS_MS, RETURN_TIMER } from '../src/AndroidBridgeHost'
+import { ContextRelaySubscriber, resetContextRelay } from '@bsv/expo-wallet-toolbox/ui/bridgeSheet/ContextRelay'
 import { createHarness, type Harness } from './bridgeHarness'
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -49,6 +57,26 @@ async function consented(t: Harness, i = 1) {
 }
 
 describe('AndroidBridgeHost', () => {
+  it('mounts the context relay publisher, so a second root has values to render with', async () => {
+    const t = await mk()
+    resetContextRelay()
+    let sub: ReactTestRenderer | undefined
+    act(() => {
+      sub = create(
+        <ContextRelaySubscriber>
+          <></>
+        </ContextRelaySubscriber>
+      )
+    })
+    expect(sub!.toJSON()).toBeNull()
+    mount(t)
+    // Rendered children, not null: every relayed context was published once.
+    act(() => sub!.update(<ContextRelaySubscriber>{'ready'}</ContextRelaySubscriber>))
+    expect(sub!.toJSON()).toBe('ready')
+    act(() => sub!.unmount())
+    resetContextRelay()
+  })
+
   it('notification permission asked once at the first accepted launch and not again after denial', async () => {
     const t = await mk()
     t.native.notificationPermissionState = 'undetermined'

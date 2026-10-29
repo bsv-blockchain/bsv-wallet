@@ -1,7 +1,15 @@
 jest.mock('expo-secure-store', () => require('../../expo-wallet-toolbox/__tests__/__mocks__/secureStoreFake').fake)
+jest.mock(
+  'expo-local-authentication',
+  () => require('../../expo-wallet-toolbox/__tests__/__mocks__/localAuthFake').fake
+)
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+  initReactI18next: { type: '3rdParty', init: () => {} }
+}))
 jest.mock('../src/native', () => ({ getBsvAndroidBridge: () => (globalThis as any).__fakeAndroidNative }))
 
-import { Platform } from 'react-native'
+import { AppRegistry, Platform } from 'react-native'
 import { configureToolbox, resetToolboxConfig } from '@bsv/expo-wallet-toolbox/core/toolboxConfig'
 import { runSessionTeardown } from '@bsv/expo-wallet-toolbox/core/context/sessionTeardown'
 import {
@@ -9,6 +17,7 @@ import {
   getTransport,
   resetBridgeRuntimeForTests
 } from '@bsv/expo-wallet-toolbox/core/bridge/runtime'
+import { __resetSheetRootRegistrationForTests } from '../src/ui/registerSheetRoot'
 import { __resetAndroidBridgeForTests, getAndroidBridge, setupAndroidBridge } from '../src/setup'
 import { ANDROID_TRANSPORT_ID } from '../src'
 import { createFakeNative } from '../src/testing/fakeNative'
@@ -38,6 +47,23 @@ describe('setupAndroidBridge', () => {
     expect(getTransport(ANDROID_TRANSPORT_ID)).toMatchObject({ attestation: 'unattested', bindingMode: 'explicit' })
     expect(() => setupAndroidBridge({ appName: 'Test Wallet', vendor: 'org.test' })).not.toThrow()
     expect(getAndroidBridge()).toBe(first)
+  })
+
+  it('setupAndroidBridge registers the sheet root on android and not on ios, before it returns', () => {
+    const spy = jest.spyOn(AppRegistry, 'registerComponent').mockImplementation(() => 'x')
+    try {
+      __resetSheetRootRegistrationForTests()
+      setOS('ios')
+      ;(globalThis as any).__fakeAndroidNative = createFakeNative()
+      setupAndroidBridge({ appName: 'Test Wallet', vendor: 'org.test' })
+      expect(spy).not.toHaveBeenCalled()
+      setOS('android')
+      setupAndroidBridge({ appName: 'Test Wallet', vendor: 'org.test' })
+      expect(spy.mock.calls.map(c => c[0])).toEqual(['BsvBridgeSheet'])
+    } finally {
+      spy.mockRestore()
+      __resetSheetRootRegistrationForTests()
+    }
   })
 
   it('does nothing off Android and opens no port', () => {

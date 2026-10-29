@@ -11,7 +11,9 @@
     "@bsv/sdk": "*",
     "expo-modules-core": "*",
     "expo-secure-store": "*",
-    "react-native": "*"
+    "react-native": "*",
+    "react-native-gesture-handler": "*",
+    "react-native-safe-area-context": "*"
   },
   "files": [
     "android",

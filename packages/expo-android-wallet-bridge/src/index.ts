@@ -18,3 +18,8 @@ export { AndroidBridgeHost, RETURN_HYSTERESIS_MS, RETURN_TIMER } from './Android
 export type { AndroidBridgeHostProps } from './AndroidBridgeHost'
 export { AndroidBridgeNotices } from './AndroidBridgeNotices'
 export type { AndroidBridgeNoticesProps } from './AndroidBridgeNotices'
+
+export { sheetOwner, useSheetOwner, useSheetOwnerDeferred, setSheetOwnerSource, ownerOf } from './ui/sheetOwner'
+export type { SheetOwner, OwnerSource } from './ui/sheetOwner'
+export { AndroidBridgeSheetGate } from './ui/AndroidBridgeSheetGate'
+export { registerSheetRoot } from './ui/registerSheetRoot'
