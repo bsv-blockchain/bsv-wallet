@@ -422,7 +422,7 @@ Inputs the spec implies but its test list does not name, plus the cross-task ris
 
 ## Appendix A: Milestone 2 (overlay), gated
 
-Spec 6.0, 6.11, 7.4, S3, S4, S6. Not planned beyond the first task; the rest is planned only if S4 passes, and dropped if it fails. Whether the owner still wants M2 is open question 1 (spec 14).
+Spec 6.0, 6.11, 7.4, S3, S4, S6. S4 is done (conditional pass on the emulator, `SPIKES.md`; the plain delegate is replaced by a guarded one) and the owner approved M2 (spec 14 question 1). Milestone 2 is planned in `docs/superpowers/plans/2026-10-29-browser-bridge-android-m2.md`, which starts with spikes S3 and S6 and the emulator part of S4b. Task A1 below stays as the record of the S4 spike.
 
 ### Task A1: Spike S4, the "hello" sheet on a second React root (hard gate)
 
