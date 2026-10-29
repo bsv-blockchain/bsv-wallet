@@ -49,6 +49,12 @@ export function createAttention(deps: {
   >
   owner: () => SheetOwner
   clock?: () => number
+  /**
+   * True when the binding has nothing in flight or parked. The core tells every live binding of an originator about a
+   * prompt, including one whose page reloaded; only the binding that holds the request clears itself, so a clear also
+   * drops the idle ones (otherwise the count never returns to zero and the way back to the browser never runs).
+   */
+  isIdle?: (epoch: string) => boolean
 }): Attention {
   const { native } = deps
   const clock = deps.clock ?? Date.now
@@ -162,7 +168,13 @@ export function createAttention(deps: {
       launchedAt = clock()
     },
     clear(epoch) {
-      if (!waiting.delete(epoch)) return
+      let dropped = waiting.delete(epoch)
+      if (deps.isIdle) {
+        for (const e of Array.from(waiting)) {
+          if (deps.isIdle(e) && waiting.delete(e)) dropped = true
+        }
+      }
+      if (!dropped) return
       changed()
       if (waiting.size === 0) {
         lastPendingReason = undefined

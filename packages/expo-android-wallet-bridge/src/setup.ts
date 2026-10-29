@@ -135,7 +135,12 @@ export function createAndroidBridge(deps: AndroidBridgeDeps): AndroidBridge {
     notices
   })
   const owner = deps.owner ?? (() => ownerFromNative(native))
-  const attention = createAttention({ native, clock, owner })
+  const attention = createAttention({
+    native,
+    clock,
+    owner,
+    isIdle: epoch => ledger.idleSince(epoch) !== undefined
+  })
   attention.onWaitingChange(n => session.setWaiting(n))
 
   const router = createLoopbackRouter({

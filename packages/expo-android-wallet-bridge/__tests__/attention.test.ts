@@ -213,3 +213,49 @@ describe('attention', () => {
     expect(t.posts()).toEqual([])
   })
 })
+
+describe('attention: bindings that went idle without being cleared', () => {
+  // The core tells every live binding of the originator when a prompt is raised, including one whose page has since
+  // reloaded (a zombie with nothing in flight). Only the binding with the request clears itself, so the zombie's entry
+  // used to hold the waiting count above zero and stop the way back to the browser (found by overlay case O2).
+  const withLedger = (idle: Set<string>) => {
+    const native = createFakeNative()
+    native.setHostLifecycle({ registered: true, mainAlive: true })
+    const attention = createAttention({
+      native,
+      clock: () => native.elapsedRealtime(),
+      owner: () => ownerFromNative(native),
+      isIdle: epoch => idle.has(epoch)
+    })
+    return { native, attention }
+  }
+
+  it('clearing the live binding also drops an idle one still counted', () => {
+    const idle = new Set(['zombie'])
+    const t = withLedger(idle)
+    const counts: number[] = []
+    t.attention.onWaitingChange(n => counts.push(n))
+    t.attention.onPromptRaised(binding('zombie'))
+    t.attention.onPromptRaised(binding('live'))
+    expect(t.attention.waitingCount()).toBe(2)
+    t.attention.clear('live')
+    expect(t.attention.waitingCount()).toBe(0)
+    expect(counts).toEqual([1, 2, 0])
+  })
+
+  it('a binding with something in flight stays counted when another clears', () => {
+    const t = withLedger(new Set())
+    t.attention.onPromptRaised(binding('a'))
+    t.attention.onPromptRaised(binding('b'))
+    t.attention.clear('a')
+    expect(t.attention.waitingCount()).toBe(1)
+  })
+
+  it('without a ledger the behaviour is unchanged', () => {
+    const t = make()
+    t.attention.onPromptRaised(binding('a'))
+    t.attention.onPromptRaised(binding('b'))
+    t.attention.clear('a')
+    expect(t.attention.waitingCount()).toBe(1)
+  })
+})
