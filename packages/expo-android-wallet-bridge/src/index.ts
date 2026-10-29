@@ -10,4 +10,5 @@ export type {
 } from './native'
 export { createSecureStoreContinuity, deriveContextIdentity } from './continuity/secureStoreContinuity'
 
-export const ANDROID_TRANSPORT_ID = 'android-loopback'
+export { setupAndroidBridge, resetAndroidBridge, getAndroidBridge, ANDROID_TRANSPORT_ID } from './setup'
+export type { SetupOptions } from './setup'

@@ -94,3 +94,20 @@ Result: **PASS**. Plugin: `app.plugin.js` -> `plugin/{index,validate,manifest}.j
   - `dumpsys package` shows one `bsv-wallet-bridge` filter on the trampoline (`VIEW`, `DEFAULT`, `BROWSABLE`, authority `launch`) and no other component under that scheme.
   - `am start -W` with the shape-valid but otherwise empty URI `bsv-wallet-bridge://launch?v=1`: `Status: ok`, no FATAL or AndroidRuntime in `logcat -d`, `Theme.NoDisplay` resolves (the task was `isTopActivityNoDisplay=true`). Note: `LaunchIntent.validate` checks shape only (scheme, host `launch`, 512 B), so this URI is stored as an unprovable record and the trampoline raises the app (the dev launcher came forward, the cold start took 2.3 s); JS burns the record later (Task 16). Only a URI failing the shape check is dropped without raising the app.
 - The scratch HW wiring (`app.config.js`, `package.json`, `metro.config.js`, `android/`, linked `node_modules/@bsv`) stays uncommitted; build outputs in `HW/android/app/build` are kept for Task 22.
+
+## Task 17 decisions (controller, setup entry)
+
+- **`allowLocalhostHttp` is not forwarded with `configureToolbox`.** The plan asked `setupAndroidBridge` to call
+  `configureToolbox({ browserBridge: { allowLocalhostHttp } })`. `configureToolbox` replaces the host's whole toolbox
+  configuration and throws without a `backupUrl` (toolboxConfig.ts), and the host already states the flag in its own call
+  (`app/_layout.tsx`, `browserBridge: { allowLocalhostHttp: __DEV__ }`). The kit therefore never calls it. The router env asks
+  `getBrowserBridgeConfig().allowLocalhostHttp === true && __DEV__` at request time, the same expression the core registry uses,
+  so both agree; the `setupAndroidBridge` option can only switch the feature off (`false`). Tests: `setup.test.ts`.
+- **Settle signals.** Approval settles through `deliverReconnectToken` (owner only); the reconnect-token path flips `consented`
+  without calling the transport, so the controller also checks `registry.live()` after every response and on
+  `onConnectedSitesChange`.
+- **Snapshot wiring lives in the controller.** The controller subscribes `onSnapshotChange` and forwards `hostAttached` and
+  readiness to the session (cold-start parking depends on it). Task 18's `AndroidBridgeHost` must not repeat that subscription;
+  `session.onHostAttached` is idempotent in any case.
+- **wallet-not-ready freshness.** "Right after a launch" is 20 s (`LAUNCH_FRESH_MS`) from the last accepted launch; nothing is
+  posted inside it, a notification afterwards.

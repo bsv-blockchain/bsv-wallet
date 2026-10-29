@@ -10,7 +10,8 @@
     "@bsv/expo-wallet-toolbox": "*",
     "@bsv/sdk": "*",
     "expo-modules-core": "*",
-    "expo-secure-store": "*"
+    "expo-secure-store": "*",
+    "react-native": "*"
   },
   "files": [
     "android",
