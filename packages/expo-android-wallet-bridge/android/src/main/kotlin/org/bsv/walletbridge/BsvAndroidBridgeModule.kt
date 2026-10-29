@@ -12,6 +12,15 @@ import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.records.Field
+import expo.modules.kotlin.records.Record
+
+/** The single object argument of `startServer` (spec 6.2): `{ basePort, maxOffset }`. */
+class StartServerOptions : Record {
+  @Field var basePort: Int = 0
+
+  @Field var maxOffset: Int = 0
+}
 
 class PortsExhaustedException(m: String) : CodedException("ERR_PORTS_EXHAUSTED", m, null)
 
@@ -51,9 +60,9 @@ class BsvAndroidBridgeModule : Module() {
 
     OnActivityDestroys { BridgeState.raisedByBridge = false }
 
-    AsyncFunction("startServer") { basePort: Int, maxOffset: Int ->
+    AsyncFunction("startServer") { o: StartServerOptions ->
       try {
-        val b = BridgeState.startServer(basePort, maxOffset)
+        val b = BridgeState.startServer(o.basePort, o.maxOffset)
         mapOf("port" to b.port, "ipv4" to true, "ipv6" to (b.v6 != null))
       } catch (e: PortsExhausted) {
         throw PortsExhaustedException(e.message ?: "no free port")

@@ -253,3 +253,48 @@ const PIN_B = {
   seed: 'a8161504d874e32073b7e3010117434f19c2910a6de2b270e9edb33fc41299ee',
   key: '4ygg7mgN2XwX4O1cicJTS0xGH3fg5QrMHnhC4lKoQzo'
 }
+
+describe('secureStoreContinuity write failures and revocation', () => {
+  it('a rejected first write fails getOrCreate, keeps nothing in memory, and a retry writes and succeeds', async () => {
+    const { store, secureStore } = make()
+    const real = secureStore.setItemAsync.bind(secureStore)
+    let fail = true
+    secureStore.setItemAsync = async (k: string, v: string, o?: any) => {
+      if (fail) {
+        fail = false
+        throw new Error('keystore locked')
+      }
+      return real(k, v, o)
+    }
+    await expect(store.getOrCreate('android:https://a.example')).rejects.toThrow('keystore locked')
+    expect(secureStore.data.size).toBe(0)
+    const h = await store.getOrCreate('android:https://a.example')
+    expect(h.continuityKey).toBeTruthy()
+    expect(secureStore.data.size).toBe(1)
+  })
+
+  it('a rejected reset write leaves identity unchanged', async () => {
+    const { store, secureStore } = make()
+    const ctx = 'android:https://a.example'
+    const before = (await store.getOrCreate(ctx)).continuityKey
+    const real = secureStore.setItemAsync.bind(secureStore)
+    secureStore.setItemAsync = async () => {
+      throw new Error('keystore locked')
+    }
+    await expect(store.reset(ctx)).rejects.toThrow('keystore locked')
+    await expect(store.reset('all')).rejects.toThrow('keystore locked')
+    secureStore.setItemAsync = real
+    expect((await store.getOrCreate(ctx)).continuityKey).toBe(before)
+  })
+
+  it('a handle evicted from the cache cannot sign after reset', async () => {
+    const { store } = make()
+    const first = await store.getOrCreate('android:https://o0.example')
+    for (let i = 1; i <= 33; i++) await store.getOrCreate(`android:https://o${i}.example`)
+    await store.reset('android:https://o0.example')
+    await expect(first.sign(describePreimage())).rejects.toThrow('reset')
+    const other = await store.getOrCreate('android:https://o5.example')
+    await store.reset('all')
+    await expect(other.sign(describePreimage())).rejects.toThrow('reset')
+  })
+})

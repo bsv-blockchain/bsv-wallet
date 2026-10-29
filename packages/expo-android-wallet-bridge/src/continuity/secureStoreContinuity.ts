@@ -85,6 +85,8 @@ interface Persisted {
 interface Entry {
   handle: ContinuityHandle
   seed: Uint8Array
+  gen: number
+  epoch: number
 }
 
 export function createSecureStoreContinuity(
@@ -96,6 +98,8 @@ export function createSecureStoreContinuity(
 
   let master: Uint8Array | undefined
   let gens: Record<string, number> = {}
+  // Bumped by reset('all'); with the per-origin gen it lets `sign` refuse a handle evicted from the cache before a reset.
+  let epoch = 0
   const cache = new Map<string, Entry>()
   let testSeed: Uint8Array | undefined
 
@@ -107,10 +111,11 @@ export function createSecureStoreContinuity(
     return run
   }
 
-  const persist = () =>
+  // Memory is committed only after this resolves, so a failed write never leaves memory ahead of disk.
+  const persist = (m: Uint8Array, g: Record<string, number>) =>
     secureStore.setItemAsync(
       CONTINUITY_STORAGE_KEY,
-      JSON.stringify({ master: b64uEncode(master!), gen: gens } satisfies Persisted),
+      JSON.stringify({ master: b64uEncode(m), gen: g } satisfies Persisted),
       storeOptions
     )
 
@@ -130,9 +135,15 @@ export function createSecureStoreContinuity(
         // Unreadable record: fall through and mint a new master (a new provider identity for every origin).
       }
     }
-    master = random(32)
+    const fresh = random(32)
+    try {
+      await persist(fresh, {})
+    } catch (e) {
+      fresh.fill(0)
+      throw e
+    }
+    master = fresh
     gens = {}
-    await persist()
   }
 
   const wipeCache = () => {
@@ -141,11 +152,15 @@ export function createSecureStoreContinuity(
   }
 
   const makeEntry = (ctx: string): Entry => {
-    const d = deriveContextIdentity(master!, ctx, gens[ctx] ?? 0)
+    const gen = gens[ctx] ?? 0
+    const entryEpoch = epoch
+    const d = deriveContextIdentity(master!, ctx, gen)
     const seed = testSeed ? testSeed.slice() : d.seed
     const continuityKey = testSeed ? b64uEncode(ed25519.getPublicKey(seed)) : d.continuityKey
     const entry: Entry = {
       seed,
+      gen,
+      epoch: entryEpoch,
       handle: {
         instanceId: d.instanceId,
         continuityKey,
@@ -155,7 +170,8 @@ export function createSecureStoreContinuity(
               throw new Error('continuity key signs only BRC-185 descriptor and connect preimages')
             }
             if (deps.signGate) await deps.signGate()
-            if (seed.every(b => b === 0)) throw new Error('continuity identity was reset')
+            if (entryEpoch !== epoch || gen !== (gens[ctx] ?? 0) || seed.every(b => b === 0))
+              throw new Error('continuity identity was reset')
             return ed25519.sign(preimage, seed)
           })
       }
@@ -183,19 +199,28 @@ export function createSecureStoreContinuity(
       await serial(async () => {
         await ensureLoaded()
         if (ctx === 'all') {
+          const fresh = random(32)
+          try {
+            await persist(fresh, {})
+          } catch (e) {
+            fresh.fill(0)
+            throw e
+          }
           master!.fill(0)
-          master = random(32)
+          master = fresh
           gens = {}
+          epoch++
           wipeCache()
         } else {
-          gens[ctx] = (gens[ctx] ?? 0) + 1
+          const next = { ...gens, [ctx]: (gens[ctx] ?? 0) + 1 }
+          await persist(master!, next)
+          gens = next
           const hit = cache.get(ctx)
           if (hit) {
             hit.seed.fill(0)
             cache.delete(ctx)
           }
         }
-        await persist()
       })
       deps.onReset?.(ctx)
     },
