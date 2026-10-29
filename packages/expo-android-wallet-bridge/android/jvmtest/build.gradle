@@ -14,7 +14,9 @@ ext.pureFiles = [
   'org/bsv/walletbridge/PortAllocator.kt',
   'org/bsv/walletbridge/LaunchIntent.kt',
   'org/bsv/walletbridge/LaunchStore.kt',
-  'org/bsv/walletbridge/NotificationSpec.kt'
+  'org/bsv/walletbridge/NotificationSpec.kt',
+  'org/bsv/walletbridge/LoopbackServer.kt',
+  'org/bsv/walletbridge/Timers.kt'
 ]
 
 sourceSets {
