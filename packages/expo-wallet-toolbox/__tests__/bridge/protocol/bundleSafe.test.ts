@@ -27,7 +27,14 @@ function resolveRelative(from: string, spec: string): string {
 }
 
 function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+  return (
+    src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1')
+      // `import type` is erased by the compiler: it adds nothing to a bundle (the loopback router's port types
+      // name runtime types this way).
+      .replace(/(^|\n)\s*import\s+type\s[^'"]*?from\s*['"][^'"]+['"]/g, '$1')
+  )
 }
 
 function walk(entry: string): { files: string[]; problems: string[] } {
