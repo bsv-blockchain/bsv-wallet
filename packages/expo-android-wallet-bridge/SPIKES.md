@@ -228,3 +228,59 @@ HW commit 810480b `feat(android-bridge): adopt the Android bridge kit` (branch `
 - `setupAndroidBridge` is placed before the startup prewarm in `index.js` (not just before `expo-router/entry`), so the transport exists before any wallet build can start.
 - `withIconAliasLinks.js` fixture is identical to the host file; no refresh needed.
 - Not committed: the kit dependency line in `package.json` (release), and the metro.config.js worktree hunk (saved in the scratchpad as task22-scratch.diff; reapply for Task 24 Metro runs).
+
+## Task 24: emulator end-to-end
+
+Run: `scripts/e2e/run.mjs`, one clean full run on Pixel_9 (android-36 google_apis_playstore arm64), Chrome 155.0.8059.79, host debug build from `HW` commit 810480b (dev client, Metro on 8082), page origin **`http://localhost:3001`** (the iOS demo holds 3000 and its ngrok tunnel; the plan's `localhost:3000` becomes `localhost:3001` everywhere), `adb reverse tcp:3001 tcp:3001`, `node demo/serve.mjs 3001`. Evidence: `docs/superpowers/evidence/android-kit/` (`results.json`, one or two screenshots per case, `06-conformance.json`, `14-logcat-check.txt`, `15-attention-notification.txt`).
+
+Preconditions and how to repeat: emulator up and authorized; the host debug APK installed; in `HW` the scratch edits `app.config.js` (Safari plugin entry removed: `@bacons/apple-targets` is not installed there) and `metro.config.js` (anchored worktree block-list regex, `task22-scratch.diff` hunk) applied working-tree-only and reverted afterwards; Metro on 8082; `NODE_PATH=<safari-bridge worktree>/node_modules` (esbuild for the demo build and for case 11's squatter bundle); then `node packages/expo-android-wallet-bridge/scripts/e2e/run.mjs [--only 1,4] [--keep-chrome]`. A full run clears the evidence directory and the logcat buffer first. HW node_modules: the per-entry symlinks plus `link-kit.sh` (no `npm ci` needed; symlinks did not break the native build).
+
+### Results (clean run, 17 of 17 pass)
+
+| # | Case | Result | Observed |
+| --- | --- | --- | --- |
+| 1 | cold launch from Chrome, process dead | pass | trampoline, wallet forward, Connect sheet shows `http://localhost:3001` with the Unverified badge, Connect, page connected (`01-*.png`) |
+| 2 | `getVersion`, `isAuthenticated` | pass | `{"version":"bsv-wallet-bridge-1"}`, `{"authenticated":true}` |
+| 3 | `getPublicKey`; request held open across a sheet | pass | key returned; `createAction` is answered by the wallet itself (`WERR_INSUFFICIENT_FUNDS`, unfunded test wallet, no sheet); the held-open request is the conformance card `conformanceCreateSignature`: attention notification, sheet, Approve, card passes |
+| 4 | Don't connect | pass | `USER_CANCELLED (delivery not-sent): The connection was declined`; an immediate retry gets `RESOURCE_LIMIT ... This site was just declined`, nothing granted |
+| 5 | warm launch, silent reconnect | pass | process alive, token presented, `getPublicKey` answered with no Connect sheet |
+| 6 | conformance, Run all safe | pass (run completes) | 41 cards: 20 pass, 10 fail, 11 not run (spending cards keep their own Run button); 73 sheets approved. Failing cards, all recorded in `06-conformance.json`, see below |
+| 7 | kill the app (`kill -9`) | pass | pending call: `CONNECTION_CLOSED (delivery unknown): The wallet did not answer`; a new launch recovers (token reconnect) |
+| 8 | MainActivity destroyed, service alive | pass | via Back (see substitutions): activity records 0, process alive, `BridgeService` gone with the binding, page gets `CONNECTION_CLOSED`, new launch reconnects |
+| 9 | 3321 and 3322 held on both families | pass | wallet bound 127.0.0.1 and ::1 on 3323, page found it |
+| 10 | `::1:3321` held alone | pass | `toybox nc` binds ::1; wallet moved to 3322 on both families |
+| 11 | squatter on 3321 with the real name | pass | host squatter (signed descriptor under its own key, real name and vendor, no `k`) behind `adb reverse tcp:3321`: page logs `UNAUTHENTICATED`, finds the real wallet on a higher port; the squatter saw only describe GETs and no secret header |
+| 12 | notifications revoked | pass | `bridge_notifications_off` shown with a request pending, no attention notification posted, the sheet is offered when the wallet is opened, Approve completes it |
+| 13 | Incognito | pass | Incognito tab opened from Chrome's menu (new-tab page "You've gone Incognito", then `localhost:3001` loaded), the Open wallet button tapped for real: 0 trampoline starts, wallet did not come forward; control with the same tap in a normal tab: 1 trampoline start. Matches S2 |
+| 14 | plaintext check | pass | logcat from the start of the run (69,691 lines, 7 epochs launched): no `k=<43>`, no `n=<22>`, no launched epoch or `e=<uuid>`, no reconnect token or binding header anywhere, system lines included |
+| 15 | later-prompt attention | pass | `bridge-attention` notification, text "A website wants to continue. Tap to review.", `vis=PRIVATE` with a public version, no origin anywhere in the record; the tap shows the sheet (`bridge-approve`) |
+| 16 | return to browser | pass | wallet raised by the trampoline: Chrome is the top resumed activity 1.4 s after the tap on the last Approve. Control: raised by the attention notification, the wallet stays in front (by design: `returnToBrowser` only when the bridge raised it) |
+| 17 | Disconnect action | pass | page's next call `CONNECTION_CLOSED (delivery unknown)`, `BridgeService` no longer listed |
+
+Case 6 failing cards (the wallet's own answers, forwarded intact; none is a bridge defect):
+- `getVersion`: the P1 core's static answer `bsv-wallet-bridge-1` (`DEFAULT_BASE_VERSION`, `core/bridge/runtime.ts`) fails the fast.brc.dev card's "vendor-major.minor.patch within 7-30 bytes". The same string is what the iOS kit answers. **Finding F2 for the owner:** either the card or the default base should change; the host can override the base through the provider.
+- `createAction`, `signAction`, `abortAction`: code 7, insufficient funds (unfunded test wallet); `proveCertificate`: needs `acquireCertificate`, which is a spending-class card not in Run all safe.
+- `discoverByAttributes`: `timeout`, "no progress for 120 s (wallet not answering?)"; recorded as failed, the run continues with the next card. Not investigated further (the same card passed in an earlier partial run).
+- Crypto matrix 12 of 24, Key-linkage matrix 10 of 20: every failing branch is `privileged-true` (error code 6, the wallet's own refusal of privileged keys); `listActions/options-61` and `listOutputs/options-49` fail with code 6 and the card skips the rest of its matrix (65 and 53 cases) by its own design.
+
+### Substitutions and deviations
+
+- **Origin** `localhost:3001` instead of 3000 (see above); the ngrok https path is a device gate (b) again.
+- **Where the Connect sheet appears.** `connect` itself creates an unsettled binding and answers without any sheet. The Connect sheet (title "wants to connect to your wallet", Don't connect / Connect, ids `bridge-deny` / `bridge-approve`) is raised by the first interactive request of a token-less binding (core spec: the token-less binding's first interactive request raises the sheet). The driver therefore sends `getPublicKey` after `connect` and the page "shows connected" once that answers. `getVersion` and `isAuthenticated` never raise it.
+- **Requests that need the user (cases 3, 12, 15, 16):** the unfunded test wallet answers `createAction` with an error before any sheet, so a pending request is the conformance card `conformanceCreateSignature` (protocol sheet), started from the connected page.
+- **Case 8:** the "Don't keep activities" setting does not destroy the activity on Android 16 (S5); Back from the wallet destroys MainActivity with the process and service alive, the same state spec 7.1 describes.
+- **Case 11:** the squatter is a real HTTP server on the host (`scripts/e2e/squatter.entry.ts`, bundled with esbuild at run time) reached through `adb reverse tcp:3321 tcp:3321`, not a `toybox nc` echo.
+- **Case 13:** Chrome ignores the incognito intent extra on external intents and DevTools lists no Incognito target, so it is driven from Chrome's menu with real taps and a normal-tab control (above).
+- **Animations.** uiautomator cannot reach an idle state while Home loops its tour art (`could not get idle state`), so every UI read runs with animation scales at 0 and restores 1 afterwards (`withUi`); case 6 keeps them at 0 for its whole run. The Connect and protocol sheets were observed at scale 1 in cases 1, 3 and 15 (the screenshots are taken at scale 1 except in case 6).
+- **Return-to-browser timing (case 16):** the plan says "wait 1 s"; the grant has a 400 ms delay and the answer takes a moment, so the case polls and records the latency (1.4 s).
+- The commit trailer follows the executing harness's attribution (`Claude Sonnet 5.5`) instead of the task text's `Claude Opus 5.5`.
+
+### Findings
+
+- **F1 (toolbox UI, not fixed): an Approve is parked if the user leaves the wallet within the grant delay.** `PermissionSheet.handleGrant` runs `executeGrant` from a JS `setTimeout(…, 400)`; JS timers pause while the activity is paused (S5b). Approve then switching to Chrome at once leaves the request unanswered ("1 request waiting") and the page's call stays open until the wallet is brought to the front again, when it completes (reproduced: status `running` for 20 s in Chrome, `pass` 3 s after fronting the wallet). Normal use is unaffected (the wallet returns to the browser by itself after the answer), but a user who presses Home right after Approve sees the page stall. Fix candidates: run `executeGrant` without the timer when the app state is not `active`, or use a Kotlin timer. The harness avoids it (it never fronts Chrome right after an Approve).
+- **F3 (observation):** after `kill -9` of the wallet process, the first Open wallet from the page reported `ABSENT: no wallet answered in the scan window` once (attempt 1 of case 7 in the final run; the log line is in the run output); the retry (a new click) succeeded. Cold launches from a clean `force-stop` (cases 1, 4, 8, 9 to 11) never needed a retry. Cause not isolated (system restart delay after a crash is the likely one).
+- **F4 (S2 re-observed):** the system's own `ActivityTaskManager START` line did not carry the key in this run (case 14 found no `k=` anywhere).
+
+### Device gates (unchanged, non-blocking)
+
+ngrok/https path and the Chrome permission dialog for a non-exempt origin (S1b); OEM background-start and battery behaviour (Samsung, Xiaomi, Pixel Doze) and the real-phone passes; Play Console `specialUse` declaration; maestro for the host flows (`brew install maestro` needs owner approval, the uiautomator sequence is used); Incognito on a real phone (re-observed on the emulator only).
