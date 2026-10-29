@@ -1,4 +1,4 @@
-// Hold loopback ports on the device (squatters) with `toybox nc -l` listeners, for the port-window cases.
+// Hold loopback ports on the device (squatters) with `toybox nc -L` listeners (persistent: a one-shot `-l` holder is consumed by the page's first probe), for the port-window cases.
 import { spawn } from 'node:child_process'
 import { ADB, adbArgs, shell } from './adb.mjs'
 
@@ -15,7 +15,7 @@ export async function hold(ports, family = 'both') {
   const results = []
   for (const port of ports) {
     for (const addr of addrs) {
-      const child = spawn(ADB, adbArgs(['shell', `toybox nc -l -s ${addr} -p ${port}`]), { stdio: 'ignore' })
+      const child = spawn(ADB, adbArgs(['shell', `toybox nc -L -s ${addr} -p ${port} cat`]), { stdio: 'ignore' })
       let dead = false
       child.on('exit', () => {
         dead = true
@@ -33,5 +33,5 @@ export async function hold(ports, family = 'both') {
 /** Stop every holder, on the host and on the device. */
 export async function release() {
   for (const c of holders.splice(0)) c.kill()
-  await shell('pkill -f "toybox nc -l" || pkill nc || true').catch(() => {})
+  await shell('pkill -f "toybox nc -L" || pkill nc || true').catch(() => {})
 }

@@ -72,18 +72,26 @@ export async function clickGesture(page, selector) {
 }
 
 /**
- * Grant the loopback permission for `origin`. Tries the CDP names in order (`loopback-network`, then
- * `local-network-access`); if neither is accepted, taps the Chrome permission dialog through uiautomator.
+ * Grant the loopback permission for `origin`. Tries the CDP names in order (`loopbackNetwork`, then
+ * `localNetworkAccess`); if neither is accepted, taps the Chrome permission dialog through uiautomator.
  * Resolves with how it was granted: 'cdp:<name>' | 'dialog' | 'none'.
  */
 export async function grantLoopback(browser, origin, { dialogTimeoutMs = 4000 } = {}) {
-  for (const name of ['loopback-network', 'local-network-access']) {
-    try {
-      await browser.browserContexts()[0].overridePermissions(origin, [name])
-      return `cdp:${name}`
-    } catch {
-      // not a known permission name in this Chrome: try the next
+  // Chrome 155's CDP names are camelCase (`loopbackNetwork`, `localNetworkAccess`); the kebab-case names are the
+  // Permissions API names and `Browser.grantPermissions` refuses them ("Unknown permission type").
+  // puppeteer's overridePermissions only knows its own list, so the call goes straight to the browser session.
+  const session = await browser.target().createCDPSession()
+  try {
+    for (const name of ['loopbackNetwork', 'localNetworkAccess']) {
+      try {
+        await session.send('Browser.grantPermissions', { origin, permissions: [name] })
+        return `cdp:${name}`
+      } catch {
+        // not a known permission name in this Chrome: try the next
+      }
     }
+  } finally {
+    await session.detach().catch(() => {})
   }
   try {
     const n = await waitForNode(nodes => findByText(nodes, 'Allow'), {
