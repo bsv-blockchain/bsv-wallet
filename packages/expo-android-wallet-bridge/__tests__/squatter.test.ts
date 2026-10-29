@@ -24,6 +24,24 @@ async function setup(over: Parameters<typeof createWorld>[0] = {}) {
 }
 
 describe('squatter and relay fixtures (blocker-level)', () => {
+  it('a wallet that answers without an ack at first and authenticates later is not also reported rejected', async () => {
+    const { w: world, wallet } = await setup()
+    const early = await createSquatter('127.0.0.1:3322')
+    let first = true
+    world.http.mount('127.0.0.1:3322', req => {
+      if (first) {
+        first = false
+        return early.handler(req)
+      }
+      return wallet.handler(req)
+    })
+    const client = world.client()
+    client.launch()
+    const { providers, rejected } = await client.discover()
+    expect(providers).toHaveLength(1)
+    expect(rejected).toEqual([])
+  })
+
   it('squatter on 3321 with the real name, icon and vendor and no k: refused unauthenticated, not pinned, receives no epoch, launch proof or token (fixture records every byte and the test asserts none appears), real wallet on 3322 is connected', async () => {
     const { w: world } = await setup()
     const squatter = await createSquatter('127.0.0.1:3321')

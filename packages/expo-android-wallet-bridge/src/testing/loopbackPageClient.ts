@@ -352,6 +352,8 @@ export function createLoopbackPageClient(win: LoopbackWindow, opts: LoopbackOpti
     done = true
     stop.abort()
 
+    // A host that failed an early probe and then authenticated is the wallet, not a rejected provider.
+    if (found) seen.delete(found.host)
     for (const reason of seen.values()) reject(reason)
     if (!found) {
       reject('wallet did not open')
