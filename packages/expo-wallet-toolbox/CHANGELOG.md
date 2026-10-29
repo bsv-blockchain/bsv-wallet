@@ -19,6 +19,10 @@
   readiness stays `none` (a cold start with no wallet).
 - **`assertAdvertisesResponder(descriptor, responder)`** (protocol/descriptor): throws `ProofError` unless a
   `http-json` endpoint of the descriptor has the same scheme, host and port as the responder that answered.
+- **Loopback HTTP router** (`core/bridge/loopback/`): the pure BRC-185 4.1 HTTP semantics for a native loopback
+  transport. Router (describe, connect, RPC, disconnect, outcome mapping), Host check, endpoint list, CORS, status table
+  and the launch proof MACs (hello, describe ack, launch, ack, binding) with their JCS payloads. Platform code supplies
+  requests and receives responses; nothing here opens a socket.
 - **Testing helpers** (`core/bridge/testing`): the `PageClient` contract types and the transport-independent
   conformance cases (all 28 methods, error codec, request and response caps) a transport runs against its executor.
 - **Stable test ids on the connection and permission sheet.** `bridge-connect-origin` (the full origin),

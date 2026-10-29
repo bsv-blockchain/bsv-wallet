@@ -12,12 +12,14 @@ No fallback in effect: Tasks 9 to 12 use `android/jvmtest` with the same recipe.
 ## Baseline
 
 WT (bsv-wallet worktree `browser-bridge-android`), after merging `feat/browser-bridge-ios` (117024ba, clean merge, no conflicts, no hand resolution):
+
 - `npx tsc --noEmit -p .` from WT: **0 errors** (TSC baseline = 0).
 - Toolbox bridge jest (`packages/expo-wallet-toolbox/__tests__/bridge`): **24 suites, 546 tests passed** (before s0Registration; with it 25 suites, 552 tests).
 - WT `node_modules`: per-entry symlinks to `/Users/personal/git/bsv-wallet/node_modules` plus `@bsv/expo-wallet-toolbox` and `@bsv/expo-android-wallet-bridge` links into `packages/` (the latter dangles until Task 13 adds the package files it needs; `package.json` exists now).
 - Emulator: `adb devices` -> `emulator-5554 device` (authorized). Chrome (com.android.chrome) versionName **155.0.8059.79** (>= 142, so `chromeAtLeast(142)` is true; the real loopback-permission path is testable). A second `versionName=133.0.6943.137` line in `dumpsys package com.android.chrome` is the hidden preinstalled system stub (/product/app/Chrome-Stub); the active updated package is 155.
 
 HW (bitcoin-sv-wallet worktree `.claude/worktrees/android-bridge`, branch `feat/android-wallet-bridge`, created off `feat/safari-wallet-bridge` at e00f5fa):
+
 - `node_modules`: per-entry symlinks to the main checkout's `node_modules`, then `packages/expo-safari-wallet-bridge/scripts/link-kit.sh <HW>` (unpacks the WT toolbox and the iOS kit as real directories, replacing the symlinks only in HW; the main checkout was not touched). Symlinks did not break jest or tsc. Native builds not yet attempted (Task 13/22).
 - `HTSC` baseline: **15 errors** after link-kit (11 without link-kit, when `@bsv/expo-wallet-toolbox` resolved to the old published copy). All 15 are unrelated to the bridge: they come from the host branch expecting a newer toolbox than WT's master base (handle purchase registry `StorePurchase`/`purchase`, `keyArt` prop on EnrollWizard, `hideLogout`/`title` props on the developer screen). Files: `__tests__/handleChange.test.ts` (3), `__tests__/handlePurchaseRegistry.test.ts` (4), `app/_layout.tsx` (1), `app/developer.tsx` (1), `app/vault/keys.tsx` (1), `app/vault/manage.tsx` (1), `app/vault/setup.tsx` (1), `src/handles/claim.ts` (3). Later tasks must not add to this count.
 - `HJ` baseline (`npx jest --ci`, run with the metro scratch hunk below applied): **4 suites failed, 13 tests failed, 181 passed, 1 skipped (195)**. Failing suites: `design.test.ts` (2: BalancedText copy and Nunito type ramp, toolbox drift), `handleChange.test.ts` and `handlePurchaseRegistry.test.ts` (purchase fields, toolbox drift), `isolation.test.js` (iOS entitlements/app groups: its config load cannot resolve the `@bacons/apple-targets` plugin, which is declared in the safari-bridge worktree's uncommitted `package.json` hunk but not installed in HW). `safariBridgeHost.test.tsx` and the other bridge host suites PASS.
@@ -64,6 +66,7 @@ index becb196..af2d771 100644
 ## S0 (P1 core accepts the android-loopback registration)
 
 Result: **PASS** (regression test `packages/expo-wallet-toolbox/__tests__/bridge/s0Registration.test.ts`, 6 tests).
+
 - (a) `registerTransport({id:'android-loopback', attestation:'unattested', bindingMode:'explicit', requestAttention, deliverReconnectToken})` succeeds before `initBridgeRuntime`; `hasUnattestedTransport()` flips true; `onUnattestedTransportChange` fires. PASS.
 - (b) the listener fires on register (true) and unregister (false). PASS. Registration-order effect on the wallet build is pinned in Task 17.
 - (c) a `ContinuityStore` keyed `android:<origin>` signs a describe response that `verifyDescribeProof` accepts. PASS (ctx is a plain string).
@@ -75,6 +78,7 @@ Fallbacks in effect: none.
 ## Task 13 (Android module compile and autolink)
 
 Result: **PASS** (compile and autolink; behaviour is exercised by Tasks 22 and 24 on the emulator).
+
 - `scripts/link-kit.sh <HW>` (adapted from the iOS kit's) packs the toolbox and this kit into `HW/node_modules/@bsv/`. `@bsv/expo-android-wallet-bridge: 0.0.0` was added to `HW/package.json` as a scratch edit (working tree only, discarded before Task 23).
 - `HW` prebuild needed a second scratch edit: `app.config.js` loses the `@bsv/expo-safari-wallet-bridge/app.plugin` entry, because that plugin requires `@bacons/apple-targets`, which is not installed in `HW` (see Baseline). Android prebuild is otherwise unchanged. Also discarded before Task 23.
 - Autolinking: the project is named `bsv-expo-android-wallet-bridge` (Gradle, from the scoped package name), not `expo-android-wallet-bridge`. `:bsv-expo-android-wallet-bridge:compileDebugKotlin` -> BUILD SUCCESSFUL on the first compile; `:app:compileDebugKotlin` -> BUILD SUCCESSFUL. `org.bsv.walletbridge.BsvAndroidBridgeModule::class.java` appears in `ExpoModulesPackageList.kt`. In Expo SDK 57 that file is generated under `node_modules/expo/android/build/generated/expo/src/main/java/expo/modules/` (a build output reached through the `node_modules/expo` symlink into the main checkout), not under `app/build/generated`.
@@ -86,6 +90,7 @@ Result: **PASS** (compile and autolink; behaviour is exercised by Tasks 22 and 2
 ## Task 14 (config plugin and resolver check)
 
 Result: **PASS**. Plugin: `app.plugin.js` -> `plugin/{index,validate,manifest}.js` (`withAndroidWalletBridge`, `resolveScheme`); 13 jest tests in `__tests__/plugin` plus the 4 manifest-lint tests all pass (`KJ __tests__`).
+
 - Scheme rules: default `<android.package>.bridge`; RFC 3986 syntax, lowercase, and not `http`, `https`, `intent`, `file`, `content`, `javascript`, `data`; refused when it equals a host scheme (Expo `scheme` string or array, `android.intentFilters` data). The manifest mod also refuses a scheme another activity or alias in the app manifest already handles. Warnings (never errors): `android.permissions` declaring `SYSTEM_ALERT_WINDOW` (blocking it, as the host does, does not warn), `allowBackup` true in config or in the manifest.
 - The trampoline entry in the app manifest is `<activity android:name="org.bsv.walletbridge.LaunchTrampolineActivity" tools:node="merge">` with exactly one filter (`VIEW`, `DEFAULT`, `BROWSABLE`, scheme, host `launch`); a re-run or a changed scheme replaces the filter instead of adding one. `xmlns:tools` is set on the manifest root.
 - `__tests__/plugin/fixtures/withIconAliasLinks.js` is a verbatim copy of the host's `plugins/withIconAliasLinks.js` (taken from the main bitcoin-sv-wallet checkout at Task 14). Task 23 must diff it against the real file.
@@ -136,11 +141,13 @@ the plugin entry, `setupAndroidBridge({ appName: 'Bitcoin SV Wallet', vendor: 'o
 the probes lived in `HW/index.js` and `HW/node_modules` and were removed).
 
 ### Step 1: walking skeleton
+
 **PASS.** App installs and starts, no `FATAL EXCEPTION`, test wallet created through the uiautomator sequence (maestro not installed: device gate, not
 needed), Home reached. Full path works: Open wallet -> trampoline -> wallet forward -> describe answered ("OK open", cold about 5 s end to end) -> connect ->
 `getVersion` -> `createAction` (answered by the wallet; the unfunded test wallet returns `WERR_INSUFFICIENT_FUNDS`, which is the wallet's own answer) -> the
 connect sheet and the protocol sheet, approved by tapping -> wallet returns to Chrome by itself after the last sheet -> `createSignature` passes.
 Harness facts found on the way (fixed in `scripts/e2e`):
+
 - `uiautomator dump` fails with `could not get idle state` while the welcome art or the Home tour card animates. Animation scales 0 during wallet creation
   fix it there (`setAnimationScale`); the scale is restored to 1 afterwards because the sheets are verified at the normal scale. On Home the dump can still fail:
   the notification shade, the Connect and Authorize buttons are tapped by coordinates (sheet buttons at about x 789, y 2248 on this 1080x2424 screen).
@@ -158,6 +165,7 @@ its open position (0.5 then `withTiming(0, 60 ms)`) when the app becomes `active
 Not unit-testable (native view state); `PermissionSheet` jest unchanged and green. Owner note: this is a toolbox UI change, not a kit change.
 
 ### S2 (launch from Chrome, trampoline, foreground service)
+
 - **No chooser**, the trampoline runs and the wallet comes forward on a real gesture click (`Input.dispatchMouseEvent`).
 - **URI never leaks:** `adb logcat -d | grep -cE 'k=[A-Za-z0-9_-]{43}'` is 0 (a plain `grep -c "k="` returns about 42 from WindowManagerShell lines: not meaningful); the system's own
   `ActivityTaskManager: START` line prints the data as `bsv-wallet-bridge://launch/...`. A `Linking` probe in `HW/index.js` saw only the dev-client link as the initial URL (75 chars)
@@ -179,6 +187,7 @@ Not unit-testable (native view state); `PermissionSheet` jest unchanged and gree
   (one endpoint of the race answered `describe` before the launch record was known to JS); the scan still resolves `open`. Not blocking; look at it in Task 24 (conformance run).
 
 ### S5 (background hold) and S5b (timers)
+
 - **S5 PASS.** `scripts/e2e/hold.mjs --minutes 30 --screen-off`: connected page, `createSignature` request left at the permission sheet, Chrome in front, screen off
   (`KEYCODE_SLEEP`) and `dumpsys deviceidle force-idle` (state `IDLE`) for 30 minutes, 60 samples at 30 s: wallet process alive in every sample, `BridgeService` listed, binding live afterwards
   (`getVersion` answered). After waking, the attention notification was still there, the protocol sheet showed and Authorize completed the call (`createSignature pass`). The page-side conformance card
@@ -195,6 +204,7 @@ Not unit-testable (native view state); `PermissionSheet` jest unchanged and gree
   after the page sent the request (page epoch ms against logcat, 5 h zone offset). Kotlin timers stay (spec decision); JS timers do pause.
 
 ### S7 (localhost family, Host check, describe latency)
+
 - **Family:** for `http://localhost:3321/...` from the page, Chrome 155 connects over `::1` first and succeeded there (12 new `::1` TIME_WAIT entries on :3321, none new on 127.0.0.1).
 - **Host check:** over `adb forward` with a spoofed `Host`: `evil.example.com` 403, `localhost:3321` 200, `127.0.0.1:3321` 200, `[::1]:3321` 200, `127.0.0.1:3322` (wrong port) 403 (each with `Origin: http://localhost:3001`; without an `Origin` header every Host gets 403).
 - **Describe latency while the wallet builds (cold start from a killed app):** 4 usable runs of 5 (a script error on the fifth): first answer 3.6 to 4.7 s after the click, with each answered describe taking 0.7 to 1.9 s
@@ -202,17 +212,20 @@ Not unit-testable (native view state); `PermissionSheet` jest unchanged and gree
   per-attempt is under 3000 ms: the demo default stays 3000.
 
 ### Step 4b (ports exhausted, 60 s self-stop, Disconnect)
+
 All 64 IPv4 ports 3321 to 3384 held with persistent `nc -L` listeners (64 LISTEN entries confirmed): the launch raised the wallet, `bridge_ports_exhausted` ("Another program is using the ports BSV Wallet needs")
 showed in the wallet, the page found no wallet, and `BridgeService` was not listed 15 s later (the session stops the service as soon as the bind fails, which is within the 60 s the plan allows). Ports released, a normal
 connect worked ("1 site connected" notification with Disconnect and Manage actions); tapping Disconnect: the page's next call got `CONNECTION_CLOSED ... The wallet did not answer`, `BridgeService` gone.
 
 ### S1 (Chrome 142+ permission path)
+
 Chrome 155: the exempt path (`http://localhost:3001`, debug build) works end to end. `navigator.permissions.query({name: 'loopback-network'})` answers `prompt` (the name exists); no prompt appeared for the
 localhost origin. The https half through `https://deggen.ngrok.app` was NOT run: that domain is the iOS demo's tunnel to 3000 (not to be stopped or re-pointed), so the Android page cannot be served there
 -> **device gate (b)**: `ngrok` path for the Android demo needs its own tunnel or the iOS tunnel handed over by the owner. CDP names for granting: `loopbackNetwork`, `localNetworkAccess`
 (`Browser.grantPermissions`, both accepted). S8 not run (informational).
 
 ### Device gates for the owner
+
 - S1 and S2 on a real phone with a Chrome 142+ build: the permission prompt label, https page to loopback, mixed content, Incognito behaviour.
 - OEM background-start and battery-optimisation behaviour (S5 and the foreground service on Samsung, Xiaomi, Pixel with Doze).
 - ngrok https path for the Android demo in a release build with R8 (needs its own tunnel).
@@ -222,6 +235,7 @@ localhost origin. The https half through `https://deggen.ngrok.app` was NOT run:
 ## Task 23: host adoption
 
 HW commit 810480b `feat(android-bridge): adopt the Android bridge kit` (branch `feat/android-wallet-bridge`).
+
 - Scratch Task 22 edits were saved to the session scratchpad and discarded with `git checkout -- <file>`; `link-kit.sh` re-run.
 - HTSC 15 errors and HJ 4 suites / 13 failed tests, identical to the baseline (new tests add 192 passing). The Android isolation tests run the kit's manifest mod alone, because a full config load needs `@bacons/apple-targets` (not installed in HW; the 5 iOS isolation tests fail on that, as in the baseline).
 - HBUILD (with the Safari plugin entry removed and the kit dependency added as scratch edits, both reverted): `:app:assembleDebug` succeeded; the debug APK manifest holds one exported `LaunchTrampolineActivity` with a single filter (`VIEW`, `DEFAULT`, `BROWSABLE`, scheme `bsv-wallet-bridge`, host `launch`). `SYSTEM_ALERT_WINDOW` there comes from the RN debug manifest (host `blockedPermissions` strips it in release).
@@ -237,27 +251,28 @@ Preconditions and how to repeat: emulator up and authorized; the host debug APK 
 
 ### Results (clean run, 17 of 17 pass)
 
-| # | Case | Result | Observed |
-| --- | --- | --- | --- |
-| 1 | cold launch from Chrome, process dead | pass | trampoline, wallet forward, Connect sheet shows `http://localhost:3001` with the Unverified badge, Connect, page connected (`01-*.png`) |
-| 2 | `getVersion`, `isAuthenticated` | pass | `{"version":"bsv-wallet-bridge-1"}`, `{"authenticated":true}` |
-| 3 | `getPublicKey`; request held open across a sheet | pass | key returned; `createAction` is answered by the wallet itself (`WERR_INSUFFICIENT_FUNDS`, unfunded test wallet, no sheet); the held-open request is the conformance card `conformanceCreateSignature`: attention notification, sheet, Approve, card passes |
-| 4 | Don't connect | pass | `USER_CANCELLED (delivery not-sent): The connection was declined`; an immediate retry gets `RESOURCE_LIMIT ... This site was just declined`, nothing granted |
-| 5 | warm launch, silent reconnect | pass | process alive, token presented, `getPublicKey` answered with no Connect sheet |
-| 6 | conformance, Run all safe | pass (run completes) | 41 cards: 20 pass, 10 fail, 11 not run (spending cards keep their own Run button); 73 sheets approved. Failing cards, all recorded in `06-conformance.json`, see below |
-| 7 | kill the app (`kill -9`) | pass | pending call: `CONNECTION_CLOSED (delivery unknown): The wallet did not answer`; a new launch recovers (token reconnect) |
-| 8 | MainActivity destroyed, service alive | pass | via Back (see substitutions): activity records 0, process alive, `BridgeService` gone with the binding, page gets `CONNECTION_CLOSED`, new launch reconnects |
-| 9 | 3321 and 3322 held on both families | pass | wallet bound 127.0.0.1 and ::1 on 3323, page found it |
-| 10 | `::1:3321` held alone | pass | `toybox nc` binds ::1; wallet moved to 3322 on both families |
-| 11 | squatter on 3321 with the real name | pass | host squatter (signed descriptor under its own key, real name and vendor, no `k`) behind `adb reverse tcp:3321`: page logs `UNAUTHENTICATED`, finds the real wallet on a higher port; the squatter saw only describe GETs and no secret header |
-| 12 | notifications revoked | pass | `bridge_notifications_off` shown with a request pending, no attention notification posted, the sheet is offered when the wallet is opened, Approve completes it |
-| 13 | Incognito | pass | Incognito tab opened from Chrome's menu (new-tab page "You've gone Incognito", then `localhost:3001` loaded), the Open wallet button tapped for real: 0 trampoline starts, wallet did not come forward; control with the same tap in a normal tab: 1 trampoline start. Matches S2 |
-| 14 | plaintext check | pass | logcat from the start of the run (69,691 lines, 7 epochs launched): no `k=<43>`, no `n=<22>`, no launched epoch or `e=<uuid>`, no reconnect token or binding header anywhere, system lines included |
-| 15 | later-prompt attention | pass | `bridge-attention` notification, text "A website wants to continue. Tap to review.", `vis=PRIVATE` with a public version, no origin anywhere in the record; the tap shows the sheet (`bridge-approve`) |
-| 16 | return to browser | pass | wallet raised by the trampoline: Chrome is the top resumed activity 1.4 s after the tap on the last Approve. Control: raised by the attention notification, the wallet stays in front (by design: `returnToBrowser` only when the bridge raised it) |
-| 17 | Disconnect action | pass | page's next call `CONNECTION_CLOSED (delivery unknown)`, `BridgeService` no longer listed |
+| #   | Case                                             | Result               | Observed                                                                                                                                                                                                                                                                          |
+| --- | ------------------------------------------------ | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | cold launch from Chrome, process dead            | pass                 | trampoline, wallet forward, Connect sheet shows `http://localhost:3001` with the Unverified badge, Connect, page connected (`01-*.png`)                                                                                                                                           |
+| 2   | `getVersion`, `isAuthenticated`                  | pass                 | `{"version":"bsv-wallet-bridge-1"}`, `{"authenticated":true}`                                                                                                                                                                                                                     |
+| 3   | `getPublicKey`; request held open across a sheet | pass                 | key returned; `createAction` is answered by the wallet itself (`WERR_INSUFFICIENT_FUNDS`, unfunded test wallet, no sheet); the held-open request is the conformance card `conformanceCreateSignature`: attention notification, sheet, Approve, card passes                        |
+| 4   | Don't connect                                    | pass                 | `USER_CANCELLED (delivery not-sent): The connection was declined`; an immediate retry gets `RESOURCE_LIMIT ... This site was just declined`, nothing granted                                                                                                                      |
+| 5   | warm launch, silent reconnect                    | pass                 | process alive, token presented, `getPublicKey` answered with no Connect sheet                                                                                                                                                                                                     |
+| 6   | conformance, Run all safe                        | pass (run completes) | 41 cards: 20 pass, 10 fail, 11 not run (spending cards keep their own Run button); 73 sheets approved. Failing cards, all recorded in `06-conformance.json`, see below                                                                                                            |
+| 7   | kill the app (`kill -9`)                         | pass                 | pending call: `CONNECTION_CLOSED (delivery unknown): The wallet did not answer`; a new launch recovers (token reconnect)                                                                                                                                                          |
+| 8   | MainActivity destroyed, service alive            | pass                 | via Back (see substitutions): activity records 0, process alive, `BridgeService` gone with the binding, page gets `CONNECTION_CLOSED`, new launch reconnects                                                                                                                      |
+| 9   | 3321 and 3322 held on both families              | pass                 | wallet bound 127.0.0.1 and ::1 on 3323, page found it                                                                                                                                                                                                                             |
+| 10  | `::1:3321` held alone                            | pass                 | `toybox nc` binds ::1; wallet moved to 3322 on both families                                                                                                                                                                                                                      |
+| 11  | squatter on 3321 with the real name              | pass                 | host squatter (signed descriptor under its own key, real name and vendor, no `k`) behind `adb reverse tcp:3321`: page logs `UNAUTHENTICATED`, finds the real wallet on a higher port; the squatter saw only describe GETs and no secret header                                    |
+| 12  | notifications revoked                            | pass                 | `bridge_notifications_off` shown with a request pending, no attention notification posted, the sheet is offered when the wallet is opened, Approve completes it                                                                                                                   |
+| 13  | Incognito                                        | pass                 | Incognito tab opened from Chrome's menu (new-tab page "You've gone Incognito", then `localhost:3001` loaded), the Open wallet button tapped for real: 0 trampoline starts, wallet did not come forward; control with the same tap in a normal tab: 1 trampoline start. Matches S2 |
+| 14  | plaintext check                                  | pass                 | logcat from the start of the run (69,691 lines, 7 epochs launched): no `k=<43>`, no `n=<22>`, no launched epoch or `e=<uuid>`, no reconnect token or binding header anywhere, system lines included                                                                               |
+| 15  | later-prompt attention                           | pass                 | `bridge-attention` notification, text "A website wants to continue. Tap to review.", `vis=PRIVATE` with a public version, no origin anywhere in the record; the tap shows the sheet (`bridge-approve`)                                                                            |
+| 16  | return to browser                                | pass                 | wallet raised by the trampoline: Chrome is the top resumed activity 1.4 s after the tap on the last Approve. Control: raised by the attention notification, the wallet stays in front (by design: `returnToBrowser` only when the bridge raised it)                               |
+| 17  | Disconnect action                                | pass                 | page's next call `CONNECTION_CLOSED (delivery unknown)`, `BridgeService` no longer listed                                                                                                                                                                                         |
 
 Case 6 failing cards (the wallet's own answers, forwarded intact; none is a bridge defect):
+
 - `getVersion`: the P1 core's static answer `bsv-wallet-bridge-1` (`DEFAULT_BASE_VERSION`, `core/bridge/runtime.ts`) fails the fast.brc.dev card's "vendor-major.minor.patch within 7-30 bytes". The same string is what the iOS kit answers. **Finding F2 for the owner:** either the card or the default base should change; the host can override the base through the provider.
 - `createAction`, `signAction`, `abortAction`: code 7, insufficient funds (unfunded test wallet); `proveCertificate`: needs `acquireCertificate`, which is a spending-class card not in Run all safe.
 - `discoverByAttributes`: `timeout`, "no progress for 120 s (wallet not answering?)"; recorded as failed, the run continues with the next card. Not investigated further (the same card passed in an earlier partial run).
@@ -284,3 +299,21 @@ Case 6 failing cards (the wallet's own answers, forwarded intact; none is a brid
 ### Device gates (unchanged, non-blocking)
 
 ngrok/https path and the Chrome permission dialog for a non-exempt origin (S1b); OEM background-start and battery behaviour (Samsung, Xiaomi, Pixel Doze) and the real-phone passes; Play Console `specialUse` declaration; maestro for the host flows (`brew install maestro` needs owner approval, the uiautomator sequence is used); Incognito on a real phone (re-observed on the emulator only).
+
+## Task 25: suites at release-prep time, and release gates
+
+Suites run in the final state of this branch (no `--forceExit`):
+
+- `TSC` (`npx tsc --noEmit -p .` from WT): 0 errors (baseline 0).
+- `TBJ` whole package `packages/expo-wallet-toolbox`: 402 suites passed, 1 skipped, 7048 tests passed, 9 skipped. Jest prints "A worker process has failed to exit gracefully" at the end of the run (open handle in some suite); the run still exits 0 on its own. Look at it before tagging the toolbox release.
+- `KJ`: 20 suites, 159 tests passed. `KT` (`android/jvmtest`, `check-pure.sh` ok for 9 files, `cleanTest test`): 89 tests, 0 failures. iOS kit `npx jest --ci packages/expo-safari-wallet-bridge` (with `NODE_PATH` to an esbuild install, Task 20): 34 suites, 314 tests passed.
+- Host (`HW`, commit 810480b): `HJ` 4 suites / 13 tests failed, 192 passed, 1 skipped; `HTSC` 15 errors. Both equal the Task 1 baseline (all unrelated to the bridge: toolbox drift and the missing `@bacons/apple-targets`).
+
+Release gates (not build gates; none is done):
+
+1. **Toolbox 0.22.0 release** by tag `expo-wallet-toolbox-v0.22.0` (CI publishes raw source). Run the package jest WITHOUT `--forceExit` immediately before tagging (the 0.13.0 timeout lesson). `TB/CHANGELOG.md` Unreleased holds the seams; rename it to 0.22.0 and bump `package.json` at tagging. The host then pins `@bsv/expo-wallet-toolbox ^0.22.0` and the kit dependency line is added to its `package.json` (Task 23 left it out).
+2. **Play Console**: `specialUse` foreground-service declaration (property subtype text from the manifest) and the data-safety answer.
+3. **R8 release build verification** as in the R8 memory note: main-checkout gradle release build, check `mapping.txt` and `dexdump` that `LaunchTrampolineActivity`, `BridgeService` and `BsvAndroidBridgeModule` survive with their members, then run the Pixel_9 pass again on the release APK (the debug-only `allowLocalhostHttp` path is then unavailable: use the https origin).
+4. **Independent review** before any BRC-185 conformance claim (`CONFORMANCE.md` claims none).
+5. Real-phone pass of every row of spec section 10's end-to-end list, S1b (Chrome permission dialog, https page to loopback, mixed content), Incognito, OEM background start, and the https/ngrok path in a release build with R8.
+6. Owner decisions carried over: F1 (Approve parked when the user leaves within the 400 ms grant delay, a toolbox UI fix), F2 (the `getVersion` base string vs the conformance card), whether milestone 2 (overlay, spike S4 first) is still wanted (spec 14, open question 1).
