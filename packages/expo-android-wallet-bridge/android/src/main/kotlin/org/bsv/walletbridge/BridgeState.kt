@@ -50,6 +50,12 @@ object BridgeState {
     Handler(Looper.getMainLooper()).post { if (!a.isFinishing) a.finish() }
   }
 
+  /** Makes the live sheet window touchable (a prompt is pending) or not; a no-op without a live sheet. */
+  fun setSheetInteractive(on: Boolean) {
+    val a = sheet?.get() as? BridgeSheetActivity ?: return
+    Handler(Looper.getMainLooper()).post { a.setInteractive(on) }
+  }
+
   @Volatile var serverRunning = false
 
   /** Notification counts last given to `setSession` (counts only, never a site). */

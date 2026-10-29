@@ -6,6 +6,8 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.WindowManager
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import com.facebook.react.ReactActivity
@@ -37,6 +39,7 @@ class BridgeSheetActivity : ReactActivity() {
   private val leave = LeaveMark()
   private var mountCount = 0
   private var backCallback: Any? = null
+  private val touchGuard = TouchGuard()
 
   private val sheetDelegate: SheetDelegate
     get() = reactActivityDelegate as SheetDelegate
@@ -62,11 +65,65 @@ class BridgeSheetActivity : ReactActivity() {
       return
     }
     shownSeq = seqOf(intent)
+    if (!applyWindowProtections()) {
+      // Fail closed: the platform refused the overlay-hiding call, so Chrome could draw over the prompt. No root is loaded.
+      sheetDelegate.inert = true
+      forwardToMain()
+      finish()
+      super.onCreate(null)
+      return
+    }
     super.onCreate(null)
+    // Touches that arrive while another window covers the sheet are filtered by the view system too (second layer).
+    findViewById<android.view.View>(android.R.id.content)?.filterTouchesWhenObscured = true
     mountCount++
     BridgeState.sheet = WeakReference(this)
     registerBackCallback()
     Log.i(TAG, "sheet-activity create n=${creates.incrementAndGet()} seq=${shownSeq?.toString() ?: "none"}")
+  }
+
+  /**
+   * Spec 7.4 protections, applied before the root loads. `FLAG_SECURE` on every sheet; the window starts non-touchable and
+   * non-focusable so a Chrome dialog under an empty sheet stays tappable (JS opens it with `setSheetInteractive`);
+   * `setHideOverlayWindows(true)` on API 31+ (needs `HIDE_OVERLAY_WINDOWS`). Returns false when the platform refuses.
+   */
+  private fun applyWindowProtections(): Boolean {
+    window.addFlags(
+      WindowManager.LayoutParams.FLAG_SECURE or
+        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+    )
+    if (Build.VERSION.SDK_INT >= 31) {
+      try {
+        window.setHideOverlayWindows(true)
+      } catch (_: SecurityException) {
+        return false
+      }
+    }
+    return true
+  }
+
+  /** JS: a prompt is pending (true) or nothing is (false). Main thread only. */
+  fun setInteractive(on: Boolean) {
+    if (isFinishing || isDestroyed) return
+    val bits = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+    if (on) window.clearFlags(bits) else window.addFlags(bits)
+  }
+
+  /**
+   * Drops touches that carry an obscured flag (another window draws over the prompt). After `TouchGuard.DROP_LIMIT` drops
+   * the prompt moves to the in-wallet sheet in `MainActivity`, where the user can still answer it. No text: a benign
+   * overlay such as a screen filter reaches the same prompt in the wallet.
+   */
+  override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+    if (touchGuard.shouldDrop(ev.flags)) {
+      if (ev.actionMasked == MotionEvent.ACTION_DOWN && touchGuard.noteDrop()) {
+        forwardToMain()
+        finish()
+      }
+      return true
+    }
+    return super.dispatchTouchEvent(ev)
   }
 
   /** Foreground mode: the wallet comes to the front with nothing but the launch intent. `raisedByBridge` stays false. */

@@ -172,8 +172,7 @@ class BsvAndroidBridgeModule : Module() {
       )
     }
 
-    // Body in Task 7 (window flags); declared now so the JS surface is stable.
-    Function("setSheetInteractive") { _: Boolean -> }
+    Function("setSheetInteractive") { on: Boolean -> BridgeState.setSheetInteractive(on) }
 
     // Only the owner-decision variant (11-W) gives showSheet a body.
     Function("showSheet") { _: String -> }
