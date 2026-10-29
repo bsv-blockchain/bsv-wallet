@@ -31,4 +31,18 @@ class NotificationSpecTest {
     assertEquals("2 requests waiting. Tap to review", NotificationSpecs.session(5, 2).text)
     assertEquals("1 request waiting. Tap to review", NotificationSpecs.session(1, 1).text)
   }
+
+  @Test fun `FLAG_IMMUTABLE is 0x04000000 and FLAG_UPDATE_CURRENT is 0x08000000`() {
+    assertEquals(0x04000000, NotificationSpec.FLAG_IMMUTABLE)
+    assertEquals(0x08000000, NotificationSpec.FLAG_UPDATE_CURRENT)
+  }
+
+  @Test fun `pendingFlags contains IMMUTABLE`() {
+    assertEquals(NotificationSpec.FLAG_IMMUTABLE, NotificationSpec.pendingFlags() and NotificationSpec.FLAG_IMMUTABLE)
+    assertEquals(NotificationSpec.FLAG_UPDATE_CURRENT, NotificationSpec.pendingFlags() and NotificationSpec.FLAG_UPDATE_CURRENT)
+  }
+
+  @Test fun `TARGET_CLASS is the sheet Activity`() {
+    assertEquals("org.bsv.walletbridge.BridgeSheetActivity", NotificationSpec.TARGET_CLASS)
+  }
 }

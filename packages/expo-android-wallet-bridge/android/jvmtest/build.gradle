@@ -16,7 +16,11 @@ ext.pureFiles = [
   'org/bsv/walletbridge/LaunchStore.kt',
   'org/bsv/walletbridge/NotificationSpec.kt',
   'org/bsv/walletbridge/LoopbackServer.kt',
-  'org/bsv/walletbridge/Timers.kt'
+  'org/bsv/walletbridge/Timers.kt',
+  'org/bsv/walletbridge/DestroyGuard.kt',
+  'org/bsv/walletbridge/LifecycleState.kt',
+  'org/bsv/walletbridge/TouchGuard.kt',
+  'org/bsv/walletbridge/SheetPolicy.kt'
 ]
 
 sourceSets {
