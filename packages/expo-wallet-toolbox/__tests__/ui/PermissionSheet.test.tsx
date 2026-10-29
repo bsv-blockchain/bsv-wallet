@@ -393,6 +393,23 @@ describe('PermissionSheet answers', () => {
     expect(ui.setProtocolAccessModalOpen).toHaveBeenCalledWith(false)
   })
 
+  it('keeps the modal open for a second request queued behind the one answered (grant and deny)', async () => {
+    const m = fakeManager()
+    const queued = [protocolRequest('p1', m), protocolRequest('p2', m)]
+    const granted = setup({ protocolRequests: queued })
+    await granted.allow()
+    await elapse()
+    expect(granted.advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
+    expect(granted.ui.setProtocolAccessModalOpen).not.toHaveBeenCalledWith(false)
+    granted.view.unmount()
+    ;(globalThis as any).__presses = []
+
+    const denied = setup({ protocolRequests: queued })
+    await denied.deny()
+    expect(denied.advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
+    expect(denied.ui.setProtocolAccessModalOpen).not.toHaveBeenCalledWith(false)
+  })
+
   it('answers a pending grant at once when the app leaves the foreground', async () => {
     const { AppState } = require('react-native')
     let onChange!: (s: string) => void

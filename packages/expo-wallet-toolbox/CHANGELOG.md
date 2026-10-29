@@ -26,6 +26,10 @@
 - **`setSheetBackdropDismisses(false)`** (same module). `PermissionSheet` treats a backdrop tap or a swipe down as a
   rejection; a host window where an outside tap must do nothing (the Android bridge's overlay root) turns that off while
   it is mounted. The default is unchanged.
+- **A second request queued behind an answered one is shown.** `PermissionSheet` closed the queue's modal flag after
+  every grant or deny, even with another request of the same kind still queued, and the queue only opens that flag when
+  it goes from empty to non-empty, so the next request (another site's, or the same site's) stayed hidden and its call
+  hung. The flag is now closed only when nothing else is queued behind the answered request.
 
 - **`BridgeSnapshot.hostAttached`.** True once a host is attached and the runtime has loaded, false at start and
   after detach. Every change goes through `onSnapshotChange`, so a transport hears attach and detach even when

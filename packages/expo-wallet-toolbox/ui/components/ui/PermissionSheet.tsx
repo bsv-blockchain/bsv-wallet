@@ -784,6 +784,24 @@ const PermissionSheet: React.FC = () => {
     return !!list?.some(r => r.requestID === request.requestID && r.manager === request.manager)
   }, [])
 
+  // Closes a queue's modal flag after its head was answered, unless another request is still queued behind it: the
+  // sheet shows a head only while the flag is set, so closing it would hide the next request (its queue only opens the
+  // flag when it goes from empty to non-empty). An emptied queue closes the flag itself; this is for the same step.
+  const closeUnlessQueued = useCallback(
+    (kind: 'protocol' | 'basket' | 'certificate' | 'spending', answeredID: string, close: (open: boolean) => void) => {
+      const q = queuesRef.current
+      const list: any[] | undefined = {
+        protocol: q.protocolRequests,
+        basket: q.basketRequests,
+        certificate: q.certificateRequests,
+        spending: q.spendingRequests
+      }[kind]
+      if (list?.some(r => r.requestID !== answeredID)) return
+      close(false)
+    },
+    []
+  )
+
   // Clear the pending grant timer (or flush it) on unmount to prevent stale handler calls.
   useEffect(() => {
     return () => {
@@ -936,19 +954,19 @@ const PermissionSheet: React.FC = () => {
         switch (active.kind) {
           case 'protocol':
             advanceProtocolQueue(active.requestID)
-            setProtocolAccessModalOpen(false)
+            closeUnlessQueued('protocol', active.requestID, setProtocolAccessModalOpen)
             break
           case 'basket':
             advanceBasketQueue(active.requestID)
-            setBasketAccessModalOpen(false)
+            closeUnlessQueued('basket', active.requestID, setBasketAccessModalOpen)
             break
           case 'certificate':
             advanceCertificateQueue(active.requestID)
-            setCertificateAccessModalOpen(false)
+            closeUnlessQueued('certificate', active.requestID, setCertificateAccessModalOpen)
             break
           case 'spending':
             advanceSpendingQueue(active.requestID)
-            setSpendingAuthorizationModalOpen(false)
+            closeUnlessQueued('spending', active.requestID, setSpendingAuthorizationModalOpen)
             break
         }
       }
@@ -958,6 +976,7 @@ const PermissionSheet: React.FC = () => {
     granted,
     active,
     stillQueued,
+    closeUnlessQueued,
     advanceProtocolQueue,
     advanceBasketQueue,
     advanceCertificateQueue,
@@ -1015,7 +1034,7 @@ const PermissionSheet: React.FC = () => {
           })
           .catch((error: unknown) => console.warn('[permissions] grant failed', error))
         advanceSpendingQueue(request.requestID)
-        setSpendingAuthorizationModalOpen(false)
+        closeUnlessQueued('spending', request.requestID, setSpendingAuthorizationModalOpen)
       } else {
         request.manager
           ?.grantPermission({
@@ -1025,15 +1044,15 @@ const PermissionSheet: React.FC = () => {
         switch (request.kind) {
           case 'protocol':
             advanceProtocolQueue(request.requestID)
-            setProtocolAccessModalOpen(false)
+            closeUnlessQueued('protocol', request.requestID, setProtocolAccessModalOpen)
             break
           case 'basket':
             advanceBasketQueue(request.requestID)
-            setBasketAccessModalOpen(false)
+            closeUnlessQueued('basket', request.requestID, setBasketAccessModalOpen)
             break
           case 'certificate':
             advanceCertificateQueue(request.requestID)
-            setCertificateAccessModalOpen(false)
+            closeUnlessQueued('certificate', request.requestID, setCertificateAccessModalOpen)
             break
         }
       }
@@ -1044,6 +1063,7 @@ const PermissionSheet: React.FC = () => {
     },
     [
       stillQueued,
+      closeUnlessQueued,
       advanceProtocolQueue,
       advanceBasketQueue,
       advanceCertificateQueue,
