@@ -2,7 +2,6 @@
 
 const APP_GROUPS = 'com.apple.security.application-groups'
 const KEYCHAIN_GROUPS = 'keychain-access-groups'
-const DATA_PROTECTION = 'com.apple.developer.default-data-protection'
 
 function unique(list) {
   return list.filter((value, index) => list.indexOf(value) === index)
@@ -21,13 +20,16 @@ function applyAppEntitlements(entitlements, ids) {
   return entitlements
 }
 
-/** The extension sees only the bridge group, never the host's own (spec 6.3 step 5). */
+/**
+ * The extension sees only the bridge group, never the host's own (spec 6.3 step 5). No
+ * default-data-protection key: it needs the Data Protection capability on the extension's App ID, and
+ * BsvBridgeQueue sets the class on the queue directory and every file itself (spec 6.3 step 6).
+ */
 function appexEntitlements(ids) {
   return {
     [APP_GROUPS]: [ids.appGroup],
-    [KEYCHAIN_GROUPS]: [ids.bridgeKeychainGroup],
-    [DATA_PROTECTION]: 'NSFileProtectionCompleteUntilFirstUserAuthentication'
+    [KEYCHAIN_GROUPS]: [ids.bridgeKeychainGroup]
   }
 }
 
-module.exports = { applyAppEntitlements, appexEntitlements, APP_GROUPS, KEYCHAIN_GROUPS, DATA_PROTECTION }
+module.exports = { applyAppEntitlements, appexEntitlements, APP_GROUPS, KEYCHAIN_GROUPS }

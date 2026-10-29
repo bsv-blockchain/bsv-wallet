@@ -282,9 +282,11 @@ named error if an anchor or a prerequisite is missing (the style of `withSharedN
    `…<B>.bridge`. The extension never sees the host's own group. `keychain-access-groups` is not a
    typed key in apple-targets 5.0.0; the plugin writes the extension's entitlements file itself if
    the key does not pass through (spike S1).
-6. **Data protection**: `com.apple.developer.default-data-protection =
-   NSFileProtectionCompleteUntilFirstUserAuthentication` on the extension. The app sets the class
-   explicitly on the directory and on every file as well; it does not depend on inheritance.
+6. **Data protection**: no `com.apple.developer.default-data-protection` entitlement. It needs the
+   Data Protection capability on the extension's App ID (signing failed without it on the first
+   device build), and its value would only repeat the iOS default. `BsvBridgeQueue` sets
+   `NSFileProtectionCompleteUntilFirstUserAuthentication` explicitly on the directory and on every
+   file; it does not depend on inheritance.
 7. **Bundle the extension JS** (`buildExtension.js`): esbuild bundles `background.ts`,
    `content.ts`, `provider-main.ts` and `popup` with the P1 pure protocol modules (6.15 item 2).
    It writes `Resources/` plus the manifest from the template. The manifest has MV3, a

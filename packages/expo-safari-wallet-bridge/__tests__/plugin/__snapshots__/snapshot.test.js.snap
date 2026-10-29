@@ -74,7 +74,6 @@ exports[`plugin output snapshot of app entitlements, appex entitlements, Info.pl
     {
       "bundleIdentifier": "org.bsvblockchain.wallet.safari",
       "entitlements": {
-        "com.apple.developer.default-data-protection": "NSFileProtectionCompleteUntilFirstUserAuthentication",
         "com.apple.security.application-groups": [
           "group.org.bsvblockchain.wallet",
         ],
@@ -100,7 +99,6 @@ end
     "deploymentTarget": "16.0",
     "displayName": "Bitcoin SV Wallet",
     "entitlements": {
-      "com.apple.developer.default-data-protection": "NSFileProtectionCompleteUntilFirstUserAuthentication",
       "com.apple.security.application-groups": [
         "group.org.bsvblockchain.wallet",
       ],

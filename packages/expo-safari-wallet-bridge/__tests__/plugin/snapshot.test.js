@@ -20,13 +20,11 @@ describe('plugin output', () => {
     }).toMatchSnapshot()
   })
 
-  test('the appex entitlements carry only the bridge keychain group and the data protection default', () => {
+  test('the appex entitlements carry only the bridge keychain group and no data protection key', () => {
     const out = run({})
     const { entitlements } = JSON.parse(fs.readFileSync(path.join(out.targetDir, 'bridge-target.json'), 'utf8'))
     expect(entitlements['keychain-access-groups']).toEqual(['$(AppIdentifierPrefix)org.bsvblockchain.wallet.bridge'])
-    expect(entitlements['com.apple.developer.default-data-protection']).toBe(
-      'NSFileProtectionCompleteUntilFirstUserAuthentication'
-    )
+    expect(entitlements).not.toHaveProperty('com.apple.developer.default-data-protection')
   })
 
   test('the handler template answers through handleBridgeMessage', () => {
