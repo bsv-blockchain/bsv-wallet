@@ -119,9 +119,60 @@ describe('Sheet dismissible={false}', () => {
           <Sheet visible dismissible={dismissible} onClose={onClose} />
         </Safe>
       )
-      fireEvent.press(view.getByLabelText('Close'))
+      fireEvent.press(view.getByTestId('sheet-backdrop', { hidden: true }))
       expect(onClose).toHaveBeenCalledTimes(dismissible ? 1 : 0)
       view.unmount()
     }
+  })
+})
+
+describe('Sheet backdrop accessibility', () => {
+  it('a non-dismissible sheet does not expose its backdrop as a Close button', () => {
+    const view = render(
+      <Safe>
+        <Sheet visible dismissible={false} onClose={() => {}} />
+      </Safe>
+    )
+    expect(view.queryByLabelText('Close')).toBeNull()
+    view.unmount()
+  })
+
+  it('a dismissible sheet still exposes it (control)', () => {
+    const view = render(
+      <Safe>
+        <Sheet visible onClose={() => {}} />
+      </Safe>
+    )
+    expect(view.queryByLabelText('Close')).not.toBeNull()
+    view.unmount()
+  })
+})
+
+describe('Sheet open-spring completion', () => {
+  it('does not re-apply the open position once the sheet was closed in the meantime', () => {
+    const callbacks: Array<(finished?: boolean) => void> = []
+    const spring = jest.spyOn(Reanimated, 'withSpring').mockImplementation(((to: number, _c: any, cb: any) => {
+      if (cb) callbacks.push(cb)
+      return to
+    }) as any)
+    const timing = jest.spyOn(Reanimated, 'withTiming')
+    const view = render(
+      <Safe>
+        <Sheet visible onClose={() => {}} />
+      </Safe>
+    )
+    const openDone = callbacks[0]
+    expect(openDone).toBeDefined()
+    view.rerender(
+      <Safe>
+        <Sheet visible={false} onClose={() => {}} />
+      </Safe>
+    )
+    timing.mockClear()
+    act(() => openDone(true))
+    expect(timing).not.toHaveBeenCalled()
+    view.unmount()
+    spring.mockRestore()
+    timing.mockRestore()
   })
 })

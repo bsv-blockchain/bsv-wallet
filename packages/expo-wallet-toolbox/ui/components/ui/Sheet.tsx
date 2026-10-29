@@ -92,8 +92,14 @@ const Sheet: React.FC<SheetProps> = ({
   // Track whether the sheet is visible for rendering children
   const [rendered, setRendered] = React.useState(false)
 
+  // Whether the sheet is still meant to be open. The open spring's completion reaches JS a frame or more later; by then
+  // a close may have started, and nudging the open position would cancel that close spring and strand the sheet.
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
+
   // Nudges the open position by half a point and back, which makes a stale paint of the sheet repaint.
   const reapplyOpen = React.useCallback(() => {
+    if (!visibleRef.current) return
     translateY.value = 0.5
     translateY.value = withTiming(0, { duration: 60 })
   }, [translateY])
@@ -243,10 +249,12 @@ const Sheet: React.FC<SheetProps> = ({
         <Pressable
           style={[styles.backdrop, { backgroundColor: colors.scrim }]}
           onPress={dismissible ? onClose : undefined}
-          accessible={true}
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-          accessibilityHint="Dismisses this sheet"
+          testID="sheet-backdrop"
+          accessible={dismissible}
+          importantForAccessibility={dismissible ? 'auto' : 'no-hide-descendants'}
+          accessibilityRole={dismissible ? 'button' : undefined}
+          accessibilityLabel={dismissible ? 'Close' : undefined}
+          accessibilityHint={dismissible ? 'Dismisses this sheet' : undefined}
         />
       )}
       <Animated.View
