@@ -390,7 +390,8 @@ describe('PermissionSheet answers', () => {
     expect(raised.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
     expect(current.grantPermission).not.toHaveBeenCalled()
     expect(advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
-    expect(ui.setProtocolAccessModalOpen).toHaveBeenCalledWith(false)
+    // The queue closes the modal flag itself when it empties; the sheet never closes it on its own.
+    expect(ui.setProtocolAccessModalOpen).not.toHaveBeenCalled()
   })
 
   it('keeps the modal open for a second request queued behind the one answered (grant and deny)', async () => {
