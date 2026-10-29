@@ -6,6 +6,8 @@ import android.app.Application
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import expo.modules.interfaces.permissions.PermissionsStatus
 import expo.modules.kotlin.Promise
@@ -64,7 +66,13 @@ class BsvAndroidBridgeModule : Module() {
       BridgeState.sink = sink
       // Registration is idempotent (a reload runs OnCreate again). The catch-up covers the Activity that already existed.
       (appContext.reactContext?.applicationContext as? Application)?.let { BridgeState.tracker.register(it) }
-      BridgeState.tracker.catchUp(appContext.currentActivity)
+      // LifecycleState is main-thread only (spec 7.4). OnCreate may run on another thread, so the catch-up runs on the main
+      // looper and reads currentActivity there; a queued lifecycle callback cannot then be overwritten by a stale read.
+      if (Looper.myLooper() == Looper.getMainLooper()) {
+        BridgeState.tracker.catchUp(appContext.currentActivity)
+      } else {
+        Handler(Looper.getMainLooper()).post { BridgeState.tracker.catchUp(appContext.currentActivity) }
+      }
     }
 
     OnDestroy {

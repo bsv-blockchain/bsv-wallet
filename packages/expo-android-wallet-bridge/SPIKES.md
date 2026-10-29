@@ -512,3 +512,7 @@ The React Native host itself is the larger case (S4 finding: `ReactHostImpl.onHo
 | `@bsv/react-native-localpay-transport`                                                                                      | none (application context)                                        | Not applicable.                                                                                                                                           |
 
 Task 13 case O17 enumerates the **Reachable** rows. Plan review note: the plan has no instrumented harness for these, so O17 exercises what the bridge can trigger on the emulator (biometric and secure-store paths if the test wallet is configured for them; otherwise it records them as covered by owner gate 1).
+
+### LifecycleTracker test coverage and threading (M2 Task 5 review)
+
+The module `OnCreate` posts `LifecycleTracker.catchUp` to the main looper when it is not already on it, so all `LifecycleState` access is main-thread. The Kotlin tracker adapter (`publish` dedup, catch-up) has no JVM test; `hostLifecycle.test.ts` covers only the fake native. The adapter is covered by the E2E run and the owner device gates.
