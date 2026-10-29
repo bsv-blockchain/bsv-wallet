@@ -8,7 +8,8 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { b64uEncode } from '../../../../core/bridge/protocol/base64url'
 import type { ContinuityHandle } from '../../../../core/bridge/protocol/continuity'
-import type { ExplicitConnectInput } from '../../../../core/bridge/bindings'
+import { createBindingRegistry, type ExplicitConnectInput } from '../../../../core/bridge/bindings'
+import type { dispatch as dispatchFn } from '../../../../core/bridge/dispatcher'
 import { helloMac } from '../../../../core/bridge/loopback/launchProof'
 import {
   createLoopbackRouter,
@@ -62,11 +63,37 @@ export interface Harness {
     connectError?: unknown
     connected: ExplicitConnectInput[]
     opened: { epoch: string; origin: string; secret: Uint8Array }[]
+    /** RPC knobs (Task 8). Unset keeps the Task 6 and 7 rule that dispatch is not available. */
+    dispatch?: typeof dispatchFn
+    /** Tokens waiting for the next response of an epoch; cleared by `confirmWritten`, as the real outbox does. */
+    tokens: Map<string, string>
+    inFlightNow: Map<string, number>
+    touched: string[]
   }
+  /** Set by `opts.realRegistry`: resolves once the registry has loaded. */
+  ready: Promise<void>
   handle(req: Partial<RawRequest> & { target: string }): Promise<RoutePlan>
 }
 
-export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHandler>> } = {}): Harness {
+export function makeHarness(
+  opts: { routes?: Partial<Record<RouteKind, RouteHandler>>; realRegistry?: boolean; identity?: ContinuityHandle } = {}
+): Harness {
+  const identity = opts.identity ?? identityHandle
+  const secrets = new Map<string, Uint8Array>()
+  const origins = new Map<string, string>()
+  const kv = new Map<string, string>()
+  const realRegistry = opts.realRegistry
+    ? createBindingRegistry({
+        tombstoneStorage: {
+          getItem: async k => kv.get(k) ?? null,
+          setItem: async (k, v) => void kv.set(k, v),
+          removeItem: async k => void kv.delete(k),
+          getAllKeys: async () => [...kv.keys()]
+        },
+        now: () => Date.now(),
+        onClosed: () => {}
+      })
+    : undefined
   const calls: string[] = []
   const state: Harness['state'] = {
     bound: { port: PORT, ipv4: true, ipv6: true },
@@ -79,7 +106,10 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
     park: async () => 'resume',
     gone: new Set(),
     connected: [],
-    opened: []
+    opened: [],
+    tokens: new Map(),
+    inFlightNow: new Map(),
+    touched: []
   }
   const rec = (name: string) => calls.push(name)
   const env: RouterEnv = {
@@ -87,7 +117,7 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
     bound: () => state.bound,
     identity: async () => {
       rec('identity')
-      return identityHandle
+      return identity
     },
     descriptorBase: {
       name: 'Bitcoin SV Wallet',
@@ -115,9 +145,9 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
       release: () => rec('gate.release')
     },
     tokenOutbox: {
-      take: () => (rec('outbox.take'), undefined),
-      confirmWritten: () => rec('outbox.confirmWritten'),
-      drop: () => rec('outbox.drop')
+      take: epoch => (rec('outbox.take'), state.tokens.get(epoch)),
+      confirmWritten: epoch => (rec('outbox.confirmWritten'), state.tokens.delete(epoch)),
+      drop: epoch => (rec('outbox.drop'), state.tokens.delete(epoch))
     },
     session: {
       readiness: () => (rec('session.readiness'), state.readiness),
@@ -126,11 +156,19 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
       onBindingClosed: () => rec('session.onBindingClosed')
     },
     ledger: {
-      open: (epoch, origin, secret) => (rec('ledger.open'), state.opened.push({ epoch, origin, secret })),
-      secret: () => (rec('ledger.secret'), undefined),
-      origin: () => (rec('ledger.origin'), undefined),
-      touch: () => rec('ledger.touch'),
-      inFlight: () => rec('ledger.inFlight'),
+      open: (epoch, origin, secret) => {
+        rec('ledger.open')
+        state.opened.push({ epoch, origin, secret })
+        secrets.set(epoch, secret)
+        origins.set(epoch, origin)
+      },
+      secret: epoch => (rec('ledger.secret'), secrets.get(epoch)),
+      origin: epoch => (rec('ledger.origin'), origins.get(epoch)),
+      touch: epoch => (rec('ledger.touch'), state.touched.push(epoch)),
+      inFlight: (epoch, delta) => {
+        rec('ledger.inFlight')
+        state.inFlightNow.set(epoch, (state.inFlightNow.get(epoch) ?? 0) + delta)
+      },
       parked: () => rec('ledger.parked'),
       markSettled: () => rec('ledger.markSettled'),
       isSettled: () => (rec('ledger.isSettled'), false),
@@ -139,18 +177,25 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
       clearGone: id => (rec('ledger.clearGone'), state.gone.delete(id)),
       idleSince: () => (rec('ledger.idleSince'), undefined),
       epochsForOrigin: () => (rec('ledger.epochsForOrigin'), []),
-      close: () => rec('ledger.close')
-    },
-    registry: new Proxy({} as RouterEnv['registry'], {
-      get: (_t, name) => () => {
-        rec(`registry.${String(name)}`)
-        throw new Error('registry is not available in this test')
+      close: epoch => {
+        rec('ledger.close')
+        secrets.delete(epoch)
+        origins.delete(epoch)
       }
-    }),
+    },
+    registry:
+      realRegistry ??
+      new Proxy({} as RouterEnv['registry'], {
+        get: (_t, name) => () => {
+          rec(`registry.${String(name)}`)
+          throw new Error('registry is not available in this test')
+        }
+      }),
     connectExplicit: input => {
       rec('connectExplicit')
       if (state.connectError !== undefined) throw state.connectError
       state.connected.push(input)
+      if (realRegistry) return realRegistry.connectExplicit(input)
       return { epoch: input.epoch, state: 'live' } as unknown as ReturnType<RouterEnv['connectExplicit']>
     },
     snapshot: () => {
@@ -158,10 +203,12 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
       if (!state.snapshot) throw new Error('snapshot must not be read')
       return state.snapshot as unknown as ReturnType<RouterEnv['snapshot']>
     },
-    dispatch: async () => {
+    // Not async on purpose: a synchronous throw from `dispatch` must be observable by the router.
+    dispatch: ((input: Parameters<typeof dispatchFn>[0]) => {
       rec('dispatch')
+      if (state.dispatch) return state.dispatch(input)
       throw new Error('dispatch is not available in this test')
-    },
+    }) as typeof dispatchFn,
     allowLocalhostHttp: () => state.allowLocalhostHttp
   }
   const router = createLoopbackRouter(env, opts.routes)
@@ -169,6 +216,7 @@ export function makeHarness(opts: { routes?: Partial<Record<RouteKind, RouteHand
     env,
     calls,
     state,
+    ready: realRegistry ? realRegistry.load() : Promise.resolve(),
     handle: req =>
       router.handle({
         id: 'c1',

@@ -2,12 +2,13 @@
  * The loopback router (spec 6.5): BRC-185 section 4.1 HTTP semantics over the ports in `routerTypes.ts`.
  * Pure TypeScript: Kotlin parses and writes HTTP, this decides what every request means.
  *
- * This file holds the entry point, the gate (path allowlist, Host, Origin, CORS, preflight) and describe.
- * Connect, RPC and disconnect are added by their own tasks and plug into `routes` below.
+ * This file holds the entry point, the gate (path allowlist, Host, Origin, CORS, preflight), describe, connect,
+ * RPC and disconnect.
  *
  * Nothing here logs. `k`, epochs, proofs, acks, binding secrets, tokens and bodies are never written anywhere.
  */
-import { b64uDecode } from '../protocol/base64url'
+import type { Outcome } from '../dispatcher'
+import { b64uDecode, b64uEncode } from '../protocol/base64url'
 import { connectionError, isConnectionError, type ConnectionError } from '../protocol/connectionError'
 import {
   assertAdvertisesResponder,
@@ -17,6 +18,8 @@ import {
   type Descriptor
 } from '../protocol/descriptor'
 import { parseStrictJson } from '../protocol/json'
+import { MAX_BRIDGE_REQUEST_BYTES } from '../protocol/limits'
+import { isBridgeMethod } from '../protocol/methods'
 import type { ContinuityHandle } from '../protocol/continuity'
 import { canonicalizeBridgeOrigin } from '../protocol/origin'
 import { BASE_HEADERS, corsHeaders, preflightHeaders, type CorsKind } from './cors'
@@ -472,17 +475,224 @@ async function connect(ctx: GateContext): Promise<RoutePlan> {
   return { kind: 'hold', id: req.id, settled }
 }
 
-async function notYet(ctx: GateContext): Promise<RoutePlan> {
-  // RPC and disconnect are implemented by the RPC task; until then the gate answers them
-  // with an internal error rather than pretending to serve them.
-  return internalError(ctx.route.kind === 'connect' ? publicCors(ctx.origin) : [])
+/**
+ * The refusal for every way a binding can fail to authorise (spec 6.5 steps 7 and 8): a missing, repeated or wrong
+ * header, an unknown or retired epoch, a wrong binding secret, another origin, an identity that does not match. One
+ * body for all of them, so a caller who does not hold the secret learns nothing about which epochs exist. No CORS:
+ * a page that cannot prove the binding is not owed a readable answer. The epoch is echoed only when it is well formed.
+ */
+function unknownBinding(epochHeader: string | undefined): RoutePlan {
+  const epoch = epochHeader !== undefined && EPOCH_RE.test(epochHeader) ? epochHeader : undefined
+  return errorResponse(connectionError('PROVIDER_CHANGED', 'Unknown connection', 'not-sent', epoch ? { epoch } : {}))
+}
+
+interface Authorised {
+  epoch: string
+  instanceId: string
+  continuityKey: string
+  /** CORS for the binding's origin: exposes the reconnect token. Only ever built after authorisation. */
+  cors: [string, string][]
+}
+
+const ZERO_SECRET_B64U = b64uEncode(new Uint8Array(32))
+
+/**
+ * The four binding headers, the secret in constant time, the origin of the live binding, and the registry's own
+ * `resolve`, in that order, all before anything of the body is read. Shared by RPC and DELETE.
+ */
+function authorise(ctx: GateContext): { auth: Authorised } | { refuse: RoutePlan } {
+  const { env, origin } = ctx
+  const epoch = ctx.header('brc-185-epoch')
+  const instanceId = ctx.header('brc-185-instance')
+  const continuityKey = ctx.header('brc-185-key')
+  const presented = ctx.header('brc-185-android-binding')
+  const refuse = (): { refuse: RoutePlan } => ({ refuse: unknownBinding(epoch) })
+  if (epoch === undefined || instanceId === undefined || continuityKey === undefined || presented === undefined) {
+    return refuse()
+  }
+  const stored = env.ledger.secret(epoch)
+  // Compare against a fixed-size dummy when there is no binding, so the work does not depend on the epoch existing.
+  const same = timingSafeEqualB64u(presented, stored ? b64uEncode(stored) : ZERO_SECRET_B64U)
+  if (!stored || !same) return refuse()
+  if (env.ledger.origin(epoch) !== origin) return refuse()
+  const resolved = env.registry.resolve(env.transportId, { epoch, instanceId, continuityKey, origin })
+  if (isConnectionError(resolved)) return refuse()
+  return { auth: { epoch, instanceId, continuityKey, cors: corsHeaders({ origin, kind: 'binding' }) } }
+}
+
+function responseSize(text: string): number {
+  return utf8Length(text)
+}
+
+/** Maps a dispatcher `Outcome` to the HTTP response of spec 6.5 (Outcome mapping) and 6.6.2. */
+function mapOutcome(outcome: Outcome, epoch: string, cors: [string, string][]): RouteResponse {
+  if (outcome.ok) {
+    let text: string | undefined
+    try {
+      text = JSON.stringify(outcome.result)
+    } catch {
+      text = undefined
+    }
+    if (typeof text !== 'string' || responseSize(text) > MAX_BRIDGE_REQUEST_BYTES) {
+      return asResponse(
+        errorResponse(connectionError('RESOURCE_LIMIT', 'Response too large', 'unknown', { epoch }), {
+          situation: 'oversizeResponse',
+          cors
+        })
+      )
+    }
+    return { status: STATUS.ok, headers: jsonHeaders(cors), body: text }
+  }
+  if ('walletError' in outcome) {
+    return { status: STATUS.walletError, headers: jsonHeaders(cors), body: JSON.stringify(outcome.walletError) }
+  }
+  const e = outcome.connectionError
+  // The dispatcher reports an oversize result as RESOURCE_LIMIT with delivery 'unknown'; that is the 502 row.
+  if (e.code === 'RESOURCE_LIMIT' && e.delivery === 'unknown') {
+    return asResponse(errorResponse(e, { situation: 'oversizeResponse', cors }))
+  }
+  // The dispatcher settles a request parked on a binding that was then closed with DISCONNECTED; the status table
+  // has no row for a server-emitted DISCONNECTED, and the connection is closed, so it is the 410 row.
+  if (e.code === 'DISCONNECTED') return asResponse(errorResponse(e, { situation: 'connectionClosed', cors }))
+  return asResponse(errorResponse(e, { cors }))
+}
+
+/** RPC (spec 6.5 step 7). The response is held until the dispatcher's `Outcome` arrives (G5, BRC-219: no deadline). */
+async function rpc(ctx: GateContext): Promise<RoutePlan> {
+  const { env, req, origin } = ctx
+  const authorised = authorise(ctx)
+  if ('refuse' in authorised) return authorised.refuse
+  const { epoch, instanceId, continuityKey, cors } = authorised.auth
+  const method = ctx.route.segment as string
+
+  // The token goes on the next response written for this epoch. `take` does not consume it: the controller calls
+  // `confirmWritten` once the response head has reached the socket (spec 7.6), so a failed write keeps it.
+  const withToken = (r: RouteResponse): RouteResponse => {
+    const token = env.tokenOutbox.take(epoch)
+    return token === undefined ? r : { ...r, headers: [...r.headers, ['BRC-185-Reconnect-Token', token]] }
+  }
+  const now = (p: RoutePlan): RoutePlan => (p.kind === 'respond' ? plan(withToken(asResponse(p))) : p)
+
+  if (ctx.header('content-type') !== 'application/json') {
+    return now(
+      errorResponse(connectionError('PROTOCOL_ERROR', 'Content-Type must be application/json', 'not-sent', { epoch }), {
+        situation: 'unsupportedMediaType',
+        cors
+      })
+    )
+  }
+  const sizeBytes = utf8Length(req.body)
+  if (sizeBytes > MAX_BRIDGE_REQUEST_BYTES) {
+    return now(
+      errorResponse(connectionError('RESOURCE_LIMIT', 'Request body is too large', 'not-sent', { epoch }), {
+        situation: 'bodyTooLarge',
+        cors
+      })
+    )
+  }
+  let args: unknown
+  try {
+    args = parseStrictJson(req.body)
+  } catch {
+    return now(
+      errorResponse(connectionError('PROTOCOL_ERROR', 'Request body is not valid JSON', 'not-sent', { epoch }), {
+        cors
+      })
+    )
+  }
+  if (!isBridgeMethod(method)) {
+    return now(
+      errorResponse(connectionError('PROTOCOL_ERROR', 'Unknown method', 'not-sent', { epoch }), {
+        situation: 'notFound',
+        cors
+      })
+    )
+  }
+
+  const settled = (async (): Promise<RouteResponse> => {
+    let counted = false
+    let started = false
+    try {
+      env.ledger.touch(epoch)
+      env.ledger.inFlight(epoch, 1)
+      counted = true
+      const pending = env.dispatch({
+        transport: env.transportId,
+        request: {
+          epoch,
+          instanceId,
+          continuityKey,
+          origin,
+          method,
+          args,
+          sizeBytes,
+          // A page that left before the wallet was called never reaches it (spec 6.5, hold-open and client-gone).
+          beforeCall: async () => {
+            if (env.ledger.isGone(req.id)) {
+              throw connectionError('CONNECTION_CLOSED', 'Client closed the connection', 'not-sent', { epoch })
+            }
+          }
+        }
+      })
+      started = true
+      const outcome = await pending
+      env.ledger.touch(epoch)
+      return withToken(mapOutcome(outcome, epoch, cors))
+    } catch {
+      // Never the thrown message: it may carry a path or a stack.
+      return withToken(
+        asResponse(
+          errorResponse(
+            connectionError('CONFIGURATION_ERROR', 'Internal error', started ? 'unknown' : 'not-sent', { epoch }),
+            {
+              situation: 'internal',
+              cors
+            }
+          )
+        )
+      )
+    } finally {
+      if (counted) {
+        try {
+          env.ledger.inFlight(epoch, -1)
+          env.ledger.clearGone(req.id)
+        } catch {
+          /* bookkeeping must never turn into an unanswered request */
+        }
+      }
+    }
+  })().catch(() => asResponse(internalError(cors)))
+  return { kind: 'hold', id: req.id, settled }
+}
+
+/** Disconnect (spec 6.5 step 8): the same authorisation, then the binding closes `disconnected`. */
+async function disconnect(ctx: GateContext): Promise<RoutePlan> {
+  const { env } = ctx
+  const authorised = authorise(ctx)
+  if ('refuse' in authorised) return authorised.refuse
+  const { epoch, cors } = authorised.auth
+  if (ctx.route.segment !== epoch) {
+    return errorResponse(connectionError('PROVIDER_CHANGED', 'Unknown connection', 'not-sent', { epoch }), { cors })
+  }
+  try {
+    env.registry.close(epoch, 'disconnected')
+  } catch {
+    /* already closed: the answer is the same */
+  }
+  // Same teardown as the failed-connect rollback. Each port call is idempotent, so a registry close listener that
+  // does the same work is harmless.
+  env.ledger.close(epoch)
+  env.unsettledGate.release(epoch)
+  env.tokenOutbox.drop(epoch)
+  env.session.onBindingClosed(epoch)
+  return respond(STATUS.noContent, base(cors), '')
 }
 
 export const defaultRoutes: Record<RouteKind, RouteHandler> = {
   describe,
   connect,
-  disconnect: notYet,
-  rpc: notYet
+  disconnect,
+  rpc
 }
 
 export function createLoopbackRouter(
