@@ -6,8 +6,9 @@ import android.os.Bundle
 
 /**
  * The only exported component (spec 6.3). No React Native, no JS, no UI. `onCreate` validates the launch data (scheme,
- * host `launch`, at most 512 bytes), stores it in process memory, starts the main component WITHOUT the URI (an explicit
- * intent, only a sequence number as an extra) at most once per 3 s, then finishes. A rapid further launch still stores its
+ * host `launch`, at most 512 bytes), stores it in process memory, starts the sheet (overlay mode: host attached and ready,
+ * tracker caught up, `MainActivity` alive and not resumed) or the main component (foreground mode) WITHOUT the URI (an
+ * explicit intent, only a sequence number as an extra) at most once per 3 s, then finishes. A rapid further launch still stores its
  * record. The URI holds secrets: it is never logged and never put on another intent.
  *
  * The scheme is the one the matched intent filter delivered (the config plugin owns it); the check here is on shape. A
@@ -29,12 +30,16 @@ class LaunchTrampolineActivity : Activity() {
     val uri = LaunchIntent.validate(data, scheme) ?: return
     val seq = BridgeState.launchStore.put(uri)
     if (BridgeState.startThrottle.shouldStart()) {
-      val next = packageManager.getLaunchIntentForPackage(packageName)
+      val mode = SheetPolicy.chooseMode(BridgeState.hostAttached, BridgeState.hostReady, BridgeState.life.snapshot())
+      val next =
+        if (mode == LaunchMode.OVERLAY) Intent(this, BridgeSheetActivity::class.java)
+        else packageManager.getLaunchIntentForPackage(packageName)
       if (next != null) {
         next.data = null
-        next.putExtra(EXTRA_SEQ, seq)
+        next.putExtra(EXTRA_SEQ, seq) // typed Long: the sheet reads it with getLongExtra
         next.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        BridgeState.raisedByBridge = true
+        // A wallet the bridge raised goes back to the browser afterwards; the overlay sheet finishes back to it by itself.
+        BridgeState.raisedByBridge = mode == LaunchMode.FOREGROUND
         try {
           startActivity(next)
         } catch (e: Exception) {

@@ -3,3 +3,7 @@
 -keep class org.bsv.walletbridge.BsvAndroidBridgeModule { *; }
 -keep class org.bsv.walletbridge.LaunchTrampolineActivity { *; }
 -keep class org.bsv.walletbridge.BridgeService { *; }
+# The sheet Activity (named in the manifest) and the two ReactActivityDelegate/ReactDelegate members its destroy guard calls.
+-keep class org.bsv.walletbridge.BridgeSheetActivity { *; }
+-keepclassmembers class com.facebook.react.ReactActivityDelegate { *** getReactDelegate(); }
+-keepclassmembers class com.facebook.react.ReactDelegate { *** unloadApp(); }

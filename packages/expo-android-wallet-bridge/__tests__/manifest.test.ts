@@ -16,14 +16,15 @@ async function load() {
   return { raw, manifest: doc.manifest }
 }
 
-describe('library manifest (spec 6.3, M1)', () => {
-  it('declares exactly the M1 permissions and no SYSTEM_ALERT_WINDOW', async () => {
+describe('library manifest (spec 6.3, M2)', () => {
+  it('declares exactly the M1 permissions plus HIDE_OVERLAY_WINDOWS and no SYSTEM_ALERT_WINDOW', async () => {
     const { manifest } = await load()
     const names = ((manifest['uses-permission'] as any[]) ?? []).map(p => a(p, 'name')).sort()
     expect(names).toEqual(
       [
         'android.permission.FOREGROUND_SERVICE',
         'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+        'android.permission.HIDE_OVERLAY_WINDOWS',
         'android.permission.INTERNET',
         'android.permission.POST_NOTIFICATIONS'
       ].sort()
@@ -31,7 +32,7 @@ describe('library manifest (spec 6.3, M1)', () => {
     expect(names).not.toContain('android.permission.SYSTEM_ALERT_WINDOW')
   })
 
-  it('has exactly one exported component, the trampoline, with no intent filter', async () => {
+  it('has exactly one exported component plus the unexported sheet', async () => {
     const { manifest } = await load()
     const app = manifest.application[0]
     const comps: any[] = [
@@ -68,13 +69,45 @@ describe('library manifest (spec 6.3, M1)', () => {
     expect((a(subtype, 'value') ?? '').length).toBeGreaterThan(20)
   })
 
-  it('has no receiver, no sheet activity (M2) and no overlay', async () => {
+  it('declares the sheet activity non-exported with the spec 7.4 attributes and no intent filter', async () => {
+    const { manifest } = await load()
+    const sheet = ((manifest.application[0].activity ?? []) as any[]).find(
+      x => a(x, 'name') === 'org.bsv.walletbridge.BridgeSheetActivity'
+    )
+    expect(sheet).toBeDefined()
+    expect(a(sheet, 'exported')).toBe('false')
+    expect(a(sheet, 'launchMode')).toBe('singleTask')
+    expect(a(sheet, 'taskAffinity')).toBe('${applicationId}.bridge')
+    expect(a(sheet, 'excludeFromRecents')).toBe('true')
+    expect(a(sheet, 'windowSoftInputMode')).toBe('adjustResize')
+    expect(a(sheet, 'theme')).toBe('@style/Theme.BsvBridgeSheet')
+    // the configChanges list of the S4 diff
+    expect((a(sheet, 'configChanges') ?? '').split('|').sort()).toEqual(
+      [
+        'keyboard',
+        'keyboardHidden',
+        'orientation',
+        'screenSize',
+        'screenLayout',
+        'uiMode',
+        'smallestScreenSize',
+        'locale',
+        'layoutDirection'
+      ].sort()
+    )
+    expect(a(sheet, 'noHistory')).toBeUndefined()
+    expect(sheet['intent-filter']).toBeUndefined()
+  })
+
+  it('has no receiver and no overlay permission; the activities are the trampoline and the sheet', async () => {
     const { manifest, raw } = await load()
     const app = manifest.application[0]
     expect(app.receiver).toBeUndefined()
-    expect(raw).not.toContain('BridgeSheetActivity')
     expect(raw).not.toContain('SYSTEM_ALERT_WINDOW')
     const activities: any[] = app.activity ?? []
-    expect(activities.map(x => a(x, 'name'))).toEqual(['org.bsv.walletbridge.LaunchTrampolineActivity'])
+    expect(activities.map(x => a(x, 'name')).sort()).toEqual([
+      'org.bsv.walletbridge.BridgeSheetActivity',
+      'org.bsv.walletbridge.LaunchTrampolineActivity'
+    ])
   })
 })

@@ -4,6 +4,8 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.INTERNET" />
+  <!-- Normal permission; Window.setHideOverlayWindows (API 31+) needs it for the sheet's overlay protection. -->
+  <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
 
   <application>
     <!-- The only exported component. It holds no React Native. The config plugin adds its one intent filter (the host's
@@ -15,6 +17,17 @@
       android:excludeFromRecents="true"
       android:noHistory="true"
       android:taskAffinity="" />
+
+    <!-- The overlay sheet over Chrome. Not exported: only the trampoline and the notification tap start it, explicitly. -->
+    <activity
+      android:name="org.bsv.walletbridge.BridgeSheetActivity"
+      android:exported="false"
+      android:launchMode="singleTask"
+      android:taskAffinity="${applicationId}.bridge"
+      android:excludeFromRecents="true"
+      android:windowSoftInputMode="adjustResize"
+      android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize|locale|layoutDirection"
+      android:theme="@style/Theme.BsvBridgeSheet" />
 
     <service
       android:name="org.bsv.walletbridge.BridgeService"

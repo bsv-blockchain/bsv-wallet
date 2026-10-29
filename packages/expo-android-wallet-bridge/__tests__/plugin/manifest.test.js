@@ -52,6 +52,9 @@ describe('plugin manifest output', () => {
     expect(text).not.toContain('BOOT_COMPLETED')
     expect(m.queries).toBeUndefined()
     expect(m['uses-permission']).toBeUndefined()
+    // the sheet Activity and HIDE_OVERLAY_WINDOWS come from the library manifest (merged by Gradle), never from the plugin
+    expect(text).not.toContain('BridgeSheetActivity')
+    expect(text).not.toContain('HIDE_OVERLAY_WINDOWS')
     expect(m.application[0].receiver).toBeUndefined()
     expect(m.application[0].service).toBeUndefined()
     // MainActivity and the alias are exactly as the host had them
