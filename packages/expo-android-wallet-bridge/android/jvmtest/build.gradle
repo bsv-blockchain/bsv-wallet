@@ -1,0 +1,38 @@
+buildscript {
+  repositories { mavenCentral(); gradlePluginPortal() }
+  dependencies { classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.10' }
+}
+apply plugin: 'org.jetbrains.kotlin.jvm'
+repositories { mavenCentral() }
+
+// The pure-JVM include list: every file named here must stay free of android.* and androidx.* imports
+// (check-pure.sh enforces it). Later tasks append their pure files here and in check-pure.sh's list.
+ext.pureFiles = [
+  'org/bsv/walletbridge/HttpParser.kt',
+  'org/bsv/walletbridge/HttpWriter.kt',
+  'org/bsv/walletbridge/HostCheck.kt'
+]
+
+sourceSets {
+  main {
+    kotlin {
+      srcDir '../src/main/kotlin'
+      include pureFiles
+    }
+  }
+  test {
+    kotlin { srcDir '../src/test/kotlin' }
+  }
+}
+
+dependencies {
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.hamcrest:hamcrest-core:1.3'
+  testImplementation 'org.json:json:20240303'
+}
+
+kotlin { jvmToolchain(17) }
+
+test {
+  systemProperty 'hostCheckFixture', "$projectDir/../../../expo-wallet-toolbox/__tests__/bridge/loopback/fixtures/host-check.json"
+}
