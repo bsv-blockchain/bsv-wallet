@@ -179,6 +179,8 @@ export function createSession(deps: {
       native.setTimer('chain', Math.max(0, CHAIN_CAP_MS - (clock() - chainStart)))
     } finally {
       arming = false
+      // A launch or attach that hit the `arming` guard while a stop overtook this arm would otherwise be lost.
+      if (mine !== generation) void arm()
     }
   }
 

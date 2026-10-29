@@ -77,6 +77,25 @@ describe('session machine', () => {
     expect(t.registry.take(epochOf(1))).toBeDefined()
   })
 
+  it('a detach and re-attach during ensureService still ends with a listener', async () => {
+    const t = setup()
+    const real = t.native.ensureService
+    let release!: () => void
+    t.native.ensureService = async () => {
+      await new Promise<void>(r => (release = r))
+      return real()
+    }
+    await t.launch(1)
+    t.session.onHostAttached(false)
+    t.session.onHostAttached(true)
+    t.native.ensureService = real
+    release()
+    await flush()
+    await flush()
+    expect(t.session.state()).toBe('ARMED')
+    expect(t.native.serverRunning).toBe(true)
+  })
+
   it('startServer failure stays IDLE and stops the service', async () => {
     const t = setup()
     t.native.startServerResult = new Error('ports exhausted')
