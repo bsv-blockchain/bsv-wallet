@@ -174,7 +174,7 @@ class BsvAndroidBridgeModule : Module() {
 
     Function("setSheetInteractive") { on: Boolean -> BridgeState.setSheetInteractive(on) }
 
-    // Only the owner-decision variant (11-W) gives showSheet a body.
+    // Variant 11-N (S6: notification only, no owner decision to force background sheets): showSheet stays a no-op.
     Function("showSheet") { _: String -> }
 
     Function("hideSheet") { BridgeState.finishSheet() }

@@ -47,21 +47,20 @@ object AttentionPoster {
   private fun smallIcon(ctx: Context): Int =
     if (ctx.applicationInfo.icon != 0) ctx.applicationInfo.icon else android.R.drawable.ic_dialog_info
 
-  /** Explicit-component, immutable PendingIntent to the host's main activity (never the trampoline). */
-  private fun openApp(ctx: Context, requestCode: Int): PendingIntent? {
-    val component = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.component ?: return null
-    val i =
-      Intent(Intent.ACTION_MAIN).apply {
-        addCategory(Intent.CATEGORY_LAUNCHER)
-        setComponent(component)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-      }
-    return PendingIntent.getActivity(ctx, requestCode, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+  /**
+   * Notification tap target (M2, spec 6.10): an explicit-component, immutable PendingIntent to [BridgeSheetActivity], never
+   * the host launch intent. The Activity decides in `onCreate` before it loads anything: `OVERLAY` shows the sheet,
+   * otherwise it forwards to `MainActivity` and finishes (foreground mode, `raisedByBridge` stays false). No sequence number
+   * and no URI ride on the intent, so the tap can never reset or arm anything.
+   */
+  private fun openSheet(ctx: Context, requestCode: Int): PendingIntent {
+    val i = Intent(ctx, BridgeSheetActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    return PendingIntent.getActivity(ctx, requestCode, i, NotificationSpec.pendingFlags())
   }
 
   private fun disconnect(ctx: Context): PendingIntent {
     val i = Intent(ctx, BridgeService::class.java).setAction(ACTION_DISCONNECT)
-    return PendingIntent.getService(ctx, 1, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    return PendingIntent.getService(ctx, 1, i, NotificationSpec.pendingFlags())
   }
 
   /** Channels exist from API 26; below that the importance maps to a notification priority (minSdk is 24). */
@@ -87,7 +86,7 @@ object AttentionPoster {
   fun buildSession(ctx: Context, sites: Int, waiting: Int): Notification {
     val spec = NotificationSpecs.session(sites, waiting)
     val b = base(ctx, spec).setOngoing(true).setCategory(Notification.CATEGORY_SERVICE)
-    openApp(ctx, 0)?.let { b.setContentIntent(it) }
+    b.setContentIntent(openSheet(ctx, 0))
     b.addAction(Notification.Action.Builder(null, "Disconnect", disconnect(ctx)).build())
     return b.build()
   }
@@ -102,7 +101,7 @@ object AttentionPoster {
     if (!canPost(ctx)) return
     val spec = NotificationSpecs.attention()
     val b = base(ctx, spec).setCategory(Notification.CATEGORY_MESSAGE).setAutoCancel(true)
-    openApp(ctx, 2)?.let { b.setContentIntent(it) }
+    b.setContentIntent(openSheet(ctx, 2))
     ctx.getSystemService(NotificationManager::class.java)?.notify(ATTENTION_ID, b.build())
   }
 

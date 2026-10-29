@@ -110,4 +110,44 @@ describe('library manifest (spec 6.3, M2)', () => {
       'org.bsv.walletbridge.LaunchTrampolineActivity'
     ])
   })
+  describe('notification tap target (M2 Task 11, variant 11-N)', () => {
+    const kt = (n: string) =>
+      readFileSync(join(__dirname, '..', 'android', 'src', 'main', 'kotlin', 'org', 'bsv', 'walletbridge', n), 'utf8')
+
+    it('the notification PendingIntents target the sheet Activity explicitly, built with NotificationSpec.pendingFlags()', async () => {
+      const src = kt('AttentionPoster.kt')
+      const { manifest } = await load()
+      const sheet = ((manifest.application[0].activity ?? []) as any[]).find(
+        x => a(x, 'name') === 'org.bsv.walletbridge.BridgeSheetActivity'
+      )
+      expect(sheet).toBeDefined()
+      // explicit component, never the host launch intent
+      expect(src).toContain('BridgeSheetActivity::class.java')
+      expect(src).not.toContain('getLaunchIntentForPackage')
+      expect(src).toContain('NotificationSpec.pendingFlags()')
+      // no hard-coded immutable-only flags left on a content intent
+      const contentIntent = src.slice(src.indexOf('private fun openSheet'), src.indexOf('private fun disconnect'))
+      expect(contentIntent).not.toMatch(/FLAG_ACTIVITY_SINGLE_TOP/)
+      // no sequence number and no URI on the tap intent
+      expect(contentIntent).not.toMatch(/putExtra|\.data\s*=|setData|EXTRA_SEQ/)
+    })
+
+    it('the sheet is still the only non-trampoline activity and not exported', async () => {
+      const { manifest } = await load()
+      const sheet = ((manifest.application[0].activity ?? []) as any[]).find(
+        x => a(x, 'name') === 'org.bsv.walletbridge.BridgeSheetActivity'
+      )
+      expect(a(sheet, 'exported')).toBe('false')
+    })
+
+    it('showSheet stays a no-op declaration (11-W is not implemented: no owner decision recorded)', () => {
+      const mod = kt('BsvAndroidBridgeModule.kt')
+      expect(mod).not.toContain('mayShowInBackground')
+    })
+
+    it('notification text is generic and names no site', () => {
+      const src = kt('NotificationSpec.kt')
+      expect(src).toContain('"A website wants to continue. Tap to review."')
+    })
+  })
 })
