@@ -37,7 +37,7 @@ import { createLaunchRegistry } from './controller/launchRegistry'
 import { createSession, type Session } from './controller/session'
 import { createTokenOutbox } from './controller/tokenOutbox'
 import { createUnsettledGate } from './controller/unsettledGate'
-import { setSheetOwnerSource } from './ui/sheetOwner'
+import { ownerFromNative, setSheetOwnerSource, type SheetOwner } from './ui/sheetOwner'
 import { registerSheetRoot } from './ui/registerSheetRoot'
 
 export const ANDROID_TRANSPORT_ID = 'android-loopback'
@@ -63,12 +63,16 @@ export interface AndroidBridgeDeps extends SetupOptions {
   getSnapshot?: () => BridgeSnapshot
   /** Defaults to `native.elapsedRealtime`, the clock every deadline uses. */
   clock?: () => number
+  /** Which window shows the sheet. Defaults to the native lifecycle tracker (`AppState` while it is unregistered). */
+  owner?: () => SheetOwner
 }
 
 export interface AndroidBridge {
   controller: Controller
   session: Session
   attention: Attention
+  /** Which window shows the sheet right now (the same reader the attention logic uses). */
+  owner: () => SheetOwner
   /** Host-visible flags and the launch signal (for `AndroidBridgeHost` and `AndroidBridgeNotices`). */
   notices: Notices
   native: BsvAndroidBridgeNative
@@ -130,7 +134,8 @@ export function createAndroidBridge(deps: AndroidBridgeDeps): AndroidBridge {
     clock,
     notices
   })
-  const attention = createAttention({ native, clock })
+  const owner = deps.owner ?? (() => ownerFromNative(native))
+  const attention = createAttention({ native, clock, owner })
   attention.onWaitingChange(n => session.setWaiting(n))
 
   const router = createLoopbackRouter({
@@ -183,6 +188,7 @@ export function createAndroidBridge(deps: AndroidBridgeDeps): AndroidBridge {
     controller,
     session,
     attention,
+    owner,
     notices,
     native,
     continuity,

@@ -179,13 +179,35 @@ class BsvAndroidBridgeModule : Module() {
 
     Function("hideSheet") { BridgeState.finishSheet() }
 
-    // moveTaskToBack of the foreground activity, only when the bridge raised it (the wallet was not already open).
+    // The way back (spec 7.4, S3 (b), (d)): `ReturnPolicy` decides from what is true now; never an error, so a Back race
+    // (the sheet already finished) or a call with no wallet in front is a no-op for JS.
     Function("returnToBrowser") {
-      val activity = appContext.currentActivity ?: throw NoActivityException()
-      if (BridgeState.raisedByBridge) {
-        BridgeState.raisedByBridge = false
-        activity.runOnUiThread { activity.moveTaskToBack(true) }
+      val live = BridgeState.sheet?.get()?.let { !it.isFinishing } == true
+      val raised = BridgeState.raisedByBridge
+      val mainResumed = BridgeState.tracker.snapshot.mainResumed
+      when (ReturnPolicy.decide(live, raised, mainResumed)) {
+        ReturnAction.FINISH_SHEET -> BridgeState.finishSheet()
+        ReturnAction.FINISH_SHEET_THEN_MOVE_TASK_TO_BACK -> {
+          BridgeState.finishSheet()
+          BridgeState.raisedByBridge = false
+          // finish() returns to the task below the sheet; if that left the wallet resumed, go on to the browser.
+          Handler(Looper.getMainLooper()).postDelayed({ moveMainToBackIfResumed() }, AFTER_FINISH_MS)
+          Unit
+        }
+        ReturnAction.MOVE_TASK_TO_BACK -> {
+          BridgeState.raisedByBridge = false
+          moveMainToBackIfResumed()
+        }
+        ReturnAction.NONE -> Unit
       }
+      Unit
+    }
+  }
+
+  private fun moveMainToBackIfResumed() {
+    val activity = appContext.currentActivity ?: return
+    activity.runOnUiThread {
+      if (BridgeState.tracker.snapshot.mainResumed) activity.moveTaskToBack(true)
     }
   }
 
@@ -204,6 +226,9 @@ class BsvAndroidBridgeModule : Module() {
 
   companion object {
     private const val PREFS = "bsv_android_bridge"
+
+    /** Time for the OS to settle after a sheet `finish()` before the wallet task is moved to back. */
+    private const val AFTER_FINISH_MS = 250L
     private const val KEY_ASKED = "notification_permission_asked"
   }
 }

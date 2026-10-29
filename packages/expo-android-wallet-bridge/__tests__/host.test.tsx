@@ -12,7 +12,13 @@ import React from 'react'
 import { AppState } from 'react-native'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { attachBridgeHost } from '@bsv/expo-wallet-toolbox/core/bridge/runtime'
-import { AndroidBridgeHost, RETURN_HYSTERESIS_MS, RETURN_TIMER } from '../src/AndroidBridgeHost'
+import {
+  AndroidBridgeHost,
+  IDLE_RETURN_MS,
+  IDLE_TIMER,
+  RETURN_HYSTERESIS_MS,
+  RETURN_TIMER
+} from '../src/AndroidBridgeHost'
 import { ContextRelaySubscriber, resetContextRelay } from '@bsv/expo-wallet-toolbox/ui/bridgeSheet/ContextRelay'
 import { createHarness, type Harness } from './bridgeHarness'
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
@@ -111,17 +117,22 @@ describe('AndroidBridgeHost', () => {
     expect(callsOf(t, 'requestNotificationPermission')).toHaveLength(0)
   })
 
-  it('AppState changes reach attention.setMainInFront', async () => {
+  it('lifecycle and AppState changes reach attention.refreshFront; the owner, not AppState, decides', async () => {
     const t = await mk()
-    const spy = jest.spyOn(t.bridge.attention, 'setMainInFront')
+    t.native.setHostLifecycle({ registered: true, mainAlive: true, mainResumed: true })
+    const spy = jest.spyOn(t.bridge.attention, 'refreshFront')
     mount(t)
-    expect(t.bridge.attention.isMainInFront()).toBe(true)
+    expect(t.bridge.attention.isWalletInFront()).toBe(true)
+    const n = spy.mock.calls.length
+    act(() => t.native.setHostLifecycle({ mainResumed: false }))
+    expect(spy.mock.calls.length).toBeGreaterThan(n)
+    // AppState says active, the tracker says nothing is resumed: nothing is in front.
+    expect(t.bridge.attention.isWalletInFront()).toBe(false)
+    const m = spy.mock.calls.length
     setAppState('background')
-    expect(spy).toHaveBeenLastCalledWith(false)
-    expect(t.bridge.attention.isMainInFront()).toBe(false)
-    setAppState('active')
-    expect(spy).toHaveBeenLastCalledWith(true)
-    expect(t.bridge.attention.isMainInFront()).toBe(true)
+    expect(spy.mock.calls.length).toBeGreaterThan(m)
+    act(() => t.native.setHostLifecycle({ sheetResumed: true }))
+    expect(t.bridge.attention.isWalletInFront()).toBe(true)
   })
 
   it('setSession counts follow the ledger and the waiting count', async () => {
@@ -161,6 +172,92 @@ describe('AndroidBridgeHost', () => {
     t.native.advance(10_000)
     expect(callsOf(t, 'returnToBrowser')).toHaveLength(1)
     expect(c.epoch).toBeDefined()
+  })
+
+  const placeAt = (t: Harness, place: 'main' | 'overlay' | 'none') =>
+    act(() =>
+      t.native.setHostLifecycle({
+        registered: true,
+        mainAlive: true,
+        mainResumed: place === 'main',
+        sheetResumed: place === 'overlay'
+      })
+    )
+  async function approvedAt(t: Harness, place: 'main' | 'overlay' | 'none') {
+    placeAt(t, place === 'none' ? 'main' : place)
+    mount(t)
+    await consented(t)
+    await t.waitFor(() => t.bridge.attention.waitingCount() === 1, 'a pending consent')
+    await t.approve()
+    await t.waitFor(() => t.response('first-1') !== undefined, 'the approved call')
+    await t.waitFor(() => t.native.activeTimers().some(x => x.name === RETURN_TIMER), 'the hysteresis timer')
+    if (place === 'none') placeAt(t, 'none')
+  }
+
+  it.each([['main'], ['overlay']] as const)(
+    'returnToBrowser is requested 600 ms after the last pending item for owner %s',
+    async place => {
+      const t = await mk()
+      await approvedAt(t, place)
+      t.native.advance(RETURN_HYSTERESIS_MS)
+      expect(callsOf(t, 'returnToBrowser')).toHaveLength(1)
+    }
+  )
+
+  it('returnToBrowser is not requested for owner none (nothing is in front to return from)', async () => {
+    const t = await mk()
+    await approvedAt(t, 'none')
+    t.native.advance(RETURN_HYSTERESIS_MS)
+    expect(callsOf(t, 'returnToBrowser')).toHaveLength(0)
+  })
+
+  it('returnToBrowser after the sheet already finished does nothing and never throws', async () => {
+    const t = await mk()
+    await approvedAt(t, 'overlay')
+    // Back finished the sheet inside the 600 ms: the owner is none when the timer fires.
+    placeAt(t, 'none')
+    expect(() => t.native.advance(RETURN_HYSTERESIS_MS)).not.toThrow()
+    expect(callsOf(t, 'returnToBrowser')).toHaveLength(0)
+    expect(() => t.native.returnToBrowser()).not.toThrow()
+  })
+
+  it('idle rule: overlay owner with nothing ever pending requests returnToBrowser after IDLE_RETURN_MS', async () => {
+    const t = await mk()
+    placeAt(t, 'main')
+    mount(t)
+    placeAt(t, 'overlay')
+    expect(IDLE_RETURN_MS).toBe(5000)
+    expect(t.native.activeTimers().some(x => x.name === IDLE_TIMER)).toBe(true)
+    t.native.advance(IDLE_RETURN_MS - 1)
+    expect(callsOf(t, 'returnToBrowser')).toHaveLength(0)
+    t.native.advance(1)
+    expect(callsOf(t, 'returnToBrowser')).toHaveLength(1)
+  })
+
+  it('a connect arriving before IDLE_RETURN_MS cancels the idle return', async () => {
+    const t = await mk()
+    placeAt(t, 'main')
+    mount(t)
+    placeAt(t, 'overlay')
+    t.native.advance(IDLE_RETURN_MS - 1000)
+    await consented(t)
+    await t.waitFor(() => t.bridge.attention.waitingCount() === 1, 'a pending consent')
+    expect(t.native.activeTimers().some(x => x.name === IDLE_TIMER)).toBe(false)
+    t.native.advance(IDLE_RETURN_MS * 2)
+    expect(callsOf(t, 'returnToBrowser')).toHaveLength(0)
+  })
+
+  it('the idle timer does not arm for owner main, and leaving the overlay clears it', async () => {
+    const t = await mk()
+    placeAt(t, 'main')
+    mount(t)
+    expect(t.native.activeTimers().some(x => x.name === IDLE_TIMER)).toBe(false)
+    placeAt(t, 'overlay')
+    expect(t.native.activeTimers().some(x => x.name === IDLE_TIMER)).toBe(true)
+    placeAt(t, 'main')
+    expect(t.native.activeTimers().some(x => x.name === IDLE_TIMER)).toBe(false)
+    t.native.advance(IDLE_RETURN_MS * 2)
+    expect(callsOf(t, 'returnToBrowser')).toHaveLength(0)
   })
 
   it('a new pending item inside the hysteresis cancels the return', async () => {

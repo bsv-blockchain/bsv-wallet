@@ -28,10 +28,15 @@ export function ownerOf(l: Pick<HostLifecycle, 'mainResumed' | 'sheetResumed'>):
   return 'none'
 }
 
-export function sheetOwner(): SheetOwner {
-  const l = source?.hostLifecycle()
+/** The owner as seen through one native module (the controller's attention reads it; `sheetOwner()` is the module-wide one). */
+export function ownerFromNative(native: Pick<BsvAndroidBridgeNative, 'hostLifecycle'> | undefined): SheetOwner {
+  const l = native?.hostLifecycle()
   if (!l || !l.registered) return AppState.currentState === 'active' ? 'main' : 'none'
   return ownerOf(l)
+}
+
+export function sheetOwner(): SheetOwner {
+  return ownerFromNative(source)
 }
 
 const emit = () => {
