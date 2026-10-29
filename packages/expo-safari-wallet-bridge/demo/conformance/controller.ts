@@ -7,7 +7,7 @@
  * - `stop` lets the current card finish; matrices record their remaining cases as skipped, and no further card starts.
  * - The report holds ids, status, duration and error code only: never wallet payloads, keys or error messages.
  */
-import type { Connection, PageClient } from '../../src/testing/pageClient'
+import type { Connection, PageClient } from '@bsv/expo-wallet-toolbox/core/bridge/testing/pageClient'
 import { executeSnippet, type SnippetResult, type SnippetRunner } from './lib/snippet-runner'
 import { CARDS, type Card } from './registry'
 import { releaseOutstandingNoSend, setBridgeConnection } from './snippets/wallet'

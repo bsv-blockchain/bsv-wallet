@@ -11,7 +11,11 @@
  * wallet rejection, and the conformance checks must not mistake it for one.
  */
 import type { WalletInterface } from '@bsv/sdk'
-import { isConnectionError, type Connection, type PageClient } from '../src/testing/pageClient'
+import {
+  isConnectionError,
+  type Connection,
+  type PageClient
+} from '@bsv/expo-wallet-toolbox/core/bridge/testing/pageClient'
 
 /** Typed against `WalletInterface`, so a method added to the SDK fails type-checking here until it is listed. */
 const METHODS: Record<keyof WalletInterface, true> = {

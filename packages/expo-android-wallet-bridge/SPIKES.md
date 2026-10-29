@@ -111,3 +111,18 @@ Result: **PASS**. Plugin: `app.plugin.js` -> `plugin/{index,validate,manifest}.j
   `session.onHostAttached` is idempotent in any case.
 - **wallet-not-ready freshness.** "Right after a launch" is 20 s (`LAUNCH_FRESH_MS`) from the last accepted launch; nothing is
   posted inside it, a notification afterwards.
+
+## Task 20: demo page
+
+- **esbuild is not installed in `WT/node_modules`** and neither root `package.json` declares it (the iOS kit's `demo/build.mjs`,
+  `plugin/buildExtension.js` and 7 iOS suites already needed it; they fail with `Cannot find module 'esbuild'` without it).
+  Run `node demo/build.mjs`, `node demo/serve.mjs` and the iOS jest suite with
+  `NODE_PATH=/Users/personal/git/ts/bitcoin-sv-wallet/.claude/worktrees/safari-bridge/node_modules` (esbuild 0.28.2, read-only use,
+  nothing in that worktree is touched). With it: `node PKG/demo/build.mjs` builds `.build/demo/demo.js` (about 1.3 MB, target
+  `chrome100`), and `npx jest --ci packages/expo-safari-wallet-bridge` is 34 suites / 314 tests green after the type-only edit.
+- Serve the Android demo on 3001 (the iOS demo holds 3000): `node PKG/demo/serve.mjs 3001`, then `adb reverse tcp:3001 tcp:3001`;
+  the page origin is then `http://localhost:3001` (BRC-325 loopback exempt in a debug build).
+- The Conformance panel and `bridgeWallet.ts` are imported from the iOS kit by relative path; the iOS demo files now take
+  `PageClient`, `Connection` and `isConnectionError` from the toolbox `core/bridge/testing/pageClient` (type-only edit).
+- "Open wallet" starts a discovery scan right after `launch()` (as the page contract does after one click); `describe` rescans
+  with the same launch. `absent` is shown as `ABSENT: no wallet answered` (the client reports it as `wallet did not open`).
