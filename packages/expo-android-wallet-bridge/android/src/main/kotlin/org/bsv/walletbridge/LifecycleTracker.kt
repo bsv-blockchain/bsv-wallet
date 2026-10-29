@@ -3,6 +3,7 @@ package org.bsv.walletbridge
 import android.app.Activity
 import android.app.Application
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 
@@ -59,7 +60,9 @@ class LifecycleTracker(private val state: LifecycleState, private val onChange: 
   }
 
   override fun onActivityPaused(activity: Activity) {
-    state.onPaused(roleOf(activity))
+    val role = roleOf(activity)
+    if (role == Role.MAIN) BridgeState.mainPausedAtMs = SystemClock.uptimeMillis()
+    state.onPaused(role)
     publish()
   }
 

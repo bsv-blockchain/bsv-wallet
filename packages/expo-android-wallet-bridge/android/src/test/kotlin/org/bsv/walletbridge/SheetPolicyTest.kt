@@ -84,4 +84,10 @@ class SheetPolicyTest {
     assertFalse(SheetPolicy.mayShowInBackground(100000L, 50000L, 80000L))
     assertTrue(SheetPolicy.mayShowInBackground(100000L, 50000L, 70000L))
   }
+
+  @Test fun `a tap right after main paused is FORWARD_TO_MAIN, an older pause is SHOW`() {
+    assertEquals(CreateAction.FORWARD_TO_MAIN, SheetPolicy.onCreateAction(false, true, true, ok, 40L))
+    assertEquals(CreateAction.SHOW, SheetPolicy.onCreateAction(false, true, true, ok, 600L))
+    assertEquals(CreateAction.SHOW, SheetPolicy.onCreateAction(false, true, true, ok, null))
+  }
 }

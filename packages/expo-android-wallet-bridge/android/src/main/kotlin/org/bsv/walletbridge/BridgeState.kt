@@ -29,6 +29,9 @@ object BridgeState {
   /** The live sheet Activity, set and cleared by `BridgeSheetActivity` (never strong: a destroyed sheet must not leak). */
   @Volatile var sheet: WeakReference<Activity>? = null
 
+  /** Uptime (ms) at which `MainActivity` last paused; 0 when it never has. Read by a sequence-less sheet start. */
+  @Volatile var mainPausedAtMs: Long = 0L
+
   /** Single owner of the lifecycle model; the tracker is its only writer. Events go to JS through [sink]. */
   val life = LifecycleState()
   val tracker = LifecycleTracker(life) { l ->

@@ -26,7 +26,7 @@
       android:taskAffinity="${applicationId}.bridge"
       android:excludeFromRecents="true"
       android:windowSoftInputMode="adjustResize"
-      android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize|locale|layoutDirection"
+      android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize|locale|layoutDirection|fontScale|density|colorMode|navigation|touchscreen"
       android:theme="@style/Theme.BsvBridgeSheet" />
 
     <service

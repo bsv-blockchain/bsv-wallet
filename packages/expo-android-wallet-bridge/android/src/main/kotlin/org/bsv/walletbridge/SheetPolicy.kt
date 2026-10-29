@@ -9,15 +9,28 @@ object SheetPolicy {
   const val SHOW_WINDOW_MS = 120000L
   const val SHOW_MIN_GAP_MS = 30000L
 
+  /**
+   * A notification tap carries no sequence number and starts the sheet, so the platform pauses a resumed wallet just
+   * before the sheet's onCreate. A pause this recent counts as "still resumed" for that tap.
+   */
+  const val TAP_PAUSE_GRACE_MS = 500L
+
   /** Overlay only when the host is attached and ready, the tracker has caught up, and main is alive but not resumed. */
   fun chooseMode(hostAttached: Boolean, ready: Boolean, life: HostLifecycle): LaunchMode =
     if (hostAttached && ready && life.registered && life.mainAlive && !life.mainResumed) LaunchMode.OVERLAY
     else LaunchMode.FOREGROUND
 
   /** A restored instance finishes at once and arms nothing. */
-  fun onCreateAction(hasSavedState: Boolean, hostAttached: Boolean, ready: Boolean, life: HostLifecycle): CreateAction =
+  fun onCreateAction(
+    hasSavedState: Boolean,
+    hostAttached: Boolean,
+    ready: Boolean,
+    life: HostLifecycle,
+    mainPausedAgoMs: Long? = null
+  ): CreateAction =
     when {
       hasSavedState -> CreateAction.FINISH
+      mainPausedAgoMs != null && mainPausedAgoMs in 0 until TAP_PAUSE_GRACE_MS -> CreateAction.FORWARD_TO_MAIN
       chooseMode(hostAttached, ready, life) == LaunchMode.OVERLAY -> CreateAction.SHOW
       else -> CreateAction.FORWARD_TO_MAIN
     }

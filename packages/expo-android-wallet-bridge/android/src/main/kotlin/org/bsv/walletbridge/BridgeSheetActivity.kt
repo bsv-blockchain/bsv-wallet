@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -50,12 +51,17 @@ class BridgeSheetActivity : ReactActivity() {
     SheetDelegate(this, mainComponentName, fabricEnabled)
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    // A notification tap has no sequence number; the platform pauses a wallet that was in front just before this
+    // onCreate, so a very recent pause is not "the wallet is behind Chrome".
+    val pausedAt = BridgeState.mainPausedAtMs
+    val pausedAgo = if (seqOf(intent) == null && pausedAt > 0L) SystemClock.uptimeMillis() - pausedAt else null
     val action =
       SheetPolicy.onCreateAction(
         savedInstanceState != null,
         BridgeState.hostAttached,
         BridgeState.hostReady,
-        BridgeState.life.snapshot()
+        BridgeState.life.snapshot(),
+        pausedAgo
       )
     if (action != CreateAction.SHOW) {
       sheetDelegate.inert = true
