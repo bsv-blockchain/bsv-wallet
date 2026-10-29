@@ -171,6 +171,25 @@ describe('AndroidBridgeHost', () => {
     expect(spy).toHaveBeenLastCalledWith(false)
   })
 
+  it('host sends setHostState on attach, ready and detach', async () => {
+    const t = await mk({ cold: true })
+    mount(t)
+    const states = () => callsOf(t, 'setHostState').map(c => c.args[0])
+    expect(states().at(-1)).toEqual({ attached: false, ready: false })
+    const detach = attachBridgeHost({ withdrawPrompts: jest.fn(), hasWallet: true })
+    expect(states().at(-1)).toEqual({ attached: true, ready: false })
+    act(() => t.publishAll('ready'))
+    expect(states().at(-1)).toEqual({ attached: true, ready: true })
+    act(() => t.publishAll('building'))
+    expect(states().at(-1)).toEqual({ attached: true, ready: false })
+    detach()
+    expect(states().at(-1)).toEqual({ attached: false, ready: false })
+    act(() => t.publishAll('ready'))
+    act(() => tree!.unmount())
+    tree = undefined
+    expect(states().at(-1)).toEqual({ attached: false, ready: false })
+  })
+
   it('renders nothing of its own when no notice applies', async () => {
     const t = await mk()
     mount(t)

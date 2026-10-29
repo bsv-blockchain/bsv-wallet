@@ -4,6 +4,7 @@
  * - feeds the main-in-front signal (`AppState`) to the attention logic;
  * - tells the session when the host attaches or detaches and when readiness changes (the controller listens too; the
  *   calls are idempotent), so parked connects resume or fail;
+ * - mirrors `hostAttached` and readiness to native (`setHostState`) for the trampoline's mode choice;
  * - asks for `POST_NOTIFICATIONS` once, at the first accepted launch, and never again (a denial is final);
  * - asks native to go back to the browser 600 ms after the last pending item cleared (a Kotlin timer: React Native's JS
  *   timers pause while Chrome is in front). Native performs it only when the bridge raised the wallet (Task 13).
@@ -44,6 +45,13 @@ export function AndroidBridgeHost({ bridge: given }: AndroidBridgeHostProps): Re
     // 2. Host attach and readiness.
     session.onHostAttached(getBridgeSnapshot().hostAttached)
     cleanups.push(onSnapshotChange(s => session.onHostAttached(s.hostAttached)))
+
+    // 2b. Mirror host state to native, so the trampoline chooses overlay mode only when the host is attached and ready.
+    const mirror = (s: { hostAttached: boolean; readiness: string }) =>
+      native.setHostState({ attached: s.hostAttached, ready: s.readiness === 'ready' })
+    mirror(getBridgeSnapshot())
+    cleanups.push(onSnapshotChange(mirror))
+    cleanups.push(() => native.setHostState({ attached: false, ready: false }))
 
     // 3. Notification permission, once, at the first accepted launch (also one that arrived before this mounted).
     const askPermission = () => {

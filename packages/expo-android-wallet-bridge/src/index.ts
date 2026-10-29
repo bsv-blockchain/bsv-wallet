@@ -3,6 +3,7 @@ export { getBsvAndroidBridge } from './native'
 export type {
   BsvAndroidBridgeNative,
   BsvAndroidBridgeEvents,
+  HostLifecycle,
   NativeHeaders,
   NativeLaunch,
   NativeRequest,

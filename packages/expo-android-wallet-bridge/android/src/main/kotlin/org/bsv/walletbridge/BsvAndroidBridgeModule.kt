@@ -2,6 +2,7 @@ package org.bsv.walletbridge
 
 import android.Manifest
 import android.app.NotificationManager
+import android.app.Application
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -20,6 +21,13 @@ class StartServerOptions : Record {
   @Field var basePort: Int = 0
 
   @Field var maxOffset: Int = 0
+}
+
+/** The single object argument of `setHostState`: `{ attached, ready }`. */
+class HostStateOptions : Record {
+  @Field var attached: Boolean = false
+
+  @Field var ready: Boolean = false
 }
 
 class PortsExhaustedException(m: String) : CodedException("ERR_PORTS_EXHAUSTED", m, null)
@@ -50,15 +58,18 @@ class BsvAndroidBridgeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("BsvAndroidBridge")
 
-    Events("onRequest", "onClientGone", "onServerStopped", "onLaunch", "onTimer")
+    Events("onRequest", "onClientGone", "onServerStopped", "onLaunch", "onTimer", "onHostLifecycle")
 
-    OnCreate { BridgeState.sink = sink }
+    OnCreate {
+      BridgeState.sink = sink
+      // Registration is idempotent (a reload runs OnCreate again). The catch-up covers the Activity that already existed.
+      (appContext.reactContext?.applicationContext as? Application)?.let { BridgeState.tracker.register(it) }
+      BridgeState.tracker.catchUp(appContext.currentActivity)
+    }
 
     OnDestroy {
       if (BridgeState.sink === sink) BridgeState.sink = null
     }
-
-    OnActivityDestroys { BridgeState.raisedByBridge = false }
 
     AsyncFunction("startServer") { o: StartServerOptions ->
       try {
@@ -137,6 +148,29 @@ class BsvAndroidBridgeModule : Module() {
         promise.resolve(if (r?.status == PermissionsStatus.GRANTED) "granted" else "denied")
       }, Manifest.permission.POST_NOTIFICATIONS)
     }
+
+    Function("setHostState") { s: HostStateOptions ->
+      BridgeState.hostAttached = s.attached
+      BridgeState.hostReady = s.ready
+    }
+
+    Function("hostLifecycle") {
+      val l = BridgeState.tracker.snapshot
+      mapOf(
+        "registered" to l.registered,
+        "mainAlive" to l.mainAlive,
+        "mainResumed" to l.mainResumed,
+        "sheetResumed" to l.sheetResumed
+      )
+    }
+
+    // Body in Task 7 (window flags); declared now so the JS surface is stable.
+    Function("setSheetInteractive") { _: Boolean -> }
+
+    // Only the owner-decision variant (11-W) gives showSheet a body.
+    Function("showSheet") { _: String -> }
+
+    Function("hideSheet") { BridgeState.finishSheet() }
 
     // moveTaskToBack of the foreground activity, only when the bridge raised it (the wallet was not already open).
     Function("returnToBrowser") {

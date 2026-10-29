@@ -88,4 +88,15 @@ describe('fake native', () => {
     n.emitGone('b')
     expect(seen).toEqual(['a'])
   })
+
+  it('the M2 calls exist and never throw', () => {
+    const n = createFakeNative()
+    expect(() => {
+      n.setHostState({ attached: false, ready: false })
+      n.setSheetInteractive(false)
+      n.showSheet('consent')
+      n.hideSheet()
+      n.hostLifecycle()
+    }).not.toThrow()
+  })
 })

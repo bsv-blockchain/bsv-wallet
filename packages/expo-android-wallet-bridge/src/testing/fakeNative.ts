@@ -8,6 +8,7 @@
  */
 import type {
   AttentionKind,
+  HostLifecycle,
   BsvAndroidBridgeEvents,
   BsvAndroidBridgeNative,
   NativeHeaders,
@@ -44,6 +45,8 @@ export interface FakeNative extends BsvAndroidBridgeNative {
   notificationPermissionState: NotificationPermission
   serverRunning: boolean
   activeTimers(): { name: string; due: number }[]
+  /** Change the tracker snapshot; fires `onHostLifecycle` once if any value actually changed. */
+  setHostLifecycle(l: Partial<HostLifecycle>): void
   /** Ordered log of calls with their arguments, for assertions. */
   calls: { name: string; args: unknown[] }[]
 }
@@ -83,6 +86,8 @@ export function createFakeNative(opts: FakeNativeOptions = {}): FakeNative {
     for (let i = launches.length - 1; i >= 0; i--)
       if (now - launches[i].createdAt > LAUNCH_TTL_MS) launches.splice(i, 1)
   }
+
+  let life: HostLifecycle = { registered: false, mainAlive: false, mainResumed: false, sheetResumed: false }
 
   const fake: FakeNative = {
     responses: [],
@@ -158,6 +163,19 @@ export function createFakeNative(opts: FakeNativeOptions = {}): FakeNative {
     returnToBrowser() {
       fake.calls.push({ name: 'returnToBrowser', args: [] })
     },
+    setHostState(s) {
+      fake.calls.push({ name: 'setHostState', args: [s] })
+    },
+    hostLifecycle: () => ({ ...life }),
+    setSheetInteractive(on) {
+      fake.calls.push({ name: 'setSheetInteractive', args: [on] })
+    },
+    showSheet(reason) {
+      fake.calls.push({ name: 'showSheet', args: [reason] })
+    },
+    hideSheet() {
+      fake.calls.push({ name: 'hideSheet', args: [] })
+    },
     addListener(name, cb) {
       let set = listeners.get(name)
       if (!set) listeners.set(name, (set = new Set()))
@@ -198,6 +216,12 @@ export function createFakeNative(opts: FakeNativeOptions = {}): FakeNative {
         emit('onTimer', { name: next[0] })
       }
       elapsed = target - base
+    },
+    setHostLifecycle(l) {
+      const next = { ...life, ...l }
+      if ((Object.keys(next) as (keyof HostLifecycle)[]).every(k => next[k] === life[k])) return
+      life = next
+      emit('onHostLifecycle', { ...life })
     },
     activeTimers: () => Array.from(timers, ([name, t]) => ({ name, due: t.due })).sort((a, b) => a.due - b.due)
   }

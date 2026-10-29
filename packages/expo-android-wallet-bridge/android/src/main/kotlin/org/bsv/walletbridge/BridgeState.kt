@@ -1,8 +1,10 @@
 package org.bsv.walletbridge
 
+import android.app.Activity
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import java.lang.ref.WeakReference
 
 /** Receives events from process-wide components (server, timers, trampoline) and forwards them to JS while the module lives. */
 interface EventSink {
@@ -19,6 +21,34 @@ object BridgeState {
   @Volatile var raisedByBridge = false
 
   @Volatile var sink: EventSink? = null
+
+  /** Mirrored from JS (`setHostState`): the toolbox bridge host is attached and ready. */
+  @Volatile var hostAttached = false
+  @Volatile var hostReady = false
+
+  /** The live sheet Activity, set and cleared by `BridgeSheetActivity` (never strong: a destroyed sheet must not leak). */
+  @Volatile var sheet: WeakReference<Activity>? = null
+
+  /** Single owner of the lifecycle model; the tracker is its only writer. Events go to JS through [sink]. */
+  val life = LifecycleState()
+  val tracker = LifecycleTracker(life) { l ->
+    sink?.emit(
+      "onHostLifecycle",
+      mapOf(
+        "registered" to l.registered,
+        "mainAlive" to l.mainAlive,
+        "mainResumed" to l.mainResumed,
+        "sheetResumed" to l.sheetResumed
+      )
+    )
+  }
+
+  /** The only way to end the live sheet: posts `finish()` to the main thread; a no-op without a live sheet. */
+  fun finishSheet() {
+    val a = sheet?.get() ?: return
+    if (a.isFinishing) return
+    Handler(Looper.getMainLooper()).post { if (!a.isFinishing) a.finish() }
+  }
 
   @Volatile var serverRunning = false
 
