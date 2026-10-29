@@ -2,17 +2,10 @@
  * Demo page logic (spec 6.16): a button per BRC-185 step, driven by the stand-in page client. Test tool only: not in
  * the package's published files, the extension bundle or the host app.
  *
- * `wireDemo` takes the document and the client so jest can drive it with fakes; the bottom of the file starts it on
- * the real page (the element `#demo-root` marks that page).
+ * `wireDemo` takes the document and the client so jest can drive it with fakes; main.ts starts it on the real page
+ * (the element `#demo-root` marks that page), together with the Conformance panel.
  */
-import {
-  createPageClient,
-  isConnectionError,
-  type Connection,
-  type DiscoveredProvider,
-  type PageClient,
-  type PageClientWindow
-} from '../src/testing/pageClient'
+import { isConnectionError, type Connection, type DiscoveredProvider, type PageClient } from '../src/testing/pageClient'
 
 export interface DemoElement {
   textContent: string | null
@@ -65,14 +58,20 @@ const describeError = (e: unknown): string => {
   return String(e)
 }
 
+/** What the Conformance panel needs to know: the live connection (or none after disconnect or close). */
+export interface ConnectionSink {
+  setConnection(client: PageClient | undefined, connection: Connection | undefined): void
+}
+
 export interface DemoOptions {
   doc: DemoDocument
   client: PageClient
   rand: (n: number) => Uint8Array
   now?: () => Date
+  conformance?: ConnectionSink
 }
 
-export function wireDemo({ doc, client, rand, now = () => new Date() }: DemoOptions) {
+export function wireDemo({ doc, client, rand, now = () => new Date(), conformance }: DemoOptions) {
   let providers: DiscoveredProvider[] = []
   let connection: Connection | undefined
   const logEl = doc.getElementById('log')
@@ -110,8 +109,16 @@ export function wireDemo({ doc, client, rand, now = () => new Date() }: DemoOpti
       const want = (doc.getElementById('wallet')?.value ?? '').trim().toLowerCase()
       const provider = want ? providers.find(p => p.descriptor.name.toLowerCase().includes(want)) : providers[0]
       if (!provider) throw new Error('no wallet announced')
-      connection = await client.connect(provider, reason => log('info', `closed: ${reason}`))
-      return { epoch: connection.epoch }
+      const opened = await client.connect(provider, reason => {
+        log('info', `closed: ${reason}`)
+        if (connection === opened) {
+          connection = undefined
+          conformance?.setConnection(undefined, undefined)
+        }
+      })
+      connection = opened
+      conformance?.setConnection(client, opened)
+      return { epoch: opened.epoch }
     },
     getVersion: () => client.invoke(need(), 'getVersion', {}),
     isAuthenticated: () => client.invoke(need(), 'isAuthenticated', {}),
@@ -130,6 +137,7 @@ export function wireDemo({ doc, client, rand, now = () => new Date() }: DemoOpti
     async disconnect() {
       await need().disconnect()
       connection = undefined
+      conformance?.setConnection(undefined, undefined)
       return undefined
     }
   }
@@ -138,16 +146,5 @@ export function wireDemo({ doc, client, rand, now = () => new Date() }: DemoOpti
     doc.getElementById(name)?.addEventListener('click', () => void run(name, actions[name]))
   }
   log('info', `origin ${(globalThis as { location?: { origin?: string } }).location?.origin ?? '?'}`)
-  return { run, actions }
-}
-
-if (typeof document !== 'undefined' && document.getElementById('demo-root')) {
-  const w = window as unknown as PageClientWindow
-  wireDemo({
-    doc: document as unknown as DemoDocument,
-    // `?deadline=<ms>` widens the describe deadline: with two wallets announcing at once on a loaded
-    // Simulator the slower cold extension otherwise misses the 1000 ms budget (spike S2). Test tool only.
-    client: createPageClient(w, describeOptions((w as unknown as { location: { search?: string } }).location.search)),
-    rand: n => crypto.getRandomValues(new Uint8Array(n))
-  })
+  return { run, actions, log }
 }
