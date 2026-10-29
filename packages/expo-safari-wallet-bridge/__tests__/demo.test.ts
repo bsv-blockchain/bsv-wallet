@@ -94,6 +94,36 @@ describe('demo page', () => {
     expect(actionDescription('x'.repeat(60), 'BRIDGE-MARKER-abababababab')).toBe('BRIDGE-MARKER-abababababab')
   })
 
+  it('tells the Conformance panel about the connection and its end', async () => {
+    const els: Record<string, FakeEl> = {}
+    for (const b of BUTTONS) els[b] = new FakeEl()
+    els.log = new FakeEl()
+    const connection: any = { epoch: 'e', disconnect: jest.fn(async () => {}) }
+    const client = {
+      discover: jest.fn(async () => ({ providers: [{ descriptor: { continuityKey: 'k', name: 'W' } }], rejected: [] })),
+      connect: jest.fn(async (_p: unknown, onClose: (r: string) => void) => {
+        closeNow = () => onClose('wallet_closed')
+        return connection
+      })
+    } as unknown as PageClient
+    let closeNow = () => {}
+    const sink = { setConnection: jest.fn() }
+    wireDemo({
+      doc: { getElementById: (id: string) => els[id] ?? null },
+      client,
+      rand: n => new Uint8Array(n),
+      conformance: sink
+    })
+    await els.connect.click()
+    expect(sink.setConnection).toHaveBeenLastCalledWith(client, connection)
+    await els.disconnect.click()
+    expect(sink.setConnection).toHaveBeenLastCalledWith(undefined, undefined)
+    await els.connect.click()
+    closeNow()
+    expect(sink.setConnection).toHaveBeenLastCalledWith(undefined, undefined)
+    expect(sink.setConnection).toHaveBeenCalledTimes(4)
+  })
+
   it('demo bundle is excluded from package.json files, the extension Resources and the host', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(KIT, 'package.json'), 'utf8'))
     const files: string[] = pkg.files

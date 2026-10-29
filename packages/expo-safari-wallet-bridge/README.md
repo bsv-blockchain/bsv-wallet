@@ -68,3 +68,20 @@ UI), `demo/` (Simulator demo page, never shipped).
 unpacks them into the host's `node_modules` (it never runs `npm install` there). Tests: `npx jest`
 from the repo root; `swift test --package-path swift/BsvBridgeQueue`. Demo page:
 `node demo/serve.mjs` on port 3000 (`?csp=strict` adds a strict Content-Security-Policy).
+
+### Run the conformance set (demo page, test tool only)
+
+The demo page has a Conformance section that runs the fast.brc.dev BRC-100 conformance set (all 28 methods) and its
+branch matrices against the wallet reached through the BRC-185 connection (vendored from fast at `63bd8c4`, see
+`demo/conformance/SOURCE.md`). Press describe and connect first. **Run all safe** runs 24 method cards and 6 branch
+matrices one at a time and continues after failures; **Stop after current** ends it after the running card. Cards that
+spend sats or may cost fees (`internalizeAction`, `relinquishOutput`, `acquireCertificate`, `relinquishCertificate`, the
+funded and certificate workflows) are never part of Run all: each has its own Run button, its spending description, and
+a confirmation. They spend real mainnet sats when the wallet is on mainnet. **Copy report** copies a JSON summary (card
+and case ids, status, duration, error code; no payloads or keys). Record the wallet build and this repo's commit with the
+report (the "Wallet build" field goes into it), as fast's `docs/wallet-testing.md` asks.
+
+A card that reports no progress for 120 s fails with code `timeout` (for example `waitForAuthentication` on a locked
+wallet), so the batch keeps going. The vendored noSend cards abort their action only when they succeed; the demo aborts
+any noSend action still outstanding when a card ends. If a failed run still leaves locked outputs (an abort by txid is
+not guaranteed to be accepted), release the pending action from the wallet's own action list.
