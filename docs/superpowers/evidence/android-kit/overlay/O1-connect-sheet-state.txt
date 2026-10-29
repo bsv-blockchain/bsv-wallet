@@ -1,0 +1,5 @@
+resumed: org.bsvblockchain.wallet/org.bsv.walletbridge.BridgeSheetActivity
+top: org.bsvblockchain.wallet/org.bsv.walletbridge.BridgeSheetActivity
+sheet window flags: LAYOUT_IN_SCREEN SECURE LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+chrome state: PAUSED
+approve bounds: {"x1":554,"y1":2183,"x2":1028,"y2":2319} screen 1080x2424

@@ -1,0 +1,4 @@
+resumed: com.android.chrome/com.google.android.apps.chrome.Main
+top: com.android.chrome/com.google.android.apps.chrome.Main
+sheet window flags: (no sheet window)
+notification seen 707 ms after the sheet finished (counts only, no origin: true)

@@ -48,7 +48,10 @@ jest.mock('@bsv/expo-wallet-toolbox/ui/components/ui/PermissionSheet', () => {
   }
   return { __esModule: true, default: Probe, usePermissionSheetBusy: () => mockPending }
 })
-jest.mock('@bsv/expo-wallet-toolbox/ui/components/ui/sheetResumeSignal', () => ({ signalSheetResumed: jest.fn() }))
+jest.mock('@bsv/expo-wallet-toolbox/ui/components/ui/sheetResumeSignal', () => ({
+  signalSheetResumed: jest.fn(),
+  setSheetBackdropDismisses: jest.fn()
+}))
 
 import React from 'react'
 import { Text } from 'react-native'
