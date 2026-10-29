@@ -393,6 +393,23 @@ describe('PermissionSheet answers', () => {
     expect(ui.setProtocolAccessModalOpen).toHaveBeenCalledWith(false)
   })
 
+  it('answers a pending grant at once when the app leaves the foreground', async () => {
+    const { AppState } = require('react-native')
+    let onChange!: (s: string) => void
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_t: any, fn: any) => {
+      onChange = fn
+      return { remove: jest.fn() }
+    })
+    const raised = fakeManager()
+    const { allow } = setup({ protocolRequests: [protocolRequest('p1', raised)] })
+    await allow()
+    expect(raised.grantPermission).not.toHaveBeenCalled()
+    await act(async () => {
+      onChange('background')
+    })
+    expect(raised.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
+  })
+
   it('denies the manager that raised the request, by request ID', async () => {
     const raised = fakeManager()
     const { deny, current, advance } = setup({ protocolRequests: [protocolRequest('p1', raised)] })

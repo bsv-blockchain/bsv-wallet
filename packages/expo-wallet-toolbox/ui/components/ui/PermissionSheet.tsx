@@ -1,5 +1,5 @@
 import React, { useContext, useState, useCallback, useMemo, useEffect, useRef, useSyncExternalStore } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, AppState } from 'react-native'
 import type { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
 import type { SigningPolicyPermissionsManager } from '../../../core/services/signingPermissionPolicy'
 import Sheet from './Sheet'
@@ -795,6 +795,21 @@ const PermissionSheet: React.FC = () => {
         pendingGrantRef.current = null
       }
     }
+  }, [])
+
+  // React Native pauses JS timers while the app is backgrounded, so a grant waiting out its 400 ms would
+  // leave the page's call hanging if the user leaves right after tapping. Answer at once instead.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active' || pendingGrantRef.current === null) return
+      if (grantTimerRef.current !== null) {
+        clearTimeout(grantTimerRef.current)
+        grantTimerRef.current = null
+      }
+      pendingGrantRef.current()
+      pendingGrantRef.current = null
+    })
+    return () => sub.remove()
   }, [])
 
   // Derive what (if anything) we should show.
