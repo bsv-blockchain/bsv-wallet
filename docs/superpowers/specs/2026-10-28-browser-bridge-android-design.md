@@ -762,8 +762,9 @@ setupAndroidBridge(o: { appName: string, vendor: string, allowLocalhostHttp?: bo
 //   Called once, at module scope, in the host's entry file, before the router loads (6.13).
 //   Registers the transport (and in M2 the BsvBridgeSheet root with AppRegistry), starts the controller;
 //   opens no port. Drains LaunchStore (takeLaunches()) so a cold start from a launch is not lost.
-AndroidBridgeHost                       // React component mounted in the main tree: feeds the main-in-front signal (AppState);
-                                        // M2 also reports host state to Kotlin (setHostState), publishes the context relay and the sheet owner
+AndroidBridgeHost                       // React component mounted in the main tree: M1 feeds the main-in-front signal (AppState);
+                                        // M2 replaces that feed with the native sheet owner (no AppState), reports host state to Kotlin
+                                        // (setHostState) and publishes the context relay
 AndroidBridgeSheetGate                  // M2: wraps the main tree's <PermissionSheet /> (7.4 owner gate)
 getBsvAndroidBridge(): BsvAndroidBridgeNative
 createLoopbackPageClient(win, opts)     // testing/ (6.16)
@@ -989,7 +990,7 @@ component, 6.3). The trampoline validates it, stores it in `LaunchStore` and sta
 | Condition (the M2 rows use `setHostState` and `LifecycleTracker`; M1 needs neither)                              | Next component                               |
 | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | M1, any state                                                                                                    | `MainActivity` (`getLaunchIntentForPackage`) |
-| M2, host attached and `ready`                                                                                    | `BridgeSheetActivity` (overlay mode)         |
+| M2, host attached and `ready`, tracker caught up, `MainActivity` alive and not resumed                           | `BridgeSheetActivity` (overlay mode)         |
 | M2, otherwise (cold process, locked, building, main tree gone, **or `LifecycleTracker` has not registered yet**) | `MainActivity` (foreground mode)             |
 
 There is no "Unlock card" in the sheet Activity: when the wallet cannot show a prompt, the user is taken straight to the
