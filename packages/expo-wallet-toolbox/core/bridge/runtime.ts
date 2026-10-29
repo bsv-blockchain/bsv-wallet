@@ -43,6 +43,13 @@ export interface BridgeSnapshot {
   walletRevision: string
   readiness: BridgeReadiness
   closeSeq: number
+  /**
+   * True while a host is attached AND the runtime has loaded (`isBridgeHostAttached()`), false at
+   * start and again after the detach function. It is a snapshot field so a transport hears the
+   * change even when readiness does not move (`none` is also the state of a cold start with no
+   * wallet, so readiness alone cannot say "the host is gone").
+   */
+  hostAttached: boolean
 }
 
 /**
@@ -149,7 +156,8 @@ function freshSnapshot(): BridgeSnapshot {
     accountContext: '',
     walletRevision: '0',
     readiness: 'none',
-    closeSeq: 0
+    closeSeq: 0,
+    hostAttached: false
   }
 }
 
@@ -261,11 +269,12 @@ export function initBridgeRuntime(): Promise<void> {
       await state.bindings.load()
       // The close counter comes back from the persisted ring too, so the mirrored value never
       // goes backwards across a restart.
+      state.isLoaded = true
       setSnapshotOf(state, {
         walletRevision: String(Number.isSafeInteger(n) && n >= 0 ? n : 0),
-        closeSeq: state.bindings.closeSeq()
+        closeSeq: state.bindings.closeSeq(),
+        hostAttached: state.hooks !== undefined
       })
-      state.isLoaded = true
     })()
     state.loaded.catch(() => {
       state.loaded = undefined
@@ -330,7 +339,10 @@ export function getTransport(id: string): TransportRegistration | undefined {
  */
 export function attachBridgeHost(hooks: BridgeHostHooks): () => void {
   rt.hooks = hooks
-  if (hooks.hasWallet === true && rt.snapshot.readiness === 'none') setSnapshot({ readiness: 'building' })
+  setSnapshot({
+    hostAttached: isBridgeHostAttached(),
+    ...(hooks.hasWallet === true && rt.snapshot.readiness === 'none' ? { readiness: 'building' as const } : {})
+  })
   unregisterTeardown?.()
   const state = rt
   unregisterTeardown = registerSessionTeardown(['logout', 'profile', 'network', 'rebuild'], reason => {
@@ -359,7 +371,7 @@ export function attachBridgeHost(hooks: BridgeHostHooks): () => void {
     rt.attested = undefined
     rt.unverified = undefined
     if (rt.isLoaded) rt.bindings.closeAll('lost')
-    setSnapshot({ readiness: 'none' })
+    setSnapshot({ readiness: 'none', hostAttached: false })
   }
 }
 

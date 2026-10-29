@@ -12,6 +12,16 @@
   methods, the bridge's refusals and the recorded deviations from BRC-185 / BRC-219; a snapshot
   test keeps it deliberate.
 
+### Browser bridge: seams for the Android loopback kit
+
+- **`BridgeSnapshot.hostAttached`.** True once a host is attached and the runtime has loaded, false at start and
+  after detach. Every change goes through `onSnapshotChange`, so a transport hears attach and detach even when
+  readiness stays `none` (a cold start with no wallet).
+- **`assertAdvertisesResponder(descriptor, responder)`** (protocol/descriptor): throws `ProofError` unless a
+  `http-json` endpoint of the descriptor has the same scheme, host and port as the responder that answered.
+- **Testing helpers** (`core/bridge/testing`): the `PageClient` contract types and the transport-independent
+  conformance cases (all 28 methods, error codec, request and response caps) a transport runs against its executor.
+
 ### Browser bridge: seams for a native transport (iOS Safari kit)
 
 - **Exports.** The transport API (inbox processor, store contract, origin constants) is exported for

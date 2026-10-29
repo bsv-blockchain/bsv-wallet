@@ -114,6 +114,49 @@ function canonicalB64u(v: unknown, bytes: number, field: string): string {
   return v
 }
 
+function originParts(
+  address: string,
+  what: string,
+  bare: boolean
+): { protocol: string; hostname: string; port: string } {
+  let u: URL
+  try {
+    u = new URL(address)
+  } catch {
+    throw new ProofError(`${what} is not a URL`)
+  }
+  if (bare && ((u.pathname !== '/' && u.pathname !== '') || u.search !== '' || u.hash !== '')) {
+    throw new ProofError(`${what} must not carry a path, query or fragment`)
+  }
+  return { protocol: u.protocol, hostname: u.hostname, port: u.port }
+}
+
+/**
+ * Throws `ProofError` unless the descriptor advertises the responder the page actually reached: some
+ * endpoint has `type === responder.type` and an `address` with the same scheme, host and port as
+ * `responder.address` (parsed `URL` parts; no path allowed on the responder). A responder that
+ * answers `describe` on a loopback port must be reachable at an address the descriptor names, so a
+ * different process on another port cannot present a descriptor that points elsewhere. `127.0.0.1`
+ * does not satisfy `localhost`: the host is compared as written.
+ */
+export function assertAdvertisesResponder(
+  descriptor: Descriptor,
+  responder: { type: 'http-json'; address: string }
+): void {
+  const want = originParts(responder.address, 'responder address', true)
+  for (const ep of descriptor.endpoints) {
+    if (ep.type !== responder.type) continue
+    let got: ReturnType<typeof originParts>
+    try {
+      got = originParts(ep.address, 'endpoint address', false)
+    } catch {
+      continue
+    }
+    if (got.protocol === want.protocol && got.hostname === want.hostname && got.port === want.port) return
+  }
+  throw new ProofError('descriptor does not advertise the responder that answered')
+}
+
 /** BRC-185 section 3.1. Returns false for anything that is not one of the three allowed forms. */
 export function isValidIconReference(ref: string): boolean {
   if (utf8Length(ref) < 1 || utf8Length(ref) > 256) return false

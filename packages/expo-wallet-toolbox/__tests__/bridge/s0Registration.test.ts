@@ -130,16 +130,16 @@ describe('S0 android-loopback registration', () => {
     })
   })
 
-  it('(e) documents that attach and detach do not call onSnapshotChange while readiness stays none', async () => {
-    // Task 2 closes this gap (hostAttached on the snapshot); this pins today's behaviour.
+  it('(e) attach and detach publish hostAttached through onSnapshotChange while readiness stays none', async () => {
+    // Task 2 closed the gap: hostAttached is a snapshot field, so a transport hears attach and detach.
     await initBridgeRuntime()
-    const seen: unknown[] = []
-    const off = onSnapshotChange(s => seen.push(s))
+    const seen: boolean[] = []
+    const off = onSnapshotChange(s => seen.push(s.hostAttached))
     const detach = attachBridgeHost({ withdrawPrompts: jest.fn(), hasWallet: false })
     expect(getBridgeSnapshot().readiness).toBe('none')
-    expect(seen).toHaveLength(0)
+    expect(seen).toEqual([true])
     detach()
-    expect(seen).toHaveLength(0)
+    expect(seen).toEqual([true, false])
     off()
   })
 })

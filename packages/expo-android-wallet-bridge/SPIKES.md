@@ -68,6 +68,6 @@ Result: **PASS** (regression test `packages/expo-wallet-toolbox/__tests__/bridge
 - (b) the listener fires on register (true) and unregister (false). PASS. Registration-order effect on the wallet build is pinned in Task 17.
 - (c) a `ContinuityStore` keyed `android:<origin>` signs a describe response that `verifyDescribeProof` accepts. PASS (ctx is a plain string).
 - (d) `connectExplicit` with `attestation:'unattested'`, `launchProofVerified:true`, `reconnectToken` creates a live binding and `takeReconnectToken` returns the token once; without `launchProofVerified` it throws `CONFIGURATION_ERROR` / `not-sent` and creates no binding. PASS.
-- (e) `attachBridgeHost({hasWallet:false})` and its detach do NOT call `onSnapshotChange` while readiness stays `none`. Test asserts the current behaviour; this is the gap Task 2 closes and then inverts this assertion. No other seam is missing for S0.
+- (e) `attachBridgeHost({hasWallet:false})` and its detach do NOT call `onSnapshotChange` while readiness stays `none`. Test asserts the current behaviour; this is the gap Task 2 closed: assertion (e) is now inverted (`hostAttached` on the snapshot makes attach and detach fire `onSnapshotChange`). No other seam is missing for S0.
 
 Fallbacks in effect: none.
