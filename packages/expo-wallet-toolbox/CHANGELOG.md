@@ -21,6 +21,10 @@
   `http-json` endpoint of the descriptor has the same scheme, host and port as the responder that answered.
 - **Testing helpers** (`core/bridge/testing`): the `PageClient` contract types and the transport-independent
   conformance cases (all 28 methods, error codec, request and response caps) a transport runs against its executor.
+- **Stable test ids on the connection and permission sheet.** `bridge-connect-origin` (the full origin),
+  `bridge-approve` and `bridge-deny` for every prompt kind, for UI automation; no visual change.
+- **Android copy.** `bridge_notifications_off`, `bridge_ports_exhausted` and `bridge_not_ready_android` in all
+  12 locales.
 
 ### Browser bridge: seams for a native transport (iOS Safari kit)
 

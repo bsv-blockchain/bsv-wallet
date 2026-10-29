@@ -1087,6 +1087,7 @@ const PermissionSheet: React.FC = () => {
                     { color: colors.textPrimary }
                   ]}
                   numberOfLines={1}
+                  testID="bridge-connect-origin"
                 >
                   {active.originator}
                 </Text>
@@ -1255,6 +1256,7 @@ const PermissionSheet: React.FC = () => {
               ]}
               onPress={handleDeny}
               disabled={granted}
+              testID="bridge-deny"
             >
               <Text style={[styles.buttonDenyText, { color: colors.textPrimary }]}>
                 {t(active.kind === 'connection' ? 'bridge_dont_connect' : 'reject')}
@@ -1268,6 +1270,7 @@ const PermissionSheet: React.FC = () => {
               style={[styles.buttonAllow, { backgroundColor: colors.accent }]}
               onPress={handleGrant}
               disabled={granted || active.approvalBlocked || tapLocked}
+              testID="bridge-approve"
             >
               {granted ? (
                 <Ionicons name="checkmark" size={22} color={colors.textOnAccent} />
