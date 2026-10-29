@@ -1481,6 +1481,7 @@ export const OVERLAY_CASES = [
       const baselineFailures = new Set([3, 15, 16])
       const results = []
       const failed = []
+      const baselineFailed = []
       for (const id of [1, 2, 3, 4, 5, 7, 15, 16, 17]) {
         const c = CASES.find(k => k.id === id)
         const createLines = async () => (await ov.logLines(/sheet-activity create/)).length
@@ -1490,7 +1491,8 @@ export const OVERLAY_CASES = [
           await c.run(ctx)
         } catch (e) {
           status = `failed (${String(e.message).slice(0, 90)})`
-          if (!baselineFailures.has(id)) failed.push(`M1 case ${id}: ${e.message}`)
+          if (baselineFailures.has(id)) baselineFailed.push(id)
+          else failed.push(`M1 case ${id}: ${e.message}`)
         }
         const c1 = await createLines()
         // 3, 15 and 16 can open the sheet from a notification tap with the wallet warm (O16) and 5 is a warm launch, which is
@@ -1502,6 +1504,10 @@ export const OVERLAY_CASES = [
       }
       fs.writeFileSync(path.join(ctx.shots, 'O14-m1-regression.txt'), results.join('\n') + '\n')
       must(failed.length === 0, failed.join('; '))
+      // Not a clean pass when a baseline case failed: the runner records 'partial' with the ids as a structured field. The
+      // follow-up (a prompt is not raised while the main tree is stopped on a funded wallet) is a tracked defect, SPIKES
+      // "M1 baseline today".
+      if (baselineFailed.length) ctx.resultExtra = { status: 'partial', baselineFailures: baselineFailed }
       return results.join(', ')
     }
   },
@@ -1528,8 +1534,9 @@ export const OVERLAY_CASES = [
       // Approve node are the evidence
       must(await ov.sheetResumed(), 'the idle sheet is not resumed')
       await evid(ctx, 'O15-idle', `window flags: ${flags}`)
-      // S3 row (i): a translucent Activity above another app's Activity swallows touches whatever its flags, so a tap
-      // does not reach Chrome; recorded, not asserted (the idle bound is the protection).
+      // S3 row (i): a translucent Activity above another app's Activity swallowed touches whatever its flags, so a tap
+      // did not reach Chrome. The idle window is NOT_TOUCHABLE, and a tap at a Chrome coordinate must reach Chrome
+      // (regression guard; it read 1 in every recorded run).
       await shell('input tap 540 900')
       await sleep(600)
       const taps = await page.evaluate(() => window.__taps).catch(() => -1)
@@ -1540,12 +1547,13 @@ export const OVERLAY_CASES = [
       })
       const ms = Date.now() - t0
       await lowBackToChrome()
+      must(taps >= 1, `a tap at (540,900) while the idle sheet was up did not reach Chrome (${taps} pointerdowns)`)
       must(ms <= 5000 + 2000 + 600, `the idle sheet took ${ms} ms to finish (bound 5000 + 2000)`)
       fs.writeFileSync(
         path.join(ctx.shots, 'O15-idle-notes.txt'),
-        `window flags: ${flags}\nfinished ${ms} ms after it was first seen resumed (poll granularity about 0.5 s)\ntap at (540,900) while up: Chrome saw ${taps} pointerdown(s) (S3 row (i) found 0: swallowed by the system input sink)\n`
+        `window flags: ${flags}\nfinished ${ms} ms after it was first seen resumed (poll granularity about 0.5 s)\ntap at (540,900) while up: Chrome saw ${taps} pointerdown(s) (S3 row (i) found 0: swallowed by the system input sink; asserted >= 1)\n`
       )
-      return `idle sheet: NOT_TOUCHABLE and SECURE on its window, no Approve node; finished by itself ${ms} ms after it was seen, Chrome top resumed; a tap at (540,900) while it was up reached Chrome ${taps} time(s) (S3 row (i) found taps swallowed by the system input sink; recorded, not asserted). The real loopback dialog of a non-exempt origin is owner gate 9`
+      return `idle sheet: NOT_TOUCHABLE and SECURE on its window, no Approve node; finished by itself ${ms} ms after it was seen, Chrome top resumed; a tap at (540,900) while it was up reached Chrome ${taps} time(s) (S3 row (i) found taps swallowed by the system input sink; asserted >= 1). The real loopback dialog of a non-exempt origin is owner gate 9`
     }
   },
   {
@@ -1740,7 +1748,7 @@ export const OVERLAY_CASES = [
   },
   {
     id: 'O21',
-    name: 'a tap outside the sheet does nothing',
+    name: 'a tap outside the sheet and a swipe down on it do nothing',
     async run(ctx) {
       const page = await overlayHeld(ctx)
       await sleep(600)
@@ -1750,8 +1758,20 @@ export const OVERLAY_CASES = [
       must(await uiHas('bridge-approve'), 'the prompt vanished after a tap on the scrim')
       must((await cardStatus(page, SIGN_CARD)) === 'running', 'the prompt was answered by a tap on the scrim')
       await evid(ctx, 'O21-after-scrim-tap')
+      // A swipe down on the sheet (past a third of its height, fast) must spring back, not leave it off screen.
+      const { w, h } = await ov.screenSize()
+      const x = Math.round(w / 2)
+      const before = await ov.approveInSheetRegion()
+      must(before.ok, `Approve is not in the sheet region before the swipe: ${before.why}`)
+      await shell(`input swipe ${x} ${Math.round(h * 0.55)} ${x} ${Math.round(h * 0.97)} 120`)
+      await sleep(1500)
+      must(await ov.sheetResumed(), 'the sheet finished after a swipe down')
+      const after = await ov.approveInSheetRegion()
+      must(after.ok, `after a swipe down Approve is not in the sheet region: ${after.why}`)
+      must((await cardStatus(page, SIGN_CARD)) === 'running', 'the prompt was answered by a swipe down')
+      await evid(ctx, 'O21-after-swipe')
       await approveAndFinish(ctx, page)
-      return 'a tap at (540,300) on the scrim: the sheet stayed, the prompt stayed and was not answered (card running), Approve then answered it'
+      return `a tap at (540,300) on the scrim: the sheet stayed, the prompt stayed and was not answered (card running); a fast swipe down on the sheet sprang back (Approve y ${before.b.y1} -> ${after.b.y1}, inside the lower region); Approve then answered it`
     }
   },
   {
@@ -1759,6 +1779,7 @@ export const OVERLAY_CASES = [
     name: 'plaintext check in logcat over the overlay run, M2 log lines are counts only',
     async run(ctx) {
       const m1 = await CASES.find(c => c.id === 14).run(ctx)
+      ctx.resultExtra = undefined // O14's status is O14's, not this case's
       const lines = (await shell('logcat -d')).split('\n')
       const sheetLines = lines.filter(l => /BsvBridgeSheet/.test(l))
       const shaped =

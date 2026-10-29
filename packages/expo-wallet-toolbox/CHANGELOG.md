@@ -23,9 +23,10 @@
 - **`Sheet` re-applies its open position on mount and on a host signal.** `signalSheetResumed()`
   (`ui/components/ui/sheetResumeSignal`) nudges every open `Sheet`, for a host window that resumes without an
   `AppState` change the sheet can see (the Android bridge's second root). The open spring also re-applies once it settles.
-- **`setSheetBackdropDismisses(false)`** (same module). `PermissionSheet` treats a backdrop tap or a swipe down as a
-  rejection; a host window where an outside tap must do nothing (the Android bridge's overlay root) turns that off while
-  it is mounted. The default is unchanged.
+- **`PermissionSheet backdropDismisses={false}`, `Sheet dismissible={false}`.** `PermissionSheet` treats a backdrop tap
+  or a swipe down as a rejection; a host window where an outside tap must do nothing (the Android bridge's overlay root)
+  passes `false` on its own instance. A swipe then springs back to the open position instead of leaving the sheet off
+  screen. The default is unchanged, and the setting is per instance, not process-wide.
 - **A second request queued behind an answered one is shown.** `PermissionSheet` closed the queue's modal flag after
   every grant or deny, even with another request of the same kind still queued, and the queue only opens that flag when
   it goes from empty to non-empty, so the next request (another site's, or the same site's) stayed hidden and its call

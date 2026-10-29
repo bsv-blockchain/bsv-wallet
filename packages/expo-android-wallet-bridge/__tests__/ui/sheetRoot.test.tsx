@@ -40,6 +40,8 @@ import React from 'react'
 import { AppRegistry } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { act, fireEvent, render } from '@testing-library/react-native'
+import * as Reanimated from 'react-native-reanimated'
+import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils'
 import { setConsentSheetSource } from '@bsv/expo-wallet-toolbox/core/bridge/consentSheetSource'
 import { lightColors } from '@bsv/expo-wallet-toolbox/core/theme/tokens'
 import { RELAYED_CONTEXTS } from '@bsv/expo-wallet-toolbox/ui/bridgeSheet/relayedContexts'
@@ -178,21 +180,39 @@ describe('BridgeSheetRoot', () => {
     first.unmount()
   })
 
-  it('a tap on the sheet backdrop does not answer under the overlay root, and does in the main tree', async () => {
+  it('a tap on the sheet backdrop does not answer under the overlay root', async () => {
     const c = consent([entry])
     const first = render(<FirstRoot />)
     const second = render(<BridgeSheetRoot />)
     await advance(1)
-    expect(resumeSignal.getSheetBackdropDismisses()).toBe(false)
     const backdrops = second.UNSAFE_queryAllByProps({ accessibilityLabel: 'Close' })
-    const pressable = backdrops.filter(b => typeof b.props.onPress === 'function')
-    expect(pressable.length).toBeGreaterThan(0)
-    for (const b of pressable) fireEvent.press(b)
+    expect(backdrops.length).toBeGreaterThan(0)
+    for (const b of backdrops) fireEvent.press(b)
     await advance(450)
     expect(c.store.answerConsent).not.toHaveBeenCalled()
     second.unmount()
-    // unmounting the overlay root gives the backdrop its rejection back (the main tree)
-    expect(resumeSignal.getSheetBackdropDismisses()).toBe(true)
+    first.unmount()
+  })
+
+  it('a swipe down on the sheet does not answer or leave it off screen under the overlay root', async () => {
+    // spied before the render: the sheet's worklets capture `withSpring` when they are created
+    const spring = jest.spyOn(Reanimated, 'withSpring')
+    const c = consent([entry])
+    const first = render(<FirstRoot />)
+    const second = render(<BridgeSheetRoot />)
+    await advance(1)
+    spring.mockClear()
+    fireGestureHandler(getByGestureTestId('sheet-pan'), [
+      { state: 2 },
+      { translationY: 700, velocityY: 2000 },
+      { state: 5, translationY: 700, velocityY: 2000 }
+    ] as any)
+    await advance(450)
+    expect(spring).toHaveBeenCalled()
+    expect(spring.mock.calls[spring.mock.calls.length - 1][0]).toBe(0)
+    expect(c.store.answerConsent).not.toHaveBeenCalled()
+    spring.mockRestore()
+    second.unmount()
     first.unmount()
   })
 

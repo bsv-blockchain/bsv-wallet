@@ -47,6 +47,12 @@ interface SheetProps {
    * focus a field inside the sheet — focusing before the sheet has finished
    * moving into place drops the first keystroke typed into it. */
   onOpenComplete?: () => void
+  /**
+   * Whether the user can dismiss the sheet by tapping the backdrop or swiping it down. Default true. When false both do
+   * nothing: a swipe springs back to the open position and `onClose` is not called (the Android bridge's overlay, where
+   * an outside tap must not answer a prompt).
+   */
+  dismissible?: boolean
   children?: React.ReactNode
 }
 
@@ -68,6 +74,7 @@ const Sheet: React.FC<SheetProps> = ({
   fullPage = false,
   fitContent = false,
   onOpenComplete,
+  dismissible = true,
   children
 }) => {
   const { colors } = useTheme()
@@ -161,13 +168,14 @@ const Sheet: React.FC<SheetProps> = ({
   }))
 
   const panGesture = Gesture.Pan()
+    .withTestId('sheet-pan')
     .activeOffsetY(10)
     .failOffsetX([-25, 25])
     .onUpdate(e => {
       translateY.value = Math.max(0, e.translationY)
     })
     .onEnd(e => {
-      const shouldClose = e.translationY > sheetHeight / 3 || e.velocityY > 800
+      const shouldClose = dismissible && (e.translationY > sheetHeight / 3 || e.velocityY > 800)
       if (shouldClose) {
         translateY.value = withSpring(
           sheetHeight,
@@ -234,7 +242,7 @@ const Sheet: React.FC<SheetProps> = ({
       {isVisible && (
         <Pressable
           style={[styles.backdrop, { backgroundColor: colors.scrim }]}
-          onPress={onClose}
+          onPress={dismissible ? onClose : undefined}
           accessible={true}
           accessibilityRole="button"
           accessibilityLabel="Close"

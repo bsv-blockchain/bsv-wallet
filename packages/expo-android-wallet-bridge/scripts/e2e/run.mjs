@@ -52,9 +52,11 @@ async function main() {
     if (only && !only.includes(c.id)) continue
     const t0 = Date.now()
     let r
+    ctx.resultExtra = undefined
     try {
       const note = await c.run(ctx)
-      r = { id: c.id, name: c.name, status: 'pass', note, ms: Date.now() - t0 }
+      // a case may downgrade its own pass (status 'partial') and attach structured fields via ctx.resultExtra
+      r = { id: c.id, name: c.name, status: 'pass', ...ctx.resultExtra, note, ms: Date.now() - t0 }
     } catch (e) {
       const note = String(e.message ?? e).slice(0, 400)
       r = {

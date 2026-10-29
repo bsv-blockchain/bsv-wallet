@@ -15,7 +15,6 @@ import {
   subscribeConsentRequests
 } from '../../../core/bridge/consentSheetSource'
 import { SEEK_FLAG_DISCLOSURE, SEEK_FLAG_KEYS, type SeekFlags } from '../../../core/bridge/permissionPolicy'
-import { getSheetBackdropDismisses, onSheetBackdropDismissesChange } from './sheetResumeSignal'
 import { hostnameOfUnattested, isUnattestedOriginator } from '../../../core/bridge/unverifiedOriginator'
 import {
   spacing,
@@ -710,7 +709,16 @@ export function usePermissionSheetBusy(): boolean {
   )
 }
 
-const PermissionSheet: React.FC = () => {
+interface PermissionSheetProps {
+  /**
+   * Whether a backdrop tap or a swipe down answers the prompt as a rejection. Default true. The Android bridge's overlay
+   * root passes false: there an outside tap does nothing and only the Reject button rejects. Per instance, so a main-tree
+   * sheet mounted at the same time is unaffected.
+   */
+  backdropDismisses?: boolean
+}
+
+const PermissionSheet: React.FC<PermissionSheetProps> = ({ backdropDismisses = true }) => {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -1078,9 +1086,6 @@ const PermissionSheet: React.FC = () => {
     ]
   )
 
-  const backdropDismisses = useSyncExternalStore(onSheetBackdropDismissesChange, getSheetBackdropDismisses)
-  const noop = useCallback(() => {}, [])
-
   const handleGrant = useCallback(() => {
     // XR-040: belt-and-braces alongside the Allow button's own `disabled` —
     // a mandala_spend/mandala_credit prompt whose `lines` this sheet could
@@ -1102,7 +1107,7 @@ const PermissionSheet: React.FC = () => {
   }, [active, granted, tapLocked, executeGrant])
 
   return (
-    <Sheet visible={visible} onClose={backdropDismisses ? handleDeny : noop} heightPercent={0.92} fitContent>
+    <Sheet visible={visible} onClose={handleDeny} dismissible={backdropDismisses} heightPercent={0.92} fitContent>
       {active && (
         <View>
           <View style={styles.content}>

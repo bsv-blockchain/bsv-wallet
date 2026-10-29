@@ -5,8 +5,9 @@ jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }))
 
 import React from 'react'
 import { AppState } from 'react-native'
-import { act, render } from '@testing-library/react-native'
+import { act, fireEvent, render } from '@testing-library/react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils'
 import * as Reanimated from 'react-native-reanimated'
 import Sheet from '../../ui/components/ui/Sheet'
 import { signalSheetResumed } from '../../ui/components/ui/sheetResumeSignal'
@@ -72,5 +73,55 @@ describe('Sheet re-applies its open position', () => {
     act(() => handler?.('active'))
     expect(timing).toHaveBeenCalledTimes(1)
     jest.restoreAllMocks()
+  })
+})
+
+describe('Sheet dismissible={false}', () => {
+  const swipeDown = (onClose: () => void, dismissible: boolean) => {
+    const spring = jest.spyOn(Reanimated, 'withSpring')
+    const view = render(
+      <Safe>
+        <Sheet visible dismissible={dismissible} onClose={onClose} />
+      </Safe>
+    )
+    spring.mockClear()
+    // a long, fast swipe down: past a third of the sheet and past the fling velocity
+    fireGestureHandler(getByGestureTestId('sheet-pan'), [
+      { state: 2 },
+      { translationY: 600, velocityY: 2000 },
+      { state: 5, translationY: 600, velocityY: 2000 }
+    ] as any)
+    return { view, spring }
+  }
+
+  it('a swipe down springs back to the open position and does not close', () => {
+    const onClose = jest.fn()
+    const { view, spring } = swipeDown(onClose, false)
+    expect(spring).toHaveBeenCalled()
+    expect(spring.mock.calls[spring.mock.calls.length - 1][0]).toBe(0)
+    expect(onClose).not.toHaveBeenCalled()
+    view.unmount()
+    spring.mockRestore()
+  })
+
+  it('a swipe down closes by default (control)', () => {
+    const { view, spring } = swipeDown(() => {}, true)
+    expect(spring.mock.calls[spring.mock.calls.length - 1][0]).toBeGreaterThan(0)
+    view.unmount()
+    spring.mockRestore()
+  })
+
+  it('a backdrop press calls onClose only when dismissible', () => {
+    for (const dismissible of [true, false]) {
+      const onClose = jest.fn()
+      const view = render(
+        <Safe>
+          <Sheet visible dismissible={dismissible} onClose={onClose} />
+        </Safe>
+      )
+      fireEvent.press(view.getByLabelText('Close'))
+      expect(onClose).toHaveBeenCalledTimes(dismissible ? 1 : 0)
+      view.unmount()
+    }
   })
 })
