@@ -41,7 +41,22 @@ export async function dismissDevMenu({ timeoutMs = 8000 } = {}) {
   }
 }
 
-export async function createTestWallet({ metroPort = 8082, shots } = {}) {
+/** Animations off: uiautomator cannot get an idle state while the welcome art loops ("could not get idle state"). */
+export async function setAnimationScale(scale) {
+  for (const k of ['animator_duration_scale', 'transition_animation_scale', 'window_animation_scale'])
+    await shell(`settings put global ${k} ${scale}`)
+}
+
+export async function createTestWallet(opts = {}) {
+  await setAnimationScale(0)
+  try {
+    await createTestWalletSteps(opts)
+  } finally {
+    await setAnimationScale(1) // the wallet's sheets are verified at the normal scale
+  }
+}
+
+async function createTestWalletSteps({ metroPort = 8082, shots } = {}) {
   await launchApp({ metroPort })
   await waitForNode(nodes => has(nodes, /^(Continue|Get set up|Total balance.*|No crypto skills needed)$/), {
     timeoutMs: 120000,

@@ -1,5 +1,15 @@
 import React, { memo, useEffect, useRef } from 'react'
-import { Dimensions, Keyboard, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import {
+  AppState,
+  Dimensions,
+  Keyboard,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native'
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -97,6 +107,19 @@ const Sheet: React.FC<SheetProps> = ({
     }
     wasVisibleRef.current = visible
   }, [visible, sheetHeight]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A sheet opened while the activity is not resumed (the Android browser bridge raises the wallet for a request)
+  // can stay painted at its hidden offset although its shared value reads 0 (observed on Pixel_9, Android 16: the
+  // scrim shows, the sheet does not). Re-apply the open position when the app becomes active again.
+  useEffect(() => {
+    if (!visible) return
+    const sub = AppState.addEventListener('change', state => {
+      if (state !== 'active') return
+      translateY.value = 0.5
+      translateY.value = withTiming(0, { duration: 60 })
+    })
+    return () => sub.remove()
+  }, [visible, translateY])
 
   // Lift the sheet above the software keyboard so bottom-anchored content
   // (PIN field, primary button) stays visible. Without this a number-pad — which

@@ -37,9 +37,13 @@ export async function connect(port = 9222, { timeoutMs = 20000 } = {}) {
   }
 }
 
-/** First open page tab, or a new one. */
+/** The visible page tab (several tabs can be open: only the foreground one gets real input), else the last, else a new one. */
 export async function firstPage(browser) {
   const pages = await browser.pages()
+  for (const p of [...pages].reverse()) {
+    const visible = await p.evaluate(() => document.visibilityState === 'visible').catch(() => false)
+    if (visible) return p
+  }
   return pages[pages.length - 1] || (await browser.newPage())
 }
 
