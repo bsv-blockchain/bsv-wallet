@@ -1,9 +1,12 @@
 # Browser wallet bridge — Android Chrome loopback kit (project 4 of 4)
 
-Date: 2026-10-28, revised 2026-10-29. Status: design, revision 3 (written while the owner was unavailable; revision 2
-followed an adversarial review, revision 3 a builder check, a consistency pass and a security review: section 15 says what
-each review issue changed, section 13 lists every call made without the owner, section 14 the questions that still need
-the owner).
+Date: 2026-10-28, revised 2026-10-29. Status: design, revision 4 (written while the owner was unavailable; revision 2
+followed an adversarial review, revision 3 a builder check, a consistency pass and a security review, revision 4 the results
+of spike S4 and the owner's go-ahead for M2: section 15 says what each review issue changed, section 13 lists every call made
+without the owner, section 14 the questions that still need the owner).
+Revision 4 in one line: the owner wants M2; spike S4 passed conditionally on the emulator (the plain React delegate is unsafe
+and is replaced by a guarded one, Back is native, Home and the `AppState` blip have rules; sections 6.0, 6.3, 6.11, 7.4, 11);
+S4b, S3 and S6 are the remaining M2 gates.
 Builds on project 1 (core): `docs/superpowers/specs/2026-10-27-browser-bridge-core-design.md` ("P1" below; "P1 6.8"
 points into it) and mirrors project 2: `docs/superpowers/specs/2026-10-28-browser-bridge-ios-kit-design.md` ("P2").
 Governing standards: BRC-185 (`/Users/personal/git/docs/BRCs/wallet/0185.md`, vectors alongside; "BRC-185 §n"),
@@ -69,7 +72,7 @@ The kit has six parts:
   host is attached and the wallet is unlocked (`ready`), the launch click raises a translucent sheet over Chrome as
   "Connect example.com?", the user taps Connect, the sheet closes and Chrome is in front again. On later warm visits it
   flashes up for about a second. This is the owner's "bottom sheet over Chrome" headline, and it is the **second
-  milestone**, built only after the spikes that can sink it (S3, S4, S6) pass. The first useful release is foreground mode.
+  milestone**, wanted by the owner (revision 4) and built only after the gates that can still sink it (S3, S4b, S6) pass. The first useful release is foreground mode.
 
 On a fresh install the first connect is a foreground-mode connect (the wallet must be unlocked at least once in the
 process); the owner gets the overlay only once the wallet is warm. The end-to-end tests verify the cold path first.
@@ -206,14 +209,19 @@ shows the request. No second React root and no context relay exist in M1, and ne
 (`hostAttached`, `assertAdvertisesResponder`, `core/bridge/loopback/`), then the Kotlin pure-JVM parts, then the rest.
 
 **M2: overlay.** `BridgeSheetActivity`, the second React root, `ContextRelay`, the sheet owner gate, lifecycle tracking,
-tapjacking protections, the overlay variant of `returnToBrowser`, `setHostState`, the test id `bridge-sheet-root`. **Gated on S3, S4 and S6.** S4 is a hard gate and the first M2 task: a minimal
-"hello" sheet on a second root of the shared React host, run on the Pixel_9 and one real phone, before any other M2 work.
-If S4 fails, M2 is dropped and foreground mode is the product; nothing in M1 depends on M2.
+tapjacking protections, the overlay variant of `returnToBrowser`, `setHostState`, the test id `bridge-sheet-root`, and the
+guarded sheet delegate, native Back and Home rule found by S4 (7.4). **Status after revision 4: the owner wants M2; S4 is done
+(conditional pass, emulator only, `SPIKES.md`); the remaining gates are S3, S4b and S6.** S4 showed that a second React root
+on the shared host works, but only with a guarded delegate: the plain default delegate lets the React host be destroyed under a
+live `MainActivity` (7.4). S4b (real phone, an R8 release build, the cold-start tracker race, the `useVaultKeys` listener)
+runs before the rest of M2 is trusted. If S4b or S3 fails in a way the design cannot absorb, M2 is dropped and foreground mode
+is the product; nothing in M1 depends on M2.
 
-**How the implementation plan treats M2.** M1 is planned in full detail and is a complete plan on its own. M2 is carried as a gated
-appendix, planned only to the depth of its first task (the S4 "hello" sheet spike); the rest of M2 is planned only if S4 passes
-and then S3 and S6 are run, and is dropped if S4 fails. Whether the owner still wants M2 at all is open question 1 in section 14.
-If S3 or S6 fail, M2 can still ship with the weaker behaviour they imply (a sheet only at the launch click; no background
+**How the implementation plan treats M2.** M1 is planned in full detail and is a complete plan on its own. M2 is now planned too
+(the owner said yes, section 14 question 1), as a second plan after M1. Its first tasks are the S4 findings made real: the
+guarded delegate with its truth-table test, native Back, the Home rule, `LifecycleTracker` with its backstop, then the relay
+(theme and wallet context included) and the owner gate. S4b, S3 and S6 are run on a real phone before M2 ships, and the plan
+says which task each result can change. If S3 or S6 fail, M2 can still ship with the weaker behaviour they imply (a sheet only at the launch click; no background
 sheet, notification only) or stop at M1; that is the owner's call once the spike results exist.
 
 ### 6.1 Package layout and the choice of package
@@ -373,10 +381,10 @@ class names are kept from R8 renaming by the host's existing `CodedException` ke
   - IPv4 failed with address-in-use: next port;
   - **any other bind error is surfaced** (`ERR_BIND_FAILED` with the errno text) and never treated as "port taken".
 - **Error classification does not rely on one message format.** `classifyBindError(e)` is a pure function that walks the
-  cause chain. *In use*: a cause whose message contains `EADDRINUSE` or `Address already in use`, or an
+  cause chain. _In use_: a cause whose message contains `EADDRINUSE` or `Address already in use`, or an
   `android.system.ErrnoException` (matched by class name, `errno` read reflectively so the JVM tests need no Android
-  classes) with errno 98. *Unavailable*: `EADDRNOTAVAIL`, `Cannot assign requested address`, `EAFNOSUPPORT`,
-  `Address family not supported`, `Protocol family unavailable`, or errno 99 or 97. Anything else is *other*. The JUnit
+  classes) with errno 98. _Unavailable_: `EADDRNOTAVAIL`, `Cannot assign requested address`, `EAFNOSUPPORT`,
+  `Address family not supported`, `Protocol family unavailable`, or errno 99 or 97. Anything else is _other_. The JUnit
   table covers both the Android-style messages (`bind failed: EADDRINUSE (Address already in use)`) and the desktop JVM
   strings; an on-device e2e case (a test socket on `::1:3321` only, section 10) proves the real Android classification.
 - Never probe-then-bind. Never bind a wildcard or a non-loopback address; unit tests assert `getInetAddress().isLoopbackAddress`
@@ -406,17 +414,22 @@ wrong and the host manifest stays small:
   Native, no ReactActivity, no JS. Its `onCreate` validates the data (scheme, host `launch`, at most 512 bytes), stores the
   URI in `LaunchStore` (process memory), starts the next component **without the URI** (an explicit intent with no data;
   only a sequence number is an extra), and calls `finish()`. It starts `MainActivity` through
-  `getLaunchIntentForPackage` in M1, and in M2 starts the non-exported sheet Activity when overlay mode applies (7.4). It
+  `getLaunchIntentForPackage` in M1, and in M2 starts the non-exported sheet Activity when overlay mode applies (7.4); when
+  `LifecycleTracker` has not caught up with a live `MainActivity` it defaults to foreground mode (7.4). It
   never starts a service, never touches the intent after `finish()`, and starts the next component at most once per 3 s (a rapid
   further launch still stores its record but does not re-raise a window; this bounds what a launch triggers, not whether it is
   accepted, 7.1);
 - **(M2) `org.bsv.walletbridge.BridgeSheetActivity`**: `exported="false"`, `launchMode="singleTask"`,
   `taskAffinity="${applicationId}.bridge"`, `excludeFromRecents`, `windowSoftInputMode="adjustResize"`, the usual
   `configChanges` list, theme `@style/Theme.BsvBridgeSheet`. Because it is not exported, no website and no other app can
-  start it; notification `PendingIntent`s target it with an explicit component and `FLAG_IMMUTABLE`;
+  start it; notification `PendingIntent`s target it with an explicit component and `FLAG_IMMUTABLE`. It uses the guarded
+  delegate of 7.4 (not the plain default one), overrides Back natively, and finishes itself when the user leaves it (7.4,
+  revision 4); the library needs `compileOnly 'com.facebook.react:react-android'` (S4: it had no React classes on its
+  classpath; the AppCompat theme parent resolved without further dependencies), and ships R8 keep rules for the delegate
+  members the guard uses (7.4);
 - `<service android:name="org.bsv.walletbridge.BridgeService" android:exported="false"
-  android:foregroundServiceType="specialUse">` with `<property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-  android:value="Loopback server that lets a web page in the phone's browser ask this wallet for approval while the browser is in front"/>`;
+android:foregroundServiceType="specialUse">` with `<property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+android:value="Loopback server that lets a web page in the phone's browser ask this wallet for approval while the browser is in front"/>`;
 - (M2) style `Theme.BsvBridgeSheet` in `res/values`, parent **`Theme.AppCompat.DayNight.NoActionBar`** (named explicitly;
   `Theme.AppCompat.Translucent` is not a stock theme): `windowIsTranslucent=true`, `windowBackground` transparent,
   `windowNoTitle`, slide-up animation, `android:enforceNavigationBarContrast=false`. The status and navigation bar colours
@@ -470,13 +483,13 @@ For each native `onRequest` the controller runs these steps, in order, and stops
 the status in 6.6 with `Cache-Control: no-store` and, only where noted, CORS headers.
 
 1. **Path allowlist.** Only these paths exist; anything else is `404` with no CORS headers and an empty body:
-      - `GET /.well-known/brc-wallet?challenge=<b64url>[&hello=<b64url>]`
+   - `GET /.well-known/brc-wallet?challenge=<b64url>[&hello=<b64url>]`
    - `POST /.well-known/brc-wallet/connect`
    - `DELETE /.well-known/brc-wallet/connect/<epoch>`
    - `POST /brc185/v1/rpc/<methodName>`
    - `OPTIONS` on any of the above.
-   Known path, wrong verb: `405` with `Allow`. No redirect is ever emitted. **No legacy epoch-less route is served** (7.3).
-   Targets are matched literally (no decoding, no normalisation) and the epoch segment must be a canonical lowercase UUIDv4.
+     Known path, wrong verb: `405` with `Allow`. No redirect is ever emitted. **No legacy epoch-less route is served** (7.3).
+     Targets are matched literally (no decoding, no normalisation) and the epoch segment must be a canonical lowercase UUIDv4.
 2. **Origin.** `Origin` must be present exactly once, a WHATWG-serialised origin of at most 2,048 bytes, and pass
    `canonicalizeBridgeOrigin({origin, attestation: 'unattested', allowLocalhostHttp})` (https only; `http://localhost:<port>`
    only in a `__DEV__` build that also set `configureToolbox({browserBridge:{allowLocalhostHttp:true}})`). Missing, `null`,
@@ -515,7 +528,7 @@ the status in 6.6 with `Cache-Control: no-store` and, only where noted, CORS hea
    and are checked against a **live binding and the request origin before anything is parsed**:
    `getBindingRegistry().resolve(transportId, {epoch, instanceId, continuityKey, origin})`. Unknown, retired,
    tombstoned or mismatched: `412` and the section 6 `ConnectionError` `{domain:'brc185', code:'PROVIDER_CHANGED',
-   message, delivery:'not-sent', epoch, cause?}`. Then: `Content-Type: application/json` required; body at most 5 MiB;
+message, delivery:'not-sent', epoch, cause?}`. Then: `Content-Type: application/json` required; body at most 5 MiB;
    `parseStrictJson`; `sizeBytes` is the byte length; `methodName` must be an own property of the 28-entry method table
    (`isBridgeMethod`) else `PROTOCOL_ERROR` `not-sent` (`404`). The call is
    `dispatch({transport, request: {epoch, instanceId, continuityKey, origin, method, args, sizeBytes, beforeCall}})`.
@@ -535,7 +548,7 @@ controller after dispatch started: `500`, `CONFIGURATION_ERROR`, `delivery: 'unk
 controller records the id as gone. The request itself stays parked in the core (the dispatcher has no cancel), but
 `beforeCall` (awaited after consent and before the wallet is called, P1 6.6) rejects with
 `CONNECTION_CLOSED`, `not-sent` when the id is gone, so **a request whose page left never reaches the wallet after the
-user approves the site**. A wallet-manager prompt raised *inside* the call (a spend confirmation) cannot be cancelled
+user approves the site**. A wallet-manager prompt raised _inside_ the call (a spend confirmation) cannot be cancelled
 this way; if the page leaves during it and the user approves, the action runs and the result is dropped. This is the same
 as a closed tab on iOS and is recorded in section 12. The sheet shows the request until it is answered, and the
 controller never races the sheet.
@@ -550,7 +563,7 @@ controller never races the sheet.
   signed, noninteractive and authorises nothing, BRC-185 §4.1); for RPC and DELETE, only an origin equal to the live
   binding's origin (a `412` for any other origin carries no CORS headers). Everything else: no CORS headers.
 - Preflight `204`: `Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS`; `Access-Control-Allow-Headers:
-  Content-Type, BRC-185-Epoch, BRC-185-Instance, BRC-185-Key, BRC-185-Android-Binding` (only the headers the request lists, intersected with
+Content-Type, BRC-185-Epoch, BRC-185-Instance, BRC-185-Key, BRC-185-Android-Binding` (only the headers the request lists, intersected with
   this set); `Cache-Control: no-store`; **no `Access-Control-Max-Age`**. If the request has
   `Access-Control-Request-Private-Network: true`, also `Access-Control-Allow-Private-Network: true`. Chrome's
   loopback gate is now a permission, not a preflight, and BRC-325 says the server need not send that header; sending
@@ -566,26 +579,26 @@ The body is always JSON. A body with `"isError": true` is a `WireError` (a walle
 `"domain": "brc185"` is a `ConnectionError`. Pages discriminate by body, not by status; statuses exist for logs and
 for generic HTTP clients.
 
-| Situation | Status | Body |
-|---|---|---|
-| Success, describe, connect | 200 | method result, or the proof object |
-| Disconnect, preflight | 204 | empty |
-| Wallet answered with an error (including user denial) | 400 | `WireError` |
-| `PROTOCOL_ERROR` (bad JSON, bad header, unknown field, bad challenge) | 400 | `ConnectionError`, `not-sent` |
-| Unknown path / unknown method on an epoch transport | 404 | none / `PROTOCOL_ERROR` |
-| Host not loopback, Origin missing or refused, launch proof refused | 403 | empty / empty / `CONFIGURATION_ERROR` |
-| `USER_CANCELLED` (Don't connect) | 403 | `ConnectionError`, `not-sent` |
-| Wrong verb | 405 | none (`Allow`) |
-| `PROVIDER_CHANGED` (RPC, connect, disconnect) | **412** | `ConnectionError`, `not-sent` |
-| `CONNECTION_CLOSED` | 410 | `ConnectionError` |
-| `Transfer-Encoding` / no `Content-Length` | 411 | empty |
-| Request body over 5 MiB | 413 | `RESOURCE_LIMIT`, `not-sent` |
-| Connect with a content type other than `application/json` | 415 | empty |
-| `RESOURCE_LIMIT` (bindings, in-flight, sheet slot, decline backoff, unsettled-binding gate, parked-connect cap) | 429 | `ConnectionError`, `not-sent`, `Retry-After` when known |
-| Wallet not built (host attached, `readiness: none`), or a parked connect timed out | 503 | `CONFIGURATION_ERROR`, `not-sent` |
-| Too many connections | 503 | empty, `Retry-After: 1` |
-| Response over 5 MiB | 502 | `RESOURCE_LIMIT`, `unknown` |
-| Internal error | 500 | `CONFIGURATION_ERROR`, `not-sent` or `unknown` |
+| Situation                                                                                                       | Status  | Body                                                    |
+| --------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------- |
+| Success, describe, connect                                                                                      | 200     | method result, or the proof object                      |
+| Disconnect, preflight                                                                                           | 204     | empty                                                   |
+| Wallet answered with an error (including user denial)                                                           | 400     | `WireError`                                             |
+| `PROTOCOL_ERROR` (bad JSON, bad header, unknown field, bad challenge)                                           | 400     | `ConnectionError`, `not-sent`                           |
+| Unknown path / unknown method on an epoch transport                                                             | 404     | none / `PROTOCOL_ERROR`                                 |
+| Host not loopback, Origin missing or refused, launch proof refused                                              | 403     | empty / empty / `CONFIGURATION_ERROR`                   |
+| `USER_CANCELLED` (Don't connect)                                                                                | 403     | `ConnectionError`, `not-sent`                           |
+| Wrong verb                                                                                                      | 405     | none (`Allow`)                                          |
+| `PROVIDER_CHANGED` (RPC, connect, disconnect)                                                                   | **412** | `ConnectionError`, `not-sent`                           |
+| `CONNECTION_CLOSED`                                                                                             | 410     | `ConnectionError`                                       |
+| `Transfer-Encoding` / no `Content-Length`                                                                       | 411     | empty                                                   |
+| Request body over 5 MiB                                                                                         | 413     | `RESOURCE_LIMIT`, `not-sent`                            |
+| Connect with a content type other than `application/json`                                                       | 415     | empty                                                   |
+| `RESOURCE_LIMIT` (bindings, in-flight, sheet slot, decline backoff, unsettled-binding gate, parked-connect cap) | 429     | `ConnectionError`, `not-sent`, `Retry-After` when known |
+| Wallet not built (host attached, `readiness: none`), or a parked connect timed out                              | 503     | `CONFIGURATION_ERROR`, `not-sent`                       |
+| Too many connections                                                                                            | 503     | empty, `Retry-After: 1`                                 |
+| Response over 5 MiB                                                                                             | 502     | `RESOURCE_LIMIT`, `unknown`                             |
+| Internal error                                                                                                  | 500     | `CONFIGURATION_ERROR`, `not-sent` or `unknown`          |
 
 `SELECTION_REQUIRED`, `DISCOVERY_BLOCKED`, `PAIRING_*` and `DISCONNECTED` after a page-initiated close are page-side
 codes; the server never emits them. P1 6.11 fixed only `400` and `412`; the rest is defined here and project 3 conforms.
@@ -618,8 +631,8 @@ validation. So the controller does all its own checks first and the binding is c
    `503`, `CONFIGURATION_ERROR`, `not-sent`). A pre-binding connect is not a request anyone has approved, so BRC-219
    (no deadline on a request waiting for the user) does not apply to it; it applies to every request admitted to a binding.
 5. The gate is **re-checked in the same synchronous turn as** `connectExplicit({epoch, transportId, applicationOrigin,
-   attestation: 'unattested', instanceId, continuityKey, accountContext, walletRevision, launchProofVerified: true,
-   reconnectToken})` (two cold connects that both parked reach here one after the other; the second gets `429` and must
+attestation: 'unattested', instanceId, continuityKey, accountContext, walletRevision, launchProofVerified: true,
+reconnectToken})` (two cold connects that both parked reach here one after the other; the second gets `429` and must
    re-launch), with `accountContext` and `walletRevision` read from `getBridgeSnapshot()` in that turn. Errors map by 6.6.2
    (`RESOURCE_LIMIT`: 8 bindings per origin, 64 total).
 6. Respond with `signConnect(signer, {origin, epoch, challenge, descriptor})` and the header
@@ -657,7 +670,7 @@ reset(ctx | 'all'): Promise<void>
   the pair is stable for that origin. Incognito versus normal is still not separated (section 12). The builder verifies
   that P1's `ContinuityStore` context type accepts this string; if it does not, an additive seam goes into 6.14 (S0 checks this first).
 - **Derivation.** `okm = HKDF-SHA256(ikm = master, salt = "BRC-185 android continuity v1", info = ctx || 0x00 || gen, L =
-  48)`; bytes 0 to 31 are the Ed25519 seed (`continuityKey` is its public key); bytes 32 to 47 become the `instanceId`
+48)`; bytes 0 to 31 are the Ed25519 seed (`continuityKey` is its public key); bytes 32 to 47 become the `instanceId`
   (UUIDv4 version and variant bits set, lowercase). `gen` is a per-context counter (0 unless `reset(ctx)` ran), which makes
   `reset(ctx)` possible without storing per-origin secrets. HKDF comes from `@noble/hashes`, which the toolbox already
   depends on. The key is independent of every wallet key. The derivation sits behind **one function**,
@@ -732,8 +745,15 @@ when the main tree is gone** (7.1): bindings live only while the host's React tr
 ### 6.11 The sheet over Chrome (M2)
 
 See 7.4 for behaviour. Components: `BridgeSheetActivity` (a non-exported `ReactActivity` whose main component is
-`BsvBridgeSheet` on the app's existing React host, via the default delegate, 7.4), the theme (6.3), `BridgeSheetRoot` and
-`SheetGate` (React), `LifecycleTracker` (Kotlin), and the toolbox `ContextRelay` (6.14). None of it exists in M1.
+`BsvBridgeSheet` on the app's existing React host, via the guarded delegate of 7.4, not the plain default one), the theme
+(6.3), `BridgeSheetRoot` and `SheetGate` (React), `LifecycleTracker` (Kotlin), and the toolbox `ContextRelay` (6.14), which
+relays the toolbox theme and `WalletContext` among its contexts (7.4). None of it exists in M1.
+
+Three things the S4 spike added to this list, each specified in 7.4: the **destroy guard** in the sheet's delegate (a plain
+delegate lets `ReactHost.onHostDestroy` run for a live `MainActivity`), **native Back** (`finish()` without JS), and the
+**Home rule** (the sheet finishes when the user leaves it). Keep rules for R8 go with the package (consumer rules next to the
+existing `consumer-rules.pro` pattern of the wallet packages), because the guard reaches protected and internal React members
+that a minifier or a React Native upgrade can rename or move.
 
 ### 6.12 Public JS API
 
@@ -791,7 +811,7 @@ before the kit's first build.
 1. **`core/bridge/loopback/`** (new, pure TypeScript, no React Native imports): `router.ts` (steps 1 to 8 of 6.5 as a
    function from a parsed request and an injected environment to a response plan), `cors.ts`, `status.ts` (6.6.2 as data),
    `hostCheck.ts` (the allowed-`Host` function the Kotlin side mirrors), `launchProof.ts` (7.5: hello, describe ack, proof, connect ack
-  and binding secret), `endpoints.ts` (`loopbackEndpoints({port, ipv4, ipv6})`). Exported from the `core` barrel. **The router calls
+   and binding secret), `endpoints.ts` (`loopbackEndpoints({port, ipv4, ipv6})`). Exported from the `core` barrel. **The router calls
    the existing helpers instead of re-implementing them:** `canonicalizeBridgeOrigin`, `parseStrictJson`,
    `isBridgeMethod`, `signDescribe`, `signConnect`, `validateDescriptor`, `getBindingRegistry().resolve`, `dispatch`; only
    the HTTP framing, CORS and status mapping are new. The request target is parsed strictly: origin-form only, no
@@ -851,8 +871,8 @@ Chrome's prompt unprimed). So, like P2, the kit ships `src/testing/loopbackPageC
   createAction, disconnect) and adds: **Open wallet** (the user-gesture intent link), **Permission** (shows
   `navigator.permissions.query` for `loopback-network` then `local-network-access`), a **port window** field (default
   3321, offsets 0 to 63), a per-attempt **timeout** field (default 3000 ms, applies to each describe attempt during
-  rediscovery; the connect after a launch has none), and a log that distinguishes *blocked*, *absent*, *refused* and
-  *unauthenticated* (a responder whose describe carried no valid acknowledgement). Query `?scheme=…&package=…&fallback=…` overrides the
+  rediscovery; the connect after a launch has none), and a log that distinguishes _blocked_, _absent_, _refused_ and
+  _unauthenticated_ (a responder whose describe carried no valid acknowledgement). Query `?scheme=…&package=…&fallback=…` overrides the
   launch target.
 - `demo/build.mjs`: esbuild, target `chrome100`; `demo/serve.mjs` as the iOS one on port 3000.
 - **Two ways to test**, both documented in the README:
@@ -899,13 +919,13 @@ with Chrome in front, to confirm the choice rather than assume it.
 - **IDLE → ARMED.** A launch that parses (7.5) arrives (the `onLaunch` nudge, or `takeLaunches()` at startup). The
   controller calls `ensureService()` and, if that returns true, `startServer({basePort: 3321, maxOffset: 63})`.
 - **ARMED → ACTIVE.** A connect succeeds. That launch record is consumed.
-- **ARMED → IDLE.** The `armed` timer fires 120 seconds after the *last* launch record was created, with no binding and no
-  connect parked; **or** 10 minutes after the *first* launch of the chain (a hard cap, so a stream of launches cannot hold
+- **ARMED → IDLE.** The `armed` timer fires 120 seconds after the _last_ launch record was created, with no binding and no
+  connect parked; **or** 10 minutes after the _first_ launch of the chain (a hard cap, so a stream of launches cannot hold
   the port open for ever): `stopServer()`, `stopSession()`. A connect already parked (waiting for unlock) keeps ARMED until
   it resolves or its own 10-minute deadline (6.7 step 4).
 - **No limit on accepting a launch; a limit on what it triggers.** `LaunchStore` (Kotlin) accepts every well-formed launch
   (capacity 32, the oldest unused entry is displaced when full, entries expire in Kotlin at 120 s, 7.5). A limit on
-  *acceptance* would hand any local app a switch that drops the user's real "Open wallet" click (the trampoline is exported), and
+  _acceptance_ would hand any local app a switch that drops the user's real "Open wallet" click (the trampoline is exported), and
   it buys nothing: Android already blocks background activity starts, and a website needs a user gesture per launch. What the
   kit bounds is the trampoline's effect: it starts the next component at most once per 3 s, `ensureService()` is idempotent, and
   the ARMED chain cap below limits how long a stream of launches can hold the port.
@@ -966,11 +986,11 @@ trusts, which an app cannot provide.
 **Launch path.** The page opens the intent link; Android delivers the URI to `LaunchTrampolineActivity` (the only exported
 component, 6.3). The trampoline validates it, stores it in `LaunchStore` and starts the next component with **no data**:
 
-| Condition (the M2 rows use `setHostState` and `LifecycleTracker`; M1 needs neither) | Next component |
-|---|---|
-| M1, any state | `MainActivity` (`getLaunchIntentForPackage`) |
-| M2, host attached and `ready` | `BridgeSheetActivity` (overlay mode) |
-| M2, otherwise (cold process, locked, building, main tree gone) | `MainActivity` (foreground mode) |
+| Condition (the M2 rows use `setHostState` and `LifecycleTracker`; M1 needs neither)                              | Next component                               |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| M1, any state                                                                                                    | `MainActivity` (`getLaunchIntentForPackage`) |
+| M2, host attached and `ready`                                                                                    | `BridgeSheetActivity` (overlay mode)         |
+| M2, otherwise (cold process, locked, building, main tree gone, **or `LifecycleTracker` has not registered yet**) | `MainActivity` (foreground mode)             |
 
 There is no "Unlock card" in the sheet Activity: when the wallet cannot show a prompt, the user is taken straight to the
 wallet, which is one tap fewer and cannot present an unusable overlay. In a process that has only just started, Kotlin
@@ -982,13 +1002,70 @@ request. After the last pending prompt, the way back (below) applies. This is th
 tests exercise first.
 
 **Overlay mode (M2).** `BridgeSheetActivity extends ReactActivity`, not exported, with `getMainComponentName() =
-"BsvBridgeSheet"`. It uses the library's default delegate (`DefaultReactActivityDelegate` on
-`(application as ReactApplication).reactHost`, no Expo wrapper unless S4 shows a need), so the Expo lifecycle listeners of
-`MainActivity` (splash, orientation, navigation bar) do not run for it. Its task is its own (`taskAffinity`), directly above
+"BsvBridgeSheet"`. It uses a **subclass of the library's default delegate** (`DefaultReactActivityDelegate` on
+`(application as ReactApplication).reactHost`, with the destroy guard below; no Expo wrapper, S4 showed none is needed), so the
+Expo lifecycle listeners of `MainActivity` (splash, orientation, navigation bar) do not run for it. S4 saw no dev-menu, LogBox,
+splash or navigation-bar interference on the sheet. Its task is its own (`taskAffinity`), directly above
 Chrome's; because the window is translucent, Chrome stays visible and running behind it (the activity below is paused,
 not stopped), which keeps the page's held `fetch` alive.
 
-*Protections, because a translucent sheet over an arbitrary foreground app is a tapjacking target:*
+**The destroy guard (S4, criterion b; revision 4).** The plain default delegate is unsafe. The React host ignores
+`onHostDestroy(activity)` unless `activity` is its current Activity, and `onHostResume(activity)` is what sets it. When the
+sheet opens over Chrome, the sheet is current; when it finishes, Android resumes **Chrome**, not `MainActivity`, so the sheet is
+still current at its `onDestroy` and the delegate runs the host's destroy path with a live, stopped `MainActivity`. (Opened over a
+resumed `MainActivity`, the main Activity resumes first and the call is a no-op; Home with the sheet up only stops it.) The
+guard, in the sheet's delegate `onDestroy`:
+
+- if `MainActivity` is alive (`LifecycleTracker`): call only `unloadApp()` (the protected `getReactDelegate()` and
+  `ReactDelegate.unloadApp()`), which stops the sheet's surface, and do **not** call the host destroy;
+- if `MainActivity` is not alive: call `super`, so the host is not left without a destroy.
+
+Measured over three sheet lifecycles: no `onHostDestroy`, the surface still unmounts, the next sheet mounts a fresh root,
+`MainActivity` resumes normally. What the guard costs and where it can break:
+
+- **`currentActivity` goes stale.** The host keeps pointing at the finished sheet until `MainActivity` next resumes
+  (`onHostResume`). It is a held reference to a finished Activity: an **M2 test** checks for a leak (the sheet is collectable
+  after the next resume, a heap or `LeakCanary`-style check in the instrumented run) and checks every module that reads
+  `currentActivity` while Chrome is in front (permission requests, notifications, share, keep-awake) and fails
+  closed (an error, no crash) rather than using the dead Activity. `LifecycleTracker` is the source of truth for "alive", not
+  the host's `currentActivity`.
+- **R8 and React Native upgrades.** The guard uses a protected getter and `ReactDelegate.unloadApp()`. The package ships keep
+  rules for them, S4b checks a release build with R8, and a React Native upgrade re-runs the guard's truth-table test (a
+  Kotlin or instrumented test: `MainActivity` alive or dead times sheet current or not).
+- **Module teardown was not audited.** With the plain delegate every module listening for the host destroy received it under a
+  live `MainActivity`; whether NetInfo, notifications, the BLE or NFC modules or reanimated recover was not checked. The guard
+  removes the question, but the audit still belongs in the M2 plan as a reading of those modules' destroy listeners.
+
+**Back, Home and the Activity handover (S4 findings 1 to 4; revision 4).**
+
+- **Back is native.** The sheet shares the JS runtime, so `ReactActivity.onBackPressed` goes to JS `hardwareBackPress` where
+  the main tree's router handlers can swallow it (S4: with `MainActivity` left on Settings, Back in the sheet did not finish
+  it). `BridgeSheetActivity` handles Back itself: `finish()`, never `super` and never JS, so the sheet closes every time and
+  the main tree's navigation state is not touched. The same rule applies to the `OnBackInvokedCallback` of predictive back
+  (API 33+, gesture navigation): the callback is registered natively and finishes the Activity. **Predictive back is checked**
+  on an API 34+ device with gesture navigation (S4b), because the emulator run used the button.
+- **Handover blip in `AppState`.** On every handover between our Activities (Main to sheet, sheet to Main) `AppState` goes
+  `background` then `active` about 50 ms apart, because the first Activity pauses before the next resumes. In steady state
+  `AppState` is `active` while either is resumed (below), but every listener sees the blip. Rules: no listener, and not the
+  controller, closes a binding, fails or answers a parked request, locks, or starts a timer that acts on `background`
+  without a debounce; work that must wait for "really in the background" waits at least 500 ms and re-reads the state before
+  acting. The controller's "wallet in front" decision (the table below) reads `sheetOwner()` from `LifecycleTracker`, not a
+  momentary `AppState`. The host's present listeners (`useRequests`, `NotifyPrompt`) were observed to do one refresh per
+  change and nothing else; `useVaultKeys` is not exercised (S4b).
+- **Home with the sheet up** leaves the `singleTask` sheet task stopped in the background, and a later launch would revive its
+  old root. **Call: the sheet finishes itself when the user leaves it.** In `onUserLeaveHint` (Home, recents) the sheet marks
+  itself as left, and `onStop` with that mark set calls `finish()`; the requests stay parked (as for Back), the notification
+  carries them, and the next launch creates a fresh root. An `onStop` without the mark (the screen turning off, a system
+  dialog) does not finish it. As a second line of defence a launch (`onNewIntent` with a new sequence number, or a new
+  `onCreate`) resets the root before showing it. The alternative, resetting only on a new launch, was rejected because it
+  leaves a stale, secure-flagged sheet task in the system's recents list for as long as the process lives.
+- **A second Open wallet tap while the sheet covers Chrome launches nothing** (S4: no trampoline start; Chrome probably
+  withholds the intent while paused; the cause was not isolated). Recorded as **known behaviour**: to the page it looks like a
+  launch click that produced no new launch record, so the request or connect already parked keeps waiting, the sheet that is
+  up is the answer, and the page's own wait for the wallet runs out normally (7.7). A launch sent from `adb` does reach
+  `onNewIntent` and re-resumes the same root, so the handler stays. S3 investigates the Chrome side.
+
+_Protections, because a translucent sheet over an arbitrary foreground app is a tapjacking target:_
 
 - `Window.setHideOverlayWindows(true)` on API 31+ while the sheet is up, and Android 12's untrusted-touch blocking relied on;
 - **`FLAG_SECURE` on the Activity window for every sheet** (connect, protocol, basket, certificate, spending, group), not only
@@ -999,7 +1076,7 @@ not stopped), which keeps the page's held `fetch` alive.
   (`dispatchTouchEvent`), and the 700 ms tap protection on Approve (P1) applies to every sheet;
 - the root view keeps `filterTouchesWhenObscured`.
 
-*Launch handling:* the sheet never reads the launch URI; it gets a sequence number as its only extra.
+_Launch handling:_ the sheet never reads the launch URI; it gets a sequence number as its only extra.
 `BridgeSheetActivity` is created for a launch only when `savedInstanceState == null` and the extra's sequence number is new,
 so an OS task restore or process recreation cannot re-arm the server (7.5).
 
@@ -1013,20 +1090,36 @@ providers live (`WalletContext`, `ExchangeRateContext`, `UserContext`, theme); `
 - Toolbox `ContextRelayPublisher` (mounted by `AndroidBridgeHost` inside the main tree) reads the listed contexts and
   publishes their current values to a module-level store. `ContextRelaySubscriber` (the root of `BsvBridgeSheet`) nests
   a `Context.Provider` per entry with the live value (`useSyncExternalStore`), then renders the sheets.
-- The context list is data (`RELAYED_CONTEXTS`). A jest test renders `PermissionSheet` and the connect sheet under the
-  subscriber **only** and fails if any `useContext` returns its default.
+- The context list is data (`RELAYED_CONTEXTS`), and **it names the toolbox theme context and `WalletContext` explicitly**
+  (revision 4; S4 criterion h): a bare second root gets `useTheme()` as a fixed light palette (dark text on a dark card in dark
+  mode, unreadable) and `WalletContext` as its empty default (no managers). Plain React Native `useColorScheme` already follows
+  the system in the sheet, but the toolbox does not use it without its provider. A jest test renders `PermissionSheet` and the
+  connect sheet under the subscriber **only**, in light and dark, and fails if any `useContext` returns its default.
 - **One owner at a time (no duplicate prompt, no duplicate effects).** A single selector, `sheetOwner()`, returns `'main'`,
   `'overlay'` or `'none'`: `'overlay'` iff the sheet Activity is resumed and `MainActivity` is not resumed
   (`LifecycleTracker`), `'main'` iff `MainActivity` is resumed. `AndroidBridgeSheetGate` wraps the main tree's
   `<PermissionSheet />` and renders it only when the owner is not `'overlay'`; `BridgeSheetRoot` renders `<PermissionSheet />`
   only when the owner is `'overlay'` and nothing otherwise. So the tap-protection timers, biometric prompts and response
-  calls of `PermissionSheet` exist in exactly one root at a time. `LifecycleTracker` is an
-  `Application.ActivityLifecycleCallbacks` registered in the Expo module's `OnCreate` with a catch-up from
-  `appContext.currentActivity`; its cold-start ordering (module created after `MainActivity.onCreate`) is checked in S4.
+  calls of `PermissionSheet` exist in exactly one root at a time. **M2 requirement (revision 4): every attention decision uses
+  `sheetOwner()`, never `AppState`.** With the sheet up, `AppState` is `active` and the M1 controller would read it as "wallet in
+  front", while the main tree's `PermissionSheet` sits in a stopped `MainActivity` and is not visible, so a connect or prompt that
+  arrived then would park with nothing showing. In M2 `requestAttention` and the foreground-mode `returnToBrowser` gate ask the
+  owner (`'overlay'` counts as "wallet in front" only because the sheet itself renders the prompt). A test covers it: a fake
+  `LifecycleTracker` in each owner state (`main`, `overlay`, `none`) with `AppState` forced `active` throughout, and the
+  expectation per row of the attention table.
+- **`LifecycleTracker` and the cold-start race.** It is an `Application.ActivityLifecycleCallbacks` registered in the Expo
+  module's `OnCreate` with a catch-up from `appContext.currentActivity`. On a cold start the module is created after
+  `MainActivity.onCreate` (about 1.8 s in S4), so for a window `MainActivity` is alive but the tracker does not know it. Rules:
+  while the tracker has not registered or caught up, the trampoline **defaults to foreground mode** (`MainActivity`), never the
+  sheet (the sheet Activity must never start without a live main tree, S4 criterion e); `onActivityResumed` of the main class is
+  a **backstop** that marks it alive if the catch-up missed it; and the sheet guard reads "alive" from the same tracker plus the backstop, never from the host's `currentActivity`. S4b tests the
+  race on a real phone (launch at the 0.5 s, 1.5 s and 2.5 s marks after a process start).
 - **React host lifecycle.** The React host tracks one current Activity, so interleaved resume/pause/destroy between
-  `MainActivity` and the sheet Activity can deliver `onHostPause`/`onHostResume`/`onHostDestroy` in surprising orders.
-  S4 verifies, with logging, that `onHostDestroy` never fires for a live `MainActivity`, that `AppState` follows 7.4's lock
-  statement, and that the host's own `AppState` listeners (`useRequests`, `useVaultKeys`, `NotifyPrompt`) behave.
+  `MainActivity` and the sheet Activity deliver `onHostPause`/`onHostResume`/`onHostDestroy` in surprising orders. S4 measured
+  it: the plain delegate destroys the host under a live `MainActivity` (fixed by the guard above), `AppState` follows the lock
+  statement below in steady state with a 50 ms `background` blip at each handover, and `useRequests` and `NotifyPrompt` behave
+  (one refresh per change, no error); `useVaultKeys` is mounted only while a key removal is being broadcast and was not
+  exercised, so S4b does it.
 - Stable test ids for the e2e: `bridge-sheet-root` on the overlay root (M2 only). `bridge-approve`, `bridge-deny` and the connect
   card's `bridge-connect-origin` are an **M1 deliverable** on the in-app connect sheet and `PermissionSheet` (the builder adds them
   where absent); the overlay reuses the same components, so they carry over.
@@ -1034,20 +1127,21 @@ providers live (`WalletContext`, `ExchangeRateContext`, `UserContext`, theme); `
 
 **Lock policy and `AppState`.** The host has no lock-on-background today: every `AppState` listener under `src`
 (`useVaultKeys`, `useRequests`, `NotifyPrompt`, `appIcons`, `feedback`) refreshes on `active`, none locks. The kit adds
-none. `AppState` is process-wide: it is `active` while either of our Activities is resumed (the sheet task counts) and
-`background` only when neither is, exactly as for an ordinary app. Rules the kit holds the host to: a lock or background
+none. `AppState` is process-wide: in steady state it is `active` while either of our Activities is resumed (the sheet task counts) and
+`background` only when neither is, exactly as for an ordinary app, except for the roughly 50 ms `background` blip on each
+handover between our Activities (above). Rules the kit holds the host to: a lock or background
 transition never closes bindings and never fails a parked request; a locked wallet parks new connects as `blocked`; a parked
 connect resumes when the snapshot becomes `ready`; if the host later adds auto-lock it must not lock while the sheet is
-resumed. S4 has a sub-case (locked then unlocked while the sheet is open) and a jest test renders the sheet root under a
+resumed. S4 could not run its locked-then-unlocked sub-case (the host has no lock; re-state it when the host gains one) and a jest test renders the sheet root under a
 locked-then-unlocked fake wallet.
 
 **When an overlay or the wallet is raised (`requestAttention`).**
 
-| Core calls | Wallet in front (M1: `AppState` is `active`; M2: `sheetOwner() === 'main'`) | Action |
-|---|---|---|
-| `'consent'`, `'prompt'` | yes | nothing: the in-app sheet is visible |
-| `'consent'`, `'prompt'` | no | try `showSheet` (M2, may be blocked in the background) and always post the heads-up notification |
-| `'wallet-not-ready'` | any | foreground mode: the wallet is already brought forward by the launch; a later one only posts the notification |
+| Core calls              | Wallet in front (M1: `AppState` is `active`; M2: `sheetOwner() !== 'none'`, never `AppState`) | Action                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `'consent'`, `'prompt'` | yes                                                                                           | nothing: the in-app sheet is visible                                                                          |
+| `'consent'`, `'prompt'` | no                                                                                            | try `showSheet` (M2, may be blocked in the background) and always post the heads-up notification              |
+| `'wallet-not-ready'`    | any                                                                                           | foreground mode: the wallet is already brought forward by the launch; a later one only posts the notification |
 
 `onPromptRaised` (fires whether or not the app is active) only updates the notification's waiting count. In M1 there is no
 `LifecycleTracker`, `isMainActivityActive` or `setHostState`: "wallet in front" is the `AppState` signal and `sheetOwner()`
@@ -1055,6 +1149,7 @@ collapses to `'main'` or `'none'`.
 
 **Way back to Chrome.** When no connection request, no manager prompt and no wallet-not-ready state has been pending for
 600 ms (hysteresis, a Kotlin timer so it fires while backgrounded), the controller calls `returnToBrowser()`:
+
 - overlay mode (M2): `BridgeSheetActivity.finish()`, its task disappears and Android returns to the task beneath, normally
   Chrome;
 - foreground mode (M1): `moveTaskToBack(true)` on the foremost of our Activities, only if the bridge brought it forward.
@@ -1065,12 +1160,12 @@ collapses to `'main'` or `'none'`.
 arbitrarily, so neither is used. **Which task Android returns to is a device gate (S3)**; the documented fallback is the
 system Back gesture or the app switcher, and the README says so.
 
-**System Back / outside tap in the sheet.** Back leaves the requests **parked** (BRC-219: no answer is given by leaving)
+**System Back / outside tap in the sheet.** Back (handled natively, above) leaves the requests **parked** (BRC-219: no answer is given by leaving)
 and finishes the Activity; the notification then says "N requests waiting. Tap to review". An outside tap does nothing.
 
 **Background activity starts, honestly.** Android 10+ blocks an app that has no visible window from starting an Activity;
 `SYSTEM_ALERT_WINDOW` is blocked by the host, and the full-screen-intent privilege is not available to a wallet on Android 14+.
-So an Activity is *guaranteed* only in the moments the page's user click launches it. For a later request while Chrome is in
+So an Activity is _guaranteed_ only in the moments the page's user click launches it. For a later request while Chrome is in
 front (the page calls `createAction` five minutes after connecting):
 
 1. `showSheet` is tried (M2; it works on some OEM builds and when the app was recently visible).
@@ -1087,9 +1182,9 @@ front (the page calls `createAction` five minutes after connecting):
 ### 7.5 The launch proof and the wallet's acknowledgement (project 4 open item)
 
 The launch secret `k` is known only to the page that built the intent and to the app Android delivered it to (Android routes by
-`package=`). It is used in **both directions and in two stages**. *At describe time* the page proves to the wallet that it holds
+`package=`). It is used in **both directions and in two stages**. _At describe time_ the page proves to the wallet that it holds
 `k` (`hello`) and, in the same response, the wallet proves to the page that it holds `k` (`describeAck`); only then does the page
-send anything sensitive. *At connect* the page proves a visible launch (`launchProof`) and the wallet confirms (`ackMac`).
+send anything sensitive. _At connect_ the page proves a visible launch (`launchProof`) and the wallet confirms (`ackMac`).
 Neither side authenticates the website: any installed app can launch the trampoline with a secret of its own choosing (P1 9), and
 any app can bind a port. What the scheme gives is that **the epoch, the launch proof and the reconnect token reach only an
 endpoint that has already proved it holds `k`**. A squatter without `k` is sent nothing it could use, can never be accepted as
@@ -1125,7 +1220,7 @@ is lost; the user clicks again). A launch is created **only** by the trampoline;
 remembered in memory for at least 10 minutes, so a re-delivered URI cannot make a fresh unused record for the same epoch); `k`
 exactly 32 bytes and `n` exactly 16 bytes of canonical base64url; unknown parameters refuse. A refused URI is dropped silently.
 Otherwise a record `{epoch, secret, nonce, expiresAt = now + (120 s - ageMs), used: false, parked: false}` is stored. **Memory
-only.** The store holds at most **32 live records**. When full, the oldest *unused, unparked* record is evicted (first in, first
+only.** The store holds at most **32 live records**. When full, the oldest _unused, unparked_ record is evicted (first in, first
 out); a record whose connect is parked is never evicted, and if nothing can be evicted the new URI is dropped. Records are never
 logged, and the module redacts `k` and `e` from any error text.
 
@@ -1203,7 +1298,7 @@ launches the trampoline itself with the victim's origin gets a valid launch proo
 the same consent request as the real page and receive the token the user's single Approve mints. So the kit adds a rule the
 core does not have:
 
-- **Unsettled-binding gate.** A binding is *unsettled* from creation until its origin is connected for it (the consent was
+- **Unsettled-binding gate.** A binding is _unsettled_ from creation until its origin is connected for it (the consent was
   approved, or a reconnect token matched and its first non-probe request was admitted) or it closes. **At most one unsettled
   binding per origin exists.** A second connect for an origin that has one gets `429` `RESOURCE_LIMIT`, `Retry-After: 5`,
   `not-sent`, checked before the launch proof is burnt (so a legitimate second tab can retry on the same launch) and again in
@@ -1218,7 +1313,7 @@ core does not have:
 
 Delivery contract:
 
-- **Carried in a response header.** The controller stores the token in the binding's *token outbox* (memory) and attaches it
+- **Carried in a response header.** The controller stores the token in the binding's _token outbox_ (memory) and attaches it
   as `BRC-185-Reconnect-Token: <token>` to the **next response written for that epoch**, normally the response of the very
   request that was parked behind the approval. The header is in `Access-Control-Expose-Headers`.
 - **Exactly once.** The outbox clears when the response head has been written to the socket without error. If the write
@@ -1276,23 +1371,23 @@ Delivery contract:
 
 ### 8.1 Attackers and what stops them
 
-| Attacker | Capability | Stopped by |
-|---|---|---|
-| Local app, forges `Origin` | connects to the port | launch proof (it must launch the trampoline itself, in front of the user, and the connect sheet then shows the claimed ASCII origin with the Unverified badge); reconnect token (it cannot read the real site's storage); unsettled-binding gate (it cannot park beside the real page and take the token, 7.6); clean slate (it gets an empty grant set, not the real site's); spending always asks |
-| Local app, port squatter | binds a port before the wallet starts (the wallet is dead until the click, so this is easy) | **authentication at describe time (7.5):** the squatter has no `k`, so it cannot produce `BRC-185-Android-Ack` on describe; the page refuses it, including on a first visit when nothing is pinned, and sends it no epoch, no launch proof and no token; the page never auto-picks the first valid describe; `host` is bound into every MAC, so a relay to the real wallet on another port fails even if the page skipped the responder check; the binding secret means a leaked epoch drives nothing; exclusive bind in both families on our side; the token goes only to a key-matched, ack-verified endpoint |
-| Another web page | `fetch` to the port from a malicious origin | exact-origin CORS; the origin must pass `canonicalizeBridgeOrigin`; consent per origin; Chrome's own loopback permission; `Content-Type: application/json` required on connect and RPC, so a CORS-simple request never reaches the launch registry |
-| DNS rebinding | attacker host resolving to 127.0.0.1 | Host check in Kotlin before any parsing; origin differs anyway |
-| Local app, availability | re-launches in a loop, parks connects, fills tables | no acceptance limit on launches (it would be a switch that drops the real click), but the trampoline re-raises a window at most once per 3 s; ARMED hard cap of 10 minutes; at most 4 parked connects with a 10-minute deadline; unsettled bindings expire at 60 s; a store of 32 launch records that displaces the oldest unused one and never a parked one; no failure throttle or describe rate limit that a caller could trip to lock the real page out; the epoch never reaches an unauthenticated endpoint, so a squatter cannot burn the real launch. **Accepted:** a local app can still deny service for the real site for short periods (12) |
-| Local app, notification abuse | triggers heads-up notifications naming a lookalike site | notifications name no site; private visibility with a generic public version; the origin appears only inside the wallet with the Unverified badge |
-| Tapjacking over the sheet | overlay on the translucent window | `setHideOverlayWindows`, `FLAG_SECURE` on every sheet, a mostly opaque scrim, obscured-touch rejection, `filterTouchesWhenObscured`, the 700 ms tap protection (P1) |
-| Cross-site tracking | colluding sites compare identities | per-origin pseudonymous `instanceId` and `continuityKey` (6.9); no device name in describe |
-| Cross-profile / other user | work profile, private space | out of scope; Android 17 may restrict cross-profile loopback (S8 measures it); recorded |
-| Passive sniffing | read loopback traffic | not possible without root; 8.4 |
+| Attacker                      | Capability                                                                                  | Stopped by                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Local app, forges `Origin`    | connects to the port                                                                        | launch proof (it must launch the trampoline itself, in front of the user, and the connect sheet then shows the claimed ASCII origin with the Unverified badge); reconnect token (it cannot read the real site's storage); unsettled-binding gate (it cannot park beside the real page and take the token, 7.6); clean slate (it gets an empty grant set, not the real site's); spending always asks                                                                                                                                                                                                                                                    |
+| Local app, port squatter      | binds a port before the wallet starts (the wallet is dead until the click, so this is easy) | **authentication at describe time (7.5):** the squatter has no `k`, so it cannot produce `BRC-185-Android-Ack` on describe; the page refuses it, including on a first visit when nothing is pinned, and sends it no epoch, no launch proof and no token; the page never auto-picks the first valid describe; `host` is bound into every MAC, so a relay to the real wallet on another port fails even if the page skipped the responder check; the binding secret means a leaked epoch drives nothing; exclusive bind in both families on our side; the token goes only to a key-matched, ack-verified endpoint                                        |
+| Another web page              | `fetch` to the port from a malicious origin                                                 | exact-origin CORS; the origin must pass `canonicalizeBridgeOrigin`; consent per origin; Chrome's own loopback permission; `Content-Type: application/json` required on connect and RPC, so a CORS-simple request never reaches the launch registry                                                                                                                                                                                                                                                                                                                                                                                                     |
+| DNS rebinding                 | attacker host resolving to 127.0.0.1                                                        | Host check in Kotlin before any parsing; origin differs anyway                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Local app, availability       | re-launches in a loop, parks connects, fills tables                                         | no acceptance limit on launches (it would be a switch that drops the real click), but the trampoline re-raises a window at most once per 3 s; ARMED hard cap of 10 minutes; at most 4 parked connects with a 10-minute deadline; unsettled bindings expire at 60 s; a store of 32 launch records that displaces the oldest unused one and never a parked one; no failure throttle or describe rate limit that a caller could trip to lock the real page out; the epoch never reaches an unauthenticated endpoint, so a squatter cannot burn the real launch. **Accepted:** a local app can still deny service for the real site for short periods (12) |
+| Local app, notification abuse | triggers heads-up notifications naming a lookalike site                                     | notifications name no site; private visibility with a generic public version; the origin appears only inside the wallet with the Unverified badge                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Tapjacking over the sheet     | overlay on the translucent window                                                           | `setHideOverlayWindows`, `FLAG_SECURE` on every sheet, a mostly opaque scrim, obscured-touch rejection, `filterTouchesWhenObscured`, the 700 ms tap protection (P1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Cross-site tracking           | colluding sites compare identities                                                          | per-origin pseudonymous `instanceId` and `continuityKey` (6.9); no device name in describe                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Cross-profile / other user    | work profile, private space                                                                 | out of scope; Android 17 may restrict cross-profile loopback (S8 measures it); recorded                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Passive sniffing              | read loopback traffic                                                                       | not possible without root; 8.4                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 The launch proof's honest limit: a malicious app can launch the trampoline with a secret of its own and claim any origin. What the
-user sees is the connect sheet naming that origin as **Unverified**. If they approve it, the app gets an *empty* grant set under
+user sees is the connect sheet naming that origin as **Unverified**. If they approve it, the app gets an _empty_ grant set under
 a fresh originator, every spend asks, and the real site's earlier approval and token are untouched (P1 9 documents the full
-reasoning). The reconnect token stops a forging app from *silently* riding a real approval, and the unsettled-binding gate stops
+reasoning). The reconnect token stops a forging app from _silently_ riding a real approval, and the unsettled-binding gate stops
 it from taking the real page's token.
 
 ### 8.2 Data at rest
@@ -1321,7 +1416,7 @@ Here:
 - Session hijack is blocked without encryption: an RPC needs a live epoch, the instance id and the continuity key (public through
   describe), and the binding secret derived from `k` (7.5), which never crosses the socket. The epoch is sent only to an
   endpoint that proved it holds `k`, and even a leaked epoch drives nothing. The wallet checks the origin on every call.
-- What an encryption layer would add is authenticated *page* identity, which a key agreed over a socket cannot provide (the page
+- What an encryption layer would add is authenticated _page_ identity, which a key agreed over a socket cannot provide (the page
   has no key the wallet can attribute to an origin). The launch proof (7.5) already gives us the part that works: single-use,
   per-launch, identity-bound.
 - It would also break BRC-185 §4.1, which defines plain JSON bodies, and any independent page implementation would need our
@@ -1400,8 +1495,15 @@ a WebView and relays the result). Until then the transport stays `unattested`.
   Activity not exported, permissions, no `SYSTEM_ALERT_WINDOW`), scheme default and validation, the `withIconAliasLinks`
   interaction test, the host `+native-intent.ts` rule.
 - (M2) `ContextRelay`: `PermissionSheet` and the connect sheet render under the subscriber alone with no default-context
-  leaks; the sheet owner gate renders `PermissionSheet` in exactly one root; the sheet root under a locked-then-unlocked fake
-  wallet.
+  leaks, in light and dark, with the theme and `WalletContext` relayed; the sheet owner gate renders `PermissionSheet` in exactly one root; the sheet
+  root under a locked-then-unlocked fake wallet. The controller's attention decisions use `sheetOwner()` with `AppState` forced
+  `active` (7.4). Handover blip: a `background` then `active` 50 ms apart closes no binding, fails no request and triggers no
+  debounced action.
+- (M2) Kotlin/instrumented: the destroy guard's truth table (`MainActivity` alive, dead or unknown times the sheet current or
+  not: only "alive" skips the host destroy); native Back and the predictive-back callback finish the sheet without touching JS;
+  Home (`onUserLeaveHint` then `onStop`) finishes it and a screen-off `onStop` does not; the trampoline chooses foreground mode
+  while the tracker is unregistered; **leak check** that the finished sheet is collectable after `MainActivity` next resumes and
+  that modules reading `currentActivity` fail closed in the meantime.
 - Stand-in client against the real controller through an in-memory fake of the HTTP layer.
 
 **Kotlin, JUnit 4.13.2, pure JVM** (the repo has plain JUnit for `react-native-localpay-transport` and no Robolectric; none is
@@ -1444,7 +1546,7 @@ unattested transport as present before the build. Together with S0: the `hostAtt
 
 Spikes that gate the build, in order (the builder runs them on a Chrome-capable AVD first where the AVD can, and **always on a
 real phone** for S1 and S2; results go in `SPIKES.md`, like P2's). **M1 needs S0, S1, S2, S5, S5b and S7; S8 is run for the record and
-  feeds section 12; M2 additionally needs S3, S4 and S6, and S4 comes first in M2.**
+feeds section 12; M2 additionally needs S3, S4b and S6 (S4 is done, below). The owner approved M2 in revision 4.**
 
 - **S1. Chrome's loopback permission on Android (real-phone gate).** From `https://deggen.ngrok.app`: does `permissions.query`
   return `prompt`; does the eliciting fetch raise a prompt; the label ("Apps on device"?); does a granted site reach
@@ -1457,16 +1559,27 @@ real phone** for S1 and S2; results go in `SPIKES.md`, like P2's). **M1 needs S0
   arrives intact in the trampoline (cold and warm), **the router never receives the URI and `k` never appears in JS logs**;
   `ensureService()` succeeds when called from JS after a foreground-mode launch (and what happens if not); an **incognito tab**
   (Chrome's "Open in app?" confirmation) and Chrome's behaviour on a rapid second launch.
-- **S3. (M2) Translucent task over Chrome, and the way back.** Chrome visible behind the sheet; the page's timers and fetch keep
+- **S3. (M2) Translucent task over Chrome, and the way back.** (S4 saw Chrome `PAUSED` and visible behind the sheet on the
+  emulator; the real-phone confirmation stays here.) Why a second Open wallet tap while the sheet is up launches nothing; Chrome visible behind the sheet; the page's timers and fetch keep
   running; `finish()` returns to Chrome and not the home screen; foreground mode `moveTaskToBack` returns to Chrome; the task
   order when both a sheet task and the main task were raised; `excludeFromRecents` side effects; multi-window; the tapjacking
   protections (`setHideOverlayWindows`, obscured touches, the scrim opacity) with a test overlay app.
-- **S4. (M2, hard gate, first task of M2) Second React root.** A minimal "hello" `BsvBridgeSheet` mounts on the shared host with
-  the default delegate; then: the relay supplies every context; the sheet renders in light and dark, with the keyboard and 12
-  locales; no double prompt and no duplicated effects (owner gate); `onHostDestroy` never fires for a live `MainActivity`;
-  `AppState` in each phase; the host's `AppState` listeners behave; `LifecycleTracker` cold-start ordering; a locked-then-unlocked
-  sub-case; the cold-start-without-MainActivity case (the sheet Activity must never start in that state). If this fails, M2 is
-  dropped.
+- **S4. (M2, hard gate) Second React root. DONE: conditional pass, emulator only (Pixel_9, android-36, Chrome 155, debug
+  dev-client build); full log in `SPIKES.md`, scratch code in `spikes/s4-hello-sheet.diff`.** A minimal "hello" `BsvBridgeSheet`
+  mounts on the shared host over a warm Chrome (Chrome paused, visible, running; a 25 s held fetch completed on time); the router
+  never receives the launch URI; a cold start never starts the sheet; `useRequests` and `NotifyPrompt` behave. **The plain default
+  delegate failed** the `onHostDestroy` criterion and is replaced by the guarded delegate (7.4). Also found: Back swallowed by JS,
+  the 50 ms `AppState` blip, the stale sheet task after Home, a second tap that launches nothing, and a bare root getting a
+  light-only theme and an empty `WalletContext` (all in 7.4). Not run in S4: keyboard, the 12 locales, the relay itself, the
+  double-prompt owner gate (these are M2 tests, section 10); the locked-then-unlocked sub-case is N/A until the host has a lock.
+- **S4b. (M2, real phone) What S4 could not show.** On a real phone with an OEM Chrome: (1) a **release build with R8** of the
+  guarded delegate (keep rules hold, `unloadApp()` still resolves, the guard still skips the host destroy); (2) the guard under
+  real memory pressure (process death with the sheet up) and the module teardown audit; (3) **the `LifecycleTracker` cold-start
+  race** (a launch at about 0.5 s, 1.5 s and 2.5 s after a process start: the trampoline picks foreground mode, the sheet never
+  starts, `onActivityResumed` backstops a missed catch-up); (4) the **`useVaultKeys` `AppState` listener** with a key removal in
+  the broadcast state, across a handover blip; (5) predictive back with gesture navigation, Back with the main tree on a
+  non-Home screen, and the Home rule; (6) the keyboard in the sheet and `FLAG_SECURE` behaviour (screenshots are black; read the UI
+  by `uiautomator` and test ids). Remaining M2 gates are S3, S4b and S6.
 - **S5. Hold-open.** A fetch held 30 minutes survives Chrome in the background, the screen locking, and Doze; the FGS keeps the
   process; killed-process behaviour is a clean connection error; **MainActivity destroyed while the service lives** closes the
   session as 7.1 says.
@@ -1497,6 +1610,10 @@ the https/ngrok path in a release build with R8.
   `BRC-185-Android-Binding` request header, the `BRC-185-Reconnect-Token` response header, the launch `intent:` link, and the
   wallet-error `400`. A third-party page that implements only BRC-185 text cannot connect to this wallet. No conformance claim
   is made.
+- **A second Open wallet tap while the overlay sheet is up does nothing** (S4: Chrome launches no intent while paused behind the
+  sheet). The page sees no new launch record; the parked request waits for the sheet that is already up (7.4, S3).
+- **The overlay is not a persistent surface.** It finishes when the user leaves it (Home, recents) or presses Back, with the
+  requests left parked (7.4).
 - **Later prompts may need a tap.** When Chrome is in front, a prompt raised after the launch click may appear only as a
   notification (7.4) or never (notifications denied).
 - **Sessions need the main tree.** Bindings live only while `MainActivity`'s React tree is mounted (7.1); the foreground service
@@ -1606,11 +1723,11 @@ builder check, consistency pass and security review (section 15).
     gates; stable test ids for the sheet (section 10).
 48. **No `S.browser_fallback_url` to the page itself**; a static URL or none (6.3).
 49. A cached continuity handle and serialised describe signing (6.9; the describe rate limit was dropped in revision 3, call 53); per-attempt page timeout about 3 s (7.7).
-50. **Builder answers (revision 3).** (a) *Scope*: the implementation plan covers M1 in full detail and carries M2 as a gated appendix
-    that starts with S4 and is dropped if S4 fails (6.0). (b) *Toolbox*: develop against the in-repo toolbox through the monorepo link;
+50. **Builder answers (revision 3).** (a) _Scope_: the implementation plan covers M1 in full detail and carries M2 as a gated appendix
+    that starts with S4 and is dropped if S4 fails (6.0). (b) _Toolbox_: develop against the in-repo toolbox through the monorepo link;
     the toolbox release (0.22.0 assumed, raw-source publish on tag) is a gate before host adoption; the kit stays at `0.0.0` (6.14).
-    (c) *Host*: the host edits of 6.13 are the final integration task, on a separate branch and PR in `~/git/ts/bitcoin-sv-wallet`;
-    the emulator e2e runs against that branch on the Pixel_9 AVD with Chrome 142 or newer (10). (d) *Sessions*: accepted as
+    (c) _Host_: the host edits of 6.13 are the final integration task, on a separate branch and PR in `~/git/ts/bitcoin-sv-wallet`;
+    the emulator e2e runs against that branch on the Pixel*9 AVD with Chrome 142 or newer (10). (d) \_Sessions*: accepted as
     specified, sessions die with `MainActivity`, the providers are not moved (7.1, 12); this is an assumption of the plan, not an
     owner decision.
 51. **Per-origin identity is built as designed** (call 38), with the derivation behind one function and S0 checking first that P1's
@@ -1634,6 +1751,23 @@ builder check, consistency pass and security review (section 15).
     is derived from the existing `isBridgeHostAttached()` and the real gap is the change notification (6.14). The host entry file is
     edited, not created (6.13). Descriptor icons follow P1 `validateDescriptor`, no `data:` URIs (6.9). Detach goes to IDLE and a live
     launch record re-arms only on re-attach (7.1). S8 is informational (11). The 3 s discovery timeout is a recorded deviation (12).
+56. **Revision 4: guarded sheet delegate.** The plain default delegate fires the host destroy for a live `MainActivity`
+    (S4 criterion b). The sheet's delegate calls only `unloadApp()` when `MainActivity` is alive and `super` otherwise; the
+    stale `currentActivity` is accepted and covered by a leak test; R8 keep rules ship with the package and S4b checks a release
+    build (7.4, 6.3, 6.11).
+57. **Native Back** (`finish()`, no JS, also for predictive back) because the main tree's router handlers swallow it
+    (7.4). Predictive back is a device check in S4b.
+58. **`AppState` handover blip tolerated, not removed**: no listener or controller path closes bindings or fails requests on
+    `background`; anything acting on it debounces at least 500 ms; attention uses `sheetOwner()` (7.4).
+59. **Home finishes the sheet** (`onUserLeaveHint` marks it, `onStop` finishes; requests stay parked; a new launch also resets
+    the root). Chosen over "reset only on a new launch" because that leaves a secure-flagged stale task in recents (7.4).
+60. **A second Open wallet tap over the sheet launches nothing**: recorded as known behaviour (7.4, 12); S3 investigates.
+61. **`sheetOwner()` is an explicit M2 requirement for attention decisions**, with a test that forces `AppState` `active` (7.4, 10).
+62. **The relay lists the toolbox theme and `WalletContext` explicitly in `RELAYED_CONTEXTS`** (7.4, 6.11).
+63. **Tracker cold-start race**: the trampoline defaults to foreground mode while `LifecycleTracker` is unregistered;
+    `onActivityResumed` is the backstop; S4b tests the window (7.4, 11).
+64. **Status of M2:** the owner approved it (open question 1 answered, yes); S4 recorded done (conditional pass, emulator only);
+    S4b is added beside S3 and S6 as the remaining gates (6.0, 11).
 
 ## 14. Left to the builder, and open items for later
 
@@ -1642,12 +1776,12 @@ selector is welcome); exact notification copy and icons; which `RELAYED_CONTEXTS
 completeness); precise Gradle versions; the e2e script's selectors beyond the labels fixed in 7.4; ordering of the spikes on
 real hardware; whether the heads-up notification is a bubble.
 
-**Open questions for the owner (nothing blocks M1 on them; most important first):**
+**Open questions for the owner (nothing blocks M1 on them; most important first; question 1 is answered and kept for the record):**
 
-1. **Is the overlay (M2) still wanted?** Foreground mode is the first release and M1 is complete without it. M2 adds a second React
-   root, a context relay, a lifecycle tracker, tapjacking defences and three spikes (S3, S4, S6), and works only on a warm, unlocked
-   wallet. The plan carries it as a gated appendix starting with S4 and drops it if S4 fails. If the answer is no, the appendix is
-   deleted and the toolbox loses `ContextRelay`.
+1. **Is the overlay (M2) still wanted? ANSWERED (revision 4): yes.** The owner approved M2. Foreground mode is still the first
+   release and M1 is complete without it. M2 adds a second React root, a context relay, a lifecycle tracker, tapjacking
+   defences and the gates S3, S4b and S6 (S4 is done), and works only on a warm, unlocked wallet. It is dropped only if S4b or
+   S3 shows a failure the design cannot absorb.
 2. **Ratify the per-origin identity (call 38).** Reading BRC-185's "application context" as the origin means every site sees its own
    `instanceId` and `continuityKey`. The alternative is one identity for everything and recorded cross-site linkability. It is
    built as designed with the derivation behind one function, so the alternative stays a one-line change until stored identities
@@ -1659,7 +1793,7 @@ real hardware; whether the heads-up notification is a bubble.
 4. **Unverified Android origins in the core.** Whether the core should key unattested consent per (origin, epoch) instead of per origin
    (6.14 item 6, optional hardening; the kit's unsettled-binding gate makes it unnecessary now).
 
-*Assumed, not asked:* sessions end when the wallet's main screen is destroyed (7.1, 12, call 50 d). Moving the providers above the
+_Assumed, not asked:_ sessions end when the wallet's main screen is destroyed (7.1, 12, call 50 d). Moving the providers above the
 Activity is a much larger host refactor; say so only if the owner wants it, because it would change the controller lifecycle, S5 and
 the host work.
 
@@ -1681,39 +1815,39 @@ the host work.
 
 ## 15. Review notes
 
-Revision 2: an adversarial review raised 27 issues against revision 1. Revision 3 (builder check, consistency pass, security
+Revision 4 (spike S4 results and the M2 go-ahead) is tabulated at the end of this section, after revision 3. Revision 2: an adversarial review raised 27 issues against revision 1. Revision 3 (builder check, consistency pass, security
 review) is tabulated after this table; where a row below describes a mechanism revision 3 replaced, the row says so. Each was fixed in this revision (where) or rejected in part or in
 full (reason). Section references are to this document.
 
-| # | Issue | Outcome |
-|---|---|---|
-| 1 | Wallet never proves it is the launched app (port squatter, first visit) | **Fixed:** `BRC-185-Android-Ack` under `k`, squatter test (1, 7.5, 7.7, 8.1, 10). *Revision 3 moved the acknowledgement to describe time and removed the candidate race (revision 3, Sec6).* |
-| 2 | Reconnect token reaches a forging binding parked behind the same consent | **Fixed kit-only:** unsettled-binding gate, owner-only delivery, withdrawal on client-gone (7.6). Core per-epoch keying kept as optional hardening rather than a required core change (6.14 item 6). |
-| 3 | Exported sheet Activity shares the ReactHost; launch URI reaches `Linking`/router | **Fixed:** exported React-free trampoline, non-exported sheet, no data forwarded, `redirectSystemPath` defence, S2/S4 checks (6.3, 6.13). |
-| 4 | Local apps keep the server up, starve the real site, evict its launch record | **Fixed:** launch rate limit, ARMED chain cap, parked-connect cap and deadline, fair-share eviction that never evicts a parked record; residue accepted in 12 (7.1, 7.5). *Revision 3 dropped the launch rate limit and the fair-share eviction (revision 3, Sec4 and Sec8).* |
-| 5 | Notifications carry attacker-chosen text and leak browsing | **Fixed:** no site named, `VISIBILITY_PRIVATE` with public version, immutable explicit `PendingIntent`s, spec-builder test (6.10, 7.4). Chose PRIVATE over SECRET: the user must still see "requests waiting" on an unlocked shade. |
-| 6 | Describe leaks a cross-site identifier and the device name | **Fixed:** per-origin HKDF identities, fixed label (6.9). Depends on reading "application context" as origin; flagged to the owner (13 item 38, 14). |
-| 7 | Tapjacking and overlay defences thin | **Fixed (M2):** hide-overlay-windows, `FLAG_SECURE` on every sheet, opaque scrim, obscured-touch rejection, S3 item (7.4, 11). |
-| 8 | Connect does not require `application/json` (CORS-simple POST) | **Fixed:** `415`, strict target parsing, failure counted only after earlier checks (6.5, 6.7, 6.14). |
-| 9 | Stale launch URI re-arms the server after recreation | **Fixed:** launches exist only in `LaunchStore` from the trampoline, nothing restores them; epoch tombstones for 10 minutes (7.5). Sequence-number pull replaces `getInitialLaunch`. *Revision 3 made the pull destructive with Kotlin-side expiry (revision 3, Sec5).* |
-| 10 | "Seed zeroed afterwards" is unachievable; `sign` is a generic oracle | **Fixed:** honest best-effort statement, cached `Uint8Array`, prefix-checked `sign`, describe rate limit (6.9). |
-| 11 | Platform logs and the epoch as a bearer value | **Fixed in part:** `k` and `e` redacted everywhere the kit controls, URI never left in an Intent (8.3). The suggested fourth RPC header was **adopted** but as a binding secret derived from `k`, which adds nothing to the wire except the header (7.5); it matters because a squatter that learns the epoch (the page reuses one epoch across candidates) could otherwise drive the real wallet's binding. |
-| 12 | `readiness: none` is "no provider yet" on cold start, not "no wallet" | **Fixed:** `hostAttached` seam, park instead of `503` (6.14 item 3, 7.2). |
-| 13 | Provider unmount closes every binding; the service cannot keep sessions alive | **Fixed:** invariant stated, detach drives stop and IDLE, test added; moving providers up **rejected** as out of scope (larger change), asked of the owner (7.1, 14). |
-| 14 | JS timers pause while backgrounded | **Fixed:** Kotlin timers, lazy monotonic expiry, S5b measures it (7.1). |
-| 15 | Second React root on shared host thinly specified | **Fixed:** delegate named, lifecycle behaviour and registration order specified, single owner selector and gate, S4 as a hard first M2 gate (7.4, 11). |
-| 16 | Headline UX vs cold-start path | **Fixed:** two modes described honestly, foreground first (1, 7.4). |
-| 17 | `setReuseAddress(false)` | **Fixed:** `true`, with the rebind test (6.2.1). |
-| 18 | Bind error classification by message text | **Fixed:** errno plus both message formats, device e2e case (6.2.1, 10). |
-| 19 | Describe depends on the busy JS thread | **Fixed in part:** cached handle, 3 s per-attempt timeout, S7 measurement. A hard guarantee under JS load is **not** given (6.9, 7.7, 11). |
-| 20 | Plugin and manifest inconsistencies | **Fixed:** static parts in the library, one default-scheme rule, named theme parent, no bar colours (6.3). The scheme intent filter stays plugin-supplied because manifest placeholders are resolved by the app, not the library. |
-| 21 | Nothing requests `POST_NOTIFICATIONS` | **Fixed:** kit requests at first accepted launch, denied-state copy, e2e case (6.10). |
-| 22 | Lock policy vs AppState | **Fixed in part:** the host was grepped, no lock-on-background exists; the kit adds none, states process-wide `AppState` and the rules it holds the host to, adds an S4 sub-case and a jest test (7.4). |
-| 23 | Way back to Chrome; `isMainActivityActive` unspecified | **Fixed in part:** `LifecycleTracker` specified, per-mode return behaviour, S3 gate. Relaunching Chrome by its task id or `S.browser_fallback_url` was **rejected**: `moveTaskToFront` is blocked and relaunching Chrome navigates arbitrarily (7.4). |
-| 24 | Emulator cannot test Chrome 142 features | **Fixed:** AVD requirement, command-line flags, incognito case, S1/S2 as real-phone gates, stable test ids (10, 11, 7.4). |
-| 25 | Scope too large for one project | **Fixed:** milestones M1/M2 (6.0, 11). |
-| 26 | Reuse and iOS mirroring gaps | **Fixed in part:** exact helpers listed, shared conformance cases, `PageClient` moved to a toolbox export imported here. Migrating the iOS kit's copy is **deferred** to avoid touching the device-verified P2 in this project (6.14, 6.16). |
-| 27 | Launch intent details (fallback URL, race, incognito) | **Fixed:** static fallback URL, event-plus-pull launches, incognito documented and in S2 (6.3, 7.5, 7.7, 11). |
+| #   | Issue                                                                             | Outcome                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Wallet never proves it is the launched app (port squatter, first visit)           | **Fixed:** `BRC-185-Android-Ack` under `k`, squatter test (1, 7.5, 7.7, 8.1, 10). _Revision 3 moved the acknowledgement to describe time and removed the candidate race (revision 3, Sec6)._                                                                                                                                                                                                                 |
+| 2   | Reconnect token reaches a forging binding parked behind the same consent          | **Fixed kit-only:** unsettled-binding gate, owner-only delivery, withdrawal on client-gone (7.6). Core per-epoch keying kept as optional hardening rather than a required core change (6.14 item 6).                                                                                                                                                                                                         |
+| 3   | Exported sheet Activity shares the ReactHost; launch URI reaches `Linking`/router | **Fixed:** exported React-free trampoline, non-exported sheet, no data forwarded, `redirectSystemPath` defence, S2/S4 checks (6.3, 6.13).                                                                                                                                                                                                                                                                    |
+| 4   | Local apps keep the server up, starve the real site, evict its launch record      | **Fixed:** launch rate limit, ARMED chain cap, parked-connect cap and deadline, fair-share eviction that never evicts a parked record; residue accepted in 12 (7.1, 7.5). _Revision 3 dropped the launch rate limit and the fair-share eviction (revision 3, Sec4 and Sec8)._                                                                                                                                |
+| 5   | Notifications carry attacker-chosen text and leak browsing                        | **Fixed:** no site named, `VISIBILITY_PRIVATE` with public version, immutable explicit `PendingIntent`s, spec-builder test (6.10, 7.4). Chose PRIVATE over SECRET: the user must still see "requests waiting" on an unlocked shade.                                                                                                                                                                          |
+| 6   | Describe leaks a cross-site identifier and the device name                        | **Fixed:** per-origin HKDF identities, fixed label (6.9). Depends on reading "application context" as origin; flagged to the owner (13 item 38, 14).                                                                                                                                                                                                                                                         |
+| 7   | Tapjacking and overlay defences thin                                              | **Fixed (M2):** hide-overlay-windows, `FLAG_SECURE` on every sheet, opaque scrim, obscured-touch rejection, S3 item (7.4, 11).                                                                                                                                                                                                                                                                               |
+| 8   | Connect does not require `application/json` (CORS-simple POST)                    | **Fixed:** `415`, strict target parsing, failure counted only after earlier checks (6.5, 6.7, 6.14).                                                                                                                                                                                                                                                                                                         |
+| 9   | Stale launch URI re-arms the server after recreation                              | **Fixed:** launches exist only in `LaunchStore` from the trampoline, nothing restores them; epoch tombstones for 10 minutes (7.5). Sequence-number pull replaces `getInitialLaunch`. _Revision 3 made the pull destructive with Kotlin-side expiry (revision 3, Sec5)._                                                                                                                                      |
+| 10  | "Seed zeroed afterwards" is unachievable; `sign` is a generic oracle              | **Fixed:** honest best-effort statement, cached `Uint8Array`, prefix-checked `sign`, describe rate limit (6.9).                                                                                                                                                                                                                                                                                              |
+| 11  | Platform logs and the epoch as a bearer value                                     | **Fixed in part:** `k` and `e` redacted everywhere the kit controls, URI never left in an Intent (8.3). The suggested fourth RPC header was **adopted** but as a binding secret derived from `k`, which adds nothing to the wire except the header (7.5); it matters because a squatter that learns the epoch (the page reuses one epoch across candidates) could otherwise drive the real wallet's binding. |
+| 12  | `readiness: none` is "no provider yet" on cold start, not "no wallet"             | **Fixed:** `hostAttached` seam, park instead of `503` (6.14 item 3, 7.2).                                                                                                                                                                                                                                                                                                                                    |
+| 13  | Provider unmount closes every binding; the service cannot keep sessions alive     | **Fixed:** invariant stated, detach drives stop and IDLE, test added; moving providers up **rejected** as out of scope (larger change), asked of the owner (7.1, 14).                                                                                                                                                                                                                                        |
+| 14  | JS timers pause while backgrounded                                                | **Fixed:** Kotlin timers, lazy monotonic expiry, S5b measures it (7.1).                                                                                                                                                                                                                                                                                                                                      |
+| 15  | Second React root on shared host thinly specified                                 | **Fixed:** delegate named, lifecycle behaviour and registration order specified, single owner selector and gate, S4 as a hard first M2 gate (7.4, 11).                                                                                                                                                                                                                                                       |
+| 16  | Headline UX vs cold-start path                                                    | **Fixed:** two modes described honestly, foreground first (1, 7.4).                                                                                                                                                                                                                                                                                                                                          |
+| 17  | `setReuseAddress(false)`                                                          | **Fixed:** `true`, with the rebind test (6.2.1).                                                                                                                                                                                                                                                                                                                                                             |
+| 18  | Bind error classification by message text                                         | **Fixed:** errno plus both message formats, device e2e case (6.2.1, 10).                                                                                                                                                                                                                                                                                                                                     |
+| 19  | Describe depends on the busy JS thread                                            | **Fixed in part:** cached handle, 3 s per-attempt timeout, S7 measurement. A hard guarantee under JS load is **not** given (6.9, 7.7, 11).                                                                                                                                                                                                                                                                   |
+| 20  | Plugin and manifest inconsistencies                                               | **Fixed:** static parts in the library, one default-scheme rule, named theme parent, no bar colours (6.3). The scheme intent filter stays plugin-supplied because manifest placeholders are resolved by the app, not the library.                                                                                                                                                                            |
+| 21  | Nothing requests `POST_NOTIFICATIONS`                                             | **Fixed:** kit requests at first accepted launch, denied-state copy, e2e case (6.10).                                                                                                                                                                                                                                                                                                                        |
+| 22  | Lock policy vs AppState                                                           | **Fixed in part:** the host was grepped, no lock-on-background exists; the kit adds none, states process-wide `AppState` and the rules it holds the host to, adds an S4 sub-case and a jest test (7.4).                                                                                                                                                                                                      |
+| 23  | Way back to Chrome; `isMainActivityActive` unspecified                            | **Fixed in part:** `LifecycleTracker` specified, per-mode return behaviour, S3 gate. Relaunching Chrome by its task id or `S.browser_fallback_url` was **rejected**: `moveTaskToFront` is blocked and relaunching Chrome navigates arbitrarily (7.4).                                                                                                                                                        |
+| 24  | Emulator cannot test Chrome 142 features                                          | **Fixed:** AVD requirement, command-line flags, incognito case, S1/S2 as real-phone gates, stable test ids (10, 11, 7.4).                                                                                                                                                                                                                                                                                    |
+| 25  | Scope too large for one project                                                   | **Fixed:** milestones M1/M2 (6.0, 11).                                                                                                                                                                                                                                                                                                                                                                       |
+| 26  | Reuse and iOS mirroring gaps                                                      | **Fixed in part:** exact helpers listed, shared conformance cases, `PageClient` moved to a toolbox export imported here. Migrating the iOS kit's copy is **deferred** to avoid touching the device-verified P2 in this project (6.14, 6.16).                                                                                                                                                                 |
+| 27  | Launch intent details (fallback URL, race, incognito)                             | **Fixed:** static fallback URL, event-plus-pull launches, incognito documented and in S2 (6.3, 7.5, 7.7, 11).                                                                                                                                                                                                                                                                                                |
 
 ### Revision 3
 
@@ -1723,50 +1857,67 @@ section 13 (items 50 to 55).
 
 **Builder check**
 
-| # | Question | Outcome |
-|---|---|---|
-| B1 | M1 only, or M1 and M2? | **Answered:** M1 in full, M2 as a gated appendix starting with S4 (6.0, call 50). Whether M2 is wanted stays open question 1. |
-| B2 | Per-origin identity confirmed? | **Answered:** build as designed, derivation behind one function, S0 first (6.9, call 51). Ratification is open question 2. |
-| B3 | Sessions die with `MainActivity`? | **Answered yes:** a stated limit in 12, an assumption of the plan, providers not moved (call 50 d). |
-| B4 | Toolbox built in the worktree or published first? | **Answered:** in-repo link for development, release as a gate before host adoption, 0.22.0 assumed, kit stays `0.0.0` (6.14, call 50). |
-| B5 | Host edit in scope? | **Answered yes:** the final integration task, separate branch and PR; e2e runs against it (6.13, 10, call 50). |
+| #   | Question                                          | Outcome                                                                                                                                |
+| --- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| B1  | M1 only, or M1 and M2?                            | **Answered:** M1 in full, M2 as a gated appendix starting with S4 (6.0, call 50). Whether M2 is wanted stays open question 1.          |
+| B2  | Per-origin identity confirmed?                    | **Answered:** build as designed, derivation behind one function, S0 first (6.9, call 51). Ratification is open question 2.             |
+| B3  | Sessions die with `MainActivity`?                 | **Answered yes:** a stated limit in 12, an assumption of the plan, providers not moved (call 50 d).                                    |
+| B4  | Toolbox built in the worktree or published first? | **Answered:** in-repo link for development, release as a gate before host adoption, 0.22.0 assumed, kit stays `0.0.0` (6.14, call 50). |
+| B5  | Host edit in scope?                               | **Answered yes:** the final integration task, separate branch and PR; e2e runs against it (6.13, 10, call 50).                         |
 
 **Consistency**
 
-| # | Issue | Outcome |
-|---|---|---|
-| C1 | `sign` prefix `describe v1` | **Fixed:** `"BRC-185 descriptor v1\n"`, imported from core (6.9). |
-| C2 | `data:` icon | **Fixed:** https, `uhrp://` or `chirp://`, at most 256 bytes (6.9). |
-| C3 | Handle exposes `signDescribe` | **Fixed:** P1 `ContinuityHandle`; the controller passes it to the free functions (6.9). |
-| C4 | "21 s" eviction figure | **Superseded:** the rate limit was dropped (Sec4), so the sentence was rewritten, not corrected (12). |
-| C5 | "decision 6" cross-reference | **Fixed:** decision 7 (2). |
-| C6 | Which milestone owns `returnToBrowser` and "wallet in front" | **Fixed:** M1 has the foreground `returnToBrowser` and an `AppState` signal; `setHostState`, `LifecycleTracker`, `isMainActivityActive` are M2 only (6.0, 6.2, 7.4). |
-| C7 | Test ids | **Fixed:** `bridge-approve`, `bridge-deny`, `bridge-connect-origin` are M1; `bridge-sheet-root` is M2 (6.0, 7.4, 10). |
-| C8 | `DISCONNECTED` in the 410 row | **Fixed:** removed (6.6.2). |
-| C9 | CORS on every response vs RPC only | **Fixed:** step 3 reworded to match 6.6.1 (6.5). |
-| C10 | Duplicate `Origin` | **Fixed:** Kotlin answers `403`, other duplicates `400`; the router test stays as defence in depth (6.2). |
-| C11 | 8.4 session hijack argument | **Fixed:** names the binding secret and the leaked-epoch case (8.4). |
-| C12 | Conformance case table | **Fixed:** no table exists; new `conformanceCases.ts` derived from the exports (6.14, 10). |
-| C13 | Host `index.js` and `BrowserBridgeProvider` | **Fixed:** edit the existing bootstrap file; the provider comes with P2 adoption (6.13). Checked against the host checkout. |
-| C14 | `hostAttached` | **Fixed:** derived from `isBridgeHostAttached()`; the gap is the change notification (6.14). Checked against `runtime.ts`. |
-| C15 | Legacy permission name | **Fixed:** `local-network-access` (9). Checked against BRC-325 3.1. |
-| C16 | S7 "412/403" | **Fixed:** 403 (11). |
-| C17 | Connect only after the full 15 s | **Fixed:** the page proceeds as soon as an endpoint authenticates (7.7 step 5). |
-| C18 | Detach: IDLE or ARMED | **Fixed:** IDLE; a live record re-arms only on re-attach (7.1). |
-| C19 | Stale cross-references | **Fixed:** G2, G7, anti-goal, 6.3, decision 5, call 12. |
-| C20 | 3 s discovery timeout deviation | **Fixed:** recorded in 12. Checked against BRC-185 4.1 (1000 ms). |
-| C21 | Android 17 cross-profile as fact | **Fixed:** "may restrict" (8.1). |
-| C22 | S8 gates M1 | **Fixed:** informational (11). |
+| #   | Issue                                                        | Outcome                                                                                                                                                              |
+| --- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | `sign` prefix `describe v1`                                  | **Fixed:** `"BRC-185 descriptor v1\n"`, imported from core (6.9).                                                                                                    |
+| C2  | `data:` icon                                                 | **Fixed:** https, `uhrp://` or `chirp://`, at most 256 bytes (6.9).                                                                                                  |
+| C3  | Handle exposes `signDescribe`                                | **Fixed:** P1 `ContinuityHandle`; the controller passes it to the free functions (6.9).                                                                              |
+| C4  | "21 s" eviction figure                                       | **Superseded:** the rate limit was dropped (Sec4), so the sentence was rewritten, not corrected (12).                                                                |
+| C5  | "decision 6" cross-reference                                 | **Fixed:** decision 7 (2).                                                                                                                                           |
+| C6  | Which milestone owns `returnToBrowser` and "wallet in front" | **Fixed:** M1 has the foreground `returnToBrowser` and an `AppState` signal; `setHostState`, `LifecycleTracker`, `isMainActivityActive` are M2 only (6.0, 6.2, 7.4). |
+| C7  | Test ids                                                     | **Fixed:** `bridge-approve`, `bridge-deny`, `bridge-connect-origin` are M1; `bridge-sheet-root` is M2 (6.0, 7.4, 10).                                                |
+| C8  | `DISCONNECTED` in the 410 row                                | **Fixed:** removed (6.6.2).                                                                                                                                          |
+| C9  | CORS on every response vs RPC only                           | **Fixed:** step 3 reworded to match 6.6.1 (6.5).                                                                                                                     |
+| C10 | Duplicate `Origin`                                           | **Fixed:** Kotlin answers `403`, other duplicates `400`; the router test stays as defence in depth (6.2).                                                            |
+| C11 | 8.4 session hijack argument                                  | **Fixed:** names the binding secret and the leaked-epoch case (8.4).                                                                                                 |
+| C12 | Conformance case table                                       | **Fixed:** no table exists; new `conformanceCases.ts` derived from the exports (6.14, 10).                                                                           |
+| C13 | Host `index.js` and `BrowserBridgeProvider`                  | **Fixed:** edit the existing bootstrap file; the provider comes with P2 adoption (6.13). Checked against the host checkout.                                          |
+| C14 | `hostAttached`                                               | **Fixed:** derived from `isBridgeHostAttached()`; the gap is the change notification (6.14). Checked against `runtime.ts`.                                           |
+| C15 | Legacy permission name                                       | **Fixed:** `local-network-access` (9). Checked against BRC-325 3.1.                                                                                                  |
+| C16 | S7 "412/403"                                                 | **Fixed:** 403 (11).                                                                                                                                                 |
+| C17 | Connect only after the full 15 s                             | **Fixed:** the page proceeds as soon as an endpoint authenticates (7.7 step 5).                                                                                      |
+| C18 | Detach: IDLE or ARMED                                        | **Fixed:** IDLE; a live record re-arms only on re-attach (7.1).                                                                                                      |
+| C19 | Stale cross-references                                       | **Fixed:** G2, G7, anti-goal, 6.3, decision 5, call 12.                                                                                                              |
+| C20 | 3 s discovery timeout deviation                              | **Fixed:** recorded in 12. Checked against BRC-185 4.1 (1000 ms).                                                                                                    |
+| C21 | Android 17 cross-profile as fact                             | **Fixed:** "may restrict" (8.1).                                                                                                                                     |
+| C22 | S8 gates M1                                                  | **Fixed:** informational (11).                                                                                                                                       |
 
 **Security**
 
-| # | Issue | Outcome |
-|---|---|---|
-| Sec1 | A failed proof burns the real launch (squatter learns the epoch) | **Fixed at the root:** the epoch is never sent to an unauthenticated endpoint (Sec6). Burn-on-outcome is kept for the endpoint that did authenticate. The suggested per-record attempt counter was **not** adopted: a counter of 3 still lets a caller who has the epoch kill the record in three requests. |
-| Sec2 | Four squatters starve the 4-candidate cap | **Fixed:** there are no candidates; only the endpoint whose describe ack verified is connected to (7.5, 7.7). |
-| Sec3 | Failure throttle and describe bucket are lock-out switches | **Fixed:** both deleted; signing is serial, the connection cap bounds the queue (6.7, 6.9, 12). |
-| Sec4 | Global launch rate limit drops the real click | **Fixed:** acceptance is unlimited; the trampoline's component start is coalesced to once per 3 s; capacity 32 with oldest-unused displacement; the residue is recorded in 12 (7.1). |
-| Sec5 | JS-side expiry replays old launches after a reload | **Fixed:** Kotlin stamps, expires at 120 s and deletes on take; JS uses the remaining life (6.2, 7.5). |
+| #    | Issue                                                                           | Outcome                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sec1 | A failed proof burns the real launch (squatter learns the epoch)                | **Fixed at the root:** the epoch is never sent to an unauthenticated endpoint (Sec6). Burn-on-outcome is kept for the endpoint that did authenticate. The suggested per-record attempt counter was **not** adopted: a counter of 3 still lets a caller who has the epoch kill the record in three requests.                                                                                                                                                                                                         |
+| Sec2 | Four squatters starve the 4-candidate cap                                       | **Fixed:** there are no candidates; only the endpoint whose describe ack verified is connected to (7.5, 7.7).                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Sec3 | Failure throttle and describe bucket are lock-out switches                      | **Fixed:** both deleted; signing is serial, the connection cap bounds the queue (6.7, 6.9, 12).                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Sec4 | Global launch rate limit drops the real click                                   | **Fixed:** acceptance is unlimited; the trampoline's component start is coalesced to once per 3 s; capacity 32 with oldest-unused displacement; the residue is recorded in 12 (7.1).                                                                                                                                                                                                                                                                                                                                |
+| Sec5 | JS-side expiry replays old launches after a reload                              | **Fixed:** Kotlin stamps, expires at 120 s and deletes on take; JS uses the remaining life (6.2, 7.5).                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Sec6 | Race, ack header and binding secret are heavier than authenticating at describe | **Adopted:** `hello` query parameter and a describe ack. It is stronger, not merely equal: the epoch, the launch proof and the token reach only an authenticated endpoint. Decision: a **query parameter**, not a header, because a custom header would force a CORS preflight before every GET across up to 64 ports; the hello is a MAC output bound to origin, challenge and `host`, not a secret. The binding secret is **kept** as cheap defence in depth against an epoch leaked through platform logs (7.5). |
-| Sec7 | A transparent relay is only stopped by the page's responder check | **Fixed:** `host` is in `helloMac`, `describeAck`, `launchProof`, `ackMac` and the binding secret (7.5); relay fixture in the tests (10). |
-| Sec8 | `o`, per-origin cap and fair-share eviction give an attacker a lever | **Adopted:** `o`, the cap and fair-share eviction are removed; global 32, oldest unused, never a parked one (7.5). |
+| Sec7 | A transparent relay is only stopped by the page's responder check               | **Fixed:** `host` is in `helloMac`, `describeAck`, `launchProof`, `ackMac` and the binding secret (7.5); relay fixture in the tests (10).                                                                                                                                                                                                                                                                                                                                                                           |
+| Sec8 | `o`, per-origin cap and fair-share eviction give an attacker a lever            | **Adopted:** `o`, the cap and fair-share eviction are removed; global 32, oldest unused, never a parked one (7.5).                                                                                                                                                                                                                                                                                                                                                                                                  |
+
+### Revision 4
+
+Inputs: the owner's go-ahead for M2 (section 14 question 1) and the results of spike S4 (`SPIKES.md`, `spikes/s4-hello-sheet.diff`).
+Calls 56 to 64 in section 13.
+
+| #    | Finding                                                                                                    | Outcome                                                                                                                                                                      |
+| ---- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S4-1 | Plain default delegate fires `onHostDestroy` for a live `MainActivity` when the sheet finishes over Chrome | **Fixed:** guarded delegate, `unloadApp()` only while `MainActivity` is alive; stale `currentActivity`, R8 and RN-upgrade risk and a leak test recorded (7.4, 6.3, 6.11, 10) |
+| S4-2 | Hardware Back eaten by the main tree's JS                                                                  | **Fixed:** native `finish()`, predictive back checked in S4b (7.4)                                                                                                           |
+| S4-3 | `AppState` blips `background` about 50 ms on each handover                                                 | **Fixed:** tolerated by rule, debounce at least 500 ms, attention reads `sheetOwner()` (7.4, 10)                                                                             |
+| S4-4 | Home leaves a stopped `singleTask` sheet task whose old root revives                                       | **Fixed:** call 59, finish on leave plus reset on new launch (7.4)                                                                                                           |
+| S4-5 | A second Open wallet tap over the sheet launches nothing                                                   | **Recorded:** known behaviour (7.4, 12), S3 investigates                                                                                                                     |
+| S4-6 | With the sheet up, `AppState` says "wallet in front" while the main `PermissionSheet` is stopped           | **Fixed:** `sheetOwner()` made an explicit M2 requirement with a test (7.4, 10)                                                                                              |
+| S4-7 | A bare root gets the light-only toolbox theme and an empty `WalletContext`                                 | **Fixed:** both named in `RELAYED_CONTEXTS`, light and dark test (7.4, 6.11)                                                                                                 |
+| S4-8 | Tracker not registered for about 1.8 s after a cold start while `MainActivity` is alive                    | **Fixed:** foreground-mode default plus `onActivityResumed` backstop, tested in S4b (7.4, 11)                                                                                |
+| S4-9 | Evidence only from an emulator and a debug build                                                           | **Recorded:** S4 marked done (conditional pass), S4b added with S3 and S6 as remaining M2 gates (11)                                                                         |
