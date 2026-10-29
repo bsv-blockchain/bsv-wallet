@@ -95,7 +95,9 @@ class BsvAndroidBridgeModule : Module() {
       val ctx = context
       try {
         AttentionPoster.ensureChannels(ctx)
-        ctx.startForegroundService(BridgeService.intent(ctx))
+        // startForegroundService is API 26; minSdk is 24.
+        if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(BridgeService.intent(ctx))
+        else ctx.startService(BridgeService.intent(ctx))
         true
       } catch (e: Exception) {
         // ForegroundServiceStartNotAllowedException and friends: the controller opens no port and stays IDLE.

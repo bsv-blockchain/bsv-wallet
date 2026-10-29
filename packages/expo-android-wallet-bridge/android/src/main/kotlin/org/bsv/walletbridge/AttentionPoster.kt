@@ -64,11 +64,17 @@ object AttentionPoster {
     return PendingIntent.getService(ctx, 1, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
   }
 
+  /** Channels exist from API 26; below that the importance maps to a notification priority (minSdk is 24). */
+  @Suppress("DEPRECATION")
+  private fun builder(ctx: Context, spec: NotificationSpec): Notification.Builder =
+    if (Build.VERSION.SDK_INT >= 26) Notification.Builder(ctx, spec.channelId)
+    else
+      Notification.Builder(ctx).setPriority(if (spec.importance >= 4) Notification.PRIORITY_HIGH else Notification.PRIORITY_LOW)
+
   private fun base(ctx: Context, spec: NotificationSpec): Notification.Builder {
     ensureChannels(ctx)
-    val publicVersion =
-      Notification.Builder(ctx, spec.channelId).setSmallIcon(smallIcon(ctx)).setContentTitle(spec.publicText).build()
-    return Notification.Builder(ctx, spec.channelId)
+    val publicVersion = builder(ctx, spec).setSmallIcon(smallIcon(ctx)).setContentTitle(spec.publicText).build()
+    return builder(ctx, spec)
       .setSmallIcon(smallIcon(ctx))
       .setContentTitle(spec.publicText)
       .setContentText(spec.text)
