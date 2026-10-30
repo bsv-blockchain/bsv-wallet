@@ -52,8 +52,9 @@ A self-custodial BSV payments wallet for iOS and Android. Built with React Nativ
 git clone https://github.com/bsv-blockchain/bsv-wallet.git
 cd bsv-wallet
 
-# 2. Install dependencies
-npm install
+# 2. Install dependencies (pnpm workspace; the version is pinned in
+#    package.json "packageManager", so `corepack enable` picks it up)
+pnpm install
 
 # 3. (Optional) Create a .env.local for API keys -- see "Environment Variables" below
 #    The app works without one; defaults are defined in context/config.tsx
@@ -69,6 +70,11 @@ On first launch the app walks you through provisioning a wallet:
 3. If importing: paste an existing mnemonic phrase, a 64-character hex private key, or scan Shamir backup shares via QR code
 
 There is no separate browsing mode -- the app opens straight into the wallet (balance, Pay / Get paid / Vault, and Activity).
+
+> **Note:** The repo is a pnpm workspace (`pnpm-workspace.yaml`) with a flat,
+> hoisted `node_modules`. Shared `@bsv` versions live in its `catalog`, and the
+> files under `patches/` are pnpm `patchedDependencies`. The `npm run …` scripts
+> below also work as `pnpm …`.
 
 > **Note:** The app uses a **development build** (Expo dev-client), not Expo Go.
 > You must create a dev build first -- see [Building for Devices](#building-for-devices).
