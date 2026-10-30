@@ -277,7 +277,7 @@ index 0000000..2cedd4b
 +    }
 +}
 diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/PrivateKey.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/PrivateKey.js
-index d80b162..df6af3d 100644
+index 5308c5d..133301e 100644
 --- a/node_modules/@bsv/sdk/dist/cjs/src/primitives/PrivateKey.js
 +++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/PrivateKey.js
 @@ -45,6 +45,8 @@ const Hash_js_1 = require("./Hash.js");
@@ -289,32 +289,39 @@ index d80b162..df6af3d 100644
  const MAX_BACKUP_SHARE_LENGTH = 256;
  const BACKUP_SHARE_FIELD = /^[1-9A-HJ-NP-Za-km-z]{1,64}$/;
  const BACKUP_SHARE_THRESHOLD = /^(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])$/;
-@@ -314,6 +316,24 @@ class PrivateKey extends BigNumber_js_1.default {
-      * const publicKey = privateKey.toPublicKey();
-      */
-     toPublicKey() {
-+        // Native/noble route (BSV Browser patch): libsecp256k1 pubkey_create when
-+        // the Nitro module is present, else the always-on @noble/secp256k1 backend
-+        // (CR-7, issue #35). M3: prefer the uncompressed variant (0x04‖x‖y,
-+        // byte-equal to encode(false)) so the seam never pays the Point.fromX
-+        // BigInt-sqrt decompression; fall back to the compressed fn + fromDER on
-+        // older native modules. Falls through to pure-JS on any backend failure
-+        // (e.g. key === 0 → point at infinity, which noble rejects).
-+        const n = (0, NativeSecp_js_1.secpBackend)();
-+        if (n != null) {
-+            try {
-+                if (typeof n.pubkeyCreateUncompressed === 'function') {
-+                    const u = (0, NativeSecp_js_1.bufToNums)(n.pubkeyCreateUncompressed((0, NativeSecp_js_1.bnToBuf32)(this)));
-+                    return new PublicKey_js_1.default(u.slice(1, 33), u.slice(33, 65));
+@@ -330,7 +332,30 @@ class PrivateKey extends BigNumber_js_1.default {
+         const fingerprint = scalarFingerprint(this);
+         let cached = PUBLIC_KEY_CACHE.get(this);
+         if (cached?.fingerprint !== fingerprint) {
+-            const p = new Curve_js_1.default().g.mulCT(this);
++            // Native/noble route (BSV Browser patch): libsecp256k1 pubkey_create when
++            // the Nitro module is present, else the always-on @noble/secp256k1 backend
++            // (CR-7, issue #35). M3: prefer the uncompressed variant (0x04‖x‖y,
++            // byte-equal to encode(false)) so the seam never pays the Point.fromX
++            // BigInt-sqrt decompression; fall back to the compressed fn + fromDER on
++            // older native modules. Falls through to pure-JS on any backend failure
++            // (e.g. key === 0 → point at infinity, which noble rejects). sdk 4.0.1
++            // caches the result per key, so the backend runs on a cache miss only.
++            let p = null;
++            const n = (0, NativeSecp_js_1.secpBackend)();
++            if (n != null) {
++                try {
++                    if (typeof n.pubkeyCreateUncompressed === 'function') {
++                        const u = (0, NativeSecp_js_1.bufToNums)(n.pubkeyCreateUncompressed((0, NativeSecp_js_1.bnToBuf32)(this)));
++                        p = new PublicKey_js_1.default(u.slice(1, 33), u.slice(33, 65));
++                    }
++                    else {
++                        p = PublicKey_js_1.default.fromDER((0, NativeSecp_js_1.bufToNums)(n.pubkeyCreate((0, NativeSecp_js_1.bnToBuf32)(this))));
++                    }
 +                }
-+                return PublicKey_js_1.default.fromDER((0, NativeSecp_js_1.bufToNums)(n.pubkeyCreate((0, NativeSecp_js_1.bnToBuf32)(this))));
++                catch (e) { p = null; /* fall through to pure-JS */ }
 +            }
-+            catch (e) { /* fall through to pure-JS */ }
-+        }
-         const c = new Curve_js_1.default();
-         const p = c.g.mulCT(this);
-         return new PublicKey_js_1.default(p.x, p.y);
-@@ -402,6 +422,21 @@ class PrivateKey extends BigNumber_js_1.default {
++            if (p == null)
++                p = new Curve_js_1.default().g.mulCT(this);
+             cached = { fingerprint, x: p.x, y: p.y };
+             PUBLIC_KEY_CACHE.set(this, cached);
+         }
+@@ -420,6 +445,21 @@ class PrivateKey extends BigNumber_js_1.default {
          if (!key.validate()) {
              throw new Error('Public key not valid for ECDH secret derivation');
          }
@@ -336,7 +343,7 @@ index d80b162..df6af3d 100644
          return key.mulCT(this);
      }
      /**
-@@ -440,6 +475,59 @@ class PrivateKey extends BigNumber_js_1.default {
+@@ -458,6 +498,59 @@ class PrivateKey extends BigNumber_js_1.default {
       * @returns The derived child key.
       */
      deriveChild(publicKey, invoiceNumber, cacheSharedSecret, retrieveCachedSharedSecret) {
@@ -679,7 +686,7 @@ index e1fe832..fa75074 100644
                  const signatureScope = (0, SignatureUtils_js_1.computeSignatureScope)(signOutputs, anyoneCanPay);
                  const resolved = (0, SignatureUtils_js_1.resolveSourceDetails)(tx, inputIndex, sourceSatoshis, lockingScript);
 diff --git a/node_modules/@bsv/sdk/dist/cjs/src/transaction/Transaction.js b/node_modules/@bsv/sdk/dist/cjs/src/transaction/Transaction.js
-index 36655b1..2acf6ca 100644
+index 2bcc681..f843c17 100644
 --- a/node_modules/@bsv/sdk/dist/cjs/src/transaction/Transaction.js
 +++ b/node_modules/@bsv/sdk/dist/cjs/src/transaction/Transaction.js
 @@ -33,6 +33,9 @@ const P2PKH_js_1 = __importDefault(require("../script/templates/P2PKH.js"));
@@ -1339,44 +1346,51 @@ index 0000000..9672b48
 +    }
 +}
 diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/PrivateKey.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/PrivateKey.js
-index 9f2ff03..adbcb3a 100644
+index 8023ce0..bcabda6 100644
 --- a/node_modules/@bsv/sdk/dist/esm/src/primitives/PrivateKey.js
 +++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/PrivateKey.js
 @@ -6,6 +6,8 @@ import { sha256, sha256hmac, sha512hmac } from './Hash.js';
  import Random from './Random.js';
- import { fromBase58Check, toArray, toBase58Check } from './utils.js';
+ import { fromBase58Check, toArray, toBase58Check, toHex } from './utils.js';
  import Polynomial, { MAX_SHAMIR_SHARES, PointInFiniteField } from './Polynomial.js';
 +import Point from './Point.js';
 +import { nativeSecp, secpBackend, bnToBuf32, numsToBuf, bufToNums } from './NativeSecp.js';
  const MAX_BACKUP_SHARE_LENGTH = 256;
  const BACKUP_SHARE_FIELD = /^[1-9A-HJ-NP-Za-km-z]{1,64}$/;
  const BACKUP_SHARE_THRESHOLD = /^(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])$/;
-@@ -277,6 +279,24 @@ export default class PrivateKey extends BigNumber {
-      * const publicKey = privateKey.toPublicKey();
-      */
-     toPublicKey() {
-+        // Native/noble route (BSV Browser patch): libsecp256k1 pubkey_create when
-+        // the Nitro module is present, else the always-on @noble/secp256k1 backend
-+        // (CR-7, issue #35). M3: prefer the uncompressed variant (0x04‖x‖y,
-+        // byte-equal to encode(false)) so the seam never pays the Point.fromX
-+        // BigInt-sqrt decompression; fall back to the compressed fn + fromDER on
-+        // older native modules. Falls through to pure-JS on any backend failure
-+        // (e.g. key === 0 → point at infinity, which noble rejects).
-+        const n = secpBackend();
-+        if (n != null) {
-+            try {
-+                if (typeof n.pubkeyCreateUncompressed === 'function') {
-+                    const u = bufToNums(n.pubkeyCreateUncompressed(bnToBuf32(this)));
-+                    return new PublicKey(u.slice(1, 33), u.slice(33, 65));
+@@ -293,7 +295,30 @@ export default class PrivateKey extends BigNumber {
+         const fingerprint = scalarFingerprint(this);
+         let cached = PUBLIC_KEY_CACHE.get(this);
+         if (cached?.fingerprint !== fingerprint) {
+-            const p = new Curve().g.mulCT(this);
++            // Native/noble route (BSV Browser patch): libsecp256k1 pubkey_create when
++            // the Nitro module is present, else the always-on @noble/secp256k1 backend
++            // (CR-7, issue #35). M3: prefer the uncompressed variant (0x04‖x‖y,
++            // byte-equal to encode(false)) so the seam never pays the Point.fromX
++            // BigInt-sqrt decompression; fall back to the compressed fn + fromDER on
++            // older native modules. Falls through to pure-JS on any backend failure
++            // (e.g. key === 0 → point at infinity, which noble rejects). sdk 4.0.1
++            // caches the result per key, so the backend runs on a cache miss only.
++            let p = null;
++            const n = secpBackend();
++            if (n != null) {
++                try {
++                    if (typeof n.pubkeyCreateUncompressed === 'function') {
++                        const u = bufToNums(n.pubkeyCreateUncompressed(bnToBuf32(this)));
++                        p = new PublicKey(u.slice(1, 33), u.slice(33, 65));
++                    }
++                    else {
++                        p = PublicKey.fromDER(bufToNums(n.pubkeyCreate(bnToBuf32(this))));
++                    }
 +                }
-+                return PublicKey.fromDER(bufToNums(n.pubkeyCreate(bnToBuf32(this))));
++                catch (e) { p = null; /* fall through to pure-JS */ }
 +            }
-+            catch (e) { /* fall through to pure-JS */ }
-+        }
-         const c = new Curve();
-         const p = c.g.mulCT(this);
-         return new PublicKey(p.x, p.y);
-@@ -365,6 +385,21 @@ export default class PrivateKey extends BigNumber {
++            if (p == null)
++                p = new Curve().g.mulCT(this);
+             cached = { fingerprint, x: p.x, y: p.y };
+             PUBLIC_KEY_CACHE.set(this, cached);
+         }
+@@ -383,6 +408,21 @@ export default class PrivateKey extends BigNumber {
          if (!key.validate()) {
              throw new Error('Public key not valid for ECDH secret derivation');
          }
@@ -1398,7 +1412,7 @@ index 9f2ff03..adbcb3a 100644
          return key.mulCT(this);
      }
      /**
-@@ -403,6 +438,59 @@ export default class PrivateKey extends BigNumber {
+@@ -421,6 +461,59 @@ export default class PrivateKey extends BigNumber {
       * @returns The derived child key.
       */
      deriveChild(publicKey, invoiceNumber, cacheSharedSecret, retrieveCachedSharedSecret) {
@@ -1741,13 +1755,13 @@ index 5c26fa1..01c7453 100644
                  const signatureScope = computeSignatureScope(signOutputs, anyoneCanPay);
                  const resolved = resolveSourceDetails(tx, inputIndex, sourceSatoshis, lockingScript);
 diff --git a/node_modules/@bsv/sdk/dist/esm/src/transaction/Transaction.js b/node_modules/@bsv/sdk/dist/esm/src/transaction/Transaction.js
-index 55616a8..ff3a475 100644
+index 95fd419..7eb4c96 100644
 --- a/node_modules/@bsv/sdk/dist/esm/src/transaction/Transaction.js
 +++ b/node_modules/@bsv/sdk/dist/esm/src/transaction/Transaction.js
 @@ -2,7 +2,10 @@ import UnlockingScript from '../script/UnlockingScript.js';
  import LockingScript from '../script/LockingScript.js';
  import { scriptSerializationIdentity } from '../script/Script.js';
- import { Writer, toHex, toArray, ReaderUint8Array, toUint8Array, WriterUint8Array } from '../primitives/utils.js';
+ import { toHex, toArray, ReaderUint8Array, toUint8Array, WriterUint8Array } from '../primitives/utils.js';
 -import { hash256 } from '../primitives/Hash.js';
 +import { hash256, sha256 } from '../primitives/Hash.js';
 +import Signature from '../primitives/Signature.js';

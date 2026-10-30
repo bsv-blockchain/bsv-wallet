@@ -14,7 +14,7 @@ host verifies hand-overs with `@bsv/mandala` and a host ledger.
 - **Peers.** New: `@bsv/color-permission-module` ^0.2.0 and `@bsv/mandala`
   ^0.5.0. Raised: `@bsv/sdk` ^4.0.0, `@bsv/wallet-toolbox-mobile` ^2.15.0
   (both from npm), `@bsv/templates` ^2.2.0. Hosts copy
-  `patches/@bsv+sdk+4.0.0.patch` and
+  `patches/@bsv+sdk+4.0.1.patch` (the color module 0.2.0 needs sdk ^4.0.1) and
   `patches/@bsv+wallet-toolbox-mobile+2.15.0.patch` (regenerated against the
   published 2.15.0) in place of the 2.8.11 / 2.14.9 patches and drop the
   `@bsv+mandala+0.4.1` patch. The module's `@bsv/wallet-toolbox-client` peer

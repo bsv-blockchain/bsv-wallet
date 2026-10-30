@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Vendor the unpublished 1Color packages (IC §9) into vendor/ and point the
-// root package.json at them. @bsv/sdk 4.0.0 and @bsv/wallet-toolbox-mobile
-// 2.15.x are published: they are registry ranges (PUBLISHED below), and any
-// old tarball of theirs is removed from vendor/.
+// root package.json at them. @bsv/sdk 4.0.x, @bsv/wallet-toolbox-mobile 2.15.x,
+// @bsv/templates 2.2.x and @bsv/color-permission-module 0.2.x are published:
+// they are registry ranges (PUBLISHED below), and any old tarball of theirs is
+// removed from vendor/.
 //
 // Usage: node scripts/vendor-1color.mjs [--src <dir>] [--allow-missing]
 //
@@ -30,8 +31,6 @@ const DEFAULT_SRC = '/Users/personal/git/demos/mandala-wt/1color/vendor-ts-stack
 
 // npm name -> tarball stem (`npm pack` names @bsv/x as bsv-x-<ver>.tgz).
 const VENDORED = {
-  '@bsv/templates': 'templates',
-  '@bsv/color-permission-module': 'color-permission-module',
   '@bsv/mandala': 'mandala'
 }
 
@@ -41,6 +40,8 @@ const VENDORED = {
 // the peer is an npm alias of -mobile rather than a second toolbox.
 const PUBLISHED = {
   '@bsv/sdk': { stem: 'sdk', spec: '^4.0.0' },
+  '@bsv/templates': { stem: 'templates', spec: '^2.2.0' },
+  '@bsv/color-permission-module': { stem: 'color-permission-module', spec: '^0.2.0' },
   '@bsv/wallet-toolbox-mobile': { stem: 'wallet-toolbox-mobile', spec: '^2.15.0' },
   '@bsv/wallet-toolbox-client': { stem: 'wallet-toolbox-client', spec: 'npm:@bsv/wallet-toolbox-mobile@^2.15.0' }
 }

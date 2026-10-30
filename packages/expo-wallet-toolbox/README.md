@@ -621,7 +621,7 @@ module, with no compatibility with `@bsv/mandala` 0.4 assets, outputs or the
 `'p mandala'` basket. Install the new peers (`@bsv/color-permission-module`
 ^0.2.0, `@bsv/mandala` ^0.5.0) and the raised ones (`@bsv/sdk` ^4.0.0,
 `@bsv/wallet-toolbox-mobile` ^2.15.0, `@bsv/templates` ^2.2.0). Copy
-`patches/@bsv+sdk+4.0.0.patch` and `patches/@bsv+wallet-toolbox-mobile+2.15.0.patch`
+`patches/@bsv+sdk+4.0.1.patch` and `patches/@bsv+wallet-toolbox-mobile+2.15.0.patch`
 in place of the 2.8.11/2.14.9 patches, and delete any `@bsv+mandala+0.4.1`
 patch. Add the Metro alias and `exports` settings and the Jest `.mjs`
 transform, mappers and allowlist entries above. Token amounts are `bigint`

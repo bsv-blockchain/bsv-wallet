@@ -1,6 +1,6 @@
 /**
  * BRC-207 C.0 (0207:10224-10264) — the Chronicle attestation signature vector,
- * run through the PATCHED @bsv/sdk ECDSA seam (patches/@bsv+sdk+4.0.0.patch).
+ * run through the PATCHED @bsv/sdk ECDSA seam (patches/@bsv+sdk+4.0.1.patch).
  *
  * In jest no Nitro module is installed, so `ECDSA.sign` routes through the
  * @noble/secp256k1 tier; forcing `globalThis.__bsvSecpNative = {}` makes the
