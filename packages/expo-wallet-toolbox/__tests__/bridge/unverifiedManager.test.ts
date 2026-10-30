@@ -347,3 +347,50 @@ describe('runtimeFlags', () => {
     expect(seen).toEqual([true])
   })
 })
+
+describe('connect-time group on the unverified manager', () => {
+  const manifest = {
+    metanet: {
+      groupPermissions: {
+        spendingAuthorization: { amount: 10000, description: 'spend' },
+        protocolPermissions: [
+          { protocolID: [2, 'notes'], description: 'notes' },
+          { protocolID: [2, '3241645161d8'], description: 'pay' },
+          { protocolID: [2, 'p color token'], description: 'tokens' }
+        ],
+        basketAccess: [{ basket: 'stuff', description: 's' }]
+      }
+    }
+  }
+
+  test('unattested: spending, ask-every-time and token modules are already stripped from the preview', async () => {
+    fetchSpy.mockResolvedValue(manifestResponse(manifest))
+    const pm = buildUnverifiedPermissionsManager(fakeWallet().wallet, ADMIN, flags)
+    const group = await pm.peekGroupPermissions(U('example.com'))
+    expect(group).toEqual({
+      protocolPermissions: [{ protocolID: [2, 'notes'], description: 'notes' }],
+      basketAccess: [{ basket: 'stuff', description: 's' }],
+      certificateAccess: []
+    })
+  })
+
+  test('preview under a placeholder grant tag and the later check share one fetch', async () => {
+    fetchSpy.mockResolvedValue(manifestResponse(manifest))
+    const pm = buildUnverifiedPermissionsManager(fakeWallet().wallet, ADMIN, flags)
+    await pm.peekGroupPermissions(U('example.com', TAG1))
+    await (pm as any).fetchManifestPermissions(U('example.com', TAG2))
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('mint is keyed to the approved originator, the one the later check uses', async () => {
+    fetchSpy.mockResolvedValue(manifestResponse(manifest))
+    const pm = buildUnverifiedPermissionsManager(fakeWallet().wallet, ADMIN, flags)
+    const persist = jest.spyOn(pm as any, 'persistPermissionGrant').mockResolvedValue(undefined)
+    jest.spyOn(pm as any, 'filterAlreadyGrantedPermissions').mockImplementation(async (_o: any, g: any) => g)
+    jest.spyOn(pm as any, 'findProtocolToken').mockResolvedValue(undefined)
+    const group = (await pm.peekGroupPermissions(U('example.com')))!
+    await pm.mintGroupedPermissions(U('example.com', TAG2), group)
+    const created = persist.mock.calls[0][0] as any[]
+    expect(created.map(c => c.request.originator)).toEqual([U('example.com', TAG2), U('example.com', TAG2)])
+  })
+})

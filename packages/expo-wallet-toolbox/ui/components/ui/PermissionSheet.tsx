@@ -210,6 +210,8 @@ function deriveConnection(c: PendingConsent, flags: SeekFlags): ActivePermission
     title: 'Connect Website',
     description: 'wants to connect to your wallet',
     details: [],
+    // The manifest group previewed before the sheet (spec 6.12); Connect mints exactly this.
+    groupPermissions: c.groupPermissions ?? undefined,
     connection: {
       transportId: c.transportId,
       connectedBefore: c.connectedBefore,
@@ -484,11 +486,113 @@ function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max - 1) + '\u2026' : str
 }
 
-/** Map permission kind to the themed accent color key. */
+/**
+ * The permissions a site asks for as read-only sections (spending with its amount, protocols, baskets,
+ * certificates). No checkbox and no switch: the set is granted or refused as a whole. Shared by the
+ * group sheet and the merged Connect sheet (spec 6.12).
+ */
+function GroupPermissionSections({ group, unverified }: { group: GroupPermissions; unverified?: boolean }) {
+  const { t } = useTranslation()
+  const { colors } = useTheme()
+  // A manifest's own words for an unverified site are shown as the site's quote (spec 6.5).
+  const quoted = (text: string) => (unverified ? `\u201C${text}\u201D` : text)
+  return (
+    <>
+      {group.spendingAuthorization && (
+        <View style={[styles.groupSection, { borderColor: colors.separator }]}>
+          <Text style={[styles.groupSectionTitle, { color: colors.textSecondary }]}>{t('spending_section')}</Text>
+          <View style={styles.groupRow}>
+            <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>
+              <AmountDisplay>{group.spendingAuthorization.amount}</AmountDisplay>
+            </Text>
+            {group.spendingAuthorization.description && (
+              <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>
+                {quoted(group.spendingAuthorization.description)}
+              </Text>
+            )}
+          </View>
+        </View>
+      )}
+      {group.protocolPermissions && group.protocolPermissions.length > 0 && (
+        <View style={[styles.groupSection, { borderColor: colors.separator }]}>
+          <Text style={[styles.groupSectionTitle, { color: colors.textSecondary }]}>{t('protocols_section')}</Text>
+          {group.protocolPermissions.map((p, i) => (
+            <View key={i} style={styles.groupRow}>
+              <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>
+                {describeProtocolPrompt(p.protocolID[1], p.counterparty).protocolLabel}
+              </Text>
+              {p.description && (
+                <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>{quoted(p.description)}</Text>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
+      {group.basketAccess && group.basketAccess.length > 0 && (
+        <View style={[styles.groupSection, { borderColor: colors.separator }]}>
+          <Text style={[styles.groupSectionTitle, { color: colors.textSecondary }]}>{t('baskets_section')}</Text>
+          {group.basketAccess.map((b, i) => (
+            <View key={i} style={styles.groupRow}>
+              <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>{b.basket}</Text>
+              {b.description && (
+                <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>{quoted(b.description)}</Text>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
+      {group.certificateAccess && group.certificateAccess.length > 0 && (
+        <View style={[styles.groupSection, { borderColor: colors.separator }]}>
+          <Text style={[styles.groupSectionTitle, { color: colors.textSecondary }]}>{t('certificates_section')}</Text>
+          {group.certificateAccess.map((c, i) => (
+            <View key={i} style={styles.groupRow}>
+              <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>{c.type}</Text>
+              {c.description && (
+                <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>{quoted(c.description)}</Text>
+              )}
+              {c.fields && c.fields.length > 0 && (
+                <Text style={[styles.groupRowDesc, { color: colors.textTertiary }]}>Fields: {c.fields.join(', ')}</Text>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
+    </>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
+
+/**
+ * True while any permission sheet is open or queued (every manager queue, the BTMS and mandala queues and
+ * the website connection requests). The Safari bridge's done screen stays hidden while this is true, and a
+ * later sheet replaces it (spec 6.12).
+ */
+export function usePermissionSheetBusy(): boolean {
+  const {
+    protocolRequests,
+    basketRequests,
+    certificateRequests,
+    spendingRequests,
+    groupRequests,
+    btmsRequests,
+    mandalaRequests
+  } = useContext(WalletContext)
+  const connections = useSyncExternalStore(subscribeConsentRequests, getPendingConnections, getPendingConnections)
+  return (
+    (protocolRequests?.length ?? 0) +
+      (basketRequests?.length ?? 0) +
+      (certificateRequests?.length ?? 0) +
+      (spendingRequests?.length ?? 0) +
+      (groupRequests?.length ?? 0) +
+      (btmsRequests?.length ?? 0) +
+      (mandalaRequests?.length ?? 0) +
+      connections.length >
+    0
+  )
+}
 
 const PermissionSheet: React.FC = () => {
   const { t } = useTranslation()
@@ -653,8 +757,6 @@ const PermissionSheet: React.FC = () => {
   )
 
   const visible = active !== null
-  // A manifest's own words for an unverified site are shown as the site's quote (spec 6.5).
-  const quoted = (text: string) => (active?.unverified ? `\u201C${text}\u201D` : text)
 
   // Figure and unit are set at different sizes, so they have to be formatted
   // apart — same treatment as the wallet balance.
@@ -970,88 +1072,16 @@ const PermissionSheet: React.FC = () => {
                     {t('bridge_connected_before')}
                   </Text>
                 )}
+                {active.groupPermissions && (
+                  <GroupPermissionSections group={active.groupPermissions} unverified={active.unverified} />
+                )}
               </ScrollView>
             )}
 
             {/* -------- Group permissions list -------- */}
             {active.kind === 'group' && active.groupPermissions && (
               <ScrollView style={styles.groupScroll} bounces={false}>
-                {active.groupPermissions.spendingAuthorization && (
-                  <View style={[styles.groupSection, { borderColor: colors.separator }]}>
-                    <Text style={[styles.groupSectionTitle, { color: colors.textSecondary }]}>
-                      {t('spending_section')}
-                    </Text>
-                    <View style={styles.groupRow}>
-                      <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>
-                        <AmountDisplay>{active.groupPermissions.spendingAuthorization.amount}</AmountDisplay>
-                      </Text>
-                      {active.groupPermissions.spendingAuthorization.description && (
-                        <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>
-                          {quoted(active.groupPermissions.spendingAuthorization.description)}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                )}
-                {active.groupPermissions.protocolPermissions &&
-                  active.groupPermissions.protocolPermissions.length > 0 && (
-                    <View style={[styles.groupSection, { borderColor: colors.separator }]}>
-                      <Text style={[styles.groupSectionTitle, { color: colors.textSecondary }]}>
-                        {t('protocols_section')}
-                      </Text>
-                      {active.groupPermissions.protocolPermissions.map((p, i) => (
-                        <View key={i} style={styles.groupRow}>
-                          <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>
-                            {describeProtocolPrompt(p.protocolID[1], p.counterparty).protocolLabel}
-                          </Text>
-                          {p.description && (
-                            <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>
-                              {quoted(p.description)}
-                            </Text>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                {active.groupPermissions.basketAccess && active.groupPermissions.basketAccess.length > 0 && (
-                  <View style={[styles.groupSection, { borderColor: colors.separator }]}>
-                    <Text style={[styles.groupSectionTitle, { color: colors.textSecondary }]}>
-                      {t('baskets_section')}
-                    </Text>
-                    {active.groupPermissions.basketAccess.map((b, i) => (
-                      <View key={i} style={styles.groupRow}>
-                        <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>{b.basket}</Text>
-                        {b.description && (
-                          <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>
-                            {quoted(b.description)}
-                          </Text>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                )}
-                {active.groupPermissions.certificateAccess && active.groupPermissions.certificateAccess.length > 0 && (
-                  <View style={[styles.groupSection, { borderColor: colors.separator }]}>
-                    <Text style={[styles.groupSectionTitle, { color: colors.textSecondary }]}>
-                      {t('certificates_section')}
-                    </Text>
-                    {active.groupPermissions.certificateAccess.map((c, i) => (
-                      <View key={i} style={styles.groupRow}>
-                        <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>{c.type}</Text>
-                        {c.description && (
-                          <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>
-                            {quoted(c.description)}
-                          </Text>
-                        )}
-                        {c.fields && c.fields.length > 0 && (
-                          <Text style={[styles.groupRowDesc, { color: colors.textTertiary }]}>
-                            Fields: {c.fields.join(', ')}
-                          </Text>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                )}
+                <GroupPermissionSections group={active.groupPermissions} unverified={active.unverified} />
               </ScrollView>
             )}
 
@@ -1157,7 +1187,9 @@ const PermissionSheet: React.FC = () => {
               onPress={handleDeny}
               disabled={granted}
             >
-              <Text style={[styles.buttonDenyText, { color: colors.textPrimary }]}>{t('reject')}</Text>
+              <Text style={[styles.buttonDenyText, { color: colors.textPrimary }]}>
+                {t(active.kind === 'connection' ? 'bridge_dont_connect' : 'reject')}
+              </Text>
             </PressableScale>
 
             {/* Accent-filled and the only shadowed element in the drawer, so the
@@ -1171,7 +1203,9 @@ const PermissionSheet: React.FC = () => {
               {granted ? (
                 <Ionicons name="checkmark" size={22} color={colors.textOnAccent} />
               ) : (
-                <Text style={[styles.buttonAllowText, { color: colors.textOnAccent }]}>{t('authorize')}</Text>
+                <Text style={[styles.buttonAllowText, { color: colors.textOnAccent }]}>
+                  {t(active.kind === 'connection' ? 'bridge_connect' : 'authorize')}
+                </Text>
               )}
             </PressableScale>
           </View>

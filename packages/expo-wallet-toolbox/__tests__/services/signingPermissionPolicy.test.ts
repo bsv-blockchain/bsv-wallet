@@ -327,3 +327,184 @@ describe('retirement', () => {
     expect(pm.hasActiveRequest('nope')).toBe(false)
   })
 })
+
+describe('connect-time group (peek and mint)', () => {
+  const SITE = 'localhost' // read with globalThis.fetch, so a test can serve its manifest
+  const ONE_G = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
+  const MANIFEST = {
+    metanet: {
+      groupPermissions: {
+        description: 'Notes',
+        spendingAuthorization: { amount: 5000, description: 'spend up to 5000' },
+        protocolPermissions: [
+          { protocolID: [2, 'notes'], counterparty: ONE_G, description: 'notes' },
+          { protocolID: [1, 'open thing'], description: 'open' },
+          { protocolID: [2, '3241645161d8'], description: 'pay' }
+        ],
+        basketAccess: [{ basket: 'notes', description: 'your notes' }],
+        certificateAccess: [{ type: 'AAAA', fields: ['name'], verifierPublicKey: ONE_G, description: 'who you are' }]
+      }
+    }
+  }
+  const realFetch = globalThis.fetch
+  let fetchMock: jest.Mock
+  const serve = (body: unknown, ok = true) => {
+    fetchMock = jest.fn(async () => ({ ok, headers: { get: () => null }, body: null, json: async () => body }))
+    globalThis.fetch = fetchMock as any
+  }
+  afterEach(() => {
+    globalThis.fetch = realFetch
+  })
+
+  /** A real manager whose token lookups read `held` and whose mint records what it was asked for. */
+  function minting() {
+    const { pm } = manager()
+    ;(pm as any).config.seekGroupedPermission = true
+    ;(pm as any).underlying.waitForAuthentication = async () => ({ authenticated: true })
+    const held = new Set<string>()
+    const key = (k: string, v: unknown) => `${k}:${JSON.stringify(v)}`
+    jest
+      .spyOn(pm as any, 'hasProtocolPermission')
+      .mockImplementation(async (a: any) => held.has(key('p', a.protocolID)))
+    jest.spyOn(pm as any, 'hasBasketAccess').mockImplementation(async (a: any) => held.has(key('b', a.basket)))
+    jest.spyOn(pm as any, 'hasCertificateAccess').mockImplementation(async (a: any) => held.has(key('c', a.certType)))
+    jest
+      .spyOn(pm as any, 'findSpendingToken')
+      .mockImplementation(async () => (held.has('s') ? { token: 1 } : undefined))
+    jest.spyOn(pm as any, 'findProtocolToken').mockResolvedValue(undefined)
+    const persisted: { toCreate: any[]; toRenew: any[] }[] = []
+    jest.spyOn(pm as any, 'persistPermissionGrant').mockImplementation(async (...args: any[]) => {
+      const [toCreate, toRenew] = args as [any[], any[]]
+      persisted.push({ toCreate, toRenew })
+      for (const { request } of [...toCreate, ...toRenew]) {
+        if (request.type === 'spending') held.add('s')
+        if (request.type === 'protocol') held.add(key('p', request.protocolID))
+        if (request.type === 'basket') held.add(key('b', request.basket))
+        if (request.type === 'certificate') held.add(key('c', request.certificate.certType))
+      }
+    })
+    const grouped: any[] = []
+    pm.bindCallback('onGroupedPermissionRequested', (r: any) => {
+      grouped.push(r)
+      void pm.dismissGroupedPermission(r.requestID)
+    })
+    return { pm, held, persisted, grouped, key }
+  }
+
+  test('peek uses the same cached fetch the later check reads', async () => {
+    serve(MANIFEST)
+    const { pm, grouped } = minting()
+    expect(await pm.peekGroupPermissions(SITE)).not.toBeNull()
+    await pm.waitForAuthentication({}, SITE)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(grouped).toHaveLength(1) // the check still sees the manifest (served from the cache)
+  })
+
+  test('peek leaves ask-every-time protocols out', async () => {
+    serve(MANIFEST)
+    const { pm } = minting()
+    const group = await pm.peekGroupPermissions(SITE)
+    expect(group!.protocolPermissions!.map(p => p.protocolID[1])).toEqual(['notes', 'open thing'])
+    expect(group!.spendingAuthorization).toEqual({ amount: 5000, description: 'spend up to 5000' })
+  })
+
+  test('peek failure, timeout and empty manifest give null', async () => {
+    const { pm } = minting()
+    serve(null, false)
+    expect(await pm.peekGroupPermissions(SITE)).toBeNull()
+    for (const m of [{}, { metanet: {} }, { metanet: { groupPermissions: { protocolPermissions: [] } } }]) {
+      ;(pm as any).manifestCache.clear()
+      serve(m)
+      expect(await pm.peekGroupPermissions(SITE)).toBeNull()
+    }
+    ;(pm as any).manifestCache.clear()
+    globalThis.fetch = (async () => {
+      throw new Error('network down')
+    }) as any
+    expect(await pm.peekGroupPermissions(SITE)).toBeNull()
+    expect(await pm.peekGroupPermissions('')).toBeNull() // a refused originator is a null, not a throw
+  })
+
+  test('peek drops malformed entries a site wrote', async () => {
+    serve({
+      metanet: {
+        groupPermissions: {
+          protocolPermissions: [
+            { protocolID: 'notes' },
+            { protocolID: [9, 'x'] },
+            { protocolID: [2, 'ok'], description: 'k' }
+          ],
+          basketAccess: [{ basket: 5 }, { basket: 'b' }],
+          spendingAuthorization: { amount: -1 }
+        }
+      }
+    })
+    const { pm } = minting()
+    expect(await pm.peekGroupPermissions(SITE)).toEqual({
+      protocolPermissions: [{ protocolID: [2, 'ok'], description: 'k' }],
+      basketAccess: [{ basket: 'b', description: '' }],
+      certificateAccess: []
+    })
+  })
+
+  test('mint creates a token for every listed item and skips items already holding one', async () => {
+    serve(MANIFEST)
+    const { pm, held, persisted, key } = minting()
+    const group = (await pm.peekGroupPermissions(SITE))!
+    held.add(key('b', 'notes'))
+    await pm.mintGroupedPermissions(SITE, group)
+    expect(persisted).toHaveLength(1)
+    const types = persisted[0].toCreate.map(c => c.request.type)
+    expect(types.sort()).toEqual(['certificate', 'protocol', 'protocol', 'spending'])
+    expect(persisted[0].toRenew).toEqual([])
+    // A second mint finds everything held and writes nothing.
+    await pm.mintGroupedPermissions(SITE, group)
+    expect(persisted).toHaveLength(1)
+  })
+
+  test('mint renews an expired protocol token instead of creating a second', async () => {
+    serve(MANIFEST)
+    const { pm, persisted } = minting()
+    ;(pm as any).findProtocolToken.mockImplementation(async (_o: string, _p: boolean, protocolID: any) =>
+      protocolID[1] === 'notes' ? { txid: 'old' } : undefined
+    )
+    await pm.mintGroupedPermissions(SITE, (await pm.peekGroupPermissions(SITE))!)
+    expect(persisted[0].toRenew.map(r => r.request.protocolID[1])).toEqual(['notes'])
+    expect(persisted[0].toCreate.some(c => c.request.protocolID?.[1] === 'notes')).toBe(false)
+  })
+
+  test('after mint the group check raises no sheet', async () => {
+    serve(MANIFEST)
+    const { pm, grouped } = minting()
+    await pm.mintGroupedPermissions(SITE, (await pm.peekGroupPermissions(SITE))!)
+    await pm.waitForAuthentication({}, SITE)
+    expect(grouped).toEqual([])
+  })
+
+  test('verified: spending authorization is minted with its amount', async () => {
+    serve(MANIFEST)
+    const { pm, persisted } = minting()
+    await pm.mintGroupedPermissions(SITE, (await pm.peekGroupPermissions(SITE))!)
+    const spending = persisted[0].toCreate.find(c => c.request.type === 'spending')
+    expect(spending).toMatchObject({ amount: 5000, expiry: 0, request: { spending: { satoshis: 5000 } } })
+  })
+
+  test('mint never writes an ask-every-time protocol even if handed one', async () => {
+    const { pm, persisted } = minting()
+    await pm.mintGroupedPermissions(SITE, {
+      protocolPermissions: [{ protocolID: [2, '3241645161d8'], description: 'pay' }]
+    })
+    expect(persisted).toEqual([])
+  })
+
+  test('mint failure rejects and the later group check falls back to the group sheet', async () => {
+    serve(MANIFEST)
+    const { pm, grouped } = minting()
+    ;(pm as any).persistPermissionGrant.mockRejectedValueOnce(new Error('no funds for the token'))
+    await expect(pm.mintGroupedPermissions(SITE, (await pm.peekGroupPermissions(SITE))!)).rejects.toThrow(
+      'no funds for the token'
+    )
+    await pm.waitForAuthentication({}, SITE)
+    expect(grouped).toHaveLength(1)
+  })
+})

@@ -40,7 +40,9 @@ function memoryKv(): KeyValue & { data: Map<string, string> } {
   }
 }
 
-function setup(opts: { profileKey?: string; wallet?: any; storage?: ReturnType<typeof memoryKv> } = {}) {
+function setup(
+  opts: { profileKey?: string; wallet?: any; storage?: ReturnType<typeof memoryKv>; mint?: jest.Mock } = {}
+) {
   const storage = opts.storage ?? memoryKv()
   const wallet = opts.wallet ?? fakeAdminWallet()
   const state = { profileKey: opts.profileKey ?? '', now: 1_000_000, counter: 0 }
@@ -50,7 +52,8 @@ function setup(opts: { profileKey?: string; wallet?: any; storage?: ReturnType<t
     adminOriginator: ADMIN,
     profileKey: () => state.profileKey,
     now: () => state.now,
-    randomBytes: n => new Uint8Array(n).fill(++state.counter)
+    randomBytes: n => new Uint8Array(n).fill(++state.counter),
+    mint: opts.mint
   })
   return { store, storage, wallet, state }
 }
@@ -351,5 +354,87 @@ describe('consent store', () => {
     s.storage.data.set('bsv-bridge-permission-policy:', 'keep')
     await sweepConsentStorage(s.storage)
     expect([...s.storage.data.keys()].sort()).toEqual(['bsv-bridge-permission-policy:', 'unrelated'])
+  })
+})
+
+describe('consent store: connect group', () => {
+  const GROUP = {
+    description: 'Notes',
+    protocolPermissions: [{ protocolID: [2, 'notes'] as [2, string], description: 'notes' }],
+    basketAccess: [{ basket: 'notes', description: 'your notes' }]
+  }
+
+  it('lists the previewed group on the pending request', () => {
+    const s = setup()
+    s.store.requestConsent(req({ groupPermissions: GROUP }))
+    expect(s.store.listPending()[0].groupPermissions).toEqual(GROUP)
+    const t = setup()
+    t.store.requestConsent(req())
+    expect(t.store.listPending()[0].groupPermissions ?? null).toBeNull()
+  })
+
+  it('Connect mints exactly the group the sheet showed, after the record is written, then approves', async () => {
+    const order: string[] = []
+    const mint = jest.fn(async () => void order.push('mint'))
+    const s = setup({ mint })
+    const r = s.store.requestConsent(req({ groupPermissions: GROUP })) as any
+    const shown = s.store.listPending()[0].groupPermissions
+    r.promise.then(() => order.push('settled'))
+    const writes = jest.spyOn(s.storage, 'setItem').mockImplementation(async (k, v) => {
+      order.push('record')
+      s.storage.data.set(k, v)
+    })
+    const out = await s.store.answerConsent(r.requestId, true, { walletRevision: 1, profileKey: '' })
+    await r.promise
+    expect(mint).toHaveBeenCalledTimes(1)
+    expect(mint).toHaveBeenCalledWith('example.com', shown)
+    expect(order).toEqual(['record', 'mint', 'settled'])
+    expect(out!.record.originator).toBe('example.com')
+    writes.mockRestore()
+  })
+
+  it('an unattested Connect mints under the new grant-tagged originator', async () => {
+    const mint = jest.fn(async () => {})
+    const s = setup({ mint })
+    const out = await approve(s, { attestation: 'unattested', groupPermissions: GROUP })
+    expect(mint).toHaveBeenCalledWith(out.record.originator, GROUP)
+    expect(isUnattestedOriginator((mint.mock.calls as any[][])[0][0])).toBe(true)
+  })
+
+  it("Don't connect mints and records nothing", async () => {
+    const mint = jest.fn(async () => {})
+    const s = setup({ mint })
+    const r = s.store.requestConsent(req({ groupPermissions: GROUP })) as any
+    await s.store.answerConsent(r.requestId, false, { walletRevision: 1, profileKey: '' })
+    await expect(r.promise).resolves.toBe('declined')
+    expect(mint).not.toHaveBeenCalled()
+    expect(await s.store.lookup(ORIGIN, 'browser')).toBeUndefined()
+    expect(s.storage.data.size).toBe(0)
+  })
+
+  it('a plain sheet (no group) mints nothing', async () => {
+    const mint = jest.fn(async () => {})
+    await approve(setup({ mint }))
+    expect(mint).not.toHaveBeenCalled()
+  })
+
+  it('a mint failure after the record is written keeps the connection', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const mint = jest.fn(async () => {
+      throw new Error('mint failed')
+    })
+    const s = setup({ mint })
+    const out = await approve(s, { groupPermissions: GROUP })
+    expect(out.record.originator).toBe('example.com')
+    expect(await s.store.lookup(ORIGIN, 'browser')).toBeDefined()
+    warn.mockRestore()
+  })
+
+  it('a stale answer (revision changed) mints nothing', async () => {
+    const mint = jest.fn(async () => {})
+    const s = setup({ mint })
+    const r = s.store.requestConsent(req({ groupPermissions: GROUP })) as any
+    await s.store.answerConsent(r.requestId, true, { walletRevision: 2, profileKey: '' })
+    expect(mint).not.toHaveBeenCalled()
   })
 })

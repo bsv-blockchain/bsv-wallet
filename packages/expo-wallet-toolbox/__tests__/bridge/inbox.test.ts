@@ -22,7 +22,7 @@ const MIN = 60_000
 
 runInboxStoreContract('memory adapter', clock => {
   const store = createMemoryInboxStore({ now: clock.now })
-  return { store, restart: () => store.restart() }
+  return { store, restart: () => store.restart(), rawBytes: () => store.rawBytes() }
 })
 
 function memoryKv(): KeyValue {
@@ -492,11 +492,11 @@ describe('inbox processor: close events outbox (6.7)', () => {
     bindings.close('epoch-1', 'revoked')
     bindings.close('epoch-2', 'lost')
     await new Promise(r => setTimeout(r, 5))
-    expect(await store.readEventsAfter(0)).toEqual([
+    expect((await store.readEventsAfter(0)).events).toEqual([
       { v: 1, closeSeq: 1, instanceId: 'inst', epoch: 'epoch-1', reason: 'revoked' },
       { v: 1, closeSeq: 2, instanceId: 'inst', epoch: 'epoch-2', reason: 'lost' }
     ])
-    expect(await store.readEventsAfter(1)).toHaveLength(1)
+    expect((await store.readEventsAfter(1)).events).toHaveLength(1)
   })
 
   it('a page disconnect is written too, but marked as not to be announced to the page', async () => {
@@ -506,7 +506,7 @@ describe('inbox processor: close events outbox (6.7)', () => {
     await stage(record(2, { kind: 'disconnect', epoch: 'epoch-1', method: undefined, args: undefined }))
     await p.processPending()
     await new Promise(r => setTimeout(r, 5))
-    expect(await store.readEventsAfter(0)).toEqual([
+    expect((await store.readEventsAfter(0)).events).toEqual([
       { v: 1, closeSeq: 1, instanceId: 'inst', epoch: 'epoch-1', reason: 'lost', notifyPage: false }
     ])
   })
@@ -525,7 +525,7 @@ describe('inbox processor: close events outbox (6.7)', () => {
       })
     )
     await p.processPending()
-    expect(await store.readEventsAfter(0)).toEqual([])
+    expect((await store.readEventsAfter(0)).events).toEqual([])
   })
 
   it('the event for a closed epoch is in the outbox before any replacement is admitted', async () => {
@@ -540,7 +540,7 @@ describe('inbox processor: close events outbox (6.7)', () => {
     bindings.close('epoch-1', 'account-changed')
     let seenAtAdmission: unknown[] | undefined
     dispatchImpl = async req => {
-      seenAtAdmission = await store.readEventsAfter(0)
+      seenAtAdmission = (await store.readEventsAfter(0)).events
       await req.beforeCall?.()
       return OK
     }
@@ -551,6 +551,28 @@ describe('inbox processor: close events outbox (6.7)', () => {
     ])
   })
 
+  it('flushEvents resolves only after every raised close event is written', async () => {
+    const p = processor()
+    await stage(record(1))
+    await stage(record(2))
+    await p.processPending()
+    const original = store.writeEvent.bind(store)
+    store.writeEvent = async ev => {
+      await new Promise(r => setTimeout(r, 20))
+      return original(ev)
+    }
+    bindings.close('epoch-1', 'revoked')
+    bindings.close('epoch-2', 'lost')
+    expect((await store.readEventsAfter(0)).events).toEqual([])
+    await p.flushEvents()
+    expect((await store.readEventsAfter(0)).events.map(e => e.closeSeq)).toEqual([1, 2])
+  })
+
+  it('flushEvents resolves immediately when none pending', async () => {
+    const p = processor()
+    await expect(p.flushEvents()).resolves.toBeUndefined()
+  })
+
   it('dispose stops writing events', async () => {
     const p = processor()
     await stage(record(1))
@@ -558,6 +580,6 @@ describe('inbox processor: close events outbox (6.7)', () => {
     p.dispose()
     bindings.close('epoch-1', 'revoked')
     await new Promise(r => setTimeout(r, 5))
-    expect(await store.readEventsAfter(0)).toEqual([])
+    expect((await store.readEventsAfter(0)).events).toEqual([])
   })
 })

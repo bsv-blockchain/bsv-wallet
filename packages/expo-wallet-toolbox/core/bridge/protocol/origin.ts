@@ -5,7 +5,7 @@
  * only as a cross-check, because this code runs on Node (jest), WebKit (the extension) and
  * Hermes with `whatwg-url-minimum`, and they do not serialise origins identically.
  */
-import { ADMIN_ORIGINATOR, LEGACY_ADMIN_ORIGINATOR } from '../../config'
+import { ADMIN_ORIGINATOR, LEGACY_ADMIN_ORIGINATOR } from './constants'
 import {
   isLdhHostname,
   isUnattestedOriginator,

@@ -1,0 +1,31 @@
+{
+  "name": "@bsv/expo-safari-wallet-bridge",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Safari Web Extension, sealed App Group queue and Expo native module that let a page in iOS Safari use the app as its BRC-100 wallet.",
+  "license": "Open BSV",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@bacons/apple-targets": "5.0.0",
+    "esbuild": "0.28.2"
+  },
+  "peerDependencies": {
+    "@bsv/expo-wallet-toolbox": "*",
+    "@bsv/sdk": "*",
+    "expo-modules-core": "*"
+  },
+  "files": [
+    "app.plugin.js",
+    "expo-module.config.json",
+    "extension",
+    "ios",
+    "plugin",
+    "scripts",
+    "shared",
+    "src",
+    "swift",
+    "!**/node_modules",
+    "!**/.build"
+  ]
+}

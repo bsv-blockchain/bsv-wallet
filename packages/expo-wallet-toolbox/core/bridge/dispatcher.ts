@@ -20,7 +20,7 @@ import type { WalletInterface } from '@bsv/sdk'
 import { WalletArgTooLarge, capWalletArgs, tierLimits } from '../services/capWalletArgs'
 import { checkWalletArgs, type WalletArgLimits } from '../services/walletArgLimits'
 import type { Binding } from './bindings'
-import type { ConsentStore } from './consent'
+import type { ConsentStore, GroupPermissions } from './consent'
 import { findTokenModuleVariant, isValidVersionString } from './policy'
 import { encodeWalletError, type WireError } from './protocol/errorCodec'
 import { connectionError, isConnectionError, type ConnectionError, type Delivery } from './protocol/connectionError'
@@ -73,7 +73,16 @@ export interface DispatcherDeps {
   walletArgLimits?: WalletArgLimits
   /** Nudges the backup log after a mutating call. Defaults to `TaskBackupPush.noteChanged`. */
   noteChanged?: () => void
+  /**
+   * The manifest group to show on the Connect sheet, from the manager that will check it. Awaited
+   * under a short timeout before the sheet is raised; a failure, a timeout or an empty manifest
+   * all resolve to null, which gives the plain sheet.
+   */
+  previewGroup?: (binding: Binding) => Promise<GroupPermissions | null>
 }
+
+/** How long the Connect sheet waits for the manifest preview before showing without it. */
+export const PREVIEW_GROUP_TIMEOUT_MS = 2000
 
 export interface Dispatcher {
   dispatch(input: { transport: string | { id: string }; request: DispatchRequest }): Promise<Outcome>
@@ -362,13 +371,29 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
           if ((args as { seekPermission?: unknown }).seekPermission === false) {
             throw permissionDenied('Permission denied: this site is not connected')
           }
+          let groupPermissions: GroupPermissions | null = null
+          if (deps.previewGroup !== undefined) {
+            const preview = deps.previewGroup
+            let timer: ReturnType<typeof setTimeout> | undefined
+            groupPermissions = await untilClosed(
+              Promise.race([
+                Promise.resolve()
+                  .then(() => preview(binding))
+                  .catch(() => null),
+                new Promise<null>(res => {
+                  timer = setTimeout(() => res(null), PREVIEW_GROUP_TIMEOUT_MS)
+                })
+              ]).finally(() => clearTimeout(timer))
+            )
+          }
           const asked = deps.consent.requestConsent({
             origin: binding.applicationOrigin,
             attestation: binding.attestation,
             transportId,
             bindingEpoch: binding.epoch,
             walletRevision: Number(getBridgeSnapshot().walletRevision),
-            connectedBefore: record !== undefined
+            connectedBefore: record !== undefined,
+            groupPermissions
           })
           if ('refused' in asked) {
             throw refuse(

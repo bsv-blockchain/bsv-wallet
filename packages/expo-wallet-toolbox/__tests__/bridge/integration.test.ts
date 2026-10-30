@@ -326,3 +326,68 @@ describe('integration: unverified site over an explicit unattested transport wit
     expect(delivered).toHaveLength(0)
   })
 })
+
+describe('integration: merged Connect sheet (preview, then mint)', () => {
+  const GROUP = {
+    basketAccess: [{ basket: 'notes', description: 'your notes' }],
+    protocolPermissions: [{ protocolID: [2, 'notes'] as [2, string], description: 'notes' }]
+  }
+  let mint: jest.Mock
+  let previewGroup: jest.Mock
+
+  beforeEach(() => {
+    mint = jest.fn(async () => {})
+    previewGroup = jest.fn(async () => GROUP)
+    consent = createConsentStore({
+      storage: memoryKv(),
+      adminWallet: fakeAdminWallet(),
+      adminOriginator: ADMIN,
+      profileKey: () => '',
+      now: () => Date.now(),
+      randomBytes: n => globalThis.crypto.getRandomValues(new Uint8Array(n)),
+      mint
+    })
+    registerConsentWithdrawal(() => consent.withdrawAll())
+    installDispatcher(createDispatcher({ consent, noteChanged: jest.fn(), previewGroup }))
+    setConsentSheetSource({
+      store: consent,
+      context: () => ({ walletRevision: Number(getBridgeSnapshot().walletRevision), profileKey: '' })
+    })
+  })
+
+  it('previews before the sheet, mints on Connect under the approved originator, then runs the call', async () => {
+    const b = await pageConnects()
+    const parked = send(b, 'createAction', CREATE_ACTION)
+    await tick()
+    expect(previewGroup).toHaveBeenCalledTimes(1)
+    expect(consent.listPending()[0].groupPermissions).toEqual(GROUP)
+    expect(mint).not.toHaveBeenCalled()
+    await approveSheet()
+    expect(await parked).toEqual({ ok: true, result: { txid: TXID } })
+    const originator = (unverifiedWallet.createAction.mock.calls[0] as any[])[1] as string
+    expect(mint).toHaveBeenCalledTimes(1)
+    expect(mint).toHaveBeenCalledWith(originator, GROUP)
+  })
+
+  it('Dont connect mints nothing and the site stays unconnected', async () => {
+    const b = await pageConnects()
+    const parked = send(b, 'createAction', CREATE_ACTION)
+    await tick()
+    await answerConnection(consent.listPending()[0].requestId, false)
+    expect(connErr(await parked)).toMatchObject({ code: 'USER_CANCELLED' })
+    expect(mint).not.toHaveBeenCalled()
+    expect(await consent.lookup(ORIGIN, 'unattested')).toBeUndefined()
+  })
+
+  it('a mint failure keeps the connection and the call still runs', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mint.mockRejectedValue(new Error('mint failed'))
+    const b = await pageConnects()
+    const parked = send(b, 'createAction', CREATE_ACTION)
+    await tick()
+    await approveSheet()
+    expect(await parked).toEqual({ ok: true, result: { txid: TXID } })
+    expect(await consent.lookup(ORIGIN, 'unattested')).toBeDefined()
+    warn.mockRestore()
+  })
+})

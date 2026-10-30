@@ -63,11 +63,13 @@ export interface InboxStore {
   /** Deletes the payload and result, never the id tombstone. */
   ack(id: string): Promise<void>
   writeEvent(e: InboxCloseEvent): Promise<void>
-  readEventsAfter(seq: number): Promise<InboxCloseEvent[]>
+  /**
+   * Close events with `closeSeq > seq`, sorted. `gap` is true when events the reader never saw were
+   * trimmed (`seq < evictedThrough`): it must then close every epoch it holds.
+   */
+  readEventsAfter(seq: number): Promise<{ events: InboxCloseEvent[]; gap: boolean }>
   bootId(): string
   list(state: InboxState): Promise<string[]>
-  /** Everything the adapter holds at rest, so the contract suite can assert none of it is plaintext. */
-  rawBytes(): Uint8Array[]
 }
 
 /** Hex SHA-256 of the staged bytes: what `claim` compares. */
@@ -163,6 +165,8 @@ export interface InboxProcessor {
   sweepExpired(): Promise<void>
   /** Crash recovery (6.8). Idempotent; `processPending` runs it first. */
   recover(): Promise<void>
+  /** Resolves when every close event raised so far is durable in the store. Never rejects. */
+  flushEvents(): Promise<void>
   /** Stops writing close events. The processor is meant to live as long as its transport. */
   dispose(): void
 }
@@ -429,6 +433,8 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
     },
 
     sweepExpired,
+
+    flushEvents: () => eventWrites,
 
     dispose() {
       unsubscribeClosed()

@@ -11,7 +11,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { WalletInterface, WalletProtocol } from '@bsv/sdk'
-import { ADMIN_ORIGINATOR } from '../config'
+import { ADMIN_ORIGINATOR } from './protocol/constants'
 import { getBrowserBridgeConfig } from '../toolboxConfig'
 
 export interface SeekFlags {

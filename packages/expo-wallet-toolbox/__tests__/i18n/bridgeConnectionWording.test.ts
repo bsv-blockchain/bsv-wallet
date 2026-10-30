@@ -17,7 +17,9 @@ describe('connection sheet wording', () => {
     'bridge_remember_verified',
     'bridge_remember_unverified',
     'bridge_connected_before',
-    'bridge_site_says'
+    'bridge_site_says',
+    'bridge_connect',
+    'bridge_dont_connect'
   ]
 
   it.each(Object.keys(resources))('%s words every policy flag in both states, and every sheet line', code => {

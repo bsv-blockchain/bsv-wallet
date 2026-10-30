@@ -74,6 +74,12 @@ export interface TransportRegistration {
   /** Called when a request is parked: waiting for consent, for the wallet, or for a prompt in the background. */
   requestAttention(reason: AttentionReason, binding: Binding): void
   onClosed?(event: CloseEvent): void
+  /**
+   * A manager permission prompt was raised for the binding's originator. Called for every live binding of
+   * that originator whether or not the app is active (a transport can use it for receipts); unlike
+   * `requestAttention('prompt')` it is not behind the active-app gate. A throw is logged and isolated.
+   */
+  onPromptRaised?(binding: Binding): void
   /** Mandatory for `unattested`, absent otherwise: delivers the token the core minted at approval. */
   deliverReconnectToken?(binding: Binding, token: string): void
 }
@@ -90,6 +96,12 @@ export interface TransportHandle {
 /** What the provider attaches: the way to withdraw prompts and pending consent for a departed wallet. */
 export interface BridgeHostHooks {
   withdrawPrompts(oldManagers: SigningPolicyPermissionsManager[]): void
+  /**
+   * True when the install may have a wallet that has not been built yet (a cold start). The
+   * snapshot is then `building` from attach, never `none`, until the first publish reports what
+   * the provider actually has (spec 6.15 item 9).
+   */
+  hasWallet?: boolean
 }
 
 const REVISION_KEY = 'bsv-bridge-wallet-revision'
@@ -99,7 +111,7 @@ const secureOptions = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_
 
 /** What the provider registers so the site and policy APIs can reach the store without React. */
 export interface ActiveConsent {
-  store: Pick<ConsentStore, 'listConnectedSites' | 'revokeSite' | 'dropRequestsFor'>
+  store: Pick<ConsentStore, 'listConnectedSites' | 'revokeSite' | 'dropRequestsFor' | 'onChange'>
   /** Admin-scoped, guarded wallet: authenticates the stored policy. */
   adminWallet: Pick<HmacCapableWallet, 'createHmac' | 'verifyHmac'>
   adminOriginator: string
@@ -112,6 +124,9 @@ interface RuntimeState {
   transports: Map<string, TransportRegistration>
   closeListeners: Set<(e: CloseEvent) => void>
   snapshotListeners: Set<(s: BridgeSnapshot) => void>
+  connectedSitesListeners: Set<() => void>
+  /** Unsubscribes the forward from the active store's `onChange`. */
+  consentForward: (() => void) | undefined
   hooks: BridgeHostHooks | undefined
   consentWithdrawals: Set<() => void>
   /** The provider's current consent store and the admin wallet that authenticates it. */
@@ -144,6 +159,8 @@ function createState(storage: KeyValue): RuntimeState {
     transports: new Map(),
     closeListeners: new Set(),
     snapshotListeners: new Set(),
+    connectedSitesListeners: new Set(),
+    consentForward: undefined,
     hooks: undefined,
     consentWithdrawals: new Set(),
     consent: undefined,
@@ -313,6 +330,7 @@ export function getTransport(id: string): TransportRegistration | undefined {
  */
 export function attachBridgeHost(hooks: BridgeHostHooks): () => void {
   rt.hooks = hooks
+  if (hooks.hasWallet === true && rt.snapshot.readiness === 'none') setSnapshot({ readiness: 'building' })
   unregisterTeardown?.()
   const state = rt
   unregisterTeardown = registerSessionTeardown(['logout', 'profile', 'network', 'rebuild'], reason => {
@@ -370,17 +388,26 @@ export function registerConsentWithdrawal(fn: () => void): () => void {
  * and a live binding of that originator is waiting on it, the transport is asked to bring the user
  * to the sheet (`requestAttention('prompt')`, spec 6.2): the call itself has no deadline and would
  * otherwise wait unseen. The originator is the one the wallet call carried, so only the bindings
- * that can have raised it are told.
+ * that can have raised it are told. `onPromptRaised` is called for each of them regardless of the
+ * app state.
  */
 export function notifyPromptRaised(
   originator: string,
   isActive: () => boolean = () => AppState.currentState === 'active'
 ): void {
-  if (!rt.isLoaded || isActive()) return
+  if (!rt.isLoaded) return
+  const active = isActive()
   for (const b of rt.bindings.live()) {
     if (b.originator !== originator) continue
+    const transport = rt.transports.get(b.transportId)
     try {
-      rt.transports.get(b.transportId)?.requestAttention('prompt', b)
+      transport?.onPromptRaised?.(b)
+    } catch (e) {
+      console.warn('[bridge] onPromptRaised failed', e)
+    }
+    if (active) continue
+    try {
+      transport?.requestAttention('prompt', b)
     } catch (e) {
       console.warn('[bridge] requestAttention failed', e)
     }
@@ -390,9 +417,41 @@ export function notifyPromptRaised(
 /** Registers the live consent store for the site and policy APIs. Returns the unregister function. */
 export function setActiveConsent(c: ActiveConsent | undefined): () => void {
   const state = rt
+  state.consentForward?.()
+  state.consentForward = undefined
   state.consent = c
+  if (c !== undefined) state.consentForward = c.store.onChange(() => notifyConnectedSites(state))
+  // The set of connected sites just changed hands, even if neither store reports a change.
+  notifyConnectedSites(state)
   return () => {
-    if (state.consent === c) state.consent = undefined
+    if (state.consent !== c) return
+    state.consentForward?.()
+    state.consentForward = undefined
+    state.consent = undefined
+    notifyConnectedSites(state)
+  }
+}
+
+function notifyConnectedSites(state: RuntimeState): void {
+  for (const fn of [...state.connectedSitesListeners]) {
+    try {
+      fn()
+    } catch (e) {
+      console.warn('[bridge] connected sites listener failed', e)
+    }
+  }
+}
+
+/**
+ * Called when a site is connected or revoked on the active profile, and when the provider swaps the
+ * consent store (spec 6.5: the cross-process mirror lists the connected sites). Forwards the active
+ * store's `ConsentStore.onChange` and follows a swapped store. Returns the unsubscribe function.
+ */
+export function onConnectedSitesChange(fn: () => void): () => void {
+  const state = rt
+  state.connectedSitesListeners.add(fn)
+  return () => {
+    state.connectedSitesListeners.delete(fn)
   }
 }
 

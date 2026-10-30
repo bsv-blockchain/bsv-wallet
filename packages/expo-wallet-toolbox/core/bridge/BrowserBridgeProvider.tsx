@@ -35,6 +35,7 @@ import { getUnlockState, subscribeUnlockState } from '../services/secrets'
 import { useWallet, useWalletManagers, useWalletStatus } from '../context/WalletContext'
 import type { SigningPolicyPermissionsManager } from '../services/signingPermissionPolicy'
 import { createConsentStore, type HmacCapableWallet } from './consent'
+import { mintGrantTag, unverifiedOriginator, isUnattestedOriginator } from './unverifiedOriginator'
 import { createDispatcher, installDispatcher } from './dispatcher'
 import { setConsentSheetSource } from './consentSheetSource'
 import { loadStoredPolicy, resolvePermissionPolicy, type PermissionPolicy } from './permissionPolicy'
@@ -46,6 +47,7 @@ import {
   registerConsentWithdrawal,
   setActiveConsent,
   getBridgeSnapshot,
+  getPublishedManagers,
   setBridgeBaseVersion,
   type BridgeManager,
   type BridgeReadiness
@@ -66,17 +68,25 @@ export const BrowserBridgeProvider: React.FC<{ children?: React.ReactNode; baseV
 }) => {
   const { managers, adminOriginator } = useWalletManagers()
   const { walletBuilt, walletBuilding, selectedNetwork } = useWalletStatus()
-  const { withdrawPrompts } = useWallet()
+  const { withdrawPrompts, configStatus } = useWallet()
   const unlock = useSyncExternalStore(subscribeUnlockState, getUnlockState, getUnlockState)
 
   // The context value changes on every queue change; teardown needs the current function.
   const withdrawRef = useRef(withdrawPrompts)
   withdrawRef.current = withdrawPrompts
 
+  // Cold start: until the wallet shell has read its stored config (`configStatus` leaves 'initial'
+  // for the first time) it is not yet known whether this install has a wallet, so the bridge
+  // reports `building`, never `none` (spec 6.15 item 9). A later 'initial' (after logout) is not a
+  // cold start: the ref is cleared for good.
+  const coldStartRef = useRef(true)
+  if (configStatus !== 'initial') coldStartRef.current = false
+  const awaitingConfig = coldStartRef.current
+
   const [loaded, setLoaded] = useState(false)
   useEffect(() => {
     let current = true
-    const detach = attachBridgeHost({ withdrawPrompts: old => withdrawRef.current(old) })
+    const detach = attachBridgeHost({ withdrawPrompts: old => withdrawRef.current(old), hasWallet: true })
     initBridgeRuntime().then(
       () => {
         if (current) setLoaded(true)
@@ -176,7 +186,14 @@ export const BrowserBridgeProvider: React.FC<{ children?: React.ReactNode; baseV
       adminOriginator,
       profileKey: () => profileScopedKey(''),
       now: () => Date.now(),
-      randomBytes: n => globalThis.crypto.getRandomValues(new Uint8Array(n))
+      randomBytes: n => globalThis.crypto.getRandomValues(new Uint8Array(n)),
+      // The manager that will check the group: the unverified one for an unverified originator.
+      mint: async (originator, group) => {
+        const published = getPublishedManagers()
+        const manager = isUnattestedOriginator(originator) ? published.unverified : published.attested
+        if (manager === undefined) throw new Error('No permissions manager to mint under')
+        await manager.signing.mintGroupedPermissions(originator, group)
+      }
     })
     const unregister = registerConsentWithdrawal(() => store.withdrawAll())
     const unregisterActive = setActiveConsent({
@@ -185,7 +202,21 @@ export const BrowserBridgeProvider: React.FC<{ children?: React.ReactNode; baseV
       adminOriginator,
       profileKey: () => profileScopedKey('')
     })
-    const dispatcher = createDispatcher({ consent: store })
+    const dispatcher = createDispatcher({
+      consent: store,
+      previewGroup: async binding => {
+        const host = /^https?:\/\/([^/:]+)(?::\d+)?$/.exec(binding.applicationOrigin)?.[1]
+        if (host === undefined) return null
+        const published = getPublishedManagers()
+        // An unverified site's real originator carries a grant tag minted at approval; the
+        // preview needs only the hostname, which the unverified manager reads the manifest from.
+        const preview =
+          binding.attestation === 'unattested'
+            ? { manager: published.unverified, originator: unverifiedOriginator(host, mintGrantTag()) }
+            : { manager: published.attested, originator: host }
+        return (await preview.manager?.signing.peekGroupPermissions(preview.originator)) ?? null
+      }
+    })
     installDispatcher(dispatcher)
     setConsentSheetSource({
       store,
@@ -215,7 +246,7 @@ export const BrowserBridgeProvider: React.FC<{ children?: React.ReactNode; baseV
     let readiness: BridgeReadiness
     if (status === 'locked' || status === 'unlocking' || status === 'cancelled') readiness = 'blocked'
     else if (haveWallet && accountContext) readiness = 'ready'
-    else if (walletBuilding || haveWallet) readiness = 'building'
+    else if (walletBuilding || haveWallet || awaitingConfig) readiness = 'building'
     else readiness = 'none'
 
     const attestedManager: BridgeManager | undefined = haveWallet ? { wallet: wallet!, signing: signing! } : undefined
@@ -228,6 +259,7 @@ export const BrowserBridgeProvider: React.FC<{ children?: React.ReactNode; baseV
     loaded,
     walletBuilt,
     walletBuilding,
+    awaitingConfig,
     signing,
     wallet,
     unverifiedSigning,

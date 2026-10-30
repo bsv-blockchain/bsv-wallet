@@ -20,6 +20,7 @@ import {
   setActiveConsent,
   setPermissionPolicy,
   onBindingClosed,
+  onConnectedSitesChange,
   onSnapshotChange,
   publish,
   registerConsentWithdrawal,
@@ -130,6 +131,39 @@ describe('bridge runtime', () => {
     // Publishing the same manager again is not a replacement.
     publish(publication({ attestedManager: second, readiness: 'building' }))
     expect(getBridgeSnapshot().walletRevision).toBe('1')
+  })
+
+  it('walletRevision bumps on profile, network and rebuild manager replacement', async () => {
+    await start()
+    publish(publication())
+    expect(getBridgeSnapshot().walletRevision).toBe('0')
+    // The three replacement causes all end in the provider publishing a new manager object,
+    // whatever teardown preceded it; the revision is install-wide and monotonic.
+    for (const [i, reason] of (['profile', 'network', 'rebuild'] as const).entries()) {
+      runSessionTeardown(reason)
+      publish(publication({ attestedManager: manager(), network: reason === 'network' ? 'test' : 'main' }))
+      expect(getBridgeSnapshot().walletRevision).toBe(String(i + 1))
+    }
+    expect(await AsyncStorage.getItem('bsv-bridge-wallet-revision')).toBe('3')
+  })
+
+  it('attach on an install with a wallet is building from attach until first publish, never none', async () => {
+    await initBridgeRuntime()
+    const seen: string[] = []
+    onSnapshotChange(s => seen.push(s.readiness))
+    detach = attachBridgeHost({ withdrawPrompts, hasWallet: true })
+    expect(getBridgeSnapshot().readiness).toBe('building')
+    expect(seen).not.toContain('none')
+    publish(publication({ readiness: 'building' }))
+    expect(getBridgeSnapshot().readiness).toBe('building')
+    publish(publication({ readiness: 'ready' }))
+    expect(getBridgeSnapshot().readiness).toBe('ready')
+    expect(seen).not.toContain('none')
+  })
+
+  it('attach without a wallet stays none', async () => {
+    await start()
+    expect(getBridgeSnapshot().readiness).toBe('none')
   })
 
   it('reads the persisted revision on the next launch and does not bump on its first build', async () => {
@@ -337,7 +371,8 @@ describe('connected sites and permission policy APIs', () => {
             ]
           ),
           revokeSite: jest.fn(async (o: string, a: string) => void calls.push(`revoke ${o} ${a}`)),
-          dropRequestsFor: jest.fn()
+          dropRequestsFor: jest.fn(),
+          onChange: jest.fn((_fn: () => void) => () => undefined)
         },
         adminWallet: {
           createHmac: async (a: any) => ({ hmac: Hash.sha256hmac(key, a.data) }),
@@ -357,6 +392,35 @@ describe('connected sites and permission policy APIs', () => {
     const { consent } = stubConsent()
     setActiveConsent(consent)
     expect(await listConnectedSites()).toHaveLength(1)
+  })
+
+  it('onConnectedSitesChange fires on connect and revoke and follows a swapped store', async () => {
+    await start()
+    const make = () => {
+      const fns = new Set<() => void>()
+      const { consent } = stubConsent()
+      consent.store.onChange = jest.fn((fn: () => void) => {
+        fns.add(fn)
+        return () => void fns.delete(fn)
+      })
+      return { consent, emit: () => fns.forEach(f => f()), fns }
+    }
+    const a = make()
+    const b = make()
+    const un = setActiveConsent(a.consent)
+    const seen = jest.fn()
+    onConnectedSitesChange(seen)
+    a.emit() // a site connected or revoked
+    expect(seen).toHaveBeenCalledTimes(1)
+    setActiveConsent(b.consent) // swap: fires once, old store detached, new store attached
+    expect(seen).toHaveBeenCalledTimes(2)
+    expect(a.fns.size).toBe(0)
+    a.emit()
+    expect(seen).toHaveBeenCalledTimes(2)
+    b.emit()
+    expect(seen).toHaveBeenCalledTimes(3)
+    un() // stale unregister of the replaced store is a no-op
+    expect(b.fns.size).toBe(1)
   })
 
   it("revokeSite deletes the record and closes only that origin's bindings of that attestation", async () => {
@@ -490,5 +554,95 @@ describe('requestAttention for a parked manager prompt (6.2)', () => {
       AppState.currentState = original
     }
     expect(requestAttention).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('onPromptRaised (6.15 item 5)', () => {
+  async function boundWith(originator: string, onPromptRaised: any, id = 'tp', instanceId = 'i') {
+    registerTransport({
+      id,
+      attestation: 'browser',
+      bindingMode: 'explicit',
+      requestAttention: jest.fn(),
+      onPromptRaised
+    })
+    const b = getBindingRegistry().connectExplicit({
+      epoch: 'e-' + id,
+      transportId: id,
+      applicationOrigin: 'https://a.example',
+      attestation: 'browser',
+      instanceId,
+      continuityKey: 'k',
+      accountContext: 'ctx',
+      walletRevision: '0'
+    })
+    getBindingRegistry().markConsented(b.epoch, originator)
+    return b
+  }
+
+  it('fires in the foreground', async () => {
+    await start()
+    publish(publication())
+    const onPromptRaised = jest.fn()
+    const b = await boundWith('a.example', onPromptRaised)
+    notifyPromptRaised('a.example', () => true)
+    expect(onPromptRaised).toHaveBeenCalledTimes(1)
+    expect(onPromptRaised).toHaveBeenCalledWith(b)
+  })
+
+  it('fires only for bindings of that originator', async () => {
+    await start()
+    publish(publication())
+    const mine = jest.fn()
+    const other = jest.fn()
+    await boundWith('a.example', mine, 'ta', 'i1')
+    await boundWith('b.example', other, 'tb', 'i2')
+    notifyPromptRaised('a.example', () => true)
+    expect(mine).toHaveBeenCalledTimes(1)
+    expect(other).not.toHaveBeenCalled()
+  })
+
+  it('requestAttention prompt still skipped when active', async () => {
+    await start()
+    publish(publication())
+    const requestAttention = jest.fn()
+    registerTransport({
+      id: 'tp',
+      attestation: 'browser',
+      bindingMode: 'explicit',
+      requestAttention,
+      onPromptRaised: jest.fn()
+    })
+    const b = getBindingRegistry().connectExplicit({
+      epoch: 'e1',
+      transportId: 'tp',
+      applicationOrigin: 'https://a.example',
+      attestation: 'browser',
+      instanceId: 'i',
+      continuityKey: 'k',
+      accountContext: 'ctx',
+      walletRevision: '0'
+    })
+    getBindingRegistry().markConsented(b.epoch, 'a.example')
+    notifyPromptRaised('a.example', () => true)
+    expect(requestAttention).not.toHaveBeenCalled()
+    notifyPromptRaised('a.example', () => false)
+    expect(requestAttention).toHaveBeenCalledWith('prompt', b)
+  })
+
+  it('a throwing onPromptRaised does not stop the others', async () => {
+    await start()
+    publish(publication())
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const thrower = jest.fn(() => {
+      throw new Error('boom')
+    })
+    const ok = jest.fn()
+    await boundWith('a.example', thrower, 'ta', 'i1')
+    await boundWith('a.example', ok, 'tb', 'i2')
+    expect(() => notifyPromptRaised('a.example', () => true)).not.toThrow()
+    expect(thrower).toHaveBeenCalledTimes(1)
+    expect(ok).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
   })
 })

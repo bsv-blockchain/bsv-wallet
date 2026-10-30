@@ -242,6 +242,7 @@ function publishAll(readiness: BridgeReadiness = 'ready', over: { attested?: Fak
 }
 
 let attention: Array<[string, string]>
+let previewGroup: ((binding: any) => Promise<any>) | undefined
 
 beforeEach(async () => {
   await AsyncStorage.clear()
@@ -275,7 +276,14 @@ beforeEach(async () => {
     requestAttention: (reason, b) => attention.push([reason, b.epoch]),
     deliverReconnectToken: () => {}
   })
-  installDispatcher(createDispatcher({ consent, noteChanged }))
+  previewGroup = undefined
+  installDispatcher(
+    createDispatcher({
+      consent,
+      noteChanged,
+      previewGroup: async b => (previewGroup === undefined ? null : await previewGroup(b))
+    })
+  )
   publishAll()
 })
 
@@ -608,6 +616,122 @@ describe('dispatcher: wallet state and consent', () => {
     await tick()
     expect(consent.listPending()[0]).toMatchObject({ attestation: 'unattested', connectedBefore: true })
     expect(unverified.wallet.getHeight).not.toHaveBeenCalled()
+    getBindingRegistry().close(b.epoch, 'disconnected')
+    await p
+  })
+})
+
+describe('dispatcher: connect group preview', () => {
+  const GROUP = { protocolPermissions: [{ protocolID: [2, 'notes'], description: 'notes' }] }
+
+  it('hands the previewed group to the sheet request', async () => {
+    previewGroup = jest.fn(async () => GROUP)
+    const b = connect({ consented: false })
+    const p = send(b, 'getHeight')
+    await tick()
+    await tick()
+    expect(previewGroup).toHaveBeenCalledWith(expect.objectContaining({ epoch: b.epoch, attestation: 'browser' }))
+    expect(consent.listPending()[0].groupPermissions).toEqual(GROUP)
+    getBindingRegistry().close(b.epoch, 'disconnected')
+    await p
+  })
+
+  it('the unattested binding is previewed too', async () => {
+    previewGroup = jest.fn(async () => GROUP)
+    const b = connect({ attestation: 'unattested', consented: false })
+    const p = send(b, 'getHeight')
+    await tick()
+    await tick()
+    expect(previewGroup).toHaveBeenCalledWith(expect.objectContaining({ attestation: 'unattested' }))
+    expect(consent.listPending()[0].groupPermissions).toEqual(GROUP)
+    getBindingRegistry().close(b.epoch, 'disconnected')
+    await p
+  })
+
+  it('a preview failure gives the plain sheet', async () => {
+    previewGroup = jest.fn(async () => {
+      throw new Error('boom')
+    })
+    const b = connect({ consented: false })
+    const p = send(b, 'getHeight')
+    await tick()
+    await tick()
+    expect(consent.listPending()).toHaveLength(1)
+    expect(consent.listPending()[0].groupPermissions ?? null).toBeNull()
+    getBindingRegistry().close(b.epoch, 'disconnected')
+    await p
+  })
+
+  it('an empty manifest (null) gives the plain sheet', async () => {
+    previewGroup = jest.fn(async () => null)
+    const b = connect({ consented: false })
+    const p = send(b, 'getHeight')
+    await tick()
+    await tick()
+    expect(consent.listPending()[0].groupPermissions ?? null).toBeNull()
+    getBindingRegistry().close(b.epoch, 'disconnected')
+    await p
+  })
+
+  it('a preview that never answers times out after 2 s and the sheet still opens', async () => {
+    jest.useFakeTimers()
+    try {
+      previewGroup = jest.fn(() => new Promise(() => {}))
+      const b = connect({ consented: false })
+      const p = send(b, 'getHeight')
+      await jest.advanceTimersByTimeAsync(1900)
+      expect(consent.listPending()).toHaveLength(0)
+      await jest.advanceTimersByTimeAsync(200)
+      expect(consent.listPending()).toHaveLength(1)
+      expect(consent.listPending()[0].groupPermissions ?? null).toBeNull()
+      getBindingRegistry().close(b.epoch, 'disconnected')
+      await p
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('closing the binding while the preview is pending settles the call and raises no sheet', async () => {
+    previewGroup = jest.fn(() => new Promise(() => {}))
+    const b = connect({ consented: false })
+    const p = send(b, 'getHeight')
+    await tick()
+    getBindingRegistry().close(b.epoch, 'disconnected')
+    expect(connErr(await p)).toMatchObject({ code: 'DISCONNECTED', delivery: 'not-sent' })
+    expect(consent.listPending()).toHaveLength(0)
+  })
+
+  it('an already connected site skips the preview and the sheet', async () => {
+    previewGroup = jest.fn(async () => GROUP)
+    const b = connect()
+    expect(await send(b, 'getHeight')).toMatchObject({ ok: true })
+    expect(previewGroup).not.toHaveBeenCalled()
+    expect(consent.listPending()).toHaveLength(0)
+  })
+
+  it('a previously approved browser site skips the sheet', async () => {
+    const seed = consent.requestConsent({
+      origin: ORIGIN,
+      attestation: 'browser',
+      transportId: 't1',
+      bindingEpoch: 'seed',
+      walletRevision: 0,
+      connectedBefore: false
+    }) as any
+    await consent.answerConsent(seed.requestId, true, { walletRevision: 0, profileKey: '' })
+    previewGroup = jest.fn(async () => GROUP)
+    const b = connect({ consented: false })
+    expect(await send(b, 'getHeight')).toMatchObject({ ok: true })
+    expect(previewGroup).not.toHaveBeenCalled()
+  })
+
+  it('without a previewGroup dependency (the in-app path) the sheet request is unchanged', async () => {
+    installDispatcher(createDispatcher({ consent, noteChanged }))
+    const b = connect({ consented: false })
+    const p = send(b, 'getHeight')
+    await tick()
+    await tick()
+    expect(consent.listPending()[0].groupPermissions ?? null).toBeNull()
     getBindingRegistry().close(b.epoch, 'disconnected')
     await p
   })
