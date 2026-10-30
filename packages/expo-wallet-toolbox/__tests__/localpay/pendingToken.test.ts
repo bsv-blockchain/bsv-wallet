@@ -1,28 +1,34 @@
 /**
- * Crediting a received token frame (offline-settlement spec §9, "Credit").
+ * Crediting a received nearby token frame (plan 07 Task 16, design §9 B7).
  *
  * `processPending` branches on `frame.kind`: a BSV frame is a wallet payment
- * with a payment remittance, a token frame is a BASKET INSERTION into the
- * permission-routed token basket. The toolbox never inspects a token script
- * and credits no satoshis, so everything needed to spend the coin later has to
- * ride in `customInstructions` — there is no second chance to write it.
+ * with a payment remittance; a token frame goes to the runtime's
+ * `nearby.accept` (lib `acceptHandover`: verify online or by COVER, record in
+ * the host ledger, then internalize the plain receipt). `processPending`
+ * never internalizes a token frame itself.
  *
- * And `onTokenCredited` is the seam the drain hangs off: a credited token frame
- * is the moment this device becomes responsible for submitting the chain
- * (settlement rule 3), which means the settlement row and the evidence the
- * frame carried have to be persisted right there.
+ * `onTokenReceived` (the runtime's `nearby.onReceived`) runs once the receipt
+ * settles either way: credited (online or offline), refused for good, or
+ * worth retrying. It is never allowed to turn a credit into a failure.
  */
 import { Beef, LockingScript, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '../../core/mandala/token'
-import { processPending, savePending, PEERPAY_LABEL, type KVStorage } from '../../core/localpay/pending'
+import { OneColor } from '@bsv/templates'
+import { InvalidTransferError, OverlayRefusedError } from '@bsv/mandala'
+import {
+  MAX_PENDING_ATTEMPTS,
+  PEERPAY_LABEL,
+  getPending,
+  isPendingExhausted,
+  processPending,
+  savePending,
+  type KVStorage,
+  type TokenReceiveHook
+} from '../../core/localpay/pending'
 import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
-import { MANDALA_ACTION_LABEL, MANDALA_BASKET } from '../../core/mandala/bundle'
-import { MANDALA_ACTION_LABEL as MANDALA_TOKEN_SPEND_LABEL } from '../../core/mandala/permissionModule'
-import { SESSION_VERSION } from '../../core/localpay/session'
 
 const ASSET = 'ab'.repeat(32) + '_0'
-const OVERLAY_KEY = '03'.padEnd(66, 'b')
 const PKH = new Array(20).fill(9)
+const SENDER = '02'.padEnd(66, 'a')
 
 function memoryStorage(): KVStorage {
   const map = new Map<string, string>()
@@ -34,12 +40,12 @@ function memoryStorage(): KVStorage {
   }
 }
 
-function tokenBeef(): { bytes: Uint8Array; txid: string } {
+function tokenBeef(units = 250n): Uint8Array {
   const tx = new Transaction()
-  tx.addOutput({ satoshis: 1, lockingScript: new MandalaToken().lock(ASSET, 250, PKH) })
+  tx.addOutput({ satoshis: 1, lockingScript: new OneColor().lock(ASSET, units, PKH) })
   const beef = new Beef()
   beef.mergeTransaction(tx)
-  return { bytes: new Uint8Array(beef.toBinaryAtomic(tx.id('hex'))), txid: tx.id('hex') }
+  return new Uint8Array(beef.toBinaryAtomic(tx.id('hex')))
 }
 
 function bsvBeef(): Uint8Array {
@@ -50,24 +56,23 @@ function bsvBeef(): Uint8Array {
   return new Uint8Array(beef.toBinaryAtomic(tx.id('hex')))
 }
 
-function tokenFrame(): PaymentFrame {
-  const { bytes } = tokenBeef()
+function tokenFrame(units = 250n): PaymentFrame {
   return {
     version: FRAME_VERSION,
     kind: 'token',
-    senderIdentityKey: '02'.padEnd(66, 'a'),
+    senderIdentityKey: SENDER,
     outputIndex: 0,
     derivationPrefix: 'cHJlZml4',
     derivationSuffix: 'c3VmZml4',
     token: {
       assetId: ASSET,
-      overlayUrl: 'https://overlay.issuer.example',
-      overlayIdentityKey: OVERLAY_KEY,
-      certificates: [],
+      amount: units.toString(),
+      senderMode: 'blinded',
+      admissions: [],
       linkage: [],
-      admissions: []
+      certificates: []
     },
-    transaction: bytes
+    transaction: tokenBeef(units)
   }
 }
 
@@ -75,7 +80,7 @@ function bsvFrame(): PaymentFrame {
   return {
     version: FRAME_VERSION,
     kind: 'bsv',
-    senderIdentityKey: '02'.padEnd(66, 'a'),
+    senderIdentityKey: SENDER,
     outputIndex: 0,
     derivationPrefix: 'cHJlZml4',
     derivationSuffix: 'c3VmZml4',
@@ -84,154 +89,223 @@ function bsvFrame(): PaymentFrame {
 }
 
 const walletStub = () => ({ internalizeAction: jest.fn(async (_args: unknown) => ({ accepted: true })) })
-
-describe('processPending: token credit', () => {
-  it('internalizes a token frame as a basket insertion into the token basket', async () => {
-    const storage = memoryStorage()
-    const wallet = walletStub()
-    await savePending(storage, tokenFrame(), 'nearby')
-
-    const results = await processPending(wallet as never, storage, 'admin.com')
-
-    expect(results).toEqual([{ id: expect.any(String), success: true }])
-    const args = wallet.internalizeAction.mock.calls[0][0] as {
-      outputs: { outputIndex: number; protocol: string; insertionRemittance?: { basket: string } }[]
-      labels: string[]
-    }
-    expect(args.outputs[0].protocol).toBe('basket insertion')
-    expect(args.outputs[0].insertionRemittance?.basket).toBe(MANDALA_BASKET)
-    expect(args.labels).toContain(PEERPAY_LABEL)
-    // The home screen recognises a token row by this label alone; without it a
-    // received stablecoin rendered as a BSV row — the sender's abbreviated key
-    // over "+0 sats" (2026-09-16).
-    expect(args.labels).toContain(MANDALA_ACTION_LABEL)
-    // XR-037: also carry the P-routed label (permissionModule.ts's own,
-    // differently-valued, same-named export) so a listActions history query
-    // for this action is gated by MandalaTokenModule's consent prompt instead
-    // of falling through the un-gated generic per-label path.
-    expect(args.labels).toContain(MANDALA_TOKEN_SPEND_LABEL)
+const hook = () => jest.fn<ReturnType<TokenReceiveHook>, Parameters<TokenReceiveHook>>(async () => undefined)
+const acceptOk = (offline = false) =>
+  jest.fn(async (f: PaymentFrame) => ({
+    txid: Beef.fromBinary(Array.from(f.transaction)).atomicTxid as string,
+    assetId: ASSET,
+    units: 250n,
+    outputIndex: 0,
+    offline
+  }))
+const acceptThrowing = (e: unknown) =>
+  jest.fn(async (_f: PaymentFrame): Promise<never> => {
+    throw e
   })
 
-  it('uses the sender’s note as the description when the token frame carries one', async () => {
+describe('processPending: token receipt', () => {
+  it('hands a token frame to the lib accept path and never internalizes it itself', async () => {
     const storage = memoryStorage()
     const wallet = walletStub()
-    await savePending(storage, { ...tokenFrame(), note: 'thanks!' }, 'nearby')
-
-    await processPending(wallet as never, storage, 'admin.com')
-
-    const args = wallet.internalizeAction.mock.calls[0][0] as { description: string }
-    expect(args.description).toBe('thanks!')
-  })
-
-  // The toolbox forces the derivation fields undefined on the basket-insertion
-  // path, so anything the coin needs to be spent later has to be here.
-  it('writes the derivation triple into customInstructions, the only slot that survives', async () => {
-    const storage = memoryStorage()
-    const wallet = walletStub()
+    const accept = acceptOk()
     const frame = tokenFrame()
     await savePending(storage, frame, 'nearby')
 
-    await processPending(wallet as never, storage, 'admin.com')
+    const results = await processPending(wallet as never, storage, 'admin.com', undefined, undefined, accept)
 
-    const args = wallet.internalizeAction.mock.calls[0][0] as {
-      outputs: { insertionRemittance?: { customInstructions?: string; tags?: string[] } }[]
-    }
-    const ci = JSON.parse(args.outputs[0].insertionRemittance?.customInstructions as string) as Record<string, unknown>
-    expect(ci.keyID).toBe(`${frame.derivationPrefix} ${frame.derivationSuffix}`)
-    expect(ci.counterparty).toBe(frame.senderIdentityKey)
-    expect(ci.protocolID).toEqual([2, 'p mandala token'])
-    expect(args.outputs[0].insertionRemittance?.tags).toContain(ASSET)
+    expect(results).toEqual([{ id: expect.any(String), success: true }])
+    expect(accept).toHaveBeenCalledTimes(1)
+    expect(accept.mock.calls[0][0].token).toEqual(frame.token)
+    expect(wallet.internalizeAction).not.toHaveBeenCalled()
   })
 
-  it('never sends a paymentRemittance on the token path', async () => {
+  it('fails a token frame retriably when there is no accept path (never a plain internalize)', async () => {
     const storage = memoryStorage()
     const wallet = walletStub()
+    const onTokenReceived = hook()
     await savePending(storage, tokenFrame(), 'nearby')
-    await processPending(wallet as never, storage, 'admin.com')
-    const args = wallet.internalizeAction.mock.calls[0][0] as { outputs: Record<string, unknown>[] }
-    expect(args.outputs[0]).not.toHaveProperty('paymentRemittance')
+    const results = await processPending(wallet as never, storage, 'admin.com', undefined, onTokenReceived)
+    expect(results).toEqual([{ id: expect.any(String), success: false, error: expect.any(String) }])
+    expect(wallet.internalizeAction).not.toHaveBeenCalled()
+    expect(onTokenReceived).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ ok: false, final: false })
+    )
+    const [entry] = await getPending(storage)
+    expect(entry.attempts ?? 0).toBe(0)
   })
 
   it('leaves the BSV path exactly as it was: wallet payment, payment remittance', async () => {
     const storage = memoryStorage()
     const wallet = walletStub()
+    const onTokenReceived = hook()
+    const accept = acceptOk()
     await savePending(storage, bsvFrame(), 'nearby')
-    await processPending(wallet as never, storage, 'admin.com')
+    await processPending(wallet as never, storage, 'admin.com', undefined, onTokenReceived, accept)
     const args = wallet.internalizeAction.mock.calls[0][0] as {
       outputs: { protocol: string; paymentRemittance?: { senderIdentityKey: string } }[]
+      labels: string[]
     }
     expect(args.outputs[0].protocol).toBe('wallet payment')
-    expect(args.outputs[0].paymentRemittance?.senderIdentityKey).toBe('02'.padEnd(66, 'a'))
+    expect(args.outputs[0].paymentRemittance?.senderIdentityKey).toBe(SENDER)
+    expect(args.labels).toEqual([PEERPAY_LABEL])
+    expect(onTokenReceived).not.toHaveBeenCalled()
+    expect(accept).not.toHaveBeenCalled()
   })
 })
 
-describe('processPending: onTokenCredited', () => {
-  it('fires with the frame and its txid after a successful token credit', async () => {
-    const storage = memoryStorage()
-    const wallet = walletStub()
-    const frame = tokenFrame()
-    const onTokenCredited = jest.fn(async () => undefined)
-    await savePending(storage, frame, 'nearby')
+describe('processPending: onTokenReceived', () => {
+  it('reports a credit with the exact units read from the script, and whether it was offline', async () => {
+    for (const offline of [false, true]) {
+      const storage = memoryStorage()
+      const onTokenReceived = hook()
+      const frame = tokenFrame(9007199254740993n)
+      await savePending(storage, frame, 'nearby')
 
-    await processPending(wallet as never, storage, 'admin.com', undefined, onTokenCredited)
+      await processPending(walletStub() as never, storage, 'admin.com', undefined, onTokenReceived, acceptOk(offline))
 
-    expect(onTokenCredited).toHaveBeenCalledTimes(1)
-    const [seenFrame, txid] = onTokenCredited.mock.calls[0] as unknown as [PaymentFrame, string]
-    expect(seenFrame.token?.assetId).toBe(ASSET)
-    expect(txid).toBe(tokenBeef().txid)
-  })
-
-  it('does not fire for a BSV frame', async () => {
-    const storage = memoryStorage()
-    const onTokenCredited = jest.fn(async () => undefined)
-    await savePending(storage, bsvFrame(), 'nearby')
-    await processPending(walletStub() as never, storage, 'admin.com', undefined, onTokenCredited)
-    expect(onTokenCredited).not.toHaveBeenCalled()
-  })
-
-  it('does not fire when the credit itself failed', async () => {
-    const storage = memoryStorage()
-    const wallet = {
-      internalizeAction: jest.fn(async (_args: unknown) => {
-        throw new Error('db locked')
-      })
+      expect(onTokenReceived).toHaveBeenCalledTimes(1)
+      expect(onTokenReceived).toHaveBeenCalledWith(
+        {
+          txid: Beef.fromBinary(Array.from(frame.transaction)).atomicTxid,
+          assetId: ASSET,
+          units: 9007199254740993n,
+          counterpartyKey: SENDER,
+          outputIndex: 0
+        },
+        { ok: true, offline }
+      )
     }
-    const onTokenCredited = jest.fn(async () => undefined)
-    await savePending(storage, tokenFrame(), 'nearby')
-    const results = await processPending(wallet as never, storage, 'admin.com', undefined, onTokenCredited)
-    expect(results[0].success).toBe(false)
-    expect(onTokenCredited).not.toHaveBeenCalled()
   })
 
-  // The money has already been credited by the time this runs. A failing hook
-  // is a settlement-bookkeeping problem the drain can recover from on its next
-  // tick; turning it into a 'failed' entry would re-internalize a coin the
-  // wallet already holds.
+  it('reports a definitive refusal as final and never retries it', async () => {
+    const storage = memoryStorage()
+    const onTokenReceived = hook()
+    const accept = acceptThrowing(
+      new InvalidTransferError(
+        '@bsv/mandala: invalid hand-over: the hand-over evidence is refused (hop)',
+        'ERR_EVIDENCE'
+      )
+    )
+    await savePending(storage, tokenFrame(), 'nearby')
+
+    const results = await processPending(
+      walletStub() as never,
+      storage,
+      'admin.com',
+      undefined,
+      onTokenReceived,
+      accept
+    )
+
+    expect(results).toEqual([{ id: expect.any(String), success: false, error: expect.any(String) }])
+    expect(onTokenReceived).toHaveBeenCalledWith(expect.objectContaining({ assetId: ASSET, units: 250n }), {
+      ok: false,
+      code: 'ERR_EVIDENCE',
+      final: true
+    })
+    const [entry] = await getPending(storage)
+    expect(entry.attempts).toBe(MAX_PENDING_ATTEMPTS)
+    expect(isPendingExhausted(entry)).toBe(true)
+    await processPending(walletStub() as never, storage, 'admin.com', undefined, onTokenReceived, accept)
+    expect(accept).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a final overlay verdict as final', async () => {
+    const storage = memoryStorage()
+    const onTokenReceived = hook()
+    const accept = acceptThrowing(
+      new OverlayRefusedError({ code: 'ERR_CONSERVATION', description: 'no', retryable: false })
+    )
+    await savePending(storage, tokenFrame(), 'nearby')
+    await processPending(walletStub() as never, storage, 'admin.com', undefined, onTokenReceived, accept)
+    expect(onTokenReceived).toHaveBeenCalledWith(expect.anything(), {
+      ok: false,
+      code: 'ERR_CONSERVATION',
+      final: true
+    })
+  })
+
+  it('keeps an offline hand-over COVER cannot reach σ for yet (ERR_NOT_COVERED) retriable', async () => {
+    const storage = memoryStorage()
+    const onTokenReceived = hook()
+    const accept = acceptThrowing(
+      new InvalidTransferError('@bsv/mandala: invalid hand-over: offline', 'ERR_NOT_COVERED')
+    )
+    await savePending(storage, tokenFrame(), 'nearby')
+    await processPending(walletStub() as never, storage, 'admin.com', undefined, onTokenReceived, accept)
+    expect(onTokenReceived).toHaveBeenCalledWith(expect.anything(), {
+      ok: false,
+      code: 'ERR_NOT_COVERED',
+      final: false
+    })
+    expect(isPendingExhausted((await getPending(storage))[0])).toBe(false)
+  })
+
+  it('never burns an attempt on an unreachable overlay', async () => {
+    const storage = memoryStorage()
+    const onTokenReceived = hook()
+    const accept = acceptThrowing(
+      new OverlayRefusedError({ code: 'ERR_UNAVAILABLE', description: 'network', retryable: true, httpStatus: 0 })
+    )
+    await savePending(storage, tokenFrame(), 'nearby')
+
+    for (let i = 0; i < MAX_PENDING_ATTEMPTS + 1; i++) {
+      await processPending(walletStub() as never, storage, 'admin.com', undefined, onTokenReceived, accept)
+    }
+
+    expect(accept).toHaveBeenCalledTimes(MAX_PENDING_ATTEMPTS + 1)
+    expect(onTokenReceived).toHaveBeenLastCalledWith(expect.anything(), {
+      ok: false,
+      code: 'ERR_UNAVAILABLE',
+      final: false
+    })
+    const [entry] = await getPending(storage)
+    expect(entry.attempts ?? 0).toBe(0)
+  })
+
+  it('a non-final unknown failure still counts toward the ceiling', async () => {
+    const storage = memoryStorage()
+    const accept = acceptThrowing(new Error('WERR_INVALID_PARAMETER: tx is not valid AtomicBEEF'))
+    await savePending(storage, tokenFrame(), 'nearby')
+    await processPending(walletStub() as never, storage, 'admin.com', undefined, undefined, accept)
+    const [entry] = await getPending(storage)
+    expect(entry.attempts).toBe(1)
+  })
+
   it('never turns a completed credit into a failure when the hook throws', async () => {
     const storage = memoryStorage()
-    const wallet = walletStub()
-    const onTokenCredited = jest.fn(async () => {
-      throw new Error('settlement store down')
+    const onTokenReceived = jest.fn(async () => {
+      throw new Error('journal locked')
     })
     await savePending(storage, tokenFrame(), 'nearby')
-    const results = await processPending(wallet as never, storage, 'admin.com', undefined, onTokenCredited)
+
+    const results = await processPending(
+      walletStub() as never,
+      storage,
+      'admin.com',
+      undefined,
+      onTokenReceived,
+      acceptOk()
+    )
+
     expect(results).toEqual([{ id: expect.any(String), success: true }])
+    expect(await getPending(storage)).toEqual([])
   })
 
-  it('is optional: the queue drains without one', async () => {
+  it('reports nothing for a frame whose named output is not a token', async () => {
     const storage = memoryStorage()
-    await savePending(storage, tokenFrame(), 'nearby')
-    await expect(processPending(walletStub() as never, storage, 'admin.com')).resolves.toEqual([
-      { id: expect.any(String), success: true }
-    ])
-  })
-})
-
-describe('Session', () => {
-  // §2.2: nothing in v4 changes what `amount` MEANS on a deployed session, so
-  // the session version must not move — bumping it would refuse every QR
-  // already printed, for a change no payee can observe.
-  it('stays at version 1 across the frame v4 change', () => {
-    expect(SESSION_VERSION).toBe(1)
+    const onTokenReceived = hook()
+    await savePending(storage, { ...tokenFrame(), transaction: bsvBeef() }, 'nearby')
+    const results = await processPending(
+      walletStub() as never,
+      storage,
+      'admin.com',
+      undefined,
+      onTokenReceived,
+      acceptOk()
+    )
+    expect(results).toEqual([{ id: expect.any(String), success: true }])
+    expect(onTokenReceived).not.toHaveBeenCalled()
   })
 })

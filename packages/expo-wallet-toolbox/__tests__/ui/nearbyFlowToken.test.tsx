@@ -6,17 +6,15 @@
  * asset's own units (never satoshis), the payee's own waiting screen never
  * shows a figure for an open request, a radio-acked send reads the drain's
  * own settlement state back as "settling" vs "settled", and a frame that
- * fails COVER at hand-over is refused with the issuer-attributed sentence
- * rather than read as a scanning mistake.
+ * carries no attested evidence for the asset (`not_covered`) is refused with
+ * the issuer-attributed sentence rather than read as a scanning mistake.
  *
  * The mock surface mirrors the existing NearbyFlow-adjacent suites
  * (payScreen.test.tsx, tokenPay.test.tsx, __tests__/localpay/deviceCaps.test.ts):
  * every native/radio boundary NearbyFlow itself only reaches through the
  * `@bsv/expo-wallet-toolbox` barrel is stubbed to force the QR-only, no-probe
- * path (`selectTransport` picks per test), and the two local money-write
- * modules NearbyFlow imports directly (`core/localpay/build`,
- * `core/localpay/settlementAck`) are stubbed the same way `readSettlementAck`
- * already is in the real settle path.
+ * path (`selectTransport` picks per test), and the local money-write module
+ * NearbyFlow imports directly (`core/localpay/build`) is stubbed.
  */
 jest.mock('expo-haptics', () => ({
   selectionAsync: jest.fn(() => Promise.resolve()),
@@ -89,28 +87,25 @@ jest.mock('../../core/localpay/build', () => ({
   finalizeDelivery: (...args: unknown[]) => mockFinalizeDelivery(...args)
 }))
 
-const mockReadSettlementAck = jest.fn()
-jest.mock('../../core/localpay/settlementAck', () => ({
-  ...jest.requireActual('../../core/localpay/settlementAck'),
-  readSettlementAck: (...args: unknown[]) => mockReadSettlementAck(...args)
-}))
-
 const mockBuildPaymentFrame = jest.fn()
 const mockVerifyFramePayment = jest.fn()
+const mockProcessPending = jest.fn()
+const mockMintSession = jest.fn()
+const mockClaimAndSavePending = jest.fn()
 // Realistic enough to prove the wiring: the real `holdSentPaymentOffline` /
-// `parkSentPaymentOffline` (core/offline/payerHold.ts) call `onTokenHandedOver`
-// with the plaintext frame and the state the call represents — 'parked' for a
-// park, 'handed_over' for a hold/release. NearbyFlow's own job is to pass the
-// frame and the hook through; this mock exercises exactly that hand-off
-// without pulling in the storage layer the real functions also touch.
+// `parkSentPaymentOffline` (core/offline/payerHold.ts) call `onHandedOver`
+// with the txid and the state the call represents — 'parked' for a park,
+// 'handed_over' for a hold/release. NearbyFlow's own job is to pass the hook
+// through; this mock exercises exactly that hand-off without pulling in the
+// storage layer the real functions also touch.
 const mockHoldSentPaymentOffline = jest.fn(
-  async (args: { frame?: unknown; txid: string; onTokenHandedOver?: (...a: unknown[]) => Promise<void> }) => {
-    await args.onTokenHandedOver?.(args.frame, args.txid, 'handed_over')
+  async (args: { txid: string; onHandedOver?: (...a: unknown[]) => Promise<void> }) => {
+    await args.onHandedOver?.(args.txid, 'handed_over')
   }
 )
 const mockParkSentPaymentOffline = jest.fn(
-  async (args: { frame?: unknown; txid: string; onTokenHandedOver?: (...a: unknown[]) => Promise<void> }) => {
-    await args.onTokenHandedOver?.(args.frame, args.txid, 'parked')
+  async (args: { txid: string; onHandedOver?: (...a: unknown[]) => Promise<void> }) => {
+    await args.onHandedOver?.(args.txid, 'parked')
   }
 )
 jest.mock('@bsv/expo-wallet-toolbox', () => {
@@ -154,6 +149,10 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     // controls — ever ran.
     unsealFrame: jest.fn(() => ({ kind: 'token', transaction: new Uint8Array(0), outputIndex: 0 })),
     verifyFramePayment: (...args: unknown[]) => mockVerifyFramePayment(...args),
+    processPending: (...args: unknown[]) => mockProcessPending(...args),
+    // The real mint, observed: the payee test reads the nonces it minted.
+    mintSession: (...args: unknown[]) => mockMintSession(...args),
+    claimAndSavePending: (...args: unknown[]) => mockClaimAndSavePending(...args),
     holdSentPaymentOffline: (...args: unknown[]) => mockHoldSentPaymentOffline(...(args as [never])),
     parkSentPaymentOffline: (...args: unknown[]) => mockParkSentPaymentOffline(...(args as [never]))
   }
@@ -169,6 +168,7 @@ function mockWallet() {
 }
 
 import React from 'react'
+import { Beef, LockingScript, Transaction } from '@bsv/sdk'
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native'
 import { FrameVerifyError, ThemeProvider, mintSession, type Session, type SessionAsset } from '@bsv/expo-wallet-toolbox'
 import NearbyFlow from '../../ui/components/pay/NearbyFlow'
@@ -181,9 +181,7 @@ const ASSET: SessionAsset = {
   id: USDX.assetId,
   label: USDX.label,
   ticker: USDX.ticker,
-  decimals: USDX.decimals,
-  overlayUrl: USDX.overlayUrl,
-  overlayIdentityKey: USDX.overlayIdentityKey
+  decimals: USDX.decimals
 }
 
 const wrap = (ui: React.ReactElement, runtime: ReturnType<typeof makeFakeMandala> | null = makeFakeMandala()) =>
@@ -207,10 +205,14 @@ beforeEach(() => {
     reference: 'ref-1',
     txid: 'd'.repeat(64),
     satoshis: 1,
-    tokenAmount: 2500
+    tokenAmount: 2500n
   })
   mockFinalizeDelivery.mockResolvedValue({ kind: 'sent', broadcast: 'ok' })
-  mockReadSettlementAck.mockResolvedValue(undefined)
+  mockProcessPending.mockResolvedValue([])
+  mockMintSession.mockImplementation(
+    (jest.requireActual('@bsv/expo-wallet-toolbox') as { mintSession: (...a: unknown[]) => unknown }).mintSession
+  )
+  mockClaimAndSavePending.mockResolvedValue({ claimed: false })
   mockVerifyFramePayment.mockRejectedValue(new FrameVerifyError('unparseable', 'not used in this suite'))
   const barrel = jest.requireMock('@bsv/expo-wallet-toolbox') as { selectTransport: jest.Mock }
   barrel.selectTransport.mockReturnValue('qr')
@@ -220,7 +222,7 @@ describe('NearbyFlow — the token path', () => {
   it('payer confirm screen states the token figure, never satoshis', async () => {
     const session: Session = mintSession({
       identityKey: PAYEE_IDENTITY,
-      amount: 2500,
+      units: 2500n,
       asset: ASSET,
       derivationPrefix: 'cHJlZml4',
       derivationSuffix: 'c3VmZml4',
@@ -247,14 +249,13 @@ describe('NearbyFlow — the token path', () => {
     expect(s.queryByText(/USDX/)).toBeNull()
   })
 
-  it('a radio-acked send reads back "settling" before the drain has σ_I', async () => {
+  it('a radio-acked send reads back "settling" until its own settle reports settled', async () => {
     const barrel = jest.requireMock('@bsv/expo-wallet-toolbox') as { selectTransport: jest.Mock }
     barrel.selectTransport.mockReturnValue('awdl')
-    mockReadSettlementAck.mockResolvedValue(undefined)
 
     const session: Session = mintSession({
       identityKey: PAYEE_IDENTITY,
-      amount: 2500,
+      units: 2500n,
       asset: ASSET,
       derivationPrefix: 'cHJlZml4',
       derivationSuffix: 'c3VmZml4',
@@ -273,38 +274,11 @@ describe('NearbyFlow — the token path', () => {
     await waitFor(() => expect(s.getByText('token_sent_settling_unnamed:Acme Bank')).toBeTruthy())
   })
 
-  it('a radio-acked send reads back "settled" once the ack already carries σ_I', async () => {
-    const barrel = jest.requireMock('@bsv/expo-wallet-toolbox') as { selectTransport: jest.Mock }
-    barrel.selectTransport.mockReturnValue('awdl')
-    mockReadSettlementAck.mockResolvedValue({ txid: 'd'.repeat(64) })
-
-    const session: Session = mintSession({
-      identityKey: PAYEE_IDENTITY,
-      amount: 2500,
-      asset: ASSET,
-      derivationPrefix: 'cHJlZml4',
-      derivationSuffix: 'c3VmZml4',
-      supportsAwdl: false
-    })
-    const s = wrap(
-      <NearbyFlow role="payer" initialSession={session} onExit={jest.fn()} />,
-      makeFakeMandala({ balances: [balanceOf()] })
-    )
-    await settle()
-    await act(async () => {
-      fireEvent.press(s.getByLabelText('local_pay_send'))
-      await new Promise(resolve => setImmediate(resolve))
-      await new Promise(resolve => setImmediate(resolve))
-    })
-    await waitFor(() => expect(s.getByText('token_sent_settled:Acme Bank')).toBeTruthy())
-  })
-
   it('takes the payer’s own submit AFTER the hold, and flips the receipt to settled', async () => {
     const barrel = jest.requireMock('@bsv/expo-wallet-toolbox') as { selectTransport: jest.Mock }
     barrel.selectTransport.mockReturnValue('awdl')
-    // No σ_I came back on the ack, so "settling" is the sentence this payer
-    // starts with — and the only thing that may change it is their own submit.
-    mockReadSettlementAck.mockResolvedValue(undefined)
+    // "Settling" is the sentence this payer starts with — and the only thing
+    // that may change it is their own settle (W5: the positive ack is the ACK).
     const netinfo = jest.requireMock('@react-native-community/netinfo') as { default: { fetch: jest.Mock } }
     netinfo.default.fetch.mockResolvedValue({ isConnected: true, isInternetReachable: true, type: 'wifi' })
     // Just enough of the real `finalizeDelivery` to reach the hold, which is
@@ -322,10 +296,10 @@ describe('NearbyFlow — the token path', () => {
       }
     )
 
-    const runtime = makeFakeMandala({ balances: [balanceOf()], settleNow: 'admitted' })
+    const runtime = makeFakeMandala({ balances: [balanceOf()], settleNow: 'settled' })
     const session: Session = mintSession({
       identityKey: PAYEE_IDENTITY,
-      amount: 2500,
+      units: 2500n,
       asset: ASSET,
       derivationPrefix: 'cHJlZml4',
       derivationSuffix: 'c3VmZml4',
@@ -351,33 +325,7 @@ describe('NearbyFlow — the token path', () => {
     await waitFor(() => expect(s.getByText('token_sent_settled:Acme Bank')).toBeTruthy())
   })
 
-  it('an ack that already carried σ_I is settled, and asks for no second submit', async () => {
-    const barrel = jest.requireMock('@bsv/expo-wallet-toolbox') as { selectTransport: jest.Mock }
-    barrel.selectTransport.mockReturnValue('awdl')
-    mockReadSettlementAck.mockResolvedValue({ txid: 'd'.repeat(64) })
-
-    const runtime = makeFakeMandala({ balances: [balanceOf()] })
-    const session: Session = mintSession({
-      identityKey: PAYEE_IDENTITY,
-      amount: 2500,
-      asset: ASSET,
-      derivationPrefix: 'cHJlZml4',
-      derivationSuffix: 'c3VmZml4',
-      supportsAwdl: false
-    })
-    const s = wrap(<NearbyFlow role="payer" initialSession={session} onExit={jest.fn()} />, runtime)
-    await settle()
-    await act(async () => {
-      fireEvent.press(s.getByLabelText('local_pay_send'))
-      await new Promise(resolve => setImmediate(resolve))
-      await new Promise(resolve => setImmediate(resolve))
-    })
-
-    await waitFor(() => expect(s.getByText('token_sent_settled:Acme Bank')).toBeTruthy())
-    expect(runtime.settleNow).not.toHaveBeenCalled()
-  })
-
-  it("a COVER failure at hand-over reads as the issuer's own refusal, not a scanning mistake", async () => {
+  it("a not_covered refusal at hand-over reads as the issuer's own refusal, not a scanning mistake", async () => {
     mockVerifyFramePayment.mockRejectedValue(new FrameVerifyError('not_covered', 'evidence does not cover this frame'))
 
     const s = wrap(
@@ -404,12 +352,12 @@ describe('NearbyFlow — the token path', () => {
     expect(s.getByText('local_pay_any_amount')).toBeTruthy()
   })
 
-  it('threads the plaintext frame and onTokenHandedOver through both the park and the hold call sites', async () => {
-    // A token session only — the BSV rail passes neither `frame` nor
-    // `onTokenHandedOver` at all, so this is the one axis worth pinning.
+  it('threads nearby.onHandedOver through both the park and the hold call sites', async () => {
+    // A token session only — the BSV rail passes no `onHandedOver` at all, so
+    // this is the one axis worth pinning.
     const session: Session = mintSession({
       identityKey: PAYEE_IDENTITY,
-      amount: 2500,
+      units: 2500n,
       asset: ASSET,
       derivationPrefix: 'cHJlZml4',
       derivationSuffix: 'c3VmZml4',
@@ -430,7 +378,7 @@ describe('NearbyFlow — the token path', () => {
       await new Promise(resolve => setImmediate(resolve))
     })
     expect(mockParkSentPaymentOffline).toHaveBeenCalledWith(
-      expect.objectContaining({ txid: 'd'.repeat(64), frame: {}, onTokenHandedOver: runtime.onTokenHandedOver })
+      expect.objectContaining({ txid: 'd'.repeat(64), onHandedOver: runtime.nearby.onHandedOver })
     )
 
     // ── A second payment, confirmed with Done: holds, and advances the row ──
@@ -454,7 +402,7 @@ describe('NearbyFlow — the token path', () => {
     )
     const session2: Session = mintSession({
       identityKey: PAYEE_IDENTITY,
-      amount: 2500,
+      units: 2500n,
       asset: ASSET,
       derivationPrefix: 'cHJlZml4',
       derivationSuffix: 'c3VmZml4',
@@ -472,14 +420,14 @@ describe('NearbyFlow — the token path', () => {
       await new Promise(resolve => setImmediate(resolve))
     })
     expect(mockHoldSentPaymentOffline).toHaveBeenCalledWith(
-      expect.objectContaining({ txid: 'd'.repeat(64), frame: {}, onTokenHandedOver: runtime.onTokenHandedOver })
+      expect.objectContaining({ txid: 'd'.repeat(64), onHandedOver: runtime.nearby.onHandedOver })
     )
 
     // Both call sites threaded the SAME hook through to the fake runtime,
     // recorded in the order the payer actually acted: parked first, then
     // (on the second payment) handed over.
-    expect(runtime.onTokenHandedOver).toHaveBeenNthCalledWith(1, {}, 'd'.repeat(64), 'parked')
-    expect(runtime.onTokenHandedOver).toHaveBeenNthCalledWith(2, {}, 'd'.repeat(64), 'handed_over')
+    expect(runtime.nearby.onHandedOver).toHaveBeenNthCalledWith(1, 'd'.repeat(64), 'parked')
+    expect(runtime.nearby.onHandedOver).toHaveBeenNthCalledWith(2, 'd'.repeat(64), 'handed_over')
   })
   // ── An OPEN token request: the payee named the asset but left the figure to the payer ──
 
@@ -513,7 +461,7 @@ describe('NearbyFlow — the token path', () => {
     // 25.00 USDX is 2,500 base units on the wire — not the 25 a satoshi field
     // would have read off the same keystrokes.
     expect(mockBuildPaymentFrame).toHaveBeenCalledTimes(1)
-    expect(mockBuildPaymentFrame.mock.calls[0][3]).toBe(2500)
+    expect(mockBuildPaymentFrame.mock.calls[0][3]).toBe(2500n)
   })
 
   it('carries the payer’s typed note through to buildPaymentFrame', async () => {
@@ -550,7 +498,7 @@ describe('NearbyFlow — the token path', () => {
   it('Max on an open token request writes the payer’s real holding, not the satoshi send-max sentinel', async () => {
     const s = wrap(
       <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,
-      makeFakeMandala({ balances: [balanceOf(USDX, 124000)] })
+      makeFakeMandala({ balances: [balanceOf(USDX, 124000n)] })
     )
     await settle()
     fireEvent.press(s.getByText('send_max'))
@@ -559,7 +507,7 @@ describe('NearbyFlow — the token path', () => {
       await new Promise(resolve => setImmediate(resolve))
     })
     expect(mockBuildPaymentFrame).toHaveBeenCalledTimes(1)
-    expect(mockBuildPaymentFrame.mock.calls[0][3]).toBe(124000)
+    expect(mockBuildPaymentFrame.mock.calls[0][3]).toBe(124000n)
   })
   it('a QR hand-over confirmed with Done writes the token receipt, then this payer’s own submit — never "1 satoshi"', async () => {
     // The fountain rail: no ack payload, no σ_I to read back — the receipt is
@@ -579,10 +527,10 @@ describe('NearbyFlow — the token path', () => {
         return { kind: 'sent', broadcast: 'ok' }
       }
     )
-    const runtime = makeFakeMandala({ balances: [balanceOf()], settleNow: 'admitted' })
+    const runtime = makeFakeMandala({ balances: [balanceOf()], settleNow: 'settled' })
     const session: Session = mintSession({
       identityKey: PAYEE_IDENTITY,
-      amount: 2500,
+      units: 2500n,
       asset: ASSET,
       derivationPrefix: 'cHJlZml4',
       derivationSuffix: 'c3VmZml4',
@@ -615,7 +563,7 @@ describe('NearbyFlow — the token path', () => {
   it('refuses more than the payer holds of the asset, in the asset’s own words, before any build', async () => {
     const s = wrap(
       <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,
-      makeFakeMandala({ balances: [balanceOf(USDX, 124000)] })
+      makeFakeMandala({ balances: [balanceOf(USDX, 124000n)] })
     )
     await settle()
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '5000.00')
@@ -641,7 +589,7 @@ describe('NearbyFlow — the token path', () => {
     const unidentified = { ...USDX, ticker: '', label: '', decimals: 0 }
     const s = wrap(
       <NearbyFlow role="payer" initialSession={openTokenSession()} onExit={jest.fn()} />,
-      makeFakeMandala({ balances: [balanceOf(unidentified, 124000)] })
+      makeFakeMandala({ balances: [balanceOf(unidentified, 124000n)] })
     )
     await settle()
     expect(s.queryByText('USDX')).toBeNull()
@@ -662,7 +610,7 @@ describe('NearbyFlow — the token path', () => {
     // 2,500 base units is 25.00 USDX, and that is what the confirm shows.
     const session: Session = mintSession({
       identityKey: PAYEE_IDENTITY,
-      amount: 2500,
+      units: 2500n,
       asset: { ...ASSET, decimals: 4 },
       derivationPrefix: 'cHJlZml4',
       derivationSuffix: 'c3VmZml4',
@@ -680,7 +628,7 @@ describe('NearbyFlow — the token path', () => {
   it('refuses to send when neither side can name the unit, rather than offering an unlabelled field', async () => {
     const session: Session = mintSession({
       identityKey: PAYEE_IDENTITY,
-      asset: { id: ASSET.id, overlayUrl: ASSET.overlayUrl, overlayIdentityKey: ASSET.overlayIdentityKey },
+      asset: { id: ASSET.id },
       derivationPrefix: 'cHJlZml4',
       derivationSuffix: 'c3VmZml4',
       supportsAwdl: false
@@ -688,7 +636,7 @@ describe('NearbyFlow — the token path', () => {
     const unidentified = { ...USDX, ticker: '', label: '', decimals: 0 }
     const s = wrap(
       <NearbyFlow role="payer" initialSession={session} onExit={jest.fn()} />,
-      makeFakeMandala({ balances: [balanceOf(unidentified, 124000)] })
+      makeFakeMandala({ balances: [balanceOf(unidentified, 124000n)] })
     )
     await settle()
     expect(s.getByText('pay_asset_unidentified')).toBeTruthy()
@@ -715,7 +663,7 @@ describe('NearbyFlow — the token path', () => {
     await settle()
     fireEvent.changeText(s.getByPlaceholderText('0.00'), '25.00')
     expect(s.getByPlaceholderText('0.00').props.value).toBe('25.00')
-    runtime.balances.mockResolvedValue([balanceOf({ ...USDX, decimals: 4 }, 1240000)])
+    runtime.balances.mockResolvedValue([balanceOf({ ...USDX, decimals: 4 }, 1240000n)])
     await act(async () => {
       runtime.emit()
       await new Promise(resolve => setImmediate(resolve))
@@ -727,8 +675,8 @@ describe('NearbyFlow — the token path', () => {
   it('a payee-named figure in a unit nobody can name is not printed as a bare number', async () => {
     const session: Session = mintSession({
       identityKey: PAYEE_IDENTITY,
-      amount: 2500,
-      asset: { id: ASSET.id, overlayUrl: ASSET.overlayUrl, overlayIdentityKey: ASSET.overlayIdentityKey },
+      units: 2500n,
+      asset: { id: ASSET.id },
       derivationPrefix: 'cHJlZml4',
       derivationSuffix: 'c3VmZml4',
       supportsAwdl: false
@@ -736,12 +684,246 @@ describe('NearbyFlow — the token path', () => {
     const unidentified = { ...USDX, ticker: '', label: '', decimals: 0 }
     const s = wrap(
       <NearbyFlow role="payer" initialSession={session} onExit={jest.fn()} />,
-      makeFakeMandala({ balances: [balanceOf(unidentified, 124000)] })
+      makeFakeMandala({ balances: [balanceOf(unidentified, 124000n)] })
     )
     await settle()
     expect(s.getByText('token_row_amount_pending')).toBeTruthy()
     expect(s.queryByText(/2,500/)).toBeNull()
     expect(s.getByText('pay_asset_unidentified')).toBeTruthy()
     expect(s.getByLabelText('local_pay_send').props.accessibilityState.disabled).toBe(true)
+  })
+})
+
+// A host drawing the payer's steps itself gets the token figure EXACTLY: above
+// 2^53 a `Number()` of the units is a different amount, so the hosted
+// contracts carry bigint `units` plus a formatted `amountText`, and the
+// number-shaped fields stay satoshi-only (0 / undefined on a token session).
+describe('NearbyFlow — hosted payer renderers on a token session', () => {
+  const BIG = 9007199254740993n // 2^53 + 1: Number() would round it to 2^53
+  const MAX_U64 = 18446744073709551615n
+
+  type Confirm = import('../../ui/components/pay/NearbyFlow').NearbyConfirm
+  type ShowCode = import('../../ui/components/pay/NearbyFlow').NearbyShowCode
+  type Done = import('../../ui/components/pay/NearbyFlow').NearbyDone
+
+  const tokenSession = (units?: bigint): Session =>
+    mintSession({
+      identityKey: PAYEE_IDENTITY,
+      ...(units !== undefined ? { units } : {}),
+      asset: ASSET,
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      supportsAwdl: false
+    })
+
+  it('hands confirm, show-code and done exact bigint units, never a rounded number', async () => {
+    mockBuildPaymentFrame.mockResolvedValue({
+      frame: {},
+      reference: 'ref-1',
+      txid: 'd'.repeat(64),
+      satoshis: 1,
+      tokenAmount: BIG
+    })
+    let confirm: Confirm | undefined
+    let showCode: ShowCode | undefined
+    let done: Done | undefined
+    wrap(
+      <NearbyFlow
+        role="payer"
+        initialSession={tokenSession(BIG)}
+        onExit={jest.fn()}
+        renderPayer={{
+          confirm: c => {
+            confirm = c
+            return null
+          },
+          showCode: c => {
+            showCode = c
+            return null
+          },
+          done: d => {
+            done = d
+            return null
+          }
+        }}
+      />,
+      makeFakeMandala({ balances: [balanceOf(USDX, MAX_U64)] })
+    )
+    await settle()
+    expect(confirm).toBeDefined()
+    expect(confirm!.units).toBe(BIG)
+    expect(confirm!.fixedUnits).toBe(BIG)
+    expect(confirm!.holding).toBe(MAX_U64)
+    expect(confirm!.amountText).toBe('90,071,992,547,409.93 USDX')
+    // The number-shaped fields are satoshi-only.
+    expect(confirm!.amount).toBe(0)
+    expect(confirm!.fixedAmount).toBeUndefined()
+    expect(confirm!.canSend).toBe(true)
+
+    await act(async () => {
+      confirm!.send()
+      for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(showCode).toBeDefined()
+    expect(showCode!.units).toBe(BIG)
+    expect(showCode!.amountText).toBe('90,071,992,547,409.93 USDX')
+    expect(showCode!.amount).toBe(0)
+
+    await act(async () => {
+      showCode!.done()
+      for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(done).toBeDefined()
+    // Task 18: the satoshi figure is 0 on the token path; the text is the payment.
+    expect(done!.amount).toBe(0)
+    expect(done!.amountText).toBe('90,071,992,547,409.93 USDX')
+  })
+
+  it('takes a bigint from the host’s setAmount on an open token request, exactly', async () => {
+    let confirm: Confirm | undefined
+    wrap(
+      <NearbyFlow
+        role="payer"
+        initialSession={tokenSession()}
+        onExit={jest.fn()}
+        renderPayer={{
+          confirm: c => {
+            confirm = c
+            return null
+          }
+        }}
+      />,
+      makeFakeMandala({ balances: [balanceOf(USDX, MAX_U64)] })
+    )
+    await settle()
+    expect(confirm!.units).toBe(0n)
+    expect(confirm!.fixedUnits).toBeUndefined()
+    await act(async () => {
+      confirm!.setAmount(BIG)
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(confirm!.units).toBe(BIG)
+    expect(confirm!.amount).toBe(0)
+    expect(confirm!.canSend).toBe(true)
+    await act(async () => {
+      confirm!.setAmount(undefined)
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(confirm!.units).toBe(0n)
+    expect(confirm!.canSend).toBe(false)
+  })
+})
+
+describe('NearbyFlow — the token path, payee side (plan 07 Task 16)', () => {
+  /** A real AtomicBEEF, so the screen can read the txid it asks the journal about. */
+  function receiptBeef(): Uint8Array {
+    const tx = new Transaction()
+    tx.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex('51') })
+    const beef = new Beef()
+    beef.mergeTransaction(tx)
+    return new Uint8Array(beef.toBinaryAtomic(tx.id('hex')))
+  }
+
+  /** Drives the payee's scanner with a frame bound to the session this payee minted. */
+  async function receiveScannedFrame(s: ReturnType<typeof wrap>) {
+    const hosted = mockMintSession.mock.results[mockMintSession.mock.results.length - 1].value as Session
+    const barrel = jest.requireMock('@bsv/expo-wallet-toolbox') as { unsealFrame: jest.Mock }
+    barrel.unsealFrame.mockImplementation(() => ({
+      version: 6,
+      kind: 'token',
+      senderIdentityKey: '02'.padEnd(66, 'c'),
+      outputIndex: 0,
+      derivationPrefix: hosted.derivationPrefix,
+      derivationSuffix: hosted.derivationSuffix,
+      token: { assetId: ASSET.id, certificates: [], profileData: '{}' },
+      transaction: receiptBeef()
+    }))
+    await act(async () => {
+      fireEvent.press(s.getByText('local_pay_scan_payer_qr'))
+    })
+    await waitFor(() => expect(mockScanHandler).toBeTruthy())
+    await act(async () => {
+      mockScanHandler!('bsvpayf1:stub-part')
+      await new Promise(resolve => setImmediate(resolve))
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    return hosted
+  }
+
+  function payeeRuntime(state: string | undefined) {
+    const runtime = makeFakeMandala({ balances: [balanceOf()] })
+    ;(runtime as { journal: unknown }).journal = {
+      get: jest.fn(async () => (state === undefined ? undefined : { role: 'received', state }))
+    }
+    return runtime
+  }
+
+  it('mints a priced token request as exact units and shows the figure on its QR', async () => {
+    const s = wrap(
+      <NearbyFlow role="payee" initialRequest={{ sats: 2500, asset: ASSET }} onExit={jest.fn()} />,
+      payeeRuntime(undefined)
+    )
+    await waitFor(() => expect(s.getByText('25.00 USDX')).toBeTruthy())
+    const minted = mockMintSession.mock.calls[mockMintSession.mock.calls.length - 1][0] as Record<string, unknown>
+    expect(minted.units).toBe(2500n)
+    expect(minted).not.toHaveProperty('amount')
+  })
+
+  it('verifies against its own session asset, credits through nearby.onReceived, and says "not cleared" while held', async () => {
+    const runtime = payeeRuntime('held')
+    mockVerifyFramePayment.mockResolvedValue({ kind: 'token', assetId: ASSET.id, units: 2500n })
+    mockClaimAndSavePending.mockResolvedValue({ claimed: true, entry: { id: 'e1' } })
+    mockProcessPending.mockResolvedValue([{ id: 'e1', success: true }])
+    const s = wrap(
+      <NearbyFlow role="payee" initialRequest={{ sats: 2500, asset: ASSET }} onExit={jest.fn()} />,
+      runtime
+    )
+    await waitFor(() => expect(s.getByText('25.00 USDX')).toBeTruthy())
+    await receiveScannedFrame(s)
+
+    await waitFor(() => expect(mockProcessPending).toHaveBeenCalledTimes(1))
+    // The session's OWN asset and this device's own overlay key are the
+    // binding, never the frame's.
+    expect(mockVerifyFramePayment.mock.calls[0][3]).toEqual({
+      assetId: ASSET.id,
+      overlayIdentityKey: runtime.endpoints.overlayIdentityKey
+    })
+    // The journal hook after the credit, and the lib's recipient path (B7)
+    // that verifies and credits the receipt.
+    const args = mockProcessPending.mock.calls[0] as unknown[]
+    expect(args).toHaveLength(6)
+    expect(args[4]).toBe(runtime.nearby.onReceived)
+    expect(args[5]).toBe(runtime.nearby.accept)
+    await waitFor(() => expect(s.getByText('local_pay_token_not_cleared:Acme Bank')).toBeTruthy())
+    expect(s.getByText('25.00 USDX')).toBeTruthy()
+  })
+
+  it('drops the "not cleared" copy only when the journal reads settled', async () => {
+    mockVerifyFramePayment.mockResolvedValue({ kind: 'token', assetId: ASSET.id, units: 2500n })
+    mockClaimAndSavePending.mockResolvedValue({ claimed: true, entry: { id: 'e1' } })
+    mockProcessPending.mockResolvedValue([{ id: 'e1', success: true }])
+    const s = wrap(
+      <NearbyFlow role="payee" initialRequest={{ sats: 2500, asset: ASSET }} onExit={jest.fn()} />,
+      payeeRuntime('settled')
+    )
+    await waitFor(() => expect(s.getByText('25.00 USDX')).toBeTruthy())
+    await receiveScannedFrame(s)
+    await waitFor(() => expect(mockProcessPending).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(s.queryByText('local_pay_token_not_cleared:Acme Bank')).toBeNull())
+  })
+
+  it('refuses a frame locking a different figure than the request named, before any write', async () => {
+    mockVerifyFramePayment.mockResolvedValue({ kind: 'token', assetId: ASSET.id, units: 2499n })
+    const s = wrap(
+      <NearbyFlow role="payee" initialRequest={{ sats: 2500, asset: ASSET }} onExit={jest.fn()} />,
+      payeeRuntime(undefined)
+    )
+    await waitFor(() => expect(s.getByText('25.00 USDX')).toBeTruthy())
+    await receiveScannedFrame(s)
+    await waitFor(() => expect(mockVerifyFramePayment).toHaveBeenCalledTimes(1))
+    expect(mockClaimAndSavePending).not.toHaveBeenCalled()
+    expect(mockProcessPending).not.toHaveBeenCalled()
+    // Still live: the genuine payer can complete against the same request.
+    expect(s.getByText('25.00 USDX')).toBeTruthy()
   })
 })

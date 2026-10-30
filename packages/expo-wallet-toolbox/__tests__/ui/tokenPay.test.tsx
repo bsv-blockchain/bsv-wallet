@@ -216,7 +216,7 @@ describe('AssetPicker', () => {
     const onSelect = jest.fn()
     const s = wrap(
       <AssetPicker
-        balances={[balanceOf(), balanceOf(EURX, 5000)]}
+        balances={[balanceOf(), balanceOf(EURX, 5000n)]}
         selected={null}
         onSelect={onSelect}
         bsvBalanceText="50,000"
@@ -614,7 +614,28 @@ describe('UniversalSend with stablecoins', () => {
       expect(runtime.sendToHandle).toHaveBeenCalledWith({
         assetId: USDX.assetId,
         recipientIdentityKey: KEY,
-        baseUnits: 2500
+        units: 2500n
+      })
+    )
+  })
+
+  it('sends a figure above 2^53 exactly, never through a number', async () => {
+    const MAX = 18446744073709551615n
+    const runtime = makeFakeMandala({ balances: [balanceOf(USDX, MAX)] })
+    const s = drawSend(runtime, { selectedAssetId: USDX.assetId, onSelectAsset: jest.fn() })
+    fireEvent.changeText(s.getByPlaceholderText('recipient_placeholder'), KEY)
+    await waitFor(() => expect(s.getByText('valid_identity_key')).toBeTruthy())
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByPlaceholderText('0.00')).toBeTruthy())
+    fireEvent.changeText(s.getByPlaceholderText('0.00'), '184467440737095516.15')
+    fireEvent.press(s.getByText('pay_step_continue'))
+    await waitFor(() => expect(s.getByText('send')).toBeTruthy())
+    fireEvent.press(s.getByText('send'))
+    await waitFor(() =>
+      expect(runtime.sendToHandle).toHaveBeenCalledWith({
+        assetId: USDX.assetId,
+        recipientIdentityKey: KEY,
+        units: MAX
       })
     )
   })
@@ -652,7 +673,7 @@ describe('UniversalSend with stablecoins', () => {
       expect(runtime.sendToHandle).toHaveBeenCalledWith({
         assetId: USDX.assetId,
         recipientIdentityKey: KEY,
-        baseUnits: 2500,
+        units: 2500n,
         note: 'lunch split'
       })
     )

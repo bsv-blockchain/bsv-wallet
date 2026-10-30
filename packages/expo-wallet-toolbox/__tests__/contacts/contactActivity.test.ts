@@ -1,13 +1,15 @@
 /**
  * `getContactActivity` — merges outbound-labelled BSV actions, a recent-window
- * client-side counterparty match, and token settlements, sorted newest first.
+ * client-side counterparty match, and the `color_transfers` journal's token
+ * transfers (plan 07 W1), sorted newest first.
  */
 import { DatabaseSync } from 'node:sqlite'
 import { createTables } from '../../core/storage/schema/createTables'
-import { createSettlementStore, type SettlementDb } from '../../core/mandala/settlementStore'
+import { createTransferJournal, type JournalDb } from '../../core/mandala/transferJournal'
+import type { ColorTransferRow } from '../../core/mandala/types'
 import {
   getContactActivity,
-  listTokenSettlementsByCounterparty,
+  listTokenTransfersByCounterparty,
   type ContactActivityWallet,
   type ContactBsvAction
 } from '../../core/contacts/contactActivity'
@@ -39,6 +41,26 @@ function walletOf(byLabels: ContactBsvAction[], all: ContactBsvAction[]): Contac
 
 let raw: DatabaseSync
 
+const ASSET = `${'ee'.repeat(32)}_0`
+
+/** One journal row, written through the real journal so the schema cannot drift from this reader. */
+async function journalRow(
+  over: Partial<Omit<ColorTransferRow, 'createdAt' | 'updatedAt'>> & { txid: string },
+  at = '2026-09-10T00:00:00.000Z'
+): Promise<void> {
+  const journal = createTransferJournal(adapt(raw) as unknown as JournalDb, () => new Date(at))
+  await journal.insert({
+    role: 'sent',
+    assetId: ASSET,
+    units: 4000n,
+    outputIndex: 0,
+    rail: 'handle',
+    state: 'handed_over',
+    delivered: true,
+    ...over
+  })
+}
+
 beforeEach(async () => {
   raw = new DatabaseSync(':memory:')
   await createTables(adapt(raw) as never)
@@ -46,30 +68,32 @@ beforeEach(async () => {
 
 afterEach(() => raw.close())
 
-describe('listTokenSettlementsByCounterparty', () => {
-  it('finds only this counterparty’s settlements', async () => {
-    const store = createSettlementStore(adapt(raw) as unknown as SettlementDb)
-    await store.upsertSettlement({
-      txid: 'aa'.repeat(32),
-      role: 'sent',
-      assetId: `${'ee'.repeat(32)}.0`,
-      state: 'held',
-      counterpartyKey: ALICE,
-      overlayUrl: 'https://overlay.example',
-      overlayIdentityKey: ALICE
-    })
-    await store.upsertSettlement({
-      txid: 'bb'.repeat(32),
-      role: 'sent',
-      assetId: `${'ee'.repeat(32)}.0`,
-      state: 'held',
-      counterpartyKey: BOB,
-      overlayUrl: 'https://overlay.example',
-      overlayIdentityKey: BOB
-    })
-    const rows = await listTokenSettlementsByCounterparty(adapt(raw), ALICE)
+describe('listTokenTransfersByCounterparty', () => {
+  it('finds only this counterparty’s transfers', async () => {
+    await journalRow({ txid: 'aa'.repeat(32), counterpartyKey: ALICE })
+    await journalRow({ txid: 'bb'.repeat(32), counterpartyKey: BOB })
+    const rows = await listTokenTransfersByCounterparty(adapt(raw), ALICE)
     expect(rows).toHaveLength(1)
-    expect(rows[0].counterpartyKey).toBe(ALICE)
+    expect(rows[0]).toMatchObject({ txid: 'aa'.repeat(32), counterpartyKey: ALICE, assetId: ASSET, units: 4000n })
+  })
+
+  it('reads units above 2^53 exactly', async () => {
+    await journalRow({ txid: 'aa'.repeat(32), counterpartyKey: ALICE, units: 18446744073709551615n })
+    const [row] = await listTokenTransfersByCounterparty(adapt(raw), ALICE)
+    expect(row.units).toBe(18446744073709551615n)
+  })
+
+  it('omits a cancelled send: that money never moved', async () => {
+    await journalRow({ txid: 'aa'.repeat(32), counterpartyKey: ALICE, state: 'cancelled' })
+    expect(await listTokenTransfersByCounterparty(adapt(raw), ALICE)).toEqual([])
+  })
+
+  it('keeps a row whose units do not read back, without a figure rather than a guessed one', async () => {
+    await journalRow({ txid: 'aa'.repeat(32), counterpartyKey: ALICE })
+    raw.prepare("UPDATE color_transfers SET units = '1e3'").run()
+    const [row] = await listTokenTransfersByCounterparty(adapt(raw), ALICE)
+    expect(row.txid).toBe('aa'.repeat(32))
+    expect(row.units).toBeUndefined()
   })
 })
 
@@ -132,17 +156,10 @@ describe('getContactActivity', () => {
   })
 
   it('merges BSV and token activity, sorted newest first', async () => {
-    const settlementStore = createSettlementStore(adapt(raw) as unknown as SettlementDb)
-    await settlementStore.upsertSettlement({
-      txid: 'ee'.repeat(32),
-      role: 'received',
-      assetId: `${'ff'.repeat(32)}.0`,
-      state: 'admitted',
-      counterpartyKey: ALICE,
-      overlayUrl: 'https://overlay.example',
-      overlayIdentityKey: ALICE,
-      createdAt: '2026-09-10T00:00:00.000Z'
-    })
+    await journalRow(
+      { txid: 'ee'.repeat(32), role: 'received', state: 'settled', counterpartyKey: ALICE },
+      '2026-09-10T00:00:00.000Z'
+    )
     const bsv: ContactBsvAction = {
       txid: 'aa'.repeat(32),
       satoshis: -1000,

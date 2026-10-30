@@ -32,8 +32,7 @@ import {
   type PostOutcome
 } from '../../offline/plan'
 import { descendantsOf, type OrderableTx } from '../../offline/order'
-import { postTokenStep, reconcileSettlements, type TokenFrameSource } from '../../mandala/drain'
-import type { AdmissionVerifier, CoverFn, SettlementStore, SubmitFn, TokenSettlementRow } from '../../mandala/types'
+import { txHasColorOutput } from '../../mandala/colorGuard'
 import { devLog } from '../../logging'
 import { getOnline } from '../../net/online'
 
@@ -80,77 +79,14 @@ interface HeldAction {
   api: TableProvenTxReq
 }
 
-/**
- * Everything the Mandala settlement drain needs that this module cannot do
- * itself. Absent for a wallet with no token payments — then not one line of
- * behaviour below changes.
- *
- * `cover` and `submit` are injected rather than imported because one is a pure
- * verifier over local evidence and the other is a network call; keeping both
- * out of here is what leaves this file a database-and-ordering module.
- */
-export interface OfflineTokenDeps {
-  store: SettlementStore
-  cover: CoverFn
-  submit: SubmitFn
-  /**
-   * FIX H / wire contract §9.10. THIS WALLET's configured overlay identity key
-   * and the σ_I verifier that checks against it — the only thing that may let a
-   * cached admission skip a `/submit`, and the filter on what the evidence
-   * cache is allowed to keep at all. Absent and nothing is trusted: every
-   * ancestor is submitted, which is free and always correct.
-   */
-  overlayIdentityKey?: string
-  verifyAdmission?: AdmissionVerifier
-  /**
-   * Clear `@bsv/mandala`'s tx-journal entry for a tip this pass really
-   * broadcast. See `TokenStepDeps.journalRemove`; passed straight through so
-   * the drain's own broadcast is the only thing that can clear one.
-   */
-  journalRemove?: (txid: string) => Promise<void>
-  /**
-   * FIX G: every durable token frame this device holds, re-read each pass so
-   * the evidence tables and the settlement rows are re-derived idempotently
-   * before anything is decided. Supplied by the caller because only it can
-   * open a payer-side sealed `framePayload`.
-   */
-  frames?: () => Promise<TokenFrameSource[]>
-}
-
 export async function processOfflineActions(args: {
   storage: StorageExpoSQLite
   /** Injected so tests can supply a missing ancestor without hitting the network. */
   refetchBeef?: (txid: string) => Promise<number[] | undefined>
-  /** Mandala settlement. Omit entirely and the drain behaves exactly as before. */
-  token?: OfflineTokenDeps
 }): Promise<ProcessOfflineActionsResult> {
-  const { storage, refetchBeef, token } = args
+  const { storage, refetchBeef } = args
   const db = storage.sqliteDb
   if (!db) return { sent: 0, rejected: 0, stopped: true, stalledOn: 'the database is not open' }
-
-  // Before anything is read or decided: re-derive the settlement evidence from
-  // the frame bytes that are already durable (FIX G). Purely local, so it runs
-  // even on a pass that turns out to be offline, and it is allowed to fail —
-  // it is a cache-population step, and the next tick repeats it.
-  if (token?.frames) {
-    try {
-      const r = await reconcileSettlements({
-        store: token.store,
-        sources: await token.frames(),
-        overlayIdentityKey: token.overlayIdentityKey,
-        verifyAdmission: token.verifyAdmission
-      })
-      if (r.errors.length > 0) devLog('[processOfflineActions] evidence reconciliation reported:', r.errors)
-      if (r.dropped > 0) {
-        // FIX H: counterparty-supplied σ_I that did not verify against this
-        // wallet's configured overlay key. Not an error and not a decline —
-        // the ancestors are simply submitted rather than skipped.
-        devLog(`[processOfflineActions] dropped ${r.dropped} unverifiable admission(s) from frame evidence`)
-      }
-    } catch (e) {
-      devLog('[processOfflineActions] could not reconcile token settlements:', e)
-    }
-  }
 
   // XQ-009 remainder: a row this device once honestly marked 'sent' (real
   // proof, or a real broadcast) can still have its backing request later
@@ -191,7 +127,6 @@ export async function processOfflineActions(args: {
     if (api && outcomeFromReqStatus(api.status) === 'success') {
       devLog(`[processOfflineActions] storage already records '${api.status}' for ${row.txid}; closing its queue row`)
       await updateOfflineAction(db, row.txid, { status: 'sent' })
-      if (token) await closeSettlementAsBroadcast(token.store, row.txid)
       sent++
     } else {
       rows.push(row)
@@ -294,36 +229,21 @@ export async function processOfflineActions(args: {
     }
     if (action) await updateOfflineAction(db, step.txid, { status: 'posting' })
 
-    // The ONE token branch. A transaction with a `token_settlements` row may
-    // not be broadcast until the issuer's overlay has admitted it and every
-    // unadmitted token ancestor it spends — so the ordinary post becomes
-    // `postTokenStep`'s injected `broadcast`, reached only after `/submit`
-    // says yes. Everything after this line — applyOutcome, the cascade, the
-    // requeue — is unchanged, because `postTokenStep` returns the same
-    // `PostOutcome` shape a BSV post does.
-    const read = token ? await readSettlement(token.store, step.txid) : { ok: true as const, row: undefined }
-    const broadcast = async () =>
-      action ? await postOwned(storage, action.api) : await postForeign(storage, merged, step.txid)
-    const outcome = !read.ok
-      ? // The read failed, so this step does not know whether it is a token
-        // transaction. Stall it: `serviceError` leaves every row where it was
-        // and retries the whole prefix next pass.
-        ('serviceError' as PostOutcome)
-      : read.row
-        ? await postTokenStep(
-            {
-              store: token!.store,
-              cover: token!.cover,
-              submit: token!.submit,
-              overlayIdentityKey: token!.overlayIdentityKey,
-              verifyAdmission: token!.verifyAdmission,
-              journalRemove: token!.journalRemove,
-              broadcast
-            },
-            read.row,
-            step
-          )
-        : await broadcast()
+    // The ONE color branch (plan 07 W1, IC §8.2). A transaction with a 1Color
+    // output is broadcast only once its `color_transfers` row reads `settled`:
+    // the color module's `settle` got a verified admission from the Mandala
+    // overlay, which itself broadcasts what it admits. Until then the step is a
+    // `serviceError` — its row stays queued and its subtree waits — exactly
+    // like a step that found no network. A read fault does the same: "I could
+    // not tell" never resolves to "go ahead". Everything after this line —
+    // applyOutcome, the cascade, the requeue — is unchanged.
+    const hold = await colorHold(storage, merged, txs, step.txid, action?.api.rawTx)
+    const outcome: PostOutcome =
+      hold !== 'release'
+        ? 'serviceError'
+        : action
+          ? await postOwned(storage, action.api)
+          : await postForeign(storage, merged, step.txid)
     // A cascade needs to see what spends the refused transaction, and beefs only
     // reach backwards, so the graph the queue built cannot contain a spender that
     // is not itself queued. Widened only when a cascade is actually about to run,
@@ -372,31 +292,66 @@ export async function processOfflineActions(args: {
 }
 
 /**
- * Whether this txid has a settlement row — or whether the question could not be
- * answered at all.
+ * Whether one step of the release plan may be posted now.
  *
- * The three outcomes are deliberately distinct, and the third is the fix. A
- * thrown read (a locked database, a schema without these tables, a corrupt
- * page) USED to fall back to `undefined`, which the caller cannot tell from
- * "this is an ordinary BSV transaction" — so a read fault sent an unadmitted
- * token tip straight to `broadcast()`, defeating the whole §4.3 gate on exactly
- * the kind of transient fault the drain is built to survive. "I could not tell"
- * must never resolve to "go ahead": the caller turns it into `serviceError`,
- * the rows stay where they are, and the next pass asks again.
+ *  · `release` — the tx carries no 1Color output (answered from its bytes, so a
+ *    plain BSV step never touches the journal), this wallet's token custody is
+ *    not in it (a decoy 1Color output on someone else's tx), or its
+ *    `color_transfers` row reads `settled`.
+ *  · `hold` — an unsettled 1Color tx of this wallet's custody (the hold's
+ *    predicate, `colorHeldTxids`): a missing row holds a receipt the host
+ *    ledger recorded and nothing has admitted yet.
+ *  · `fault` — a custody read failed. The caller treats it exactly like
+ *    `hold`; it is distinct only for the log.
  *
- * The token guard in `StorageExpoSQLite.attemptToPostReqsToNetwork` reads the
- * same table and would usually catch the same case — but it is reached only
- * from `shareReqsWithWorld`, and `postForeign` does not go through it at all.
- * Two independent barriers are worth having; one of them failing open is not.
+ * A FOREIGN step (an ancestor that arrived inside a counterparty's BEEF, no
+ * request of ours) carries no custody of its own: the journal and the host
+ * ledger record this wallet's own sends and receipts, keyed by their tips. So
+ * a foreign 1Color step is held exactly while it is an unadmitted link in a
+ * chain this wallet holds: when some descendant of it in this graph is held
+ * by the predicate. Posting it then would put an unadmitted token tx under
+ * our pending receipt on chain. Once no descendant is held (each is settled,
+ * or not ours at all), it is released: a settled descendant was admitted and
+ * broadcast by the overlay, which it cannot do without its ancestors already
+ * on the network, and a decoy-only chain is not ours to hold. A foreign step
+ * that is itself custodial keeps the earlier rule: released when some 1Color
+ * descendant is not held.
+ *
+ * Bytes: an owned step uses its request's raw tx, a foreign one the merged
+ * graph's. A step with no bytes is held (`colorHeldTxids`).
  */
-type SettlementRead = { ok: true; row: TokenSettlementRow | undefined } | { ok: false }
+type ColorHold = 'release' | 'hold' | 'fault'
 
-async function readSettlement(store: SettlementStore, txid: string): Promise<SettlementRead> {
+async function colorHold(
+  storage: StorageExpoSQLite,
+  merged: Beef,
+  txs: OrderableTx[],
+  txid: string,
+  ownedRawTx: number[] | undefined
+): Promise<ColorHold> {
+  const owned = ownedRawTx !== undefined
+  const rawTx = ownedRawTx ?? merged.findTxid(txid)?.tx?.toBinary()
+  if (rawTx && rawTx.length > 0 && !txHasColorOutput(rawTx)) return 'release'
   try {
-    return { ok: true, row: await store.getSettlement(txid) }
+    const held = await storage.colorHeldTxids([{ txid, rawTx }])
+    if (owned) return held.has(txid) ? 'hold' : 'release'
+
+    const colorDescendants: { txid: string; rawTx: number[] }[] = []
+    for (const d of descendantsOf(txid, txs)) {
+      const bytes = merged.findTxid(d)?.tx?.toBinary()
+      if (bytes && txHasColorOutput(bytes)) colorDescendants.push({ txid: d, rawTx: bytes })
+    }
+    const heldDescendants =
+      colorDescendants.length === 0 ? new Set<string>() : await storage.colorHeldTxids(colorDescendants)
+    if (!held.has(txid)) {
+      // Not ours by itself: held only under a chain of ours that is still held.
+      return colorDescendants.some(d => heldDescendants.has(d.txid)) ? 'hold' : 'release'
+    }
+    if (colorDescendants.length === 0) return 'hold'
+    return colorDescendants.some(d => !heldDescendants.has(d.txid)) ? 'release' : 'hold'
   } catch (e) {
-    devLog(`[processOfflineActions] could not read the settlement row for ${txid}:`, e)
-    return { ok: false }
+    devLog(`[processOfflineActions] could not read color_transfers for ${txid}; holding it:`, e)
+    return 'fault'
   }
 }
 
@@ -643,13 +598,17 @@ async function postOwned(storage: StorageExpoSQLite, api: TableProvenTxReq): Pro
 /**
  * `postOwned` for ONE txid, for a caller outside the queue loop.
  *
- * The Mandala runtime's `settleNow` needs a broadcast to hand `postTokenStep`
- * the moment a hand-over lands, and it must be the SAME broadcast the drain
- * uses — status transitions, history notes, `markStaleInputsAsSpent`, the
- * re-hold on a service error, and the "storage is the witness, not the reported
- * status" rule all live in `postOwned` and must not be reimplemented beside it.
- * So this is the whole of the new surface: find the request, post it, report
- * the same `PostOutcome`.
+ * The Mandala runtime may need to post one settled tx the moment it settles,
+ * and it must be the SAME broadcast the drain uses — status transitions,
+ * history notes, `markStaleInputsAsSpent`, the re-hold on a service error, and
+ * the "storage is the witness, not the reported status" rule all live in
+ * `postOwned` and must not be reimplemented beside it. So this is the whole of
+ * the new surface: find the request, post it, report the same `PostOutcome`.
+ *
+ * It carries the color hold itself. `postOwned` calls the toolbox's
+ * module-level post, past the `StorageExpoSQLite` override, so without the
+ * same check here this would be a way around the guard: an unsettled 1Color tx
+ * (or an unanswerable journal read) comes back `'serviceError'`, unposted.
  *
  * A txid with no request of this wallet's own comes back `'serviceError'`
  * rather than being posted some other way. That is deliberate: a FOREIGN
@@ -663,6 +622,10 @@ export async function postOwnedByTxid(storage: StorageExpoSQLite, txid: string):
   const api = await findReq(storage, txid)
   if (!api) {
     devLog(`[processOfflineActions] no request of our own for ${txid}; leaving its broadcast to the drain`)
+    return 'serviceError'
+  }
+  if ((await colorHold(storage, new Beef(), [], txid, api.rawTx)) !== 'release') {
+    devLog(`[processOfflineActions] ${txid} is an unsettled 1Color tx (or unreadable); not posting it`)
     return 'serviceError'
   }
   return await postOwned(storage, api)
@@ -734,19 +697,6 @@ async function recordDeliveredElsewhere(storage: StorageExpoSQLite, api: TablePr
     } catch (e) {
       devLog(`[processOfflineActions] could not promote transaction ${transactionId} of ${api.txid}:`, e)
     }
-  }
-}
-
-/**
- * The settlement twin of closing a queue row on a recorded delivery: the same
- * advance `broadcastAdmittedTip` makes after a real post. Best-effort — the
- * queue row is the durable fact, and `reconcileSettlements` re-derives rows.
- */
-async function closeSettlementAsBroadcast(store: SettlementStore, txid: string): Promise<void> {
-  try {
-    await store.advanceSettlement(txid, ['admitted', 'submitting', 'held', 'handed_over'], 'broadcast')
-  } catch (e) {
-    devLog(`[processOfflineActions] could not close the settlement row of ${txid} as broadcast:`, e)
   }
 }
 

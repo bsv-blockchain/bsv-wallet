@@ -3,7 +3,7 @@
  *
  * Everything token-shaped on a screen (a balance row, a picker option, an
  * activity status, a refusal sentence) comes from `MandalaRuntime` and nothing
- * else: the UI never talks to the overlay, the lib or the settlement tables
+ * else: the UI never talks to the overlay, the lib or the transfer journal
  * directly, so failure copy, journalling and state stay in one place
  * (core/mandala/runtime.ts's own design rule).
  *
@@ -35,7 +35,7 @@ import type {
   TokenAssetStatus,
   TokenBalance
 } from '../../core/mandala/runtime'
-import type { TokenSettlementRow } from '../../core/mandala/types'
+import type { ColorTransferRow } from '../../core/mandala/types'
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -103,20 +103,20 @@ export interface MandalaState {
   balances: TokenBalance[] | null
   /** Just the assets, for a picker. `[]` when nothing is held. */
   assets: TokenAssetInfo[]
-  /** Non-terminal settlement rows past the stuck bound (FIX M) — the home badge. */
-  stuck: TokenSettlementRow[]
+  /** Non-terminal `color_transfers` rows past the stuck bound (FIX M) — the home badge. */
+  stuck: ColorTransferRow[]
   /** True only while the FIRST read is outstanding; a refresh keeps the figures. */
   loading: boolean
   refresh: () => void
 }
 
 const EMPTY_ASSETS: TokenAssetInfo[] = []
-const EMPTY_STUCK: TokenSettlementRow[] = []
+const EMPTY_STUCK: ColorTransferRow[] = []
 
 export function useMandala(): MandalaState {
   const runtime = useMandalaRuntime()
   const [balances, setBalances] = useState<TokenBalance[] | null>(null)
-  const [stuck, setStuck] = useState<TokenSettlementRow[]>(EMPTY_STUCK)
+  const [stuck, setStuck] = useState<ColorTransferRow[]>(EMPTY_STUCK)
   const [loading, setLoading] = useState(false)
   const [nonce, setNonce] = useState(0)
   const runtimeRef = useRef<MandalaRuntime | null>(runtime)

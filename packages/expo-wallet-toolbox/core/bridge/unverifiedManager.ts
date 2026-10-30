@@ -40,7 +40,7 @@ interface Manifest {
 function routesToTokenModule(name: unknown): boolean {
   if (typeof name !== 'string' || !name.startsWith('p ')) return false
   const scheme = name.split(' ')[1]
-  return scheme === 'btms' || scheme === 'mandala'
+  return scheme === 'btms' || scheme === 'color'
 }
 
 /** Fresh shallow copies; the delegate's objects are never edited. */
@@ -80,7 +80,7 @@ export function buildUnverifiedPermissionsManager(
   const manager = new SigningPolicyPermissionsManager(wallet, adminOriginator, {
     differentiatePrivilegedOperations: true,
     ...flags,
-    permissionModules: { btms: refusingModule, mandala: refusingModule }
+    permissionModules: { btms: refusingModule, color: refusingModule }
   } as any)
 
   // Instance-level override of the manager's (type-private) fetch: the attested manager is

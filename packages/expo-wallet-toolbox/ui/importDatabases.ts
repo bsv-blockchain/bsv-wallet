@@ -2,6 +2,7 @@ import { Platform } from 'react-native'
 import * as SQLite from 'expo-sqlite'
 import {
   type StorageExpoSQLite,
+  type DbExportWallet,
   i18n,
   parseDbFilename,
   getRegisteredDbs,
@@ -11,7 +12,10 @@ import {
   prepareSqliteImageForDeserialize,
   PENDING_KEY,
   PENDING_SUMMARY_KEY,
-  createTables
+  createTables,
+  decryptDbImage,
+  EncryptedDbError,
+  ENCRYPTED_DB_EXTENSION
 } from '@bsv/expo-wallet-toolbox'
 import { showAlert } from './components/ui/AlertCard'
 import { showToast } from './components/ui/Toast'
@@ -63,6 +67,38 @@ const MAX_FUTURE_SKEW_SECONDS = 300
  * the worst case.
  */
 const MAX_IMPORT_BYTES = 256 * 1024 * 1024 // 256 MiB
+
+/**
+ * An encrypted backup never passes through JS memory whole — it is decrypted
+ * a chunk at a time to a temp file that SQLite opens directly — so its
+ * ceiling is about disk, not RAM: the cache holds the picked copy plus the
+ * decrypted one while the import runs.
+ */
+const MAX_ENCRYPTED_IMPORT_BYTES = 2 * 1024 * 1024 * 1024 // 2 GiB
+
+export interface ImportWalletDatabaseOptions {
+  /** Required to import an encrypted (`.db.enc`) backup: the wallet that exported it. */
+  wallet?: DbExportWallet
+  /** The admin originator, so the key unwrap never raises a permission prompt. */
+  originator?: string
+  /** Fraction (0..1) of the decryption done, for a progress indicator. */
+  onProgress?: (fraction: number) => void
+}
+
+/** A `file://` URI as the plain filesystem path SQLite wants. */
+function nativePath(uri: string): string {
+  return decodeURI(uri.replace(/^file:\/\//, ''))
+}
+
+/** Best-effort removal of an encrypted import's picked copy and decrypted temp directory. */
+function cleanupImportFiles(picked: { delete(): void }, tempDir: { exists: boolean; delete(): void }): void {
+  try {
+    picked.delete()
+  } catch {}
+  try {
+    if (tempDir.exists) tempDir.delete()
+  } catch {}
+}
 
 async function rejectAsUntrusted(): Promise<ImportResult> {
   await showAlert({
@@ -271,18 +307,27 @@ function buildUniqueTargetFilename(keySuffix: string, chain: string, baseTs: num
 }
 
 /**
- * Let the user pick a wallet `.db` backup file and import it alongside any
- * existing databases.  The wallet context will use whichever database has the
- * highest timestamp in its filename.
+ * Let the user pick a wallet backup file — a plain `.db` or an encrypted
+ * `.db.enc` — and import it alongside any existing databases.  The wallet
+ * context will use whichever database has the highest timestamp in its
+ * filename.
  *
  * Platform handling:
- *   - Cross-platform: reads the picked file as bytes, deserializes into an
+ *   - Plain `.db`: reads the picked file as bytes, deserializes into an
  *     in-memory SQLite DB, opens a new file-backed DB with the target name,
  *     then uses backupDatabaseAsync to copy the data across.  This avoids
  *     filesystem permission issues on Android.
+ *   - Encrypted `.db.enc`: streams the picked file through native AES into a
+ *     temp `.db` in the cache (one chunk in memory at a time), opens that
+ *     file directly, and runs the same checks and backupDatabaseAsync copy.
+ *     A file another wallet exported, or a damaged one, fails to decrypt and
+ *     is refused as untrusted.
  */
-export async function importWalletDatabase(storage: StorageExpoSQLite | null): Promise<ImportResult> {
-  const { File } = loadExpoFileSystem()
+export async function importWalletDatabase(
+  storage: StorageExpoSQLite | null,
+  opts: ImportWalletDatabaseOptions = {}
+): Promise<ImportResult> {
+  const { File, Directory, Paths, FileMode } = loadExpoFileSystem()
   const DocumentPicker = loadDocumentPicker()
 
   // ── 1. Pick file ──────────────────────────────────────────────────────────
@@ -297,18 +342,20 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
 
   const asset = result.assets[0]
   const pickedName = asset.name
+  const encrypted = pickedName.endsWith(ENCRYPTED_DB_EXTENSION)
+  const maxBytes = encrypted ? MAX_ENCRYPTED_IMPORT_BYTES : MAX_IMPORT_BYTES
 
   // ── 1.5 Enforce a size ceiling ───────────────────────────────────────────
   // Picker metadata is untrusted, but it is still the cheapest possible
   // rejection — refuse before ever constructing a File or reading a byte
   // (XR-087). A missing size is treated the same as an oversized one: fail
   // closed rather than assume a small file.
-  if (asset.size == null || asset.size > MAX_IMPORT_BYTES) {
+  if (asset.size == null || asset.size > maxBytes) {
     return rejectAsOversized(asset.uri)
   }
 
   // ── 2. Validate filename ──────────────────────────────────────────────────
-  const parsed = parseDbFilename(pickedName)
+  const parsed = parseDbFilename(encrypted ? pickedName.slice(0, -'.enc'.length) : pickedName)
   if (!parsed) {
     await showAlert({
       title: i18n.t('import_invalid_file'),
@@ -365,22 +412,72 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
     }
   }
 
-  // ── 4. Read bytes from picked file ────────────────────────────────────────
+  // ── 4. Get the source image into SQLite ──────────────────────────────────
+  // Plain: the picked bytes, deserialized in memory. Encrypted: decrypted to
+  // a temp file first, then opened from disk.
   const pickedFile = new File(asset.uri)
-  let bytes: Uint8Array
-  try {
-    bytes = await pickedFile.bytes()
-  } catch (e: any) {
-    console.error('[importDatabases] Failed to read picked file:', e.message)
-    showToast(e.message, { type: 'error' })
-    return { imported: false }
-  }
+  let openSource: () => Promise<SQLite.SQLiteDatabase>
+  let cleanup = () => {}
+  if (encrypted) {
+    const tempDir = new Directory(Paths.cache, 'bsv-wallet-import')
+    cleanup = () => cleanupImportFiles(pickedFile, tempDir)
+    if (!opts.wallet) {
+      return rejectAsUntrusted()
+    }
+    // The file system's byte count, not the picker's claim (XR-087).
+    if (pickedFile.size > MAX_ENCRYPTED_IMPORT_BYTES) {
+      return rejectAsOversized(asset.uri)
+    }
+    try {
+      if (tempDir.exists) tempDir.delete()
+      tempDir.create({ intermediates: true })
+      const plainFile = new File(tempDir, 'import.db')
+      plainFile.create()
+      const reader = pickedFile.open(FileMode.ReadOnly)
+      const writer = plainFile.open(FileMode.WriteOnly)
+      try {
+        await decryptDbImage(
+          opts.wallet,
+          { size: reader.size ?? pickedFile.size, read: n => reader.readBytes(n) },
+          { write: b => writer.writeBytes(b) },
+          { originator: opts.originator, onProgress: opts.onProgress }
+        )
+      } finally {
+        reader.close()
+        writer.close()
+      }
+    } catch (e: any) {
+      cleanup()
+      if (e instanceof EncryptedDbError && e.code !== 'no-native-crypto') {
+        console.warn('[importDatabases] Encrypted backup refused:', e.code, e.message)
+        return rejectAsUntrusted()
+      }
+      console.error('[importDatabases] Failed to decrypt picked file:', e.message)
+      showToast(e.message, { type: 'error' })
+      return { imported: false }
+    }
+    openSource = () => SQLite.openDatabaseAsync('import.db', undefined, nativePath(tempDir.uri))
+  } else {
+    let bytes: Uint8Array
+    try {
+      bytes = await pickedFile.bytes()
+    } catch (e: any) {
+      console.error('[importDatabases] Failed to read picked file:', e.message)
+      showToast(e.message, { type: 'error' })
+      return { imported: false }
+    }
 
-  // Picker-reported `asset.size` is untrusted metadata — re-check the actual
-  // byte count before it ever reaches WAL normalization/deserialization,
-  // which can allocate a second full-size copy on top of this one (XR-087).
-  if (bytes.length > MAX_IMPORT_BYTES) {
-    return rejectAsOversized(asset.uri)
+    // Picker-reported `asset.size` is untrusted metadata — re-check the actual
+    // byte count before it ever reaches WAL normalization/deserialization,
+    // which can allocate a second full-size copy on top of this one (XR-087).
+    if (bytes.length > MAX_IMPORT_BYTES) {
+      return rejectAsOversized(asset.uri)
+    }
+
+    // Exports of the WAL-mode wallet DB carry a WAL header, which the
+    // in-memory VFS cannot open (SQLITE_CANTOPEN), so the header is
+    // rewritten to rollback-journal mode first.
+    openSource = () => SQLite.deserializeDatabaseAsync(prepareSqliteImageForDeserialize(bytes))
   }
 
   // ── 5. Place the database via deserialize → backup ────────────────────────
@@ -389,11 +486,7 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
   let untrusted = false
   let targetFilename = ''
   try {
-    // Deserialize the imported bytes into an in-memory database. Exports of
-    // the WAL-mode wallet DB carry a WAL header, which the in-memory VFS
-    // cannot open (SQLITE_CANTOPEN), so the header is rewritten to
-    // rollback-journal mode first.
-    sourceDb = await SQLite.deserializeDatabaseAsync(prepareSqliteImageForDeserialize(bytes))
+    sourceDb = await openSource()
 
     // Authenticate the image against the currently unlocked wallet BEFORE any
     // of it is written to disk under an authoritative name: exactly one
@@ -437,7 +530,7 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
       // backupDatabaseAsync just copied key_value_store verbatim, including
       // any localpay_pending queue the source had — a record placed there by
       // whoever wrote that file, never re-verified by processPending before
-      // it is drained into internalizeAction/onTokenHeld. Quarantine at this
+      // it is drained into internalizeAction. Quarantine at this
       // boundary, before the copy is ever registered or read: an imported
       // backup must never be able to seed the live queue (XR-081).
       await destDb.runAsync('DELETE FROM key_value_store WHERE key IN (?, ?)', [PENDING_KEY, PENDING_SUMMARY_KEY])
@@ -476,6 +569,8 @@ export async function importWalletDatabase(storage: StorageExpoSQLite | null): P
     try {
       await destDb?.closeAsync()
     } catch {}
+    // Neither the picked copy nor the decrypted plaintext outlives the import.
+    cleanup()
   }
 
   if (untrusted) {

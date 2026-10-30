@@ -926,8 +926,8 @@ describe('dispatcher: routing and pre-scan', () => {
   })
 
   const variantCases: Array<[string, string, unknown]> = [
-    ['basket', 'listOutputs', { basket: 'P Mandala' }],
-    ['exact-case basket', 'listOutputs', { basket: 'p mandala token' }],
+    ['basket', 'listOutputs', { basket: 'P Color' }],
+    ['exact-case basket', 'listOutputs', { basket: 'p color token' }],
     [
       'exact-case protocol name on revealSpecificKeyLinkage (never delegated to the stub)',
       'revealSpecificKeyLinkage',
@@ -940,11 +940,11 @@ describe('dispatcher: routing and pre-scan', () => {
       'createAction',
       {
         ...GOLDEN.createAction.args,
-        outputs: [{ lockingScript: '51', satoshis: 1, outputDescription: 'out desc', basket: 'P Mandala token' }]
+        outputs: [{ lockingScript: '51', satoshis: 1, outputDescription: 'out desc', basket: 'P Color token' }]
       }
     ],
     ['label', 'listActions', { labels: ['P BTMS spend'] }],
-    ['protocol name', 'encrypt', { ...GOLDEN.encrypt.args, protocolID: [1, ' p mandala token'] }],
+    ['protocol name', 'encrypt', { ...GOLDEN.encrypt.args, protocolID: [1, ' p color token'] }],
     [
       'internalize basket',
       'internalizeAction',
@@ -969,16 +969,16 @@ describe('dispatcher: routing and pre-scan', () => {
 
   it('does not pre-scan an attested binding', async () => {
     const a = connect()
-    expect(await send(a, 'listOutputs', { basket: 'P Mandala' })).toMatchObject({ ok: true })
+    expect(await send(a, 'listOutputs', { basket: 'P Color' })).toMatchObject({ ok: true })
     expect(attested.wallet.listOutputs).toHaveBeenCalledTimes(1)
   })
 
   it('refuses exact-case token-module names too, and leaves ordinary names alone', async () => {
-    expect(findTokenModuleVariant({ basket: 'p mandala token' })).toBe('p mandala token')
+    expect(findTokenModuleVariant({ basket: 'p color token' })).toBe('p color token')
     expect(findTokenModuleVariant({ protocolID: [2, 'p btms x'], keyID: '1' })).toBe('p btms x')
     expect(findTokenModuleVariant({ basket: 'pasta' })).toBeUndefined()
     expect(findTokenModuleVariant({ labels: ['plain', 'p other x'] })).toBeUndefined()
-    expect(findTokenModuleVariant({ basket: 'P Mandala' })).toBe('P Mandala')
+    expect(findTokenModuleVariant({ basket: 'P Color' })).toBe('P Color')
   })
 })
 

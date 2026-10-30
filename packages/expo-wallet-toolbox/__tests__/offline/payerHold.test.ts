@@ -6,7 +6,6 @@ import {
 } from '../../core/storage/methods/offlineActions'
 import { TaskSendOffline } from '../../core/monitor/TaskSendOffline'
 import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
-import type { EvidenceFrame } from '../../core/mandala/types'
 
 // The DB mapper is its own tested unit (`core/storage/methods/offlineActions.ts`);
 // here it's mocked so these tests pin exactly what `holdSentPaymentOffline`
@@ -216,38 +215,25 @@ describe('holdSentPaymentOffline', () => {
     })
   })
 
-  // XR-036: `processOfflineActions.ts`'s `readSettlement` tells "ordinary BSV"
-  // from "token, needs overlay admission first" by whether ANY
-  // `token_settlements` row exists for the txid at all. `holdSentPaymentOffline`
-  // used to insert the queue row straight at 'queued' and wake the drain BEFORE
-  // `journalHandover` had written that row — so a process kill or a transient
-  // write fault right there left a drainable row with no settlement to match
-  // it, and the drain read that absence as "plain BSV" and posted it straight
-  // past overlay admission.
+  // XR-036: `holdSentPaymentOffline` used to insert the queue row straight at
+  // 'queued' and wake the drain BEFORE the hand-over had been journaled — so a
+  // process kill or a transient write fault right there left a drainable row
+  // with no journal entry to match it. The drain's broadcast hold now keys on
+  // the `color_transfers` journal (`colorHeldTxids`, a missing row holds), but
+  // a token-bearing row is still parked until its journal write lands, so the
+  // drain never sees it early.
   describe('XR-036: a token-bearing hold is not drainable before its settlement journals', () => {
-    const TOKEN_FRAME: EvidenceFrame = {
-      token: {
-        assetId: 'ab'.repeat(32) + '_0',
-        overlayUrl: 'https://overlay.example',
-        overlayIdentityKey: '02' + 'cd'.repeat(32),
-        linkage: []
-      },
-      transaction: new Uint8Array([1])
-    }
-
     it('inserts at parked, never queued, when the settlement journal write fails', async () => {
-      const onTokenHandedOver = jest.fn().mockRejectedValue(new Error('SQLITE_BUSY: database is locked'))
+      const onHandedOver = jest.fn().mockRejectedValue(new Error('SQLITE_BUSY: database is locked'))
       const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
 
       await holdSentPaymentOffline({
         storage: storage as unknown as StorageExpoSQLite,
         txid: TXID,
-        frame: TOKEN_FRAME,
-        onTokenHandedOver,
-        reference: 'the-reference'
+        onHandedOver
       })
 
-      expect(onTokenHandedOver).toHaveBeenCalledWith(TOKEN_FRAME, TXID, 'handed_over', 'the-reference')
+      expect(onHandedOver).toHaveBeenCalledWith(TXID, 'handed_over')
       expect(mockedInsert).toHaveBeenCalledWith(storage.sqliteDb, { userId: 5, txid: TXID, role: 'sent' }, 'parked')
       // The one assertion that matters: never promoted to 'queued', so
       // `processOfflineActions` never finds a drainable row for this txid.
@@ -256,14 +242,13 @@ describe('holdSentPaymentOffline', () => {
     })
 
     it('promotes to queued and wakes the drain once the journal write lands', async () => {
-      const onTokenHandedOver = jest.fn().mockResolvedValue(undefined)
+      const onHandedOver = jest.fn().mockResolvedValue(undefined)
       const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
 
       await holdSentPaymentOffline({
         storage: storage as unknown as StorageExpoSQLite,
         txid: TXID,
-        frame: TOKEN_FRAME,
-        onTokenHandedOver
+        onHandedOver
       })
 
       expect(mockedInsert).toHaveBeenCalledWith(storage.sqliteDb, { userId: 5, txid: TXID, role: 'sent' }, 'parked')
@@ -272,7 +257,7 @@ describe('holdSentPaymentOffline', () => {
       expect(storage.updateTransactionStatus).toHaveBeenCalledWith('unproven', 99)
     })
 
-    it('a plain BSV hold (no frame/hook) keeps the old immediate queue/wake order', async () => {
+    it('a plain BSV hold (no journal hook) keeps the old immediate queue/wake order', async () => {
       const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
 
       await holdSentPaymentOffline({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
@@ -297,14 +282,13 @@ describe('holdSentPaymentOffline', () => {
         poisonedByTxid: null,
         framePayload: 'bsvpayf1:abc'
       })
-      const onTokenHandedOver = jest.fn().mockRejectedValue(new Error('SQLITE_BUSY: database is locked'))
+      const onHandedOver = jest.fn().mockRejectedValue(new Error('SQLITE_BUSY: database is locked'))
       const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
 
       await holdSentPaymentOffline({
         storage: storage as unknown as StorageExpoSQLite,
         txid: TXID,
-        frame: TOKEN_FRAME,
-        onTokenHandedOver
+        onHandedOver
       })
 
       expect(mockedUpdate).not.toHaveBeenCalledWith(storage.sqliteDb, TXID, { status: 'queued' })
@@ -358,16 +342,6 @@ describe('parkSentPaymentOffline', () => {
   // token journal from one that landed. Propagated so a caller (and
   // `releaseParkedPayment`'s own settlement check) has something to act on.
   describe('XR-036 review follow-up: reports whether the settlement journal landed', () => {
-    const TOKEN_FRAME: EvidenceFrame = {
-      token: {
-        assetId: 'ab'.repeat(32) + '_0',
-        overlayUrl: 'https://overlay.example',
-        overlayIdentityKey: '02' + 'cd'.repeat(32),
-        linkage: []
-      },
-      transaction: new Uint8Array([1])
-    }
-
     it('resolves true for a plain BSV park (nothing to journal)', async () => {
       const storage = storageStub({ tx: { transactionId: 99, userId: 5 } })
       await expect(
@@ -376,15 +350,14 @@ describe('parkSentPaymentOffline', () => {
     })
 
     it('resolves false when a token hold journal write fails', async () => {
-      const onTokenHandedOver = jest.fn().mockRejectedValue(new Error('SQLITE_BUSY: database is locked'))
+      const onHandedOver = jest.fn().mockRejectedValue(new Error('SQLITE_BUSY: database is locked'))
       const storage = storageStub({ tx: { transactionId: 99, userId: 5 } })
 
       await expect(
         parkSentPaymentOffline({
           storage: storage as unknown as StorageExpoSQLite,
           txid: TXID,
-          frame: TOKEN_FRAME,
-          onTokenHandedOver
+          onHandedOver
         })
       ).resolves.toBe(false)
       // Still durable at 'parked' regardless of the journal outcome.
@@ -392,15 +365,14 @@ describe('parkSentPaymentOffline', () => {
     })
 
     it('resolves true when a token hold journal write lands', async () => {
-      const onTokenHandedOver = jest.fn().mockResolvedValue(undefined)
+      const onHandedOver = jest.fn().mockResolvedValue(undefined)
       const storage = storageStub({ tx: { transactionId: 99, userId: 5 } })
 
       await expect(
         parkSentPaymentOffline({
           storage: storage as unknown as StorageExpoSQLite,
           txid: TXID,
-          frame: TOKEN_FRAME,
-          onTokenHandedOver
+          onHandedOver
         })
       ).resolves.toBe(true)
     })
@@ -432,30 +404,14 @@ describe('releaseParkedPayment', () => {
     expect(storage.updateTransactionStatus).not.toHaveBeenCalled()
   })
 
-  // XR-036 review follow-up: `parkSentPaymentOffline` discards
-  // `journalHandover`'s outcome, and this function (called from
-  // WalletHomeScreen.tsx's resend flow) had no check of its own — so a
-  // token-bearing payment whose park-time settlement write silently failed
-  // (a transient fault, same class as XR-036's own scenario) could still be
-  // promoted straight to 'queued' here, waking the drain with no
-  // `token_settlements` row for `processOfflineActions`'s `readSettlement` to
-  // find. That absence reads as "plain BSV" and posts the token transfer
-  // straight past overlay admission: the exact XR-036 defect, reached through
-  // this second entry point instead of `holdSentPaymentOffline`.
-  describe('XR-036 review follow-up: a token hold is not released without its settlement row', () => {
-    function tokenDbStub(settlementRow: unknown) {
-      return {
-        getFirstAsync: jest.fn().mockResolvedValue(settlementRow),
-        getAllAsync: jest.fn().mockResolvedValue([]),
-        runAsync: jest.fn().mockResolvedValue({ changes: 1 })
-      }
-    }
-
-    it('does not promote when isTokenHold is set and no settlement row exists', async () => {
-      const storage = storageStub({
-        sqliteDb: tokenDbStub(null),
-        tx: { transactionId: 99, userId: 5, status: 'nosend' }
-      })
+  // A token park whose journal write failed has no `parked` row behind it;
+  // releasing it must first move the journal to `handed_over` through the
+  // runtime hook. No hook, or a failed one, leaves the queue row parked: the
+  // broadcast hold would still hold the tx (W1), but a queued row with a
+  // journal that never says `handed_over` is a payment nothing will settle.
+  describe('a token hold is released only through the journal', () => {
+    it('does not promote when isTokenHold is set and no journal hook is given', async () => {
+      const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
 
       await releaseParkedPayment({
         storage: storage as unknown as StorageExpoSQLite,
@@ -468,24 +424,45 @@ describe('releaseParkedPayment', () => {
       expect(storage.updateTransactionStatus).not.toHaveBeenCalled()
     })
 
-    it('promotes once a settlement row exists for the token hold', async () => {
-      const storage = storageStub({
-        sqliteDb: tokenDbStub({ txid: TXID, state: 'parked' }),
-        tx: { transactionId: 99, userId: 5, status: 'nosend' }
+    it('does not promote when the journal hook fails', async () => {
+      const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
+      const onHandedOver = jest.fn().mockRejectedValue(new Error('color_transfers: no row'))
+
+      await releaseParkedPayment({
+        storage: storage as unknown as StorageExpoSQLite,
+        txid: TXID,
+        isTokenHold: true,
+        onHandedOver
+      })
+
+      expect(onHandedOver).toHaveBeenCalledWith(TXID, 'handed_over')
+      expect(mockedUpdate).not.toHaveBeenCalled()
+      expect(storage.updateTransactionStatus).not.toHaveBeenCalled()
+    })
+
+    it('journals handed_over first, then promotes the token hold', async () => {
+      const order: string[] = []
+      mockedUpdate.mockImplementation(async () => {
+        order.push('queued')
+      })
+      const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
+      const onHandedOver = jest.fn(async () => {
+        order.push('journal')
       })
 
       await releaseParkedPayment({
         storage: storage as unknown as StorageExpoSQLite,
         txid: TXID,
-        isTokenHold: true
+        isTokenHold: true,
+        onHandedOver
       })
 
-      expect(mockedUpdate).toHaveBeenCalledWith(storage.sqliteDb, TXID, { status: 'queued' })
+      expect(order).toEqual(['journal', 'queued'])
       expect(TaskSendOffline.hasPending).toBe(true)
       expect(storage.updateTransactionStatus).toHaveBeenCalledWith('unproven', 99)
     })
 
-    it('still releases a plain BSV park (isTokenHold unset) with no settlement row', async () => {
+    it('still releases a plain BSV park (isTokenHold unset) with no journal hook', async () => {
       const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
 
       await releaseParkedPayment({ storage: storage as unknown as StorageExpoSQLite, txid: TXID })
@@ -493,5 +470,54 @@ describe('releaseParkedPayment', () => {
       expect(mockedUpdate).toHaveBeenCalledWith(storage.sqliteDb, TXID, { status: 'queued' })
       expect(TaskSendOffline.hasPending).toBe(true)
     })
+  })
+})
+
+describe('the payer journal across park and release', () => {
+  beforeEach(() => {
+    mockedInsert.mockClear()
+    mockedInsert.mockResolvedValue(undefined)
+    mockedUpdate.mockClear()
+    mockedUpdate.mockResolvedValue(undefined)
+    mockedFind.mockClear()
+    mockedFind.mockResolvedValue(undefined)
+    TaskSendOffline.resetForTests()
+  })
+
+  it('parks then releases through the journal', async () => {
+    // A journal that only moves forward: built → parked → handed_over.
+    const states: string[] = ['built']
+    const onHandedOver = jest.fn(async (_txid: string, to: 'parked' | 'handed_over') => {
+      const at = states[states.length - 1]
+      if (to === 'parked' && at === 'built') states.push('parked')
+      else if (to === 'handed_over' && (at === 'built' || at === 'parked')) states.push('handed_over')
+    })
+    const storage = storageStub({ tx: { transactionId: 99, userId: 5, status: 'nosend' } })
+
+    await expect(
+      parkSentPaymentOffline({
+        storage: storage as unknown as StorageExpoSQLite,
+        txid: TXID,
+        framePayload: 'bsvpayf1:abc',
+        onHandedOver
+      })
+    ).resolves.toBe(true)
+    expect(states).toEqual(['built', 'parked'])
+    expect(storage.updateTransactionStatus).not.toHaveBeenCalled()
+    expect(TaskSendOffline.hasPending).toBe(false)
+
+    await releaseParkedPayment({
+      storage: storage as unknown as StorageExpoSQLite,
+      txid: TXID,
+      isTokenHold: true,
+      onHandedOver
+    })
+    expect(states).toEqual(['built', 'parked', 'handed_over'])
+    expect(onHandedOver.mock.calls).toEqual([
+      [TXID, 'parked'],
+      [TXID, 'handed_over']
+    ])
+    expect(mockedUpdate).toHaveBeenCalledWith(storage.sqliteDb, TXID, { status: 'queued' })
+    expect(storage.updateTransactionStatus).toHaveBeenCalledWith('unproven', 99)
   })
 })

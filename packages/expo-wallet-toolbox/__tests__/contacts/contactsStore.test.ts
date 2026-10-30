@@ -1,6 +1,6 @@
 /**
  * `contacts` table + store, run against REAL SQLite — same pattern as
- * `__tests__/mandala/settlementStore.test.ts`.
+ * `__tests__/mandala/transferJournal.test.ts`.
  */
 import { DatabaseSync } from 'node:sqlite'
 import { createTables } from '../../core/storage/schema/createTables'

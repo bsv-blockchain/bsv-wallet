@@ -43,7 +43,7 @@ import { useAssetStatus, useMandala } from '../../hooks/useMandala'
 import { useSpendableBalance } from '../../hooks/useSpendableBalance'
 import { useContactsStore } from '../../hooks/useContactsStore'
 import ContactSigil from '../wallet/ContactSigil'
-import { formatTokenAmount, formatTokenAmountWithUnit, shortAssetId } from '../../tokenFormat'
+import { formatTokenAmount, formatTokenAmountWithUnit, shortAssetId, tokenUnitsFromField } from '../../tokenFormat'
 import { abbreviateKey } from '../../../core/pay/counterparty'
 import type { ContactRow } from '../../../core/contacts/contactsStore'
 import { createHandleRegistryClient } from '../../../core/identity/handleRegistry/client'
@@ -240,13 +240,13 @@ export interface UniversalSendProps {
   /** Prefilled amount in satoshis from a peerpay link or `?sats=`. */
   initialSats?: number
   /**
-   * Prefilled TOKEN amount from a peerpay link's `asset=`/`amount=`: base units
-   * of that asset. Takes precedence over `initialSats` — a link names one money.
+   * Prefilled TOKEN amount from a peerpay link's `asset=`/`amount=`: exact
+   * token units of that asset. Takes precedence over `initialSats` — a link names one money.
    * The figure only ever shows while that asset is the one selected (see the
    * unit tag on the figure below), so a link for a token this wallet turns out
    * not to hold seeds nothing.
    */
-  initialTokenAmount?: { assetId: string; baseUnits: number }
+  initialTokenAmount?: { assetId: string; units: bigint }
   /**
    * The asset this payment is denominated in. `null` is BSV — the default, and
    * what every existing flow assumes. Controlled by the Pay screen so the
@@ -275,9 +275,9 @@ interface Figure {
   unit: string | null
 }
 
-function seedFigure(sats?: number, token?: { assetId: string; baseUnits: number }): Figure {
-  if (token && Number.isFinite(token.baseUnits) && token.baseUnits > 0) {
-    return { text: String(Math.round(token.baseUnits)), unit: token.assetId }
+function seedFigure(sats?: number, token?: { assetId: string; units: bigint }): Figure {
+  if (token && typeof token.units === 'bigint' && token.units > 0n) {
+    return { text: token.units.toString(), unit: token.assetId }
   }
   if (sats && sats > 0) return { text: String(sats), unit: null }
   return { text: '', unit: null }
@@ -782,17 +782,17 @@ function UniversalSendInner(
   // Keyed on the figure's parts, not the object: a host that rebuilds the
   // token-amount object every render must not reseed over what is being typed.
   const initialTokenAssetId = initialTokenAmount?.assetId
-  const initialTokenBaseUnits = initialTokenAmount?.baseUnits
+  const initialTokenUnits = initialTokenAmount?.units
   useEffect(() => {
     setFigure(
       seedFigure(
         initialSats,
-        initialTokenAssetId !== undefined && initialTokenBaseUnits !== undefined
-          ? { assetId: initialTokenAssetId, baseUnits: initialTokenBaseUnits }
+        initialTokenAssetId !== undefined && initialTokenUnits !== undefined
+          ? { assetId: initialTokenAssetId, units: initialTokenUnits }
           : undefined
       )
     )
-  }, [initialSats, initialTokenAssetId, initialTokenBaseUnits])
+  }, [initialSats, initialTokenAssetId, initialTokenUnits])
   useEffect(() => {
     setNotice(initialNotice ? { type: 'error', message: initialNotice } : null)
   }, [initialNotice])
@@ -976,7 +976,7 @@ function UniversalSendInner(
    * allowed to promise "nothing was sent".
    */
   const sendToken = useCallback(
-    async (to: Extract<RecipientTarget, { kind: 'handle' }>, baseUnits: number): Promise<boolean> => {
+    async (to: Extract<RecipientTarget, { kind: 'handle' }>, units: bigint): Promise<boolean> => {
       const runtime = mandala.runtime
       if (!runtime || !asset) throw new Error(t('wallet_not_ready'))
       const ctx = {
@@ -988,7 +988,7 @@ function UniversalSendInner(
       const result = await runtime.sendToHandle({
         assetId: asset.assetId,
         recipientIdentityKey: to.identityKey,
-        baseUnits,
+        units,
         ...(note.trim() ? { note: note.trim() } : {})
       })
       if (result.kind !== 'sent') {
@@ -1010,7 +1010,7 @@ function UniversalSendInner(
         // Never falls back to the satoshi renderer: a token figure it could not
         // format would print as satoshis, which is a wrong number rather than a
         // missing one.
-        amountText: formatTokenAmountWithUnit(baseUnits, asset) ?? t('token_row_amount_pending'),
+        amountText: formatTokenAmountWithUnit(units, asset) ?? t('token_row_amount_pending'),
         // `notified === false` takes priority: the money moved either way, but
         // the recipient has not been TOLD it did (the lib's own notify retries
         // in the background — see `TokenSendResult.notified`), and that is the
@@ -1058,10 +1058,12 @@ function UniversalSendInner(
         flashResult({ type: 'error', message: t('wallet_not_ready') })
         return
       }
-      // The same integer either way — satoshis on the BSV rail, base units of the
-      // asset on the token rail. The field emits whole units in both modes.
+      // Satoshis on the BSV rail; exact bigint token units on the token rail,
+      // never through a number (a figure past 2^53 would round). The field
+      // emits whole units as plain digits in both modes.
       const amount = Math.round(Number(sendAmount))
-      if (!Number.isFinite(amount) || amount <= 0) {
+      const units = asset ? tokenUnitsFromField(sendAmount) : undefined
+      if (asset ? units === undefined : !Number.isFinite(amount) || amount <= 0) {
         flashResult({ type: 'error', message: t('enter_valid_amount') })
         return
       }
@@ -1072,8 +1074,8 @@ function UniversalSendInner(
         if (asset) {
           // D4: a token has no address rail, and `canSend` has already refused
           // one. This is the second gate, because the first is a render.
-          if (target.kind !== 'handle') return
-          const sent = await sendToken(target, amount)
+          if (target.kind !== 'handle' || units === undefined) return
+          const sent = await sendToken(target, units)
           if (!sent) return
         } else if (target.kind === 'handle') await sendHandle(target, amount)
         else await sendAddress(target, amount)
@@ -1222,7 +1224,8 @@ function UniversalSendInner(
     [storage, wallet, adminOriginator, peerPayClient, handleRetry, loadOutbox, t]
   )
 
-  const amountOk = Number(sendAmount) > 0
+  // Token mode: an exact bigint figure (a number would round past 2^53).
+  const amountOk = asset ? tokenUnitsFromField(sendAmount) !== undefined : Number(sendAmount) > 0
   const isHandle = target?.kind === 'handle'
   const isAddress = target?.kind === 'address'
   /**
@@ -1246,8 +1249,8 @@ function UniversalSendInner(
   // Advisory, and it may only ever say "no". Nothing here promises a send will
   // work; `resolveAssetState` and the registry both fail open, so a pre-flight
   // that said "this will work" would be the one claim they cannot support.
-  const baseUnits = asset ? Math.round(Number(sendAmount)) || 0 : 0
-  const overBalance = !!holding && baseUnits > holding.baseUnits
+  const tokenUnits = asset ? (tokenUnitsFromField(sendAmount) ?? 0n) : 0n
+  const overBalance = !!holding && tokenUnits > holding.units
   /**
    * The runtime's plain reason this recipient cannot be paid in this asset —
    * an address (D4), an unregistered identity, a blocked one.
@@ -1271,7 +1274,7 @@ function UniversalSendInner(
   // Only asked once the recipient resolved to a handle — an address is already
   // refused by D4 above, and half-typed text is not a recipient yet.
   const recipientRegistryRefused = !!asset && target?.kind === 'handle' && recipientAdmitted === false
-  const frozenBaseUnits = assetStatus?.frozenBaseUnits ?? 0
+  const frozenUnits = assetStatus?.frozenUnits ?? 0n
   const tokenFormValid =
     !!asset &&
     isHandle &&
@@ -1333,10 +1336,10 @@ function UniversalSendInner(
                 }
               : overBalance
                 ? { key: 'pay_asset_over_balance', values: { ticker: asset.ticker } }
-                : frozenBaseUnits > 0
+                : frozenUnits > 0n
                   ? {
                       key: 'pay_asset_frozen_note',
-                      values: { ticker: asset.ticker, amount: formatTokenAmount(frozenBaseUnits, asset.decimals) ?? '' }
+                      values: { ticker: asset.ticker, amount: formatTokenAmount(frozenUnits, asset.decimals) ?? '' }
                     }
                   : spendableSats === 0
                     ? { key: 'pay_asset_needs_bsv', values: { ticker: asset.ticker }, action: 'get-bsv' }
@@ -1376,7 +1379,7 @@ function UniversalSendInner(
   // "12.00 USD" on a BSV send reads as a stablecoin.
   const sendSats = Math.round(Number(sendAmount)) || 0
   const reviewAmount = asset
-    ? { value: formatTokenAmount(baseUnits, asset.decimals) ?? '', unit: asset.ticker }
+    ? { value: formatTokenAmount(tokenUnits, asset.decimals) ?? '', unit: asset.ticker }
     : { value: formatSatoshisAsBsvDecimal(sendSats), unit: 'BSV' }
   // XR-044: the last on-screen chance to catch a look-alike asset before Send
   // — issuerName is unverified, but assetId cannot collide, so the review
@@ -1525,9 +1528,9 @@ function UniversalSendInner(
             value={sendAmount}
             onChangeText={setSendAmount}
             asset={asset ? { ticker: asset.ticker, decimals: asset.decimals } : undefined}
-            maxValue={holding ? String(holding.baseUnits) : undefined}
+            maxValue={holding ? holding.units.toString() : undefined}
             availableText={
-              holding ? (formatTokenAmount(holding.baseUnits, holding.asset.decimals) ?? undefined) : undefined
+              holding ? (formatTokenAmount(holding.units, holding.asset.decimals) ?? undefined) : undefined
             }
           />
 

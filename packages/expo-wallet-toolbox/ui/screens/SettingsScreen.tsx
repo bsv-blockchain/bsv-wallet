@@ -65,7 +65,9 @@ export function SettingsScreen() {
         { basket: sdk.specOpWalletBalance },
         adminOriginator
       )
-      const total = totalOutputs ?? 0
+      // sdk 4 types `totalOutputs` as number | DecimalString (BRC-112 module
+      // balances); the satoshi wallet balance is always a safe integer.
+      const total = Number(totalOutputs ?? 0)
       setAccountBalance(total)
       setBalanceLoading(false)
       await Promise.all([

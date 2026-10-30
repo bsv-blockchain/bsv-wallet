@@ -8,41 +8,54 @@
  *
  * Lifted from WalletConfigScreen.handleExportData so both screens share one
  * implementation: one export at a time, `exporting` for the spinner, failures
- * logged rather than surfaced (a dismissed share sheet is not an error).
+ * shown as an error toast (a dismissed share sheet resolves, so is not one).
  *
- * XR-086: exportAllWalletDatabases() writes the raw, unencrypted SQLite image
- * straight to the OS share sheet — identity keys, certificate fields,
- * transaction/derivation metadata and contacts, with no passphrase or
- * authenticated-encryption step. Encrypting it needs a product decision on how
- * the importing device gets the key back (importDatabases.ts has no decrypt
- * step either). The confirmation alert that used to precede the share sheet
- * was removed by product decision: the tap goes straight to the native save
- * prompt.
+ * XR-086: the export is encrypted by default — `wallet.encrypt` (counterparty
+ * `self`, through the permissions manager as the admin originator, so no
+ * prompt) wraps a per-file AES key, so only this wallet can import it again.
+ * `exportData({ encrypt: false })` still writes the raw SQLite image, for
+ * development builds that want to open it in a SQLite browser. The
+ * confirmation alert that used to precede the share sheet was removed by
+ * product decision: the tap goes straight to the native save prompt.
  */
 import { useCallback, useRef, useState } from 'react'
 import { useWallet } from '@bsv/expo-wallet-toolbox'
 import { exportAllWalletDatabases } from '../exportDatabases'
+import { showToast } from '../components/ui/Toast'
 
-export function useExportWalletData(): { exportData: () => Promise<void>; exporting: boolean } {
-  const { storage } = useWallet()
+export function useExportWalletData(): {
+  exportData: (opts?: { encrypt?: boolean }) => Promise<void>
+  exporting: boolean
+} {
+  const { storage, managers, adminOriginator } = useWallet()
   const [exporting, setExporting] = useState(false)
   // A ref, not the state: two taps in the same tick both see `exporting ===
   // false` in their closure, and the second must still be refused.
   const inFlightRef = useRef(false)
 
-  const exportData = useCallback(async () => {
-    if (inFlightRef.current) return
-    inFlightRef.current = true
-    setExporting(true)
-    try {
-      await exportAllWalletDatabases(storage)
-    } catch (e) {
-      console.warn('[exportWalletData] Export failed:', e)
-    } finally {
-      inFlightRef.current = false
-      setExporting(false)
-    }
-  }, [storage])
+  const exportData = useCallback(
+    async ({ encrypt = true }: { encrypt?: boolean } = {}) => {
+      if (inFlightRef.current) return
+      inFlightRef.current = true
+      setExporting(true)
+      try {
+        await exportAllWalletDatabases(
+          storage,
+          encrypt ? { encrypt, wallet: managers.permissionsManager, originator: adminOriginator } : {}
+        )
+      } catch (e) {
+        // A dismissed share sheet resolves rather than throws, so anything
+        // landing here is a real failure (no crypto backend, no wallet yet,
+        // the snapshot refused) the user would otherwise never hear about.
+        console.warn('[exportWalletData] Export failed:', e)
+        showToast(e instanceof Error ? e.message : String(e), { type: 'error' })
+      } finally {
+        inFlightRef.current = false
+        setExporting(false)
+      }
+    },
+    [storage, managers.permissionsManager, adminOriginator]
+  )
 
   return { exportData, exporting }
 }

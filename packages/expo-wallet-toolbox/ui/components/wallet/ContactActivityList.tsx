@@ -4,8 +4,8 @@
  * figure in the display currency with the other denomination beneath), so a
  * payment looks identical whether you find it on Home or on the person.
  *
- * A token settlement has no wallet action of its own here — `getContactActivity`
- * reads it straight off `token_settlements` — so this builds the minimal
+ * A token transfer has no wallet action of its own here — `getContactActivity`
+ * reads it straight off the `color_transfers` journal — so this builds the minimal
  * action `ActivityRow` needs around it and hands the token facts through the
  * row's own `token` prop, exactly as Home does for a `'mandala'`-labelled row.
  */
@@ -20,21 +20,18 @@ import { useMandala } from '../../hooks/useMandala'
 import { formatTokenAmount } from '../../tokenFormat'
 import { tokenRowStatusView } from '../../tokenStatus'
 import type { TokenActivityStatus } from '../../../core/mandala/runtime'
-import type { ContactActivityItem, ContactSettlementRow } from '../../../core/contacts/contactActivity'
+import type { ContactActivityItem, ContactTransferRow } from '../../../core/contacts/contactActivity'
 
-/** Same reading of a settlement's `state` as the runtime's `activityStatusOf`,
- * minus the "stuck after N hours" clock — a contact page is a record, not a
+/** Same reading of a journal row's `state` as the runtime's `activityStatusOf`,
+ * minus the "stuck after N days" clock — a contact page is a record, not a
  * queue, so an old unsettled row reads as "settling" rather than as a fault
- * to act on (the acting happens on Home). */
-function statusOf(row: ContactSettlementRow): TokenActivityStatus {
+ * to act on (the acting happens on Home). Cancelled sends never get here. */
+function statusOf(row: ContactTransferRow): TokenActivityStatus {
   switch (row.state) {
-    case 'broadcast':
-    case 'admitted':
+    case 'settled':
       return 'settled'
     case 'refused':
       return 'refused'
-    case 'orphaned':
-      return 'reversed'
     default:
       return 'settling'
   }
@@ -80,8 +77,8 @@ export default function ContactActivityList({
         const ticker = holding?.asset.ticker ?? item.assetId.slice(0, 8)
         const incoming = item.role === 'received'
         const figure =
-          holding && item.amountBaseUnits !== undefined
-            ? formatTokenAmount(incoming ? item.amountBaseUnits : -item.amountBaseUnits, holding.asset.decimals, {
+          holding && item.units !== undefined
+            ? formatTokenAmount(incoming ? item.units : -item.units, holding.asset.decimals, {
                 showPlus: incoming
               })
             : undefined

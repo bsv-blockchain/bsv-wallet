@@ -258,7 +258,7 @@ describe('WalletContext wiring', () => {
       expect(source).toMatch(new RegExp(`${cb}\\(\\s*args(?: as any)?,\\s*(?:permissionsManager|mgr)\\s*\\)`))
     }
     expect(source).toContain('permissionsManager.onRetire(buildPrompts.retire)')
-    expect(source).toContain('requestTokenAccess: buildPrompts.mandala')
+    expect(source).toContain('prompt: buildPrompts.mandala')
     expect(source).toContain('promptHandler: buildPrompts.btms')
   })
 })

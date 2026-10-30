@@ -51,7 +51,7 @@ import { announceEviction, evictionsFrom } from '../../ui/components/wallet/toke
 import { MandalaProvider, useMandala, useTokenActivity } from '../../ui/hooks/useMandala'
 import { tokenStatusDetailKey, tokenStatusKey, tokenStatusTone } from '../../ui/tokenStatus'
 import { homeBadges } from '../../ui/screens/homeBadges'
-import { activityRow, balanceOf, makeFakeMandala, settlementRow, USDX } from '../__mocks__/fakeMandalaRuntime'
+import { activityRow, balanceOf, makeFakeMandala, transferRow, USDX } from '../__mocks__/fakeMandalaRuntime'
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>)
 
@@ -70,7 +70,6 @@ describe('tokenStatus', () => {
     expect(tokenStatusKey('settling')).toBe('token_status_settling')
     expect(tokenStatusKey('settled')).toBe('token_status_settled')
     expect(tokenStatusKey('refused')).toBe('token_status_refused')
-    expect(tokenStatusKey('reversed')).toBe('token_status_reversed')
     expect(tokenStatusKey('stuck')).toBe('token_status_stuck')
   })
 
@@ -183,19 +182,23 @@ describe('ActivityRow with a token', () => {
 describe('the withdrawal alert', () => {
   it('is raised for credited money that is gone, and for nothing else', () => {
     const rows = [
-      activityRow({ txid: 'r1', status: 'reversed' }),
       activityRow({ txid: 'r2', status: 'refused' }),
       activityRow({ txid: 'r3', status: 'settled' }),
       // A refused SEND never left, so the balance is unchanged and there is
       // nothing to announce.
       activityRow({ txid: 'r4', role: 'sent', status: 'refused' })
     ]
-    expect(evictionsFrom(rows, []).map(e => e.txid)).toEqual(['r1', 'r2'])
+    expect(evictionsFrom(rows, []).map(e => e.txid)).toEqual(['r2'])
   })
 
   it('is raised once — a seen transaction is never announced again', () => {
-    const rows = [activityRow({ txid: 'r1', status: 'reversed' })]
+    const rows = [activityRow({ txid: 'r1', status: 'refused' })]
     expect(evictionsFrom(rows, ['r1'])).toEqual([])
+  })
+
+  it('carries the withdrawn units exactly, past 2^53', () => {
+    const rows = [activityRow({ txid: 'r1', status: 'refused', units: 18446744073709551615n })]
+    expect(evictionsFrom(rows, [])[0].units).toBe(18446744073709551615n)
   })
 
   it('names the actor and the figure', async () => {
@@ -205,7 +208,7 @@ describe('the withdrawal alert', () => {
       return 'ok'
     }) as never)
     const t = ((k: string, v?: Record<string, unknown>) => (v ? `${k}:${Object.values(v).join('|')}` : k)) as never
-    await announceEviction(t, { txid: 'r1', ticker: 'USDX', issuer: 'Acme Bank', baseUnits: 4000, decimals: 2 })
+    await announceEviction(t, { txid: 'r1', ticker: 'USDX', issuer: 'Acme Bank', units: 4000n, decimals: 2 })
     expect(alerts[0]).toEqual({
       title: 'token_evicted_title:USDX',
       message: 'token_evicted_body:Acme Bank|40.00|USDX'
@@ -285,7 +288,7 @@ describe('useMandala', () => {
   })
 
   it('starts UNKNOWN, then reports the balances and the stuck rows', async () => {
-    const runtime = makeFakeMandala({ balances: [balanceOf()], stuck: [settlementRow()] })
+    const runtime = makeFakeMandala({ balances: [balanceOf()], stuck: [transferRow()] })
     const { result } = renderHook(() => useMandala(), {
       wrapper: ({ children }) => <MandalaProvider runtime={runtime}>{children}</MandalaProvider>
     })
@@ -307,7 +310,7 @@ describe('useMandala', () => {
       result.current.refresh()
     })
     await settle()
-    expect(result.current.balances?.[0].baseUnits).toBe(124000)
+    expect(result.current.balances?.[0].units).toBe(124000n)
   })
 
   it('repaints when the runtime says money moved', async () => {
@@ -316,12 +319,12 @@ describe('useMandala', () => {
       wrapper: ({ children }) => <MandalaProvider runtime={runtime}>{children}</MandalaProvider>
     })
     await settle()
-    runtime.balances.mockResolvedValueOnce([balanceOf(USDX, 224000)])
+    runtime.balances.mockResolvedValueOnce([balanceOf(USDX, 224000n)])
     await act(async () => {
       runtime.emit()
     })
     await settle()
-    await waitFor(() => expect(result.current.balances?.[0].baseUnits).toBe(224000))
+    await waitFor(() => expect(result.current.balances?.[0].units).toBe(224000n))
   })
 
   it('reads activity only through the runtime, and reports null until it lands', async () => {
