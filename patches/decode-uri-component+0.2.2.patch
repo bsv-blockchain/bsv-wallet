@@ -1,7 +1,7 @@
-diff --git a/node_modules/decode-uri-component/index.js b/node_modules/decode-uri-component/index.js
+diff --git a/index.js b/index.js
 index 24e7db0..87e3baf 100644
---- a/node_modules/decode-uri-component/index.js
-+++ b/node_modules/decode-uri-component/index.js
+--- a/index.js
++++ b/index.js
 @@ -1,42 +1,110 @@
  'use strict';
  var token = '%[a-f0-9]{2}';

@@ -12,7 +12,21 @@ const readJson = (p: string) => JSON.parse(fs.readFileSync(p, 'utf8'))
 const rootPkg = readJson(path.join(root, 'package.json'))
 const toolboxPkg = readJson(path.join(root, 'packages/expo-wallet-toolbox/package.json'))
 
-/** Published: registry ranges, still overridden to one root copy. */
+/** One top-level map of `pnpm-workspace.yaml` (`  "key": value` lines), quotes stripped. */
+function workspaceMap(section: string): Record<string, string> {
+  const lines = fs.readFileSync(path.join(root, 'pnpm-workspace.yaml'), 'utf8').split('\n')
+  const out: Record<string, string> = {}
+  const unquote = (v: string) => v.trim().replace(/^(['"])(.*)\1$/, '$2')
+  for (let i = lines.indexOf(`${section}:`) + 1; i > 0 && i < lines.length && lines[i].startsWith('  '); i++) {
+    const m = lines[i].match(/^  ("[^"]+"|'[^']+'|[^:]+):\s*(.*)$/)
+    if (m) out[unquote(m[1])] = unquote(m[2])
+  }
+  return out
+}
+const catalog = workspaceMap('catalog')
+const overrides = workspaceMap('overrides')
+
+/** Published: registry ranges in the pnpm catalog, overridden to one root copy. */
 const PUBLISHED: Record<string, { spec: string; version: RegExp }> = {
   '@bsv/sdk': { spec: '^4.0.1', version: /^4\./ },
   '@bsv/mandala': { spec: '^0.5.0', version: /^0\.5\./ },
@@ -62,8 +76,9 @@ function nestedCopies(name: string): string[] {
 describe('1Color packages', () => {
   it('takes the published packages from the registry, with no vendored tarball left', () => {
     for (const [name, { spec, version }] of Object.entries(PUBLISHED)) {
-      expect([name, rootPkg.dependencies[name]]).toEqual([name, spec])
-      expect(rootPkg.overrides[name]).toBe(`$${name}`)
+      expect([name, rootPkg.dependencies[name]]).toEqual([name, 'catalog:'])
+      expect([name, catalog[name]]).toEqual([name, spec])
+      expect([name, overrides[name]]).toEqual([name, 'catalog:'])
       expect(installedVersion(name)).toMatch(version)
     }
     expect(fs.existsSync(path.join(root, 'vendor'))).toBe(false)

@@ -1,7 +1,7 @@
-diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/ECDSA.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/ECDSA.js
+diff --git a/dist/cjs/src/primitives/ECDSA.js b/dist/cjs/src/primitives/ECDSA.js
 index 34b8cce..10bf940 100644
---- a/node_modules/@bsv/sdk/dist/cjs/src/primitives/ECDSA.js
-+++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/ECDSA.js
+--- a/dist/cjs/src/primitives/ECDSA.js
++++ b/dist/cjs/src/primitives/ECDSA.js
 @@ -9,6 +9,7 @@ const Signature_js_1 = __importDefault(require("./Signature.js"));
  const Curve_js_1 = __importDefault(require("./Curve.js"));
  const Point_js_1 = require("./Point.js");
@@ -59,10 +59,10 @@ index 34b8cce..10bf940 100644
      const publicKey = {
          x: bnToBigInt(key.x),
          y: bnToBigInt(key.y)
-diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/Hash.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/Hash.js
+diff --git a/dist/cjs/src/primitives/Hash.js b/dist/cjs/src/primitives/Hash.js
 index 4190e99..a1af04f 100644
---- a/node_modules/@bsv/sdk/dist/cjs/src/primitives/Hash.js
-+++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/Hash.js
+--- a/dist/cjs/src/primitives/Hash.js
++++ b/dist/cjs/src/primitives/Hash.js
 @@ -331,6 +331,11 @@ function bytesToHex(data) {
      return out.join('');
  }
@@ -75,11 +75,11 @@ index 4190e99..a1af04f 100644
      const processLike = typeof globalThis === 'undefined' ? undefined : globalThis.process;
      const getBuiltinModule = processLike?.getBuiltinModule;
      if (typeof getBuiltinModule === 'function') {
-diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/NativeSecp.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/NativeSecp.js
+diff --git a/dist/cjs/src/primitives/NativeSecp.js b/dist/cjs/src/primitives/NativeSecp.js
 new file mode 100644
 index 0000000..2cedd4b
 --- /dev/null
-+++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/NativeSecp.js
++++ b/dist/cjs/src/primitives/NativeSecp.js
 @@ -0,0 +1,195 @@
 +"use strict";
 +/**
@@ -276,10 +276,10 @@ index 0000000..2cedd4b
 +        console.warn(`[EngineNative] Transaction.sign fell back from the engine-routed path: ${reason}`);
 +    }
 +}
-diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/PrivateKey.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/PrivateKey.js
+diff --git a/dist/cjs/src/primitives/PrivateKey.js b/dist/cjs/src/primitives/PrivateKey.js
 index 5308c5d..133301e 100644
---- a/node_modules/@bsv/sdk/dist/cjs/src/primitives/PrivateKey.js
-+++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/PrivateKey.js
+--- a/dist/cjs/src/primitives/PrivateKey.js
++++ b/dist/cjs/src/primitives/PrivateKey.js
 @@ -45,6 +45,8 @@ const Hash_js_1 = require("./Hash.js");
  const Random_js_1 = __importDefault(require("./Random.js"));
  const utils_js_1 = require("./utils.js");
@@ -403,10 +403,10 @@ index 5308c5d..133301e 100644
          let sharedSecret;
          if (typeof retrieveCachedSharedSecret === 'function') {
              const retrieved = retrieveCachedSharedSecret(this, publicKey);
-diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/PublicKey.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/PublicKey.js
+diff --git a/dist/cjs/src/primitives/PublicKey.js b/dist/cjs/src/primitives/PublicKey.js
 index 6e15dd5..67c216a 100644
---- a/node_modules/@bsv/sdk/dist/cjs/src/primitives/PublicKey.js
-+++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/PublicKey.js
+--- a/dist/cjs/src/primitives/PublicKey.js
++++ b/dist/cjs/src/primitives/PublicKey.js
 @@ -10,6 +10,7 @@ const BigNumber_js_1 = __importDefault(require("./BigNumber.js"));
  const Hash_js_1 = require("./Hash.js");
  const Signature_js_1 = __importDefault(require("./Signature.js"));
@@ -506,10 +506,10 @@ index 6e15dd5..67c216a 100644
          let sharedSecret;
          if (typeof retrieveCachedSharedSecret === 'function') {
              const retrieved = retrieveCachedSharedSecret(privateKey, this);
-diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/Schnorr.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/Schnorr.js
+diff --git a/dist/cjs/src/primitives/Schnorr.js b/dist/cjs/src/primitives/Schnorr.js
 index 009f580..b8b8e40 100644
---- a/node_modules/@bsv/sdk/dist/cjs/src/primitives/Schnorr.js
-+++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/Schnorr.js
+--- a/dist/cjs/src/primitives/Schnorr.js
++++ b/dist/cjs/src/primitives/Schnorr.js
 @@ -7,6 +7,9 @@ const BigNumber_js_1 = __importDefault(require("./BigNumber.js"));
  const Curve_js_1 = __importDefault(require("./Curve.js"));
  const Hash_js_1 = require("./Hash.js");
@@ -571,10 +571,10 @@ index 009f580..b8b8e40 100644
          const e = this.computeChallenge(A, B, S, SPrime, R);
          // Check zG = R + eA
          const zG = this.curve.g.mul(z);
-diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/Signature.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/Signature.js
+diff --git a/dist/cjs/src/primitives/Signature.js b/dist/cjs/src/primitives/Signature.js
 index 171fc4d..667914d 100644
---- a/node_modules/@bsv/sdk/dist/cjs/src/primitives/Signature.js
-+++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/Signature.js
+--- a/dist/cjs/src/primitives/Signature.js
++++ b/dist/cjs/src/primitives/Signature.js
 @@ -10,6 +10,7 @@ const Hash_js_1 = require("./Hash.js");
  const utils_js_1 = require("./utils.js");
  const Point_js_1 = __importDefault(require("./Point.js"));
@@ -641,10 +641,10 @@ index 171fc4d..667914d 100644
          for (let recovery = 0; recovery < 4; recovery++) {
              let Qprime;
              try {
-diff --git a/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js b/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js
+diff --git a/dist/cjs/src/primitives/SymmetricKey.js b/dist/cjs/src/primitives/SymmetricKey.js
 index efa3ecd..3300ce2 100644
---- a/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js
-+++ b/node_modules/@bsv/sdk/dist/cjs/src/primitives/SymmetricKey.js
+--- a/dist/cjs/src/primitives/SymmetricKey.js
++++ b/dist/cjs/src/primitives/SymmetricKey.js
 @@ -13,10 +13,13 @@ const utils_js_1 = require("./utils.js");
  // Resolved once at module load using the same pattern as Hash.ts.  When
  // supported Node exposes `node:crypto` through `process.getBuiltinModule`,
@@ -661,10 +661,10 @@ index efa3ecd..3300ce2 100644
      const processLike = typeof globalThis === 'undefined' ? undefined : globalThis.process;
      const getBuiltinModule = processLike?.getBuiltinModule;
      if (typeof getBuiltinModule === 'function') {
-diff --git a/node_modules/@bsv/sdk/dist/cjs/src/script/templates/P2PKH.js b/node_modules/@bsv/sdk/dist/cjs/src/script/templates/P2PKH.js
+diff --git a/dist/cjs/src/script/templates/P2PKH.js b/dist/cjs/src/script/templates/P2PKH.js
 index e1fe832..fa75074 100644
---- a/node_modules/@bsv/sdk/dist/cjs/src/script/templates/P2PKH.js
-+++ b/node_modules/@bsv/sdk/dist/cjs/src/script/templates/P2PKH.js
+--- a/dist/cjs/src/script/templates/P2PKH.js
++++ b/dist/cjs/src/script/templates/P2PKH.js
 @@ -72,7 +72,19 @@ class P2PKH {
       * @returns {Object} - An object containing the `sign` and `estimateLength` functions.
       */
@@ -685,10 +685,10 @@ index e1fe832..fa75074 100644
              sign: async (tx, inputIndex) => {
                  const signatureScope = (0, SignatureUtils_js_1.computeSignatureScope)(signOutputs, anyoneCanPay);
                  const resolved = (0, SignatureUtils_js_1.resolveSourceDetails)(tx, inputIndex, sourceSatoshis, lockingScript);
-diff --git a/node_modules/@bsv/sdk/dist/cjs/src/transaction/Transaction.js b/node_modules/@bsv/sdk/dist/cjs/src/transaction/Transaction.js
+diff --git a/dist/cjs/src/transaction/Transaction.js b/dist/cjs/src/transaction/Transaction.js
 index 2bcc681..f843c17 100644
---- a/node_modules/@bsv/sdk/dist/cjs/src/transaction/Transaction.js
-+++ b/node_modules/@bsv/sdk/dist/cjs/src/transaction/Transaction.js
+--- a/dist/cjs/src/transaction/Transaction.js
++++ b/dist/cjs/src/transaction/Transaction.js
 @@ -33,6 +33,9 @@ const P2PKH_js_1 = __importDefault(require("../script/templates/P2PKH.js"));
  const completeBoundAction_js_1 = require("../wallet/completeBoundAction.js");
  const TransactionSignature_js_1 = __importDefault(require("../primitives/TransactionSignature.js"));
@@ -1087,10 +1087,10 @@ index 2bcc681..f843c17 100644
              const templateTransaction = __classPrivateFieldGet(signingSnapshot, _Transaction_instances, "m", _Transaction_snapshotTransactionGraph).call(signingSnapshot, true);
              for (let templateIndex = 0; templateIndex < templateRefs.length; templateIndex++) {
                  templateTransaction.inputs[templateIndex].unlockingScriptTemplate =
-diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/ECDSA.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/ECDSA.js
+diff --git a/dist/esm/src/primitives/ECDSA.js b/dist/esm/src/primitives/ECDSA.js
 index 9e23ad4..dd88fd1 100644
---- a/node_modules/@bsv/sdk/dist/esm/src/primitives/ECDSA.js
-+++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/ECDSA.js
+--- a/dist/esm/src/primitives/ECDSA.js
++++ b/dist/esm/src/primitives/ECDSA.js
 @@ -3,6 +3,7 @@ import Signature from './Signature.js';
  import Curve from './Curve.js';
  import { scalarMultiplyWNAF, biModInv, BI_ZERO, biModMul, GX_BIGINT, GY_BIGINT, jpAdd, N_BIGINT, modInvN, modMulN, modN } from './Point.js';
@@ -1148,10 +1148,10 @@ index 9e23ad4..dd88fd1 100644
      const publicKey = {
          x: bnToBigInt(key.x),
          y: bnToBigInt(key.y)
-diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/Hash.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/Hash.js
+diff --git a/dist/esm/src/primitives/Hash.js b/dist/esm/src/primitives/Hash.js
 index f97e987..d2dc980 100644
---- a/node_modules/@bsv/sdk/dist/esm/src/primitives/Hash.js
-+++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/Hash.js
+--- a/dist/esm/src/primitives/Hash.js
++++ b/dist/esm/src/primitives/Hash.js
 @@ -318,6 +318,11 @@ function bytesToHex(data) {
      return out.join('');
  }
@@ -1164,11 +1164,11 @@ index f97e987..d2dc980 100644
      const processLike = typeof globalThis === 'undefined' ? undefined : globalThis.process;
      const getBuiltinModule = processLike?.getBuiltinModule;
      if (typeof getBuiltinModule === 'function') {
-diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/NativeSecp.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/NativeSecp.js
+diff --git a/dist/esm/src/primitives/NativeSecp.js b/dist/esm/src/primitives/NativeSecp.js
 new file mode 100644
 index 0000000..9672b48
 --- /dev/null
-+++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/NativeSecp.js
++++ b/dist/esm/src/primitives/NativeSecp.js
 @@ -0,0 +1,175 @@
 +/**
 + * BSV Browser native secp seam — added by patch-package (native-crypto M2).
@@ -1345,10 +1345,10 @@ index 0000000..9672b48
 +        console.warn(`[EngineNative] Transaction.sign fell back from the engine-routed path: ${reason}`);
 +    }
 +}
-diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/PrivateKey.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/PrivateKey.js
+diff --git a/dist/esm/src/primitives/PrivateKey.js b/dist/esm/src/primitives/PrivateKey.js
 index 8023ce0..bcabda6 100644
---- a/node_modules/@bsv/sdk/dist/esm/src/primitives/PrivateKey.js
-+++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/PrivateKey.js
+--- a/dist/esm/src/primitives/PrivateKey.js
++++ b/dist/esm/src/primitives/PrivateKey.js
 @@ -6,6 +6,8 @@ import { sha256, sha256hmac, sha512hmac } from './Hash.js';
  import Random from './Random.js';
  import { fromBase58Check, toArray, toBase58Check, toHex } from './utils.js';
@@ -1472,10 +1472,10 @@ index 8023ce0..bcabda6 100644
          let sharedSecret;
          if (typeof retrieveCachedSharedSecret === 'function') {
              const retrieved = retrieveCachedSharedSecret(this, publicKey);
-diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/PublicKey.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/PublicKey.js
+diff --git a/dist/esm/src/primitives/PublicKey.js b/dist/esm/src/primitives/PublicKey.js
 index 9b9f52c..90bc5be 100644
---- a/node_modules/@bsv/sdk/dist/esm/src/primitives/PublicKey.js
-+++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/PublicKey.js
+--- a/dist/esm/src/primitives/PublicKey.js
++++ b/dist/esm/src/primitives/PublicKey.js
 @@ -5,6 +5,7 @@ import BigNumber from './BigNumber.js';
  import { sha256, sha256hmac, hash160 } from './Hash.js';
  import Signature from './Signature.js';
@@ -1575,10 +1575,10 @@ index 9b9f52c..90bc5be 100644
          let sharedSecret;
          if (typeof retrieveCachedSharedSecret === 'function') {
              const retrieved = retrieveCachedSharedSecret(privateKey, this);
-diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/Schnorr.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/Schnorr.js
+diff --git a/dist/esm/src/primitives/Schnorr.js b/dist/esm/src/primitives/Schnorr.js
 index 71f5213..0df629f 100644
---- a/node_modules/@bsv/sdk/dist/esm/src/primitives/Schnorr.js
-+++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/Schnorr.js
+--- a/dist/esm/src/primitives/Schnorr.js
++++ b/dist/esm/src/primitives/Schnorr.js
 @@ -2,6 +2,9 @@ import BigNumber from './BigNumber.js';
  import Curve from './Curve.js';
  import { sha256 } from './Hash.js';
@@ -1640,10 +1640,10 @@ index 71f5213..0df629f 100644
          const e = this.computeChallenge(A, B, S, SPrime, R);
          // Check zG = R + eA
          const zG = this.curve.g.mul(z);
-diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/Signature.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/Signature.js
+diff --git a/dist/esm/src/primitives/Signature.js b/dist/esm/src/primitives/Signature.js
 index da97bed..5792973 100644
---- a/node_modules/@bsv/sdk/dist/esm/src/primitives/Signature.js
-+++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/Signature.js
+--- a/dist/esm/src/primitives/Signature.js
++++ b/dist/esm/src/primitives/Signature.js
 @@ -5,6 +5,7 @@ import { sha256 } from './Hash.js';
  import { toArray, toHex, toBase64 } from './utils.js';
  import Point from './Point.js';
@@ -1710,10 +1710,10 @@ index da97bed..5792973 100644
          for (let recovery = 0; recovery < 4; recovery++) {
              let Qprime;
              try {
-diff --git a/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js b/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js
+diff --git a/dist/esm/src/primitives/SymmetricKey.js b/dist/esm/src/primitives/SymmetricKey.js
 index 18f2dcd..e125e20 100644
---- a/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js
-+++ b/node_modules/@bsv/sdk/dist/esm/src/primitives/SymmetricKey.js
+--- a/dist/esm/src/primitives/SymmetricKey.js
++++ b/dist/esm/src/primitives/SymmetricKey.js
 @@ -8,10 +8,13 @@ import { toArray, encode } from './utils.js';
  // Resolved once at module load using the same pattern as Hash.ts.  When
  // supported Node exposes `node:crypto` through `process.getBuiltinModule`,
@@ -1730,10 +1730,10 @@ index 18f2dcd..e125e20 100644
      const processLike = typeof globalThis === 'undefined' ? undefined : globalThis.process;
      const getBuiltinModule = processLike?.getBuiltinModule;
      if (typeof getBuiltinModule === 'function') {
-diff --git a/node_modules/@bsv/sdk/dist/esm/src/script/templates/P2PKH.js b/node_modules/@bsv/sdk/dist/esm/src/script/templates/P2PKH.js
+diff --git a/dist/esm/src/script/templates/P2PKH.js b/dist/esm/src/script/templates/P2PKH.js
 index 5c26fa1..01c7453 100644
---- a/node_modules/@bsv/sdk/dist/esm/src/script/templates/P2PKH.js
-+++ b/node_modules/@bsv/sdk/dist/esm/src/script/templates/P2PKH.js
+--- a/dist/esm/src/script/templates/P2PKH.js
++++ b/dist/esm/src/script/templates/P2PKH.js
 @@ -67,7 +67,19 @@ export default class P2PKH {
       * @returns {Object} - An object containing the `sign` and `estimateLength` functions.
       */
@@ -1754,10 +1754,10 @@ index 5c26fa1..01c7453 100644
              sign: async (tx, inputIndex) => {
                  const signatureScope = computeSignatureScope(signOutputs, anyoneCanPay);
                  const resolved = resolveSourceDetails(tx, inputIndex, sourceSatoshis, lockingScript);
-diff --git a/node_modules/@bsv/sdk/dist/esm/src/transaction/Transaction.js b/node_modules/@bsv/sdk/dist/esm/src/transaction/Transaction.js
+diff --git a/dist/esm/src/transaction/Transaction.js b/dist/esm/src/transaction/Transaction.js
 index 95fd419..7eb4c96 100644
---- a/node_modules/@bsv/sdk/dist/esm/src/transaction/Transaction.js
-+++ b/node_modules/@bsv/sdk/dist/esm/src/transaction/Transaction.js
+--- a/dist/esm/src/transaction/Transaction.js
++++ b/dist/esm/src/transaction/Transaction.js
 @@ -2,7 +2,10 @@ import UnlockingScript from '../script/UnlockingScript.js';
  import LockingScript from '../script/LockingScript.js';
  import { scriptSerializationIdentity } from '../script/Script.js';
