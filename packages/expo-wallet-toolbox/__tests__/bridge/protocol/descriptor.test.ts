@@ -160,7 +160,8 @@ describe('describe proofs', () => {
 
   it('rejects duplicate keys in raw response text', async () => {
     const r = await okResp()
-    const text = JSON.stringify(r).replace('{', '{"challenge":"x",')
+    // A second "challenge" key at the front of the object.
+    const text = '{"challenge":"x",' + JSON.stringify(r).slice(1)
     expect(() => verifyDescribeProof(text, { origin: ORIGIN, challenge: CHALLENGE })).toThrow(/strict JSON/)
   })
 
