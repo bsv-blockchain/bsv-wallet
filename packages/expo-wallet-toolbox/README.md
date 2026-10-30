@@ -80,6 +80,10 @@ with an npm alias of the mobile toolbox, e.g.
 second toolbox is installed. That copy is never loaded (the bundler and Jest
 map the name to `-mobile`), so `patch-package` patches only `-mobile`.
 
+The files under this repo's `patches/` are in pnpm format: paths are relative
+to the package root. For `patch-package`, prefix each path with
+`node_modules/<package name>/`.
+
 ### Expo native modules (required — each needs its own autolinking/config)
 
 | Package                     | Version  |

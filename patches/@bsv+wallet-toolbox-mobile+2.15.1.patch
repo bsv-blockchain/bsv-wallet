@@ -1,7 +1,7 @@
-diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
+diff --git a/out/index.mobile.cjs b/out/index.mobile.cjs
 index d1e3ec4..fac146f 100644
---- a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
-+++ b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
+--- a/out/index.mobile.cjs
++++ b/out/index.mobile.cjs
 @@ -10758,7 +10758,113 @@ async function verifyUnlockScriptsBatch(txids, beef, verifier) {
  * @throws WERR_INVALID_PARAMETER if any unlocking script is invalid, if sourceTXID is invalid, if beef doesn't contain required transactions.
  */
@@ -269,10 +269,10 @@ index d1e3ec4..fac146f 100644
  					if (chainObservation.chainStatus === "mined" || chainObservation.chainStatus === "known") {
  						const req = await EntityProvenTxReq.fromStorageTxid(this, tx.txid, trx);
  						if (req != null) {
-diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
+diff --git a/out/index.mobile.mjs b/out/index.mobile.mjs
 index d8fd5d4..b2ef280 100644
---- a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
-+++ b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
+--- a/out/index.mobile.mjs
++++ b/out/index.mobile.mjs
 @@ -10723,7 +10723,113 @@ async function verifyUnlockScriptsBatch(txids, beef, verifier) {
  * @throws WERR_INVALID_PARAMETER if any unlocking script is invalid, if sourceTXID is invalid, if beef doesn't contain required transactions.
  */

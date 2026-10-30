@@ -1,7 +1,7 @@
-diff --git a/node_modules/expo-splash-screen/ios/SplashScreenManager.swift b/node_modules/expo-splash-screen/ios/SplashScreenManager.swift
+diff --git a/ios/SplashScreenManager.swift b/ios/SplashScreenManager.swift
 index c6b87ba..02812a9 100644
---- a/node_modules/expo-splash-screen/ios/SplashScreenManager.swift
-+++ b/node_modules/expo-splash-screen/ios/SplashScreenManager.swift
+--- a/ios/SplashScreenManager.swift
++++ b/ios/SplashScreenManager.swift
 @@ -5,6 +5,7 @@ import UIKit
  class SplashScreenManager: NSObject, RCTReloadListener {
    @objc static let shared = SplashScreenManager()

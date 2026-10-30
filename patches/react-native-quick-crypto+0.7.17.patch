@@ -1,7 +1,7 @@
-diff --git a/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp b/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp
+diff --git a/cpp/Cipher/MGLCipherHostObject.cpp b/cpp/Cipher/MGLCipherHostObject.cpp
 index cb38f83..d273dab 100644
---- a/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp
-+++ b/node_modules/react-native-quick-crypto/cpp/Cipher/MGLCipherHostObject.cpp
+--- a/cpp/Cipher/MGLCipherHostObject.cpp
++++ b/cpp/Cipher/MGLCipherHostObject.cpp
 @@ -85,7 +85,12 @@ MGLCipherHostObject::MGLCipherHostObject(
      std::shared_ptr<DispatchQueue::dispatch_queue> workerQueue)
      : MGLSmartHostObject(jsCallInvoker, workerQueue),
