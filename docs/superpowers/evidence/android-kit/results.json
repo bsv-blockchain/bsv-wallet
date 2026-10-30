@@ -1,0 +1,127 @@
+{
+  "chrome": "155.0.8059.79",
+  "origin": "http://localhost:3001",
+  "at": "2026-10-29T11:36:27.102Z",
+  "results": [
+    {
+      "id": 1,
+      "name": "cold launch, Connect sheet, connected",
+      "status": "pass",
+      "note": "cold start from a dead process, sheet origin http://localhost:3001 Unverified, connected",
+      "ms": 31970
+    },
+    {
+      "id": 2,
+      "name": "getVersion and isAuthenticated",
+      "status": "pass",
+      "note": "OK getVersion -> {\"version\":\"bsv-wallet-bridge-1\"}; OK isAuthenticated -> {\"authenticated\":true}",
+      "ms": 5739
+    },
+    {
+      "id": 3,
+      "name": "getPublicKey and a request held open across the sheet",
+      "status": "pass",
+      "note": "getPublicKey ok (OK getPublicKey -> {\"publicKey\":\"0394725...); createAction answered by the wallet: ERR createAction -> WERR_INSUFFICIENT_FUNDS: Insufficient funds in the available inputs to; createSignature held open across the sheet, result after Approve: pass",
+      "ms": 24528
+    },
+    {
+      "id": 4,
+      "name": "Don't connect: 403 USER_CANCELLED, nothing granted",
+      "status": "pass",
+      "note": "denied: ERR getPublicKey -> USER_CANCELLED (delivery not-sent): The connection was declined; follow-up request did not silently succeed (ERR getPublicKey -> RESOURCE_LIMIT (delivery not-sent): This site was just decli)",
+      "ms": 29566
+    },
+    {
+      "id": 5,
+      "name": "warm launch and silent reconnect with the token",
+      "status": "pass",
+      "note": "warm launch (process alive), token presented, getPublicKey answered with no Connect sheet",
+      "ms": 36742
+    },
+    {
+      "id": 6,
+      "name": "conformance panel: Run all safe",
+      "status": "pass",
+      "note": "finished: 20 pass, 10 fail, 0 skip, 11 not run (spending cards) of 41 cards; 73 sheets approved, Chrome fronted 7 times when the wallet sat idle in front (failing cards recorded in 06-conformance.json, not hidden)",
+      "ms": 647269
+    },
+    {
+      "id": 7,
+      "name": "kill the app mid-session, page recovers through a new launch",
+      "status": "pass",
+      "note": "after the kill: ERR getVersion -> CONNECTION_CLOSED (delivery unknown): The wallet did not answer; a new launch recovered: OK getVersion -> {\"version\":\"bsv-wallet-bridge-1\"}",
+      "ms": 54522
+    },
+    {
+      "id": 8,
+      "name": "MainActivity destroyed with the service alive: 412, reconnect",
+      "status": "pass",
+      "note": "Back destroyed MainActivity (process alive, activity records 0, BridgeService listed false); the page got ERR getVersion -> CONNECTION_CLOSED (delivery unknown): The wallet did not answer; a new launch reconnected: OK getVersion -> {\"version\":\"bsv-wallet-bridge-1\"}",
+      "ms": 14937
+    },
+    {
+      "id": 9,
+      "name": "ports 3321 and 3322 held: wallet takes 3323",
+      "status": "pass",
+      "note": "3321 and 3322 held on both families by test sockets; the wallet answered on 3323 (2 listening sockets on 3323)",
+      "ms": 14526
+    },
+    {
+      "id": 10,
+      "name": "::1:3321 held alone: wallet moves up",
+      "status": "pass",
+      "note": "::1:3321 held alone (1 listener(s) on 3321: the test socket only), the wallet bound 127.0.0.1 and ::1 on 3322 (2 sockets) and answered",
+      "ms": 10858
+    },
+    {
+      "id": 11,
+      "name": "squatter on 3321 with the real name: page refuses it",
+      "status": "pass",
+      "note": "squatter on 3321 (signed descriptor under its own key, real name and vendor, no launch key): page logged UNAUTHENTICATED and found the real wallet on a higher port; the squatter saw 5 describe GET(s) and no secret header",
+      "ms": 9515
+    },
+    {
+      "id": 12,
+      "name": "notifications revoked: bridge_notifications_off shown",
+      "status": "pass",
+      "note": "notice bridge_notifications_off shown with a request pending, no notification posted, the pending request's sheet is offered when the wallet is opened; result after Approve: pass",
+      "ms": 48056
+    },
+    {
+      "id": 14,
+      "name": "plaintext check in logcat",
+      "status": "pass",
+      "note": "logcat since the start of the run (69691 lines, 7 epochs launched): no k=, n=, launched epoch, e=<uuid>, reconnect token or binding header anywhere, system lines included",
+      "ms": 272
+    },
+    {
+      "id": 15,
+      "name": "later-prompt attention notification",
+      "status": "pass",
+      "note": "generic text \"A website wants to continue. Tap to review.\", no origin anywhere in the record, vis=PRIVATE with a public version; tapping it showed the sheet (bridge-approve); request result after Approve: pass",
+      "ms": 19055
+    },
+    {
+      "id": 16,
+      "name": "return to browser after the last pending item",
+      "status": "pass",
+      "note": "after the last Approve of a trampoline-raised wallet, Chrome is the top resumed activity 1416 ms after the tap; control: raised by the attention notification, the wallet stays (top org.bsvblockchain.wallet)",
+      "ms": 48245
+    },
+    {
+      "id": 17,
+      "name": "Disconnect from the service notification",
+      "status": "pass",
+      "note": "the page's next call: ERR getVersion -> CONNECTION_CLOSED (delivery unknown): The wallet did not answer; BridgeService no longer listed",
+      "ms": 10713
+    },
+    {
+      "id": 13,
+      "name": "incognito tab",
+      "status": "pass",
+      "note": "Incognito tab (Incognito new tab page seen, then localhost:3001 loaded), Open wallet tapped for real: 0 trampoline starts, the wallet did not come forward (top com.android.chrome), no wallet process; control, same tap in a normal tab: 1 trampoline start(s). Screen capture of Incognito is blank (FLAG_SECURE)",
+      "ms": 45386
+    }
+  ],
+  "gates": []
+}

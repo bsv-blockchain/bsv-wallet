@@ -1,0 +1,433 @@
+# Spike S4 scratch diff. Part 1: the kit (bsv-wallet worktree, packages/expo-android-wallet-bridge). Part 2: the host (bitcoin-sv-wallet worktree android-bridge).
+# Not for commit: everything here is throwaway spike code. Apply part 1 with 'git apply' in the bsv-wallet root, part 2 in the host root.
+#
+# ===== PART 1: kit =====
+diff --git a/packages/expo-android-wallet-bridge/android/build.gradle b/packages/expo-android-wallet-bridge/android/build.gradle
+index 1b30d3c7..0ee8d517 100644
+--- a/packages/expo-android-wallet-bridge/android/build.gradle
++++ b/packages/expo-android-wallet-bridge/android/build.gradle
+@@ -16,5 +16,6 @@ android {
+ }
+ 
+ dependencies {
++  compileOnly 'com.facebook.react:react-android'
+   testImplementation 'junit:junit:4.13.2'
+ }
+diff --git a/packages/expo-android-wallet-bridge/android/src/main/AndroidManifest.xml b/packages/expo-android-wallet-bridge/android/src/main/AndroidManifest.xml
+index b407b9d5..85ede3e1 100644
+--- a/packages/expo-android-wallet-bridge/android/src/main/AndroidManifest.xml
++++ b/packages/expo-android-wallet-bridge/android/src/main/AndroidManifest.xml
+@@ -16,6 +16,16 @@
+       android:noHistory="true"
+       android:taskAffinity="" />
+ 
++    <activity
++      android:name="org.bsv.walletbridge.BridgeSheetActivity"
++      android:exported="false"
++      android:launchMode="singleTask"
++      android:taskAffinity="${applicationId}.bridge"
++      android:excludeFromRecents="true"
++      android:windowSoftInputMode="adjustResize"
++      android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize|locale|layoutDirection"
++      android:theme="@style/Theme.BsvBridgeSheet" />
++
+     <service
+       android:name="org.bsv.walletbridge.BridgeService"
+       android:exported="false"
+diff --git a/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/BridgeSheetActivity.kt b/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/BridgeSheetActivity.kt
+new file mode 100644
+index 00000000..7784394d
+--- /dev/null
++++ b/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/BridgeSheetActivity.kt
+@@ -0,0 +1,59 @@
++package org.bsv.walletbridge
++
++import android.content.Intent
++import android.os.Bundle
++import com.facebook.react.ReactActivity
++import com.facebook.react.ReactActivityDelegate
++import com.facebook.react.ReactApplication
++import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
++import com.facebook.react.defaults.DefaultReactActivityDelegate
++
++/** SPIKE S4 (scratch): the "hello" sheet on a second React root of the shared host. */
++class BridgeSheetActivity : ReactActivity() {
++  override fun onCreate(savedInstanceState: Bundle?) {
++    S4.sheet = this
++    super.onCreate(null)
++  }
++
++  override fun getMainComponentName(): String = "BsvBridgeSheet"
++
++  override fun createReactActivityDelegate(): ReactActivityDelegate =
++    object : DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled) {
++      override fun onResume() {
++        S4.log("delegate[sheet#${System.identityHashCode(this@BridgeSheetActivity)}].onResume -> reactHost.onHostResume")
++        super.onResume()
++      }
++
++      override fun onPause() {
++        S4.log("delegate[sheet#${System.identityHashCode(this@BridgeSheetActivity)}].onPause -> reactHost.onHostPause")
++        super.onPause()
++      }
++
++      override fun onDestroy() {
++        val id = System.identityHashCode(this@BridgeSheetActivity)
++        if (S4.prop("skipdestroy") && S4.mainAlive) {
++          S4.log("delegate[sheet#$id].onDestroy VARIANT: unloadApp only, reactHost.onHostDestroy SKIPPED (mainAlive)")
++          reactDelegate?.unloadApp()
++        } else {
++          S4.log("delegate[sheet#$id].onDestroy -> reactHost.onHostDestroy")
++          super.onDestroy()
++        }
++      }
++    }
++
++  override fun onNewIntent(intent: Intent) {
++    S4.log("sheet.onNewIntent data=${intent.data} seq=${intent.getIntExtra(LaunchTrampolineActivity.EXTRA_SEQ, -1)}")
++    setIntent(Intent())
++    super.onNewIntent(intent)
++  }
++
++  override fun onBackPressed() {
++    S4.log("sheet.onBackPressed (native) variantFinish=${S4.prop("back")}")
++    if (S4.prop("back")) finish() else super.onBackPressed()
++  }
++
++  override fun onDestroy() {
++    if (S4.sheet === this) S4.sheet = null
++    super.onDestroy()
++  }
++}
+diff --git a/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/BsvAndroidBridgeModule.kt b/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/BsvAndroidBridgeModule.kt
+index 5ed23d4a..8976a31e 100644
+--- a/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/BsvAndroidBridgeModule.kt
++++ b/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/BsvAndroidBridgeModule.kt
+@@ -52,7 +52,14 @@ class BsvAndroidBridgeModule : Module() {
+ 
+     Events("onRequest", "onClientGone", "onServerStopped", "onLaunch", "onTimer")
+ 
+-    OnCreate { BridgeState.sink = sink }
++    OnCreate {
++      BridgeState.sink = sink
++      S4.onModuleCreate(appContext)
++    }
++
++    Function("s4FinishSheet") { S4.finishSheet() }
++
++    Function("s4Status") { S4.status() }
+ 
+     OnDestroy {
+       if (BridgeState.sink === sink) BridgeState.sink = null
+diff --git a/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/LaunchTrampolineActivity.kt b/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/LaunchTrampolineActivity.kt
+index 43df20e4..492cd48d 100644
+--- a/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/LaunchTrampolineActivity.kt
++++ b/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/LaunchTrampolineActivity.kt
+@@ -29,12 +29,16 @@ class LaunchTrampolineActivity : Activity() {
+     val uri = LaunchIntent.validate(data, scheme) ?: return
+     val seq = BridgeState.launchStore.put(uri)
+     if (BridgeState.startThrottle.shouldStart()) {
+-      val next = packageManager.getLaunchIntentForPackage(packageName)
++      val warm = S4.mainAlive
++      S4.log("trampoline: seq=$seq warm=$warm")
++      val next =
++        if (warm) Intent(this, BridgeSheetActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
++        else packageManager.getLaunchIntentForPackage(packageName)
+       if (next != null) {
+         next.data = null
+         next.putExtra(EXTRA_SEQ, seq)
+         next.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+-        BridgeState.raisedByBridge = true
++        BridgeState.raisedByBridge = !warm
+         try {
+           startActivity(next)
+         } catch (e: Exception) {
+diff --git a/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/S4.kt b/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/S4.kt
+new file mode 100644
+index 00000000..129b0814
+--- /dev/null
++++ b/packages/expo-android-wallet-bridge/android/src/main/kotlin/org/bsv/walletbridge/S4.kt
+@@ -0,0 +1,85 @@
++package org.bsv.walletbridge
++
++import android.app.Activity
++import android.app.Application
++import android.os.Bundle
++import android.util.Log
++import com.facebook.react.bridge.LifecycleEventListener
++import com.facebook.react.bridge.ReactContext
++import expo.modules.kotlin.AppContext
++
++/** SPIKE S4 (scratch): a minimal LifecycleTracker plus logging of Activity and React host lifecycle (tag BsvS4). */
++object S4 {
++  const val TAG = "BsvS4"
++  @Volatile var mainAlive = false
++  @Volatile var sheet: Activity? = null
++  private var registered = false
++  private val listened = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Any, Boolean>())
++
++  fun log(m: String) {
++    Log.i(TAG, m)
++  }
++
++  private fun name(a: Activity) = "${a.javaClass.simpleName}#${System.identityHashCode(a)}(task=${a.taskId})"
++  private fun isMain(a: Activity) = a.javaClass.name.endsWith(".MainActivity")
++
++  fun onModuleCreate(ctx: AppContext) {
++    val rc = ctx.reactContext
++    val cur = ctx.currentActivity
++    log("module OnCreate: reactContext=${rc?.javaClass?.simpleName} currentActivity=${cur?.let { name(it) }} mainAlive(before)=$mainAlive")
++    val app = rc?.applicationContext as? Application
++    if (app != null && !registered) {
++      registered = true
++      app.registerActivityLifecycleCallbacks(
++        object : Application.ActivityLifecycleCallbacks {
++          override fun onActivityCreated(a: Activity, s: Bundle?) {
++            if (isMain(a)) mainAlive = true
++            log("activity.onCreate ${name(a)} saved=${s != null} mainAlive=$mainAlive")
++          }
++          override fun onActivityStarted(a: Activity) = log("activity.onStart ${name(a)}")
++          override fun onActivityResumed(a: Activity) {
++            if (isMain(a)) mainAlive = true
++            log("activity.onResume ${name(a)} mainAlive=$mainAlive")
++          }
++          override fun onActivityPaused(a: Activity) = log("activity.onPause ${name(a)}")
++          override fun onActivityStopped(a: Activity) = log("activity.onStop ${name(a)}")
++          override fun onActivitySaveInstanceState(a: Activity, o: Bundle) {}
++          override fun onActivityDestroyed(a: Activity) {
++            if (isMain(a)) mainAlive = false
++            log("activity.onDestroy ${name(a)} mainAlive=$mainAlive")
++          }
++        }
++      )
++    }
++    // catch-up: the module is created after MainActivity.onCreate on a cold start
++    if (cur != null && isMain(cur) && !mainAlive) {
++      mainAlive = true
++      log("catch-up: MainActivity ${name(cur)} was already alive when the tracker registered")
++    }
++    if (rc is ReactContext && listened.add(rc)) {
++      rc.addLifecycleEventListener(
++        object : LifecycleEventListener {
++          override fun onHostResume() = log("RN host.onHostResume currentActivity=${rc.currentActivity?.let { name(it) }} mainAlive=$mainAlive")
++          override fun onHostPause() = log("RN host.onHostPause currentActivity=${rc.currentActivity?.let { name(it) }} mainAlive=$mainAlive")
++          override fun onHostDestroy() = log("RN host.onHostDestroy currentActivity=${rc.currentActivity?.let { name(it) }} mainAlive=$mainAlive")
++        }
++      )
++      log("RN lifecycle listener attached")
++    }
++  }
++
++  fun prop(n: String): Boolean =
++    try {
++      val p = Runtime.getRuntime().exec(arrayOf("getprop", "debug.bsvs4.$n"))
++      p.inputStream.bufferedReader().readText().trim() == "1"
++    } catch (_: Exception) {
++      false
++    }
++
++  fun finishSheet() {
++    val s = sheet ?: return
++    s.runOnUiThread { s.finish() }
++  }
++
++  fun status() = mapOf("mainAlive" to mainAlive, "sheet" to (sheet != null))
++}
+diff --git a/packages/expo-android-wallet-bridge/android/src/main/res/values/styles.xml b/packages/expo-android-wallet-bridge/android/src/main/res/values/styles.xml
+new file mode 100644
+index 00000000..a60fe0c4
+--- /dev/null
++++ b/packages/expo-android-wallet-bridge/android/src/main/res/values/styles.xml
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++  <style name="Theme.BsvBridgeSheet" parent="Theme.AppCompat.DayNight.NoActionBar">
++    <item name="android:windowIsTranslucent">true</item>
++    <item name="android:windowBackground">@android:color/transparent</item>
++    <item name="android:windowNoTitle">true</item>
++    <item name="android:windowContentOverlay">@null</item>
++    <item name="android:windowAnimationStyle">@android:style/Animation.Translucent</item>
++  </style>
++</resources>
+
+# ===== PART 2: host =====
+diff --git a/app.config.js b/app.config.js
+index 7d5cb86..8cdbbf9 100644
+--- a/app.config.js
++++ b/app.config.js
+@@ -154,10 +154,6 @@ module.exports = () => ({
+     // Safari bridge (@bsv/expo-safari-wallet-bridge): the Safari Web Extension, the App Group and the bridge
+     // keychain group. The team id is eas.json's submit profile. The development profile also lets the
+     // extension talk to http://localhost pages; EAS preview and production builds never get it.
+-    [
+-      '@bsv/expo-safari-wallet-bridge/app.plugin',
+-      { appleTeamId: 'SV8SWTHA2H', extensionName: 'Bitcoin SV Wallet', profile: bridgeProfile }
+-    ],
+     // Android bridge (@bsv/expo-android-wallet-bridge): the launch trampoline's one intent filter, for the
+     // bsv-wallet-bridge:// scheme a page in Chrome opens. A plain plugin (like the Safari one), not legacyPlugin.
+     ['@bsv/expo-android-wallet-bridge', { scheme: 'bsv-wallet-bridge' }],
+diff --git a/app/+native-intent.ts b/app/+native-intent.ts
+index 88c15e2..d218dda 100644
+--- a/app/+native-intent.ts
++++ b/app/+native-intent.ts
+@@ -28,6 +28,7 @@ const BRIDGE_LINK = new RegExp(`^${legacyApp.expo.ios.bundleIdentifier.replace(/
+ const ANDROID_BRIDGE_LINK = /^bsv-wallet-bridge:\/\//i
+ 
+ export function redirectSystemPath({ path }: { path: string; initial: boolean }) {
++  console.log('S4 redirectSystemPath: ' + String(path).split('?')[0] + ' hasK=' + /[?&]k=/.test(String(path)))
+   if (DEV_CLIENT_LINK.test(path ?? '')) return '/'
+   if (BRIDGE_LINK.test(path ?? '')) return '/'
+   if (ANDROID_BRIDGE_LINK.test(path ?? '')) return '/'
+diff --git a/index.js b/index.js
+index 7db4236..c7bb4ba 100644
+--- a/index.js
++++ b/index.js
+@@ -137,5 +137,72 @@ if (Platform.OS === 'android') {
+ // screen has: the wallet build waits on them.
+ require('@bsv/expo-wallet-toolbox/core/context/startupPrewarm').prewarmStartup()
+ 
++// SCRATCH S4: a minimal second React root ("hello" sheet) registered before the router entry.
++if (Platform.OS === 'android') {
++  const React = require('react')
++  const { AppRegistry, AppState, Text, View, Pressable, useColorScheme, Linking } = require('react-native')
++  const sig = () => `${AppState.currentState}`
++  console.log('S4 index.js evaluated, AppState=' + sig())
++  AppState.addEventListener('change', s => console.log('S4 AppState change -> ' + s))
++  Linking.addEventListener('url', e => console.log('S4 Linking url event: ' + String(e.url).split('?')[0] + ' hasK=' + /[?&]k=/.test(String(e.url))))
++  Linking.getInitialURL().then(u => console.log('S4 Linking initial url: ' + String(u).split('?')[0] + ' hasK=' + /[?&]k=/.test(String(u))))
++  let native = null
++  try {
++    native = require('expo-modules-core').requireNativeModule('BsvAndroidBridge')
++  } catch (e) {
++    console.log('S4 native module unavailable ' + e)
++  }
++  let instance = 0
++  function Hello() {
++    const [n] = React.useState(() => ++instance)
++    const scheme = useColorScheme()
++    const [dim, setDim] = React.useState(0.9)
++    const [as, setAs] = React.useState(AppState.currentState)
++    let themed = 'n/a'
++    let themeColor = '#000'
++    try {
++      const t = require('@bsv/expo-wallet-toolbox').useTheme()
++      themeColor = t.colors.textPrimary
++      themed = 'useTheme default textPrimary=' + t.colors.textPrimary + ' bg=' + t.colors.background
++    } catch (e) {
++      themed = 'useTheme threw ' + e
++    }
++    let walletCtx = 'n/a'
++    try {
++      const w = React.useContext(require('@bsv/expo-wallet-toolbox/core/context/WalletContext').WalletContext)
++      walletCtx = 'WalletContext managers=' + Object.keys(w.managers || {}).length + ' (0 = default, unrelayed)'
++    } catch (e) {
++      walletCtx = 'WalletContext threw ' + e
++    }
++    React.useEffect(() => {
++      console.log('S4 Hello mounted instance=' + n + ' scheme=' + scheme)
++      const sub = AppState.addEventListener('change', s => {
++        console.log('S4 Hello AppState listener -> ' + s + ' instance=' + n)
++        setAs(s)
++      })
++      return () => {
++        console.log('S4 Hello unmounted instance=' + n)
++        sub.remove()
++      }
++    }, [])
++    return React.createElement(
++      View,
++      { testID: 'bridge-sheet-root', style: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,' + dim + ')' } },
++      React.createElement(
++        View,
++        { style: { padding: 24, minHeight: 320, backgroundColor: scheme === 'dark' ? '#202020' : '#ffffff' } },
++        React.createElement(Text, { testID: 's4-hello', style: { fontSize: 28, color: scheme === 'dark' ? '#fff' : '#000' } }, 'hello'),
++        React.createElement(Text, { testID: 's4-info', style: { color: scheme === 'dark' ? '#fff' : '#000' } }, 'scheme=' + scheme + ' appstate=' + as + ' root#' + n),
++        React.createElement(Text, { testID: 's4-themed', style: { color: themeColor } }, themed),
++        React.createElement(Text, { testID: 's4-walletctx', style: { color: scheme === 'dark' ? '#fff' : '#000' } }, walletCtx),
++        React.createElement(Pressable, { testID: 's4-dim', onPress: () => setDim(d => (d > 0.5 ? 0.3 : 0.9)), style: { padding: 12 } }, React.createElement(Text, { style: { color: '#06c' } }, 'toggle scrim')),
++        React.createElement(Pressable, { testID: 's4-close', onPress: () => native && native.s4FinishSheet(), style: { padding: 12 } }, React.createElement(Text, { style: { color: '#06c' } }, 'close sheet'))
++      )
++    )
++  }
++  require('react-native').BackHandler.addEventListener('hardwareBackPress', () => { console.log('S4 hardwareBackPress reached JS (sheet-root listener, returns false)'); return false })
++  AppRegistry.registerComponent('BsvBridgeSheet', () => Hello)
++}
++
+ // Required after the seams above: static imports would run first.
+ require('expo-router/entry')
+diff --git a/metro.config.js b/metro.config.js
+index b873fdd..46f62ea 100644
+--- a/metro.config.js
++++ b/metro.config.js
+@@ -20,8 +20,7 @@ config.transformer.getTransformOptions = async (...args) => {
+ const existingBlockList = config.resolver.blockList
+ config.resolver.blockList = [
+   ...(Array.isArray(existingBlockList) ? existingBlockList : existingBlockList ? [existingBlockList] : []),
+-  /\/\.claude\/worktrees\/.*/,
+-  /\/\.worktrees\/.*/,
++  new RegExp(`^${projectRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/\\.(claude/)?worktrees/.*`),
+   /\/ios\/Pods\/.*/,
+   new RegExp(`^${projectRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(ios|android)/.*`)
+ ]
+diff --git a/package.json b/package.json
+index c6e5df7..7f4a7c7 100644
+--- a/package.json
++++ b/package.json
+@@ -127,7 +127,8 @@
+     "react-native-worklets": "0.10.1",
+     "react-native-yubikey": "file:./packages/react-native-yubikey",
+     "stream-browserify": "^3.0.0",
+-    "watchman": "^1.0.0"
++    "watchman": "^1.0.0",
++    "@bsv/expo-android-wallet-bridge": "0.0.0"
+   },
+   "devDependencies": {
+     "@babel/core": "^7.25.2",
+diff --git a/src/notify/NotifyPrompt.tsx b/src/notify/NotifyPrompt.tsx
+index 7847fda..7d3abbc 100644
+--- a/src/notify/NotifyPrompt.tsx
++++ b/src/notify/NotifyPrompt.tsx
+@@ -33,7 +33,11 @@ export function usePushPermission() {
+   }, [adapter])
+   useEffect(() => {
+     void read()
+-    const sub = AppState.addEventListener('change', s => s === 'active' && void read())
++    console.log('S4 NotifyPrompt effect mount')
++    const sub = AppState.addEventListener('change', s => {
++      console.log('S4 NotifyPrompt AppState -> ' + s)
++      if (s === 'active') void read()
++    })
+     return () => sub.remove()
+   }, [read])
+   const request = useCallback(async () => {
+diff --git a/src/requests/useRequests.ts b/src/requests/useRequests.ts
+index e724737..9cb4999 100644
+--- a/src/requests/useRequests.ts
++++ b/src/requests/useRequests.ts
+@@ -260,7 +260,11 @@ export function RequestsBridge() {
+     const look = () => void check()
+     lookers.add(look)
+     const timer = setInterval(() => void check(), POLL_MS)
+-    const sub = AppState.addEventListener('change', s => s === 'active' && void check())
++    console.log('S4 useRequests effect mount')
++    const sub = AppState.addEventListener('change', s => {
++      console.log('S4 useRequests AppState -> ' + s)
++      if (s === 'active') void check()
++    })
+     return () => {
+       live = false
+       lookers.delete(look)
+diff --git a/src/vault/useVaultKeys.ts b/src/vault/useVaultKeys.ts
+index 70619ea..b535e86 100644
+--- a/src/vault/useVaultKeys.ts
++++ b/src/vault/useVaultKeys.ts
+@@ -224,7 +224,9 @@ export function useVaultKeys() {
+       }
+     }
+     const timer = setInterval(reconcile, REMOVAL_RECHECK_MS)
++    console.log('S4 useVaultKeys foreground listener mount')
+     const foreground = AppState.addEventListener('change', next => {
++      console.log('S4 useVaultKeys AppState -> ' + next)
+       if (next === 'active') reconcile()
+     })
+     return () => {

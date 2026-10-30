@@ -1,0 +1,6 @@
+logcat lines: 69691
+epochs launched in this run: 7
+lines with k=<43>: 0
+lines with n=<22>: 0
+lines naming a launched epoch or e=<uuid>: 0
+lines naming a token or binding header: 0

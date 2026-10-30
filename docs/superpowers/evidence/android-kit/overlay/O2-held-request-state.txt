@@ -1,0 +1,4 @@
+resumed: org.bsvblockchain.wallet/org.bsv.walletbridge.BridgeSheetActivity
+top: org.bsvblockchain.wallet/org.bsv.walletbridge.BridgeSheetActivity
+sheet window flags: LAYOUT_IN_SCREEN SECURE LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+bridge-approve nodes: 1

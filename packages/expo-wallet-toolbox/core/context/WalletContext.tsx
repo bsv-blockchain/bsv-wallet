@@ -17,6 +17,11 @@ import { KeyDeriver, PrivateKey, MerklePath, Transaction, Utils } from '@bsv/sdk
 import { DEFAULT_SETTINGS } from './defaultWalletSettings'
 import { conformWalletResults } from '../services/conformWalletResults'
 import { SigningPolicyPermissionsManager } from '../services/signingPermissionPolicy'
+import {
+  guardTokenPromptHandlers,
+  handleSpendingPrompt,
+  withdrawPrompts as withdrawPromptsFrom
+} from '../services/permissionPrompts'
 import { VAULT_RETENTION_MS, ceremony as vaultCeremony } from '../services/vault/ceremonyHost'
 import { getVaultDriver } from '../services/vault/driver'
 import { backupAttestation } from '../services/vault/backupAttestation'
@@ -127,6 +132,10 @@ function disposeColorModule(ref: { current: BuiltColorModule | undefined }): voi
 }
 
 import type { AppChain } from '../config'
+import { effectiveUnverified, loadStoredPolicy, resolvePermissionPolicy } from '../bridge/permissionPolicy'
+import { notifyPromptRaised } from '../bridge/runtime'
+import { hasUnattestedTransport, onUnattestedTransportChange } from '../bridge/runtimeFlags'
+import { buildUnverifiedPermissionsManager } from '../bridge/unverifiedManager'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
 import { NETWORKS, isAppChain } from '../networks'
 import { getBackupUrl, getHandleRegistryConfig, getMandalaEndpoints, getPushAdapter } from '../toolboxConfig'
@@ -159,7 +168,7 @@ import {
 import type { MandalaRuntime } from '../mandala/runtime'
 import { mandalaSettlementDeps, type CancelParkedSettlementDeps } from '../offline/cancelParked'
 import { drainMandalaInbox } from '../pay/rails/handle'
-import { disconnectActivePairedSession } from './WalletConnectionContext'
+import { runSessionTeardown } from './sessionTeardown'
 import connectionStore from '../stores/ConnectionStore'
 import { loadUserAvatarIcon } from '../userAvatar'
 import { createServices, chaintracksUrlFor } from '../services/walletServiceConfig'
@@ -371,6 +380,15 @@ const profilePurgeIo: PurgeProfileIo = {
 interface ManagerState {
   walletManager?: SimpleWalletManager
   permissionsManager?: WalletPermissionsManager
+  /** The attested manager itself, before the guard and conformance wrappers
+   * `permissionsManager` carries. What `withdrawPrompts` retires. */
+  signingPermissionsManager?: SigningPolicyPermissionsManager
+  /** The manager for unverified (unattested) browser origins, behind the same wrapper stack as
+   * `permissionsManager`. Present only when a transport that can deliver unattested calls was
+   * registered when the wallet was built (spec 6.5). */
+  unverifiedPermissionsManager?: WalletPermissionsManager
+  /** The unverified manager itself, before its wrappers. What `withdrawPrompts` retires. */
+  unverifiedSigningPermissionsManager?: SigningPolicyPermissionsManager
   settingsManager?: WalletSettingsManager
 }
 
@@ -441,13 +459,23 @@ export interface WalletContextValue {
   groupRequests: GroupPermissionRequest[]
   btmsRequests: BtmsRequest[]
   mandalaRequests: MandalaRequest[]
-  advanceBasketQueue: () => void
-  advanceCertificateQueue: () => void
-  advanceProtocolQueue: () => void
-  advanceSpendingQueue: () => void
-  advanceGroupQueue: () => void
+  advanceBasketQueue: (requestID?: string) => void
+  advanceCertificateQueue: (requestID?: string) => void
+  advanceProtocolQueue: (requestID?: string) => void
+  advanceSpendingQueue: (requestID?: string) => void
+  advanceGroupQueue: (requestID?: string) => void
   advanceBtmsQueue: (approved: boolean) => void
   advanceMandalaQueue: (approved: boolean) => void
+  /**
+   * Retires the given (replaced) managers, denies what they still hold and
+   * empties every permission queue. Idempotent. Runs by itself on every
+   * teardown the context performs; the bridge runtime calls it for a wallet it
+   * sees replaced some other way.
+   */
+  withdrawPrompts: (oldManagers: SigningPolicyPermissionsManager[]) => void
+  /** Registers something else to clear on a withdrawal (pending connection
+   * requests). Returns the unregister function. */
+  registerPromptWithdrawal: (clear: () => void) => () => void
   finalizeConfig: (wabConfig: WABConfig) => boolean
   setConfigStatus: (status: ConfigStatus) => void
   configStatus: ConfigStatus
@@ -587,6 +615,8 @@ export const WalletContext = createContext<WalletContextValue>({
   advanceGroupQueue: () => {},
   advanceBtmsQueue: () => {},
   advanceMandalaQueue: () => {},
+  withdrawPrompts: () => {},
+  registerPromptWithdrawal: () => () => {},
   finalizeConfig: () => false,
   setConfigStatus: () => {},
   configStatus: 'initial',
@@ -653,7 +683,12 @@ export const useWalletManagers = (): WalletManagersSlice => useContext(WalletMan
 
 type PermissionType = 'identity' | 'protocol' | 'renewal' | 'basket'
 
-type BasketAccessRequest = {
+/** Each prompt callback is bound per manager and each queue item records the
+ * manager that raised it; the sheet answers that manager, never whichever one
+ * is current, so a stale answer cannot reach a replacement. */
+type RaisedBy = { manager?: SigningPolicyPermissionsManager }
+
+type BasketAccessRequest = RaisedBy & {
   requestID: string
   basket?: string
   originator: string
@@ -661,7 +696,7 @@ type BasketAccessRequest = {
   renewal?: boolean
 }
 
-type CertificateAccessRequest = {
+type CertificateAccessRequest = RaisedBy & {
   requestID: string
   certificate?: {
     certType?: string
@@ -673,7 +708,7 @@ type CertificateAccessRequest = {
   renewal?: boolean
 }
 
-type ProtocolAccessRequest = {
+type ProtocolAccessRequest = RaisedBy & {
   requestID: string
   protocolSecurityLevel: number
   protocolID: string
@@ -687,7 +722,7 @@ type ProtocolAccessRequest = {
   type?: PermissionType
 }
 
-type SpendingRequest = {
+type SpendingRequest = RaisedBy & {
   requestID: string
   originator: string
   description?: string
@@ -701,7 +736,7 @@ type SpendingRequest = {
 
 /** A site's grouped permission request, from its manifest's
  * `metanet.groupPermissions` (WalletPermissionsManager.waitForAuthentication). */
-export type GroupPermissionRequest = {
+export type GroupPermissionRequest = RaisedBy & {
   requestID: string
   originator: string
   permissions: {
@@ -1101,7 +1136,13 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     setSpendingAuthorizationModalOpen
   } = useContext(UserContext)
 
-  const focusOpts = { isFocused, onFocusRequested, onFocusRelinquished }
+  // A prompt raised for a connected site while the app is in the background must pull the user to
+  // the sheet; the bridge decides whether that applies (live binding of this originator, not active).
+  const notePromptRaised = useCallback((item: unknown) => {
+    const originator = (item as { originator?: unknown } | null)?.originator
+    if (typeof originator === 'string') notifyPromptRaised(originator)
+  }, [])
+  const focusOpts = { isFocused, onFocusRequested, onFocusRelinquished, onEnqueue: notePromptRaised }
 
   const basketQueue = usePermissionQueue<BasketAccessRequest>({
     ...focusOpts,
@@ -1160,6 +1201,70 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     [mandalaQueue.enqueue]
   )
 
+  // The five manager-backed queues answer by identity: with a requestID only
+  // that item is removed, and nothing if it is no longer queued (a withdrawal
+  // emptied the queue while the user's answer was on its way).
+  const advanceBasketQueue = useCallback(
+    (requestID?: string) => basketQueue.advance(undefined, requestID),
+    [basketQueue.advance]
+  )
+  const advanceCertificateQueue = useCallback(
+    (requestID?: string) => certificateQueue.advance(undefined, requestID),
+    [certificateQueue.advance]
+  )
+  const advanceProtocolQueue = useCallback(
+    (requestID?: string) => protocolQueue.advance(undefined, requestID),
+    [protocolQueue.advance]
+  )
+  const advanceSpendingQueue = useCallback(
+    (requestID?: string) => spendingQueue.advance(undefined, requestID),
+    [spendingQueue.advance]
+  )
+  const advanceGroupQueue = useCallback(
+    (requestID?: string) => groupQueue.advance(undefined, requestID),
+    [groupQueue.advance]
+  )
+
+  const promptWithdrawalsRef = useRef(new Set<() => void>())
+  const registerPromptWithdrawal = useCallback((clear: () => void) => {
+    promptWithdrawalsRef.current.add(clear)
+    return () => {
+      promptWithdrawalsRef.current.delete(clear)
+    }
+  }, [])
+  const withdrawPrompts = useCallback(
+    (oldManagers: SigningPolicyPermissionsManager[]) => {
+      withdrawPromptsFrom(oldManagers, {
+        managerQueues: [basketQueue, certificateQueue, protocolQueue, spendingQueue, groupQueue],
+        tokenQueues: [btmsQueue, mandalaQueue],
+        others: [...promptWithdrawalsRef.current]
+      })
+    },
+    [
+      basketQueue.clear,
+      certificateQueue.clear,
+      protocolQueue.clear,
+      spendingQueue.clear,
+      groupQueue.clear,
+      btmsQueue.clear,
+      mandalaQueue.clear
+    ]
+  )
+  // Teardown paths are declared far from here and must not re-create on every
+  // queue change, so they reach the current function through a ref.
+  const withdrawPromptsRef = useRef(withdrawPrompts)
+  withdrawPromptsRef.current = withdrawPrompts
+  /** Withdraws the prompts of the managers currently published, before the
+   * wallet they belong to is torn down. */
+  const withdrawCurrentPrompts = useCallback(() => {
+    const { signingPermissionsManager, unverifiedSigningPermissionsManager } = managersRef.current
+    withdrawPromptsRef.current(
+      [signingPermissionsManager, unverifiedSigningPermissionsManager].filter(
+        (m): m is SigningPolicyPermissionsManager => m !== undefined
+      )
+    )
+  }, [])
+
   const updateSettings = useCallback(
     async (newSettings: WalletSettings) => {
       setSettings(newSettings)
@@ -1176,7 +1281,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         originator: string
         reason?: string
         renewal?: boolean
-      }
+      },
+      manager?: SigningPolicyPermissionsManager
     ) => {
       if (incomingRequest?.requestID) {
         basketQueue.enqueue({
@@ -1184,7 +1290,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           basket: incomingRequest.basket,
           originator: incomingRequest.originator,
           reason: incomingRequest.reason,
-          renewal: incomingRequest.renewal
+          renewal: incomingRequest.renewal,
+          manager
         })
       }
     },
@@ -1203,7 +1310,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         originator: string
         reason?: string
         renewal?: boolean
-      }
+      },
+      manager?: SigningPolicyPermissionsManager
     ) => {
       if (incomingRequest?.requestID) {
         const certificate = incomingRequest.certificate as any
@@ -1214,7 +1322,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           certificateType: certificate?.certType || '',
           fieldsArray: certificate?.fields || [],
           description: incomingRequest.reason,
-          renewal: incomingRequest.renewal
+          renewal: incomingRequest.renewal,
+          manager
         } as any)
       }
     },
@@ -1222,7 +1331,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   )
 
   const protocolPermissionCallback = useCallback(
-    (args: PermissionRequest & { requestID: string }): Promise<void> => {
+    (args: PermissionRequest & { requestID: string }, manager?: SigningPolicyPermissionsManager): Promise<void> => {
       const { requestID, counterparty, originator, reason, renewal, protocolID } = args
       const keyID = (args as { keyID?: unknown }).keyID
       if (!requestID || !protocolID) return Promise.resolve()
@@ -1243,7 +1352,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         originator,
         description: reason,
         renewal,
-        type: permissionType
+        type: permissionType,
+        manager
       })
       return Promise.resolve()
     },
@@ -1251,67 +1361,46 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   )
 
   const spendingAuthorizationCallback = useCallback(
-    async (args: PermissionRequest & { requestID: string }): Promise<void> => {
-      const { requestID, originator, reason, renewal, spending } = args
-      if (!requestID || !spending) return
-
+    async (
+      args: PermissionRequest & { requestID: string },
+      manager?: SigningPolicyPermissionsManager
+    ): Promise<void> => {
       // Auto-approve small transactions if within threshold, per-originator
       // cooldown, and the global rolling 24h cap (misc-p2-04) — accounting
       // lives in autoApprovePolicy.ts. Read the persisted threshold fresh on
       // every request so a change made in wallet-config takes effect
       // immediately (the mount-time ref read alone left the old value live
       // until app restart — felt like auto-approve was "stuck on").
-      try {
-        const stored = await AsyncStorage.getItem(profileScopedKey(AUTO_APPROVE_STORAGE_KEY))
-        // Unset means this profile never chose one: the default, never another profile's.
-        autoApproveThresholdRef.current = stored !== null ? Number(stored) || 0 : DEFAULT_AUTO_APPROVE_THRESHOLD
-      } catch {}
-      const threshold = autoApproveThresholdRef.current
-      autoApproveThresholdSnapshot = threshold
-      // Logging gated behind __DEV__: an unconditional console.log here flushes
-      // over the JS↔native bridge on every spend request — i.e. on the payment
-      // hot path — and shows up as jank under any burst of micropayments.
-      const autoApproveDecision = autoApprovePolicy.shouldAutoApprove({
-        originator,
-        satoshis: spending.satoshis
-      })
-      if (autoApproveDecision.approve) {
-        autoApprovePolicy.record({ originator, satoshis: spending.satoshis, at: Date.now() })
-        persistAutoApproveLedger()
-        if (__DEV__) console.log(`[spend-auth] AUTO-APPROVING requestID=${requestID} sats=${spending.satoshis}`)
-        managersRef.current.permissionsManager?.grantPermission({
-          requestID,
-          ephemeral: true,
-          amount: spending.satoshis
-        })
-        return
-      }
-      if (__DEV__) {
-        console.log(
-          `[spend-auth] not eligible (${autoApproveDecision.reason}) → manual modal requestID=${requestID} sats=${spending.satoshis} threshold=${threshold}`
-        )
-      }
-
-      spendingQueue.enqueue({
-        requestID,
-        originator,
-        description: reason,
-        transactionAmount: 0,
-        totalPastSpending: 0,
-        amountPreviouslyAuthorized: 0,
-        authorizationAmount: spending.satoshis,
-        renewal,
-        lineItems: spending.lineItems || []
+      // The flow itself (including what a withdrawal during that read means)
+      // is handleSpendingPrompt's.
+      await handleSpendingPrompt<SpendingRequest>(args as never, manager, {
+        loadThreshold: async () => {
+          try {
+            const stored = await AsyncStorage.getItem(profileScopedKey(AUTO_APPROVE_STORAGE_KEY))
+            // Unset means this profile never chose one: the default, never another profile's.
+            autoApproveThresholdRef.current = stored !== null ? Number(stored) || 0 : DEFAULT_AUTO_APPROVE_THRESHOLD
+          } catch {}
+        },
+        decide: (originator, satoshis) => {
+          autoApproveThresholdSnapshot = autoApproveThresholdRef.current
+          return autoApprovePolicy.shouldAutoApprove({ originator, satoshis })
+        },
+        recordAutoApproved: (originator, satoshis) => {
+          autoApprovePolicy.record({ originator, satoshis, at: Date.now() })
+          persistAutoApproveLedger()
+        },
+        enqueue: spendingQueue.enqueue,
+        currentManager: () => managersRef.current.signingPermissionsManager
       })
     },
     [spendingQueue.enqueue]
   )
 
   const groupedPermissionCallback = useCallback(
-    async (args: GroupPermissionRequest): Promise<void> => {
+    async (args: GroupPermissionRequest, manager?: SigningPolicyPermissionsManager): Promise<void> => {
       const { requestID, originator, permissions } = args ?? ({} as GroupPermissionRequest)
       if (!requestID || !permissions) return
-      groupQueue.enqueue({ requestID, originator, permissions })
+      groupQueue.enqueue({ requestID, originator, permissions, manager })
     },
     [groupQueue.enqueue]
   )
@@ -1958,7 +2047,11 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
         // Create BTMS permission module, wiring in the prompt handler so that
         // "p btms" operations surface a UI modal rather than silently denying.
-        const btmsModule = loadBtmsPermissionModule().createBtmsModule({ wallet, promptHandler: btmsPromptHandler })
+        // Both token-module prompt functions are tied to this build: once its
+        // manager is retired (the wallet was replaced) they resolve false
+        // without enqueueing. The manager below retires them with itself.
+        const buildPrompts = guardTokenPromptHandlers({ btms: btmsPromptHandler, mandala: mandalaPromptHandler })
+        const btmsModule = loadBtmsPermissionModule().createBtmsModule({ wallet, promptHandler: buildPrompts.btms })
 
         // The BRC-207 color module (plan 07 Task 10): all token custody and
         // evidence, registered below as `permissionModules.color`, so every
@@ -1999,7 +2092,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                 wallet,
                 endpoints: mandalaEndpoints,
                 kv: phoneStorage,
-                requestTokenAccess: createColorAccessPolicy({ adminOriginator, prompt: mandalaPromptHandler })
+                requestTokenAccess: createColorAccessPolicy({ adminOriginator, prompt: buildPrompts.mandala })
               })
             } catch (error) {
               console.error('[WalletContext] could not build the color module; p color calls will be refused:', error)
@@ -2008,53 +2101,44 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           colorModule = colorRef.current?.module
         }
 
+        // The user's stored prompt policy for this profile (spec 6.5), authenticated by the admin
+        // key. It applies from this build on; absent or not authentic means the defaults.
+        const builtPolicy = resolvePermissionPolicy(
+          await loadStoredPolicy(profileScopedKey(''), wallet as never, adminOriginator)
+        )
+
         // Setup permissions with provided callbacks and BTMS module.
         const permissionsManager = new SigningPolicyPermissionsManager(wallet, adminOriginator, {
           differentiatePrivilegedOperations: true,
-          seekBasketInsertionPermissions: false,
-          seekBasketListingPermissions: false,
-          seekBasketRemovalPermissions: false,
-          seekCertificateAcquisitionPermissions: false,
-          seekCertificateDisclosurePermissions: false,
-          seekCertificateRelinquishmentPermissions: false,
-          seekCertificateListingPermissions: false,
-          // A site whose manifest declares metanet.groupPermissions is asked
-          // for them all in one sheet during waitForAuthentication. The request
-          // holds that origin's permission lock until answered, so it MUST be
-          // handled (onGroupedPermissionRequested, below) or the site hangs.
-          seekGroupedPermission: true,
-          seekPermissionsForIdentityKeyRevelation: false,
-          seekPermissionsForIdentityResolution: false,
-          seekPermissionsForKeyLinkageRevelation: false,
-          seekPermissionsForPublicKeyRevelation: false,
-          seekPermissionWhenApplyingActionLabels: false,
-          seekPermissionWhenListingActionsByLabel: false,
-          seekProtocolPermissionsForEncrypting: false,
-          seekProtocolPermissionsForHMAC: false,
-          // On, unlike Metanet Desktop: the vault guard no longer refuses
-          // external BRC-29 ([2,'3241645161d8']) signing outright, and that
-          // namespace also derives this wallet's own address-rail keys
-          // (counterparty 'anyone'), so a site signing under it must be
-          // asked first -- for BRC-29, on every signature. BRC-103/104 auth
-          // signing is exempt (SigningPolicyPermissionsManager).
-          seekProtocolPermissionsForSigning: true,
-          seekSpendingPermissions: true,
+          // The prompt settings live in core/bridge/permissionPolicy.ts (default: exactly the
+          // configuration this literal used to hold).
+          ...builtPolicy.verified,
           permissionModules: colorModule ? { btms: btmsModule, color: colorModule } : { btms: btmsModule }
         } as any)
 
-        if (protocolPermissionCallback) {
-          permissionsManager.bindCallback('onProtocolPermissionRequested', protocolPermissionCallback)
+        permissionsManager.onRetire(buildPrompts.retire)
+
+        const bindPromptCallbacks = (mgr: SigningPolicyPermissionsManager) => {
+          // Bound per manager: each queue item records the manager that raised
+          // it, and the sheet answers that one (see RaisedBy).
+          if (protocolPermissionCallback) {
+            mgr.bindCallback('onProtocolPermissionRequested', (args: any) => protocolPermissionCallback(args, mgr))
+          }
+          if (basketAccessCallback) {
+            mgr.bindCallback('onBasketAccessRequested', (args: any) => basketAccessCallback(args, mgr))
+          }
+          if (spendingAuthorizationCallback) {
+            mgr.bindCallback('onSpendingAuthorizationRequested', (args: any) =>
+              spendingAuthorizationCallback(args, mgr)
+            )
+          }
+          mgr.bindCallback('onGroupedPermissionRequested', ((args: any) => groupedPermissionCallback(args, mgr)) as any)
+          if (certificateAccessCallback) {
+            mgr.bindCallback('onCertificateAccessRequested', (args: any) => certificateAccessCallback(args, mgr))
+          }
         }
-        if (basketAccessCallback) {
-          permissionsManager.bindCallback('onBasketAccessRequested', basketAccessCallback)
-        }
-        if (spendingAuthorizationCallback) {
-          permissionsManager.bindCallback('onSpendingAuthorizationRequested', spendingAuthorizationCallback)
-        }
-        permissionsManager.bindCallback('onGroupedPermissionRequested', groupedPermissionCallback as any)
-        if (certificateAccessCallback) {
-          permissionsManager.bindCallback('onCertificateAccessRequested', certificateAccessCallback)
-        }
+        bindPromptCallbacks(permissionsManager)
+        newManagers.signingPermissionsManager = permissionsManager
 
         // Publish one idempotently guarded manager for both trusted in-app
         // Vault calls and external WalletClient calls; external call sites may
@@ -2085,15 +2169,29 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // `mandalaRef.current`, whose `undefined` also covers a runtime that
         // threw or is mid-rebuild, both of which can leave real journal rows
         // unreadable rather than absent.
-        newManagers.permissionsManager = guardVaultAccess(
-          wrapAbortActionForSettlements(
-            conformWalletResults(adminOriginator, permissionsManager),
-            () => mandalaRef.current?.journal,
-            () => mandalaEndpoints !== undefined
-          ),
-          adminOriginator,
-          { lookup: phoneStorage }
-        )
+        // The unverified manager gets the same stack (spec 6.5).
+        const guardedStack = (mgr: SigningPolicyPermissionsManager) =>
+          guardVaultAccess(
+            wrapAbortActionForSettlements(
+              conformWalletResults(adminOriginator, mgr),
+              () => mandalaRef.current?.journal,
+              () => mandalaEndpoints !== undefined
+            ),
+            adminOriginator,
+            { lookup: phoneStorage }
+          )
+        newManagers.permissionsManager = guardedStack(permissionsManager)
+
+        if (hasUnattestedTransport()) {
+          const unverified = buildUnverifiedPermissionsManager(
+            wallet,
+            adminOriginator,
+            effectiveUnverified(builtPolicy)
+          )
+          bindPromptCallbacks(unverified)
+          newManagers.unverifiedSigningPermissionsManager = unverified
+          newManagers.unverifiedPermissionsManager = guardedStack(unverified)
+        }
 
         // THE MANDALA RUNTIME'S ONE CONSTRUCTION SITE.
         //
@@ -3041,6 +3139,10 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
    * anything can resume against the departing wallet.
    */
   const teardownBuiltWallet = useCallback(async () => {
+    // Prompts raised by the departing wallet are withdrawn, and its managers
+    // retired, before anything yields: otherwise a sheet for it survives the
+    // switch and answering it throws on the new manager.
+    withdrawCurrentPrompts()
     // Invalidate Vault operations before the first teardown await. Otherwise a
     // signer/listing already in flight can resume against the departing wallet.
     vaultStore.clearScope()
@@ -3112,6 +3214,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       reviewImportedCoinsRef.current = opts?.reviewImportedCoins === true
       // Any build already in flight belongs to the configuration being replaced.
       const token = buildGenRef.current.bump()
+      // The bridge's bindings and published managers belong to the wallet being torn down: close
+      // and drop them before anything yields (spec G9), not when the next build publishes.
+      runSessionTeardown('rebuild')
       await teardownBuiltWallet()
 
       // Re-finalize with current config — triggers auto-build effect
@@ -3133,6 +3238,20 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     [selectedNetwork, teardownBuiltWallet, finalizeConfig, waitForRebuild]
   )
 
+  // A transport that can deliver unattested calls registered after this wallet was built: the
+  // unverified manager is made in the build, so build again to get it (spec 6.5). Normally the
+  // provider registers before the first build and this never fires.
+  const rebuildWalletRef = useRef(rebuildWallet)
+  rebuildWalletRef.current = rebuildWallet
+  useEffect(
+    () =>
+      onUnattestedTransportChange(present => {
+        if (!present || !walletBuiltRef.current || managersRef.current.unverifiedPermissionsManager) return
+        void rebuildWalletRef.current().catch(() => {})
+      }),
+    []
+  )
+
   // Switch network: tear down wallet, update config, and rebuild on new chain.
   // The network belongs to the active profile, so this changes that profile's.
   //
@@ -3145,6 +3264,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // The ref, not the state: the fallback below runs inside the same call.
       const from = selectedNetworkRef.current
       if (network === from || switchInFlightRef.current) return
+      runSessionTeardown('network')
       logWithTimestamp(F, `Switching network from ${from} to ${network}`)
       const token = buildGenRef.current.bump()
       // Same hold-off as switchProfile: no build may start on the old network
@@ -3226,7 +3346,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       let __tBuild = 0
       try {
         // Pairings belong to the departing identity.
-        disconnectActivePairedSession()
+        runSessionTeardown('profile')
         profileTransitionRef.current = true
         try {
           await teardownBuiltWallet()
@@ -3920,7 +4040,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     // XR-018: a live paired RPC socket otherwise outlives logout/wallet
     // deletion — the peer would keep dispatching allowlisted BRC-100 methods
     // against a wallet the user believes they've logged out of.
-    disconnectActivePairedSession()
+    runSessionTeardown('logout')
+    withdrawCurrentPrompts()
     // The IIFE's promise IS returned (unlike the old fire-and-forget version):
     // XR-107 needs the caller to await the verified outcome of the secret
     // erasure below, not just the synchronous kickoff. This does not
@@ -4589,13 +4710,15 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       groupRequests: groupQueue.requests,
       btmsRequests: btmsQueue.requests,
       mandalaRequests: mandalaQueue.requests,
-      advanceBasketQueue: basketQueue.advance,
-      advanceCertificateQueue: certificateQueue.advance,
-      advanceProtocolQueue: protocolQueue.advance,
-      advanceSpendingQueue: spendingQueue.advance,
-      advanceGroupQueue: groupQueue.advance,
+      advanceBasketQueue,
+      advanceCertificateQueue,
+      advanceProtocolQueue,
+      advanceSpendingQueue,
+      advanceGroupQueue,
       advanceBtmsQueue,
       advanceMandalaQueue,
+      withdrawPrompts,
+      registerPromptWithdrawal,
       finalizeConfig,
       setConfigStatus,
       configStatus,
@@ -4649,13 +4772,15 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       groupQueue.requests,
       btmsQueue.requests,
       mandalaQueue.requests,
-      basketQueue.advance,
-      certificateQueue.advance,
-      protocolQueue.advance,
-      spendingQueue.advance,
-      groupQueue.advance,
+      advanceBasketQueue,
+      advanceCertificateQueue,
+      advanceProtocolQueue,
+      advanceSpendingQueue,
+      advanceGroupQueue,
       advanceBtmsQueue,
       advanceMandalaQueue,
+      withdrawPrompts,
+      registerPromptWithdrawal,
       finalizeConfig,
       setConfigStatus,
       configStatus,
@@ -4760,11 +4885,11 @@ export interface WalletQueuesSlice {
   groupRequests: GroupPermissionRequest[]
   btmsRequests: BtmsRequest[]
   mandalaRequests: MandalaRequest[]
-  advanceBasketQueue: () => void
-  advanceCertificateQueue: () => void
-  advanceProtocolQueue: () => void
-  advanceSpendingQueue: () => void
-  advanceGroupQueue: () => void
+  advanceBasketQueue: (requestID?: string) => void
+  advanceCertificateQueue: (requestID?: string) => void
+  advanceProtocolQueue: (requestID?: string) => void
+  advanceSpendingQueue: (requestID?: string) => void
+  advanceGroupQueue: (requestID?: string) => void
   advanceBtmsQueue: (approved: boolean) => void
   advanceMandalaQueue: (approved: boolean) => void
 }

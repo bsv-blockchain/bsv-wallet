@@ -86,3 +86,26 @@ it('does not count ledger entries older than 24 hours toward the daily cap', () 
   advance(24 * 60 * 60 * 1000)
   expect(approve('originFresh', perRequest)).toEqual({ approve: true, reason: null })
 })
+
+describe('unverified origins', () => {
+  const UNVERIFIED = 'example.com.gabcdefghij.unverified.invalid'
+
+  it('never auto-approves, even a tiny spend', () => {
+    const { policy } = makePolicy(START)
+    expect(policy.shouldAutoApprove({ originator: UNVERIFIED, satoshis: 1 })).toEqual({
+      approve: false,
+      reason: 'unattested'
+    })
+  })
+
+  it('does not record the origin in the ledger or cooldown', () => {
+    const { policy } = makePolicy(START)
+    policy.record({ originator: UNVERIFIED, satoshis: 500, at: START })
+    expect(policy.getLedger()).toEqual([])
+  })
+
+  it('leaves a look-alike plain hostname on the normal path', () => {
+    const { policy } = makePolicy(START)
+    expect(policy.shouldAutoApprove({ originator: 'example.com.unverified.invalid', satoshis: 1 }).reason).toBe(null)
+  })
+})

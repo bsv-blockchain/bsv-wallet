@@ -1,0 +1,22 @@
+{
+  "chrome": "155.0.8059.79",
+  "origin": "http://localhost:3001",
+  "at": "2026-10-29T21:06:40.731Z",
+  "results": [
+    {
+      "id": "O15",
+      "name": "idle sheet: nothing pending, window non-touchable, finishes by itself",
+      "status": "pass",
+      "note": "idle sheet: NOT_TOUCHABLE and SECURE on its window, no Approve node; finished by itself 6009 ms after it was seen, Chrome top resumed; a tap at (540,900) while it was up reached Chrome 1 time(s) (S3 row (i) found taps swallowed by the system input sink; asserted >= 1). The real loopback dialog of a non-exempt origin is owner gate 9",
+      "ms": 10289
+    },
+    {
+      "id": "O21",
+      "name": "a tap outside the sheet and a swipe down on it do nothing",
+      "status": "pass",
+      "note": "a tap at (540,300) on the scrim: the sheet stayed, the prompt stayed and was not answered (card running); a fast swipe down on the sheet sprang back (Approve y 2184 -> 2184, inside the lower region); Approve then answered it",
+      "ms": 107086
+    }
+  ],
+  "gates": []
+}

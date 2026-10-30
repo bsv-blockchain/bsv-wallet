@@ -1,0 +1,59 @@
+{
+  "chrome": "155.0.8059.79",
+  "origin": "http://localhost:3001",
+  "at": "2026-10-29T20:30:55.912Z",
+  "results": [
+    {
+      "id": "O15",
+      "name": "idle sheet: nothing pending, window non-touchable, finishes by itself",
+      "status": "pass",
+      "note": "idle sheet: NOT_TOUCHABLE and SECURE on its window, no Approve node; finished by itself 6236 ms after it was seen, Chrome top resumed; a tap at (540,900) while it was up reached Chrome 1 time(s) (S3 row (i) found taps swallowed by the system input sink; recorded, not asserted). The real loopback dialog of a non-exempt origin is owner gate 9",
+      "ms": 10564
+    },
+    {
+      "id": "O16",
+      "name": "notification tap: overlay when warm and main not resumed, wallet when cold",
+      "status": "pass",
+      "note": "warm tap: the sheet over the current app with the pending prompt (create n 1 -> 2), Approve answered it; cold tap: MainActivity in front, the sheet Activity not listed and no sheet root created (no \"sheet-activity create\" line)",
+      "ms": 343229
+    },
+    {
+      "id": "O17",
+      "name": "fail-closed after the sheet finishes: no crash from currentActivity readers",
+      "status": "pass",
+      "note": "reachable readers exercised after the sheet finished (Approve while it was current, then getPublicKey and a new prompt with Chrome in front: OK getPublicKey -> {\"publicKey\":\"0394725e3fb4ca73e64a7eec843): no FATAL EXCEPTION, IllegalStateException or destroyed-Activity line in logcat; biometric and NFC readers not reachable here (SPIKES deviation, gate 1)",
+      "ms": 63032
+    },
+    {
+      "id": "O18",
+      "name": "process recreation with the sheet up: a restored sheet finishes at once and arms nothing",
+      "status": "pass",
+      "note": "am crash with the sheet up: Android restored the sheet task and it finished at once (not resumed at the end of 6 s, no create line: the inert delegate) (process gone), no listener on the bridge ports, no LaunchStore line",
+      "ms": 65039
+    },
+    {
+      "id": "O19",
+      "name": "Back right after the last Approve: no ERR_NO_ACTIVITY, Chrome in front, no crash",
+      "status": "pass",
+      "note": "Back 250 ms after the last Approve: no ERR_NO_ACTIVITY and no FATAL EXCEPTION in logcat, the wallet process (pid 31257) survived, Chrome is top resumed",
+      "ms": 61468
+    },
+    {
+      "id": "O20",
+      "name": "non-English locale: the sheet shows Spanish copy",
+      "status": "pass",
+      "note": "with the app locale es the overlay sheet shows \"Conectar\" (and not \"Connect\"); the English control run showed \"Connect\". Colours from the relay: see O9 (pixels are blank under FLAG_SECURE)",
+      "ms": 84135
+    },
+    {
+      "id": "O21",
+      "name": "a tap outside the sheet does nothing",
+      "status": "pass",
+      "note": "a tap at (540,300) on the scrim: the sheet stayed, the prompt stayed and was not answered (card running), Approve then answered it",
+      "ms": 66020
+    }
+  ],
+  "gates": [
+    "O17: the biometric prompt (expo-local-authentication, expo-secure-store AuthenticationHelper) and the YubiKey NFC reader cannot be reached on the throwaway test wallet (no biometric, no key), so they are recorded as a deviation (no instrumented test) and covered by owner gate 1"
+  ]
+}

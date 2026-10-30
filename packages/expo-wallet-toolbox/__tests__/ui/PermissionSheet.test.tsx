@@ -21,11 +21,26 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
   }
 })
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
-jest.mock('../../ui/components/ui/Sheet', () => ({ __esModule: true, default: () => null }))
-jest.mock('../../ui/components/ui/PressableScale', () => ({ __esModule: true, default: () => null }))
+// Sheet renders its children and PressableScale records its handler, so the
+// component tests below can press Reject (first) and Authorize (second).
+jest.mock('../../ui/components/ui/Sheet', () => ({
+  __esModule: true,
+  default: ({ children }: { children?: unknown }) => children ?? null
+}))
+jest.mock('../../ui/components/ui/PressableScale', () => ({
+  __esModule: true,
+  default: ({ onPress, children, testID }: { onPress?: () => void; children?: unknown; testID?: string }) => {
+    ;(globalThis as any).__presses.push(onPress)
+    ;((globalThis as any).__pressIds ??= []).push(testID)
+    return children ?? null
+  }
+}))
+jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }))
 jest.mock('../../ui/components/wallet/AmountDisplay', () => ({ __esModule: true, default: () => null }))
 
-import { deriveActive } from '../../ui/components/ui/PermissionSheet'
+import React from 'react'
+import { act, render } from '@testing-library/react-native'
+import PermissionSheet, { deriveActive } from '../../ui/components/ui/PermissionSheet'
 
 const formatSats = (satoshis: number) => ({ value: String(satoshis), unit: 'sats' })
 
@@ -246,5 +261,783 @@ describe('protocol prompts', () => {
       { label: 'Protocol', value: 'todo list' },
       { label: 'Security level', value: '1' }
     ])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The sheet answers by identity: the manager that raised the request, and
+// only while that request is still the one queued.
+// ---------------------------------------------------------------------------
+describe('PermissionSheet answers', () => {
+  const { WalletContext, UserContext, ExchangeRateContext } = require('@bsv/expo-wallet-toolbox')
+
+  const fakeManager = () => ({
+    grantPermission: jest.fn().mockResolvedValue(undefined),
+    denyPermission: jest.fn().mockResolvedValue(undefined),
+    grantGroupedPermission: jest.fn().mockResolvedValue(undefined),
+    dismissGroupedPermission: jest.fn().mockResolvedValue(undefined)
+  })
+  type FakeManager = ReturnType<typeof fakeManager>
+
+  const protocolRequest = (requestID: string, manager: FakeManager) => ({
+    requestID,
+    protocolSecurityLevel: 2,
+    protocolID: 'some app protocol',
+    originator: 'app.example',
+    manager
+  })
+  const groupRequest = (requestID: string, manager: FakeManager) => ({
+    requestID,
+    originator: 'app.example',
+    permissions: { protocolPermissions: [{ protocolID: [1, 'alpha beta'] }] },
+    manager
+  })
+
+  function setup(initial: Record<string, unknown>) {
+    const advance = {
+      advanceProtocolQueue: jest.fn(),
+      advanceBasketQueue: jest.fn(),
+      advanceCertificateQueue: jest.fn(),
+      advanceSpendingQueue: jest.fn(),
+      advanceGroupQueue: jest.fn(),
+      advanceBtmsQueue: jest.fn(),
+      advanceMandalaQueue: jest.fn()
+    }
+    // The current wallet's manager: what the old code answered, whatever raised the request.
+    const current = fakeManager()
+    const ui = {
+      protocolAccessModalOpen: true,
+      setProtocolAccessModalOpen: jest.fn(),
+      basketAccessModalOpen: false,
+      setBasketAccessModalOpen: jest.fn(),
+      certificateAccessModalOpen: false,
+      setCertificateAccessModalOpen: jest.fn(),
+      spendingAuthorizationModalOpen: false,
+      setSpendingAuthorizationModalOpen: jest.fn()
+    }
+    const tree = (queues: Record<string, unknown>) => (
+      <WalletContext.Provider
+        value={{
+          protocolRequests: [],
+          basketRequests: [],
+          certificateRequests: [],
+          spendingRequests: [],
+          groupRequests: [],
+          btmsRequests: [],
+          mandalaRequests: [],
+          ...advance,
+          managers: { permissionsManager: current },
+          settings: {},
+          ...queues
+        }}
+      >
+        <UserContext.Provider value={ui}>
+          <ExchangeRateContext.Provider value={{}}>
+            <PermissionSheet />
+          </ExchangeRateContext.Provider>
+        </UserContext.Provider>
+      </WalletContext.Provider>
+    )
+    const view = render(tree(initial))
+    const press = async (index: number) => {
+      const handler = (globalThis as any).__presses.at(-2 + index) as () => unknown
+      await act(async () => {
+        await handler()
+      })
+    }
+    return {
+      view,
+      advance,
+      current,
+      ui,
+      rerender: (queues: Record<string, unknown>) => view.rerender(tree(queues)),
+      deny: () => press(0),
+      /** Presses Reject without holding an act scope open, so a re-render can land while it waits. */
+      denyUnscoped: () => ((globalThis as any).__presses.at(-2) as () => Promise<void>)(),
+      allow: () => press(1)
+    }
+  }
+
+  beforeEach(() => {
+    ;(globalThis as any).__presses = []
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
+  const elapse = async () => {
+    await act(async () => {
+      jest.advanceTimersByTime(450)
+    })
+  }
+
+  it('grants the manager that raised the request, by request ID, never the current one', async () => {
+    const raised = fakeManager()
+    const { allow, current, advance, ui } = setup({ protocolRequests: [protocolRequest('p1', raised)] })
+    await allow()
+    await elapse()
+    expect(raised.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
+    expect(current.grantPermission).not.toHaveBeenCalled()
+    expect(advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
+    // The queue closes the modal flag itself when it empties; the sheet never closes it on its own.
+    expect(ui.setProtocolAccessModalOpen).not.toHaveBeenCalled()
+  })
+
+  it('keeps the modal open for a second request queued behind the one answered (grant and deny)', async () => {
+    const m = fakeManager()
+    const queued = [protocolRequest('p1', m), protocolRequest('p2', m)]
+    const granted = setup({ protocolRequests: queued })
+    await granted.allow()
+    await elapse()
+    expect(granted.advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
+    expect(granted.ui.setProtocolAccessModalOpen).not.toHaveBeenCalledWith(false)
+    granted.view.unmount()
+    ;(globalThis as any).__presses = []
+
+    const denied = setup({ protocolRequests: queued })
+    await denied.deny()
+    expect(denied.advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
+    expect(denied.ui.setProtocolAccessModalOpen).not.toHaveBeenCalledWith(false)
+  })
+
+  it('answers a pending grant at once when the app leaves the foreground', async () => {
+    const { AppState } = require('react-native')
+    let onChange!: (s: string) => void
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_t: any, fn: any) => {
+      onChange = fn
+      return { remove: jest.fn() }
+    })
+    const raised = fakeManager()
+    const { allow } = setup({ protocolRequests: [protocolRequest('p1', raised)] })
+    await allow()
+    expect(raised.grantPermission).not.toHaveBeenCalled()
+    await act(async () => {
+      onChange('background')
+    })
+    expect(raised.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
+  })
+
+  it('denies the manager that raised the request, by request ID', async () => {
+    const raised = fakeManager()
+    const { deny, current, advance } = setup({ protocolRequests: [protocolRequest('p1', raised)] })
+    await deny()
+    expect(raised.denyPermission).toHaveBeenCalledWith('p1')
+    expect(current.denyPermission).not.toHaveBeenCalled()
+    expect(advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
+  })
+
+  describe('grant after withdrawal within 400 ms drops nothing else', () => {
+    // R1 is allowed; a profile switch empties the queue inside the checkmark
+    // animation and the new manager raises R2, which may even reuse R1's ID.
+    it.each([
+      ['protocol, same request ID', 'p1', 'p1'],
+      ['protocol, new request ID', 'p1', 'p2']
+    ])('%s', async (_name, firstID, secondID) => {
+      const oldManager = fakeManager()
+      const newManager = fakeManager()
+      const { allow, rerender, advance, ui } = setup({ protocolRequests: [protocolRequest(firstID, oldManager)] })
+      await allow()
+      rerender({ protocolRequests: [protocolRequest(secondID, newManager)] })
+      await elapse()
+      expect(newManager.grantPermission).not.toHaveBeenCalled()
+      expect(newManager.denyPermission).not.toHaveBeenCalled()
+      expect(oldManager.grantPermission).not.toHaveBeenCalled()
+      expect(advance.advanceProtocolQueue).not.toHaveBeenCalled()
+      expect(ui.setProtocolAccessModalOpen).not.toHaveBeenCalled()
+    })
+
+    it('group, same request ID', async () => {
+      const oldManager = fakeManager()
+      const newManager = fakeManager()
+      const { allow, rerender, advance } = setup({ groupRequests: [groupRequest('group:app.example', oldManager)] })
+      await allow()
+      rerender({ groupRequests: [groupRequest('group:app.example', newManager)] })
+      await elapse()
+      expect(newManager.grantGroupedPermission).not.toHaveBeenCalled()
+      expect(oldManager.grantGroupedPermission).not.toHaveBeenCalled()
+      expect(advance.advanceGroupQueue).not.toHaveBeenCalled()
+    })
+
+    it('the queue emptied outright', async () => {
+      const oldManager = fakeManager()
+      const { allow, rerender, advance } = setup({ protocolRequests: [protocolRequest('p1', oldManager)] })
+      await allow()
+      rerender({ protocolRequests: [] })
+      await elapse()
+      expect(oldManager.grantPermission).not.toHaveBeenCalled()
+      expect(advance.advanceProtocolQueue).not.toHaveBeenCalled()
+    })
+
+    it('a deny that lands after the withdrawal leaves the new request queued', async () => {
+      const oldManager = fakeManager()
+      const newManager = fakeManager()
+      // The old manager answers late, after the withdrawal and the new request.
+      let answer!: (error: Error) => void
+      oldManager.denyPermission.mockReturnValue(new Promise((_resolve, reject) => (answer = reject)))
+      const { denyUnscoped, rerender, advance } = setup({ protocolRequests: [protocolRequest('p1', oldManager)] })
+      const pressed = denyUnscoped()
+      await act(async () => {
+        rerender({ protocolRequests: [protocolRequest('p1', newManager)] })
+      })
+      answer(new Error('Request ID not found.'))
+      await act(async () => {
+        await pressed
+      })
+      expect(newManager.denyPermission).not.toHaveBeenCalled()
+      expect(advance.advanceProtocolQueue).not.toHaveBeenCalled()
+    })
+  })
+
+  it('no unhandled rejection when the manager refuses a stale grant', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const raised = fakeManager()
+    raised.grantPermission.mockRejectedValue(new Error('Request ID not found.'))
+    const { allow, advance } = setup({ protocolRequests: [protocolRequest('p1', raised)] })
+    await allow()
+    await elapse()
+    await act(async () => {})
+    expect(raised.grantPermission).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('[permissions] grant failed', expect.any(Error))
+    expect(advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Browser bridge: unverified presentation and the connection sheet (spec 6.4, 6.5)
+// ---------------------------------------------------------------------------
+
+const {
+  DEFAULT_UNVERIFIED_SEEK_FLAGS,
+  DEFAULT_VERIFIED_SEEK_FLAGS,
+  SEEK_FLAG_DISCLOSURE,
+  SEEK_FLAG_KEYS,
+  effectiveUnverified
+} = require('../../core/bridge/permissionPolicy')
+const { setConsentSheetSource } = require('../../core/bridge/consentSheetSource')
+
+const UNVERIFIED = 'shop.example.gabcdefghij.unverified.invalid'
+
+describe('unverified prompts', () => {
+  const protocol = { requestID: 'r', originator: UNVERIFIED, protocolSecurityLevel: 2, protocolID: 'some app protocol' }
+  const open = {
+    protocolAccessModalOpen: true,
+    basketAccessModalOpen: true,
+    certificateAccessModalOpen: true,
+    spendingAuthorizationModalOpen: true
+  }
+  const mandalaMessage = JSON.stringify({ type: 'mandala_access' })
+  const btmsMessage = JSON.stringify({ type: 'btms_spend', sendAmount: 1, tokenName: 'T' })
+
+  // One queue at a time, so each kind is the head.
+  const cases: [string, Record<string, unknown>][] = [
+    [
+      'spending',
+      { spendingRequests: [{ requestID: 's', originator: UNVERIFIED, authorizationAmount: 5, lineItems: [] }] }
+    ],
+    ['group', { groupRequests: [{ requestID: 'g', originator: UNVERIFIED, permissions: {} }] }],
+    ['certificate', { certificateRequests: [{ requestID: 'c', originator: UNVERIFIED, fieldsArray: [] }] }],
+    ['protocol', { protocolRequests: [protocol] }],
+    ['basket', { basketRequests: [{ requestID: 'b', originator: UNVERIFIED, basket: 'x' }] }],
+    ['btms', { btmsRequests: [{ originator: UNVERIFIED, message: btmsMessage }] }],
+    ['mandala', { mandalaRequests: [{ originator: UNVERIFIED, message: mandalaMessage }] }]
+  ]
+
+  it.each(cases)('%s shows the plain hostname and is marked unverified', (kind, queues) => {
+    const active = deriveActive({ ...baseCtx([]), ...open, ...queues } as any, formatSats)
+    expect(active?.kind).toBe(kind)
+    expect(active?.originator).toBe('shop.example')
+    expect(active?.unverified).toBe(true)
+  })
+
+  it('a verified originator is untouched and not marked', () => {
+    const active = deriveActive(
+      { ...baseCtx([]), ...open, protocolRequests: [{ ...protocol, originator: 'shop.example' }] } as any,
+      formatSats
+    )
+    expect(active).toMatchObject({ originator: 'shop.example', unverified: false })
+  })
+
+  it("keeps the site's own words apart from the wallet's for an unverified origin", () => {
+    const unverified = deriveActive(
+      {
+        ...baseCtx([]),
+        ...open,
+        basketRequests: [{ requestID: 'b', originator: UNVERIFIED, reason: 'Totally official', basket: 'x' }]
+      } as any,
+      formatSats
+    )
+    expect(unverified?.description).toBe('wants to access a transaction basket')
+    expect(unverified?.siteSays).toBe('Totally official')
+    const verified = deriveActive(
+      {
+        ...baseCtx([]),
+        ...open,
+        basketRequests: [{ requestID: 'b', originator: 'shop.example', reason: 'Totally official', basket: 'x' }]
+      } as any,
+      formatSats
+    )
+    expect(verified?.description).toBe('Totally official')
+    expect(verified?.siteSays).toBeUndefined()
+  })
+})
+
+describe('connection prompts', () => {
+  const pending = (over: Record<string, unknown> = {}) => ({
+    requestId: 'c1',
+    origin: 'https://shop.example',
+    attestation: 'browser' as const,
+    transportId: 'safari-extension',
+    connectedBefore: false,
+    walletRevision: 1,
+    profileKey: '0',
+    ...over
+  })
+  const flagsFor = (attestation: string) =>
+    attestation === 'unattested'
+      ? effectiveUnverified({ verified: DEFAULT_VERIFIED_SEEK_FLAGS, unverified: DEFAULT_UNVERIFIED_SEEK_FLAGS })
+      : DEFAULT_VERIFIED_SEEK_FLAGS
+  const derive = (p: ReturnType<typeof pending>) =>
+    deriveActive({ ...baseCtx([]), connectionRequests: [p], connectionFlags: flagsFor } as any, formatSats)
+
+  it('titles the raw origin and lists capabilities from the effective flags', () => {
+    const active = derive(pending())!
+    expect(active.kind).toBe('connection')
+    expect(active.originator).toBe('https://shop.example')
+    expect(active.unverified).toBe(false)
+    const { allows, asksFirst } = active.connection!
+    // Verified defaults: baskets are open, signing and grouped requests ask first.
+    expect(allows).toContain('bridge.policy.seekBasketInsertionPermissions.off')
+    expect(asksFirst).toEqual([
+      'bridge.policy.seekGroupedPermission.on',
+      'bridge.policy.seekProtocolPermissionsForSigning.on'
+    ])
+  })
+
+  it('moves basket changes under "asks first" for an unverified site', () => {
+    const active = derive(pending({ attestation: 'unattested' }))!
+    expect(active.unverified).toBe(true)
+    const { allows, asksFirst } = active.connection!
+    expect(allows).not.toContain('bridge.policy.seekBasketInsertionPermissions.off')
+    expect(asksFirst).toEqual(
+      expect.arrayContaining([
+        'bridge.policy.seekBasketInsertionPermissions.on',
+        'bridge.policy.seekBasketListingPermissions.on',
+        'bridge.policy.seekBasketRemovalPermissions.on'
+      ])
+    )
+  })
+
+  it('says payments go through automatically for a verified site, ask first for an unverified one', () => {
+    expect(derive(pending())!.connection!.payments).toBe('bridge_payments_verified')
+    expect(derive(pending({ attestation: 'unattested' }))!.connection!.payments).toBe('bridge_payments_unverified')
+  })
+
+  it('carries the previewed group onto the connection prompt, and null as absent', () => {
+    const groupPermissions = { protocolPermissions: [{ protocolID: [1, 'abc def'] as [number, string] }] }
+    expect(derive(pending({ groupPermissions }))!.groupPermissions).toEqual(groupPermissions)
+    expect(derive(pending({ groupPermissions: null }))!.groupPermissions).toBeUndefined()
+    expect(derive(pending())!.groupPermissions).toBeUndefined()
+  })
+
+  it('carries the "connected before" flag', () => {
+    expect(derive(pending({ attestation: 'unattested', connectedBefore: true }))!.connection!.connectedBefore).toBe(
+      true
+    )
+  })
+
+  it('waits behind an open spending prompt', () => {
+    const spending = { requestID: 'spend:1', originator: 'a.example', authorizationAmount: 5, lineItems: [] }
+    const active = deriveActive(
+      {
+        ...baseCtx([]),
+        spendingRequests: [spending],
+        spendingAuthorizationModalOpen: true,
+        connectionRequests: [pending()],
+        connectionFlags: flagsFor
+      } as any,
+      formatSats
+    )
+    expect(active?.kind).toBe('spending')
+  })
+})
+
+describe('tap protection and connection answers', () => {
+  const { WalletContext, UserContext, ExchangeRateContext } = require('@bsv/expo-wallet-toolbox')
+
+  const consentStub = (pendingList: any[]) => {
+    const listeners = new Set<() => void>()
+    return {
+      listeners,
+      store: {
+        listPending: () => pendingList,
+        answerConsent: jest.fn().mockResolvedValue(undefined),
+        onChange: (fn: () => void) => {
+          listeners.add(fn)
+          return () => listeners.delete(fn)
+        }
+      }
+    }
+  }
+
+  const tree = (queues: Record<string, unknown>) => (
+    <WalletContext.Provider
+      value={{
+        protocolRequests: [],
+        basketRequests: [],
+        certificateRequests: [],
+        spendingRequests: [],
+        groupRequests: [],
+        btmsRequests: [],
+        mandalaRequests: [],
+        advanceProtocolQueue: jest.fn(),
+        advanceBasketQueue: jest.fn(),
+        advanceCertificateQueue: jest.fn(),
+        advanceSpendingQueue: jest.fn(),
+        advanceGroupQueue: jest.fn(),
+        advanceBtmsQueue: jest.fn(),
+        advanceMandalaQueue: jest.fn(),
+        settings: {},
+        ...queues
+      }}
+    >
+      <UserContext.Provider
+        value={{
+          protocolAccessModalOpen: true,
+          setProtocolAccessModalOpen: jest.fn(),
+          basketAccessModalOpen: false,
+          setBasketAccessModalOpen: jest.fn(),
+          certificateAccessModalOpen: false,
+          setCertificateAccessModalOpen: jest.fn(),
+          spendingAuthorizationModalOpen: false,
+          setSpendingAuthorizationModalOpen: jest.fn()
+        }}
+      >
+        <ExchangeRateContext.Provider value={{}}>
+          <PermissionSheet />
+        </ExchangeRateContext.Provider>
+      </UserContext.Provider>
+    </WalletContext.Provider>
+  )
+  const mount = (queues: Record<string, unknown>) => render(tree(queues))
+  const press = async (index: 0 | 1) => {
+    const handler = (globalThis as any).__presses.at(-2 + index) as () => unknown
+    await act(async () => {
+      await handler()
+    })
+  }
+  const advanceBy = (ms: number) =>
+    act(async () => {
+      jest.advanceTimersByTime(ms)
+    })
+
+  beforeEach(() => {
+    ;(globalThis as any).__presses = []
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    setConsentSheetSource(undefined)
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
+  it('an unverified prompt ignores Authorize for 700 ms, then grants', async () => {
+    const manager = {
+      grantPermission: jest.fn().mockResolvedValue(undefined),
+      denyPermission: jest.fn().mockResolvedValue(undefined)
+    }
+    mount({
+      protocolRequests: [
+        { requestID: 'p1', protocolSecurityLevel: 2, protocolID: 'x y z', originator: UNVERIFIED, manager }
+      ]
+    })
+    await press(1)
+    await advanceBy(450)
+    expect(manager.grantPermission).not.toHaveBeenCalled()
+    await advanceBy(300)
+    await press(1)
+    await advanceBy(450)
+    expect(manager.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
+  })
+
+  it('a re-raised prompt with the same identity but another manager is locked again', async () => {
+    const mk = () => ({
+      grantPermission: jest.fn().mockResolvedValue(undefined),
+      denyPermission: jest.fn().mockResolvedValue(undefined)
+    })
+    const first = mk()
+    const second = mk()
+    const request = (manager: unknown) => ({
+      protocolRequests: [
+        { requestID: 'p1', protocolSecurityLevel: 2, protocolID: 'x y z', originator: UNVERIFIED, manager }
+      ]
+    })
+    const view = mount(request(first))
+    await advanceBy(750)
+    // The first prompt is withdrawn and the replacement manager raises one with the same ids.
+    view.rerender(tree(request(second)))
+    await press(1)
+    await advanceBy(450)
+    expect(second.grantPermission).not.toHaveBeenCalled()
+    await advanceBy(300)
+    await press(1)
+    await advanceBy(450)
+    expect(second.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
+    expect(first.grantPermission).not.toHaveBeenCalled()
+  })
+
+  it('an empty queue forgets the armed window', async () => {
+    const manager = { grantPermission: jest.fn().mockResolvedValue(undefined), denyPermission: jest.fn() }
+    const request = {
+      protocolRequests: [
+        { requestID: 'p1', protocolSecurityLevel: 2, protocolID: 'x y z', originator: UNVERIFIED, manager }
+      ]
+    }
+    const view = mount(request)
+    await advanceBy(750)
+    view.rerender(tree({}))
+    await advanceBy(10)
+    view.rerender(tree(request))
+    await press(1)
+    await advanceBy(450)
+    expect(manager.grantPermission).not.toHaveBeenCalled()
+  })
+
+  it('a verified prompt is not delayed', async () => {
+    const manager = {
+      grantPermission: jest.fn().mockResolvedValue(undefined),
+      denyPermission: jest.fn().mockResolvedValue(undefined)
+    }
+    mount({
+      protocolRequests: [
+        { requestID: 'p1', protocolSecurityLevel: 2, protocolID: 'x y z', originator: 'a.example', manager }
+      ]
+    })
+    await press(1)
+    await advanceBy(450)
+    expect(manager.grantPermission).toHaveBeenCalledTimes(1)
+  })
+
+  it('a connection request is delayed 700 ms, then approved through the consent store', async () => {
+    const entry = {
+      requestId: 'c1',
+      origin: 'https://shop.example',
+      attestation: 'browser',
+      transportId: 'safari-extension',
+      connectedBefore: false,
+      walletRevision: 1,
+      profileKey: '0'
+    }
+    const stub = consentStub([])
+    setConsentSheetSource({ store: stub.store as any, context: () => ({ walletRevision: 1, profileKey: '0' }) })
+    const view = mount({})
+    expect(view.toJSON()).toBeNull()
+    // The store raises a request: the sheet picks it up through onChange.
+    ;(stub.store as any).listPending = () => [entry]
+    await act(async () => {
+      stub.listeners.forEach(fn => fn())
+    })
+    await press(1)
+    await advanceBy(450)
+    expect(stub.store.answerConsent).not.toHaveBeenCalled()
+    await advanceBy(300)
+    await press(1)
+    await advanceBy(450)
+    expect(stub.store.answerConsent).toHaveBeenCalledWith('c1', true, { walletRevision: 1, profileKey: '0' })
+  })
+
+  describe('merged Connect sheet', () => {
+    const group = {
+      spendingAuthorization: { amount: 2500, description: 'Monthly allowance' },
+      protocolPermissions: [{ protocolID: [1, 'fast grouped alpha'] as [number, string], description: 'Alpha' }],
+      basketAccess: [{ basket: 'tokens', description: 'Your tokens' }],
+      certificateAccess: [{ type: 'ticket', description: 'Entry', fields: ['name'] }]
+    }
+    const connect = (over: Record<string, unknown> = {}) => ({
+      requestId: 'm1',
+      origin: 'https://shop.example',
+      attestation: 'browser',
+      transportId: 'safari-extension',
+      connectedBefore: false,
+      walletRevision: 1,
+      profileKey: '0',
+      ...over
+    })
+    const open = (entry: Record<string, unknown>) => {
+      const stub = consentStub([entry])
+      setConsentSheetSource({ store: stub.store as any, context: () => ({ walletRevision: 1, profileKey: '0' }) })
+      return { stub, view: mount({}) }
+    }
+    const { Switch } = require('react-native')
+
+    it('no switch or checkbox is rendered for any listed group', () => {
+      const { view } = open(connect({ groupPermissions: group }))
+      expect(view.UNSAFE_queryAllByType(Switch)).toHaveLength(0)
+      expect(view.queryAllByRole('checkbox')).toHaveLength(0)
+      expect(view.queryAllByRole('switch')).toHaveLength(0)
+    })
+
+    it('lists spending, protocols, baskets and certificates after the connect information', () => {
+      const { view } = open(connect({ groupPermissions: group }))
+      for (const text of ['bridge_allows_header', 'spending_section', 'protocols_section', 'baskets_section']) {
+        expect(view.queryByText(text)).not.toBeNull()
+      }
+      expect(view.queryByText('certificates_section')).not.toBeNull()
+      expect(view.queryByText('tokens')).not.toBeNull()
+      expect(view.queryByText('ticket')).not.toBeNull()
+    })
+
+    it('lists spending for a verified site and omits it when the group has none (unattested)', () => {
+      const verified = open(connect({ groupPermissions: group })).view
+      expect(verified.queryByText('spending_section')).not.toBeNull()
+      verified.unmount()
+      const { spendingAuthorization: _stripped, ...noSpending } = group
+      const unattested = open(connect({ attestation: 'unattested', groupPermissions: noSpending })).view
+      expect(unattested.queryByText('spending_section')).toBeNull()
+      expect(unattested.queryByText('protocols_section')).not.toBeNull()
+    })
+
+    it('is the plain sheet when groupPermissions is null', () => {
+      for (const groupPermissions of [null, undefined]) {
+        const { view } = open(connect({ groupPermissions }))
+        expect(view.queryByText('bridge_allows_header')).not.toBeNull()
+        for (const text of ['spending_section', 'protocols_section', 'baskets_section', 'certificates_section']) {
+          expect(view.queryByText(text)).toBeNull()
+        }
+        view.unmount()
+      }
+    })
+
+    it("buttons are Connect and Don't connect", () => {
+      const { view } = open(connect({ groupPermissions: group }))
+      expect(view.queryByText('bridge_connect')).not.toBeNull()
+      expect(view.queryByText('bridge_dont_connect')).not.toBeNull()
+      expect(view.queryByText('authorize')).toBeNull()
+      expect(view.queryByText('reject')).toBeNull()
+    })
+
+    it('other kinds keep the shared Reject and Authorize labels', () => {
+      const view = mount({
+        protocolRequests: [
+          { requestID: 'p1', protocolSecurityLevel: 2, protocolID: 'x y z', originator: 'a.example', manager: {} }
+        ]
+      })
+      expect(view.queryByText('authorize')).not.toBeNull()
+      expect(view.queryByText('reject')).not.toBeNull()
+      expect(view.queryByText('bridge_connect')).toBeNull()
+    })
+
+    it("Don't connect answers decline at once (the store starts the 30 s backoff)", async () => {
+      const { stub } = open(connect({ groupPermissions: group }))
+      await press(0)
+      expect(stub.store.answerConsent).toHaveBeenCalledWith('m1', false, { walletRevision: 1, profileKey: '0' })
+    })
+
+    it('Connect answers consent, after the tap-protection delay', async () => {
+      const { stub } = open(connect({ groupPermissions: group }))
+      await advanceBy(750)
+      await press(1)
+      await advanceBy(450)
+      expect(stub.store.answerConsent).toHaveBeenCalledWith('m1', true, { walletRevision: 1, profileKey: '0' })
+    })
+  })
+
+  it('Reject answers the connection request without a delay', async () => {
+    const entry = {
+      requestId: 'c2',
+      origin: 'https://shop.example',
+      attestation: 'unattested',
+      transportId: 'loopback',
+      connectedBefore: true,
+      walletRevision: 1,
+      profileKey: '0'
+    }
+    const stub = consentStub([entry])
+    setConsentSheetSource({ store: stub.store as any, context: () => ({ walletRevision: 1, profileKey: '0' }) })
+    mount({})
+    await press(0)
+    expect(stub.store.answerConsent).toHaveBeenCalledWith('c2', false, { walletRevision: 1, profileKey: '0' })
+  })
+})
+
+describe('stable bridge test ids', () => {
+  const { WalletContext, UserContext, ExchangeRateContext } = require('@bsv/expo-wallet-toolbox')
+
+  const tree = (queues: Record<string, unknown>) => (
+    <WalletContext.Provider
+      value={{
+        protocolRequests: [],
+        basketRequests: [],
+        certificateRequests: [],
+        spendingRequests: [],
+        groupRequests: [],
+        btmsRequests: [],
+        mandalaRequests: [],
+        advanceProtocolQueue: jest.fn(),
+        advanceBasketQueue: jest.fn(),
+        advanceCertificateQueue: jest.fn(),
+        advanceSpendingQueue: jest.fn(),
+        advanceGroupQueue: jest.fn(),
+        advanceBtmsQueue: jest.fn(),
+        advanceMandalaQueue: jest.fn(),
+        managers: { permissionsManager: {} },
+        settings: {},
+        ...queues
+      }}
+    >
+      <UserContext.Provider
+        value={{
+          protocolAccessModalOpen: true,
+          setProtocolAccessModalOpen: jest.fn(),
+          basketAccessModalOpen: true,
+          setBasketAccessModalOpen: jest.fn(),
+          certificateAccessModalOpen: false,
+          setCertificateAccessModalOpen: jest.fn(),
+          spendingAuthorizationModalOpen: true,
+          setSpendingAuthorizationModalOpen: jest.fn()
+        }}
+      >
+        <ExchangeRateContext.Provider value={{}}>
+          <PermissionSheet />
+        </ExchangeRateContext.Provider>
+      </UserContext.Provider>
+    </WalletContext.Provider>
+  )
+  const lastIds = () => ((globalThis as any).__pressIds as string[]).slice(-2)
+
+  beforeEach(() => {
+    ;(globalThis as any).__presses = []
+    ;(globalThis as any).__pressIds = []
+  })
+  afterEach(() => setConsentSheetSource(undefined))
+
+  it('connection sheet exposes bridge-connect-origin with the full ASCII origin', async () => {
+    const entry = {
+      requestId: 'c1',
+      origin: 'http://localhost:3001',
+      attestation: 'unattested',
+      transportId: 'android-loopback',
+      connectedBefore: false,
+      walletRevision: 1,
+      profileKey: '0'
+    }
+    setConsentSheetSource({
+      store: { listPending: () => [entry], answerConsent: jest.fn(), onChange: () => () => {} } as any,
+      context: () => ({ walletRevision: 1, profileKey: '0' })
+    })
+    const view = render(tree({}))
+    expect(view.getByTestId('bridge-connect-origin').props.children).toBe('http://localhost:3001')
+    expect(lastIds()).toEqual(['bridge-deny', 'bridge-approve'])
+  })
+
+  const req = { requestID: 'r1', originator: 'app.example', manager: {} }
+  it.each([
+    ['spending', { spendingRequests: [{ ...req, authorizationAmount: 100, lineItems: [] }] }],
+    ['protocol', { protocolRequests: [{ ...req, protocolSecurityLevel: 2, protocolID: 'some app protocol' }] }],
+    ['basket', { basketRequests: [{ ...req, basket: 'tokens' }] }]
+  ])('approve and deny carry the stable ids for the %s kind', (_kind, queues) => {
+    render(tree(queues))
+    expect(lastIds()).toEqual(['bridge-deny', 'bridge-approve'])
   })
 })

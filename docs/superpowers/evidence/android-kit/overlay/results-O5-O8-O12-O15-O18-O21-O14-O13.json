@@ -1,0 +1,64 @@
+{
+  "chrome": "155.0.8059.79",
+  "origin": "http://localhost:3001",
+  "at": "2026-10-29T19:09:07.422Z",
+  "results": [
+    {
+      "id": "O5",
+      "name": "Home with the sheet up: the sheet task goes, a new launch makes a fresh root",
+      "status": "pass",
+      "note": "Home: the sheet left dumpsys once onStop ran; the next launch created a fresh Activity (create n 1 -> 2) and a fresh root (mount n 1 -> 2); counts are process-wide, so \"fresh\" is +1, not 1",
+      "ms": 108744
+    },
+    {
+      "id": "O8",
+      "name": "a prompt for another origin while the sheet is up shows in the same root, never a second Activity",
+      "status": "fail",
+      "note": "timed out waiting for Connect sheet in the overlay",
+      "ms": 49195
+    },
+    {
+      "id": "O12",
+      "name": "leak: 10 open and Back cycles, Activities count stable",
+      "status": "pass",
+      "note": "10 sheet create/Back cycles: Activities 2,2,2,2 before, 2,2,2,2 after (forced trim, three equal readings)",
+      "ms": 131741
+    },
+    {
+      "id": "O14",
+      "name": "M1 regression: cases 1 to 5, 7, 15, 16, 17 in foreground mode with overlay available",
+      "status": "fail",
+      "note": "M1 case 5 raised an overlay sheet (create n 16 -> 17)",
+      "ms": 401933
+    },
+    {
+      "id": "O15",
+      "name": "idle sheet: nothing pending, window non-touchable, finishes by itself",
+      "status": "pass",
+      "note": "idle sheet: NOT_TOUCHABLE and SECURE on its window, no Approve node; finished by itself 5893 ms after it was seen, Chrome top resumed; a tap while up reached Chrome 1 time(s) (S3 row (i): swallowed by the system). The real loopback dialog of a non-exempt origin is owner gate 9",
+      "ms": 10161
+    },
+    {
+      "id": "O18",
+      "name": "process recreation with the sheet up: a restored sheet finishes at once and arms nothing",
+      "status": "pass",
+      "note": "am crash with the sheet up: Android restored the sheet task and it finished at once (not resumed at the end of 6 s, no create line: the inert delegate) (process gone), no listener on the bridge ports, no LaunchStore line",
+      "ms": 58221
+    },
+    {
+      "id": "O21",
+      "name": "a tap outside the sheet does nothing",
+      "status": "pass",
+      "note": "a tap at (540,300) on the scrim: the sheet stayed, the prompt stayed and was not answered (card running), Approve then answered it",
+      "ms": 61985
+    },
+    {
+      "id": "O13",
+      "name": "plaintext check in logcat over the overlay run, M2 log lines are counts only",
+      "status": "pass",
+      "note": "logcat since the start of the run (6923 lines, 14 epochs launched): no k=, n=, launched epoch, e=<uuid>, reconnect token or binding header anywhere, system lines included; 3 BsvBridgeSheet lines, all counts only (create n/seq, newintent reset, mount n)",
+      "ms": 134
+    }
+  ],
+  "gates": []
+}

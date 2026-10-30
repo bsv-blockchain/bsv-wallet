@@ -219,3 +219,7 @@ export { AVATAR_ICON_GROUPS, type AvatarIconOption, type AvatarIconGroup } from 
 
 export { default as IconPickerSheet } from './components/wallet/IconPickerSheet'
 export { default as EditPictureSheet, type EditPictureOption } from './components/wallet/EditPictureSheet'
+
+// Android bridge sheet: relays the first React root's contexts to the sheet's second root.
+export { ContextRelayPublisher, ContextRelaySubscriber, resetContextRelay } from './bridgeSheet/ContextRelay'
+export { RELAYED_CONTEXTS } from './bridgeSheet/relayedContexts'
