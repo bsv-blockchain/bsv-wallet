@@ -71,7 +71,7 @@ describe('manifest', () => {
         protocolPermissions: [
           { protocolID: [2, 'notes'], description: 'notes' },
           { protocolID: [2, '3241645161d8'], description: 'pay' },
-          { protocolID: [2, 'p mandala token'], description: 'tokens' },
+          { protocolID: [2, 'p color token'], description: 'tokens' },
           { protocolID: [2, 'p btms x'], description: 'btms' },
           { protocolID: [2, 'p other thing'], description: 'other' }
         ],
@@ -139,7 +139,7 @@ describe('manifest', () => {
         description: 'd',
         protocols: [
           { protocolName: 'chat', protocolID: [2, 'chat'] },
-          { protocolName: 'p mandala token', protocolID: [2, 'p mandala token'] },
+          { protocolName: 'p color token', protocolID: [2, 'p color token'] },
           { protocolName: '3241645161d8', protocolID: [2, '3241645161d8'] }
         ]
       }
@@ -251,7 +251,7 @@ describe('prompts', () => {
   })
 
   test.each([
-    ['label', 'createAction', { description: 'a tokens spend', labels: ['p mandala token-spend'], outputs: [] }],
+    ['label', 'createAction', { description: 'a tokens spend', labels: ['p color token-spend'], outputs: [] }],
     [
       'basket',
       'createAction',
@@ -261,7 +261,7 @@ describe('prompts', () => {
       }
     ],
     ['basket list', 'listOutputs', { basket: 'p btms x' }],
-    ['protocol', 'createSignature', { protocolID: [2, 'p mandala token'], keyID: '1', counterparty: 'self', data: [1] }]
+    ['protocol', 'createSignature', { protocolID: [2, 'p color token'], keyID: '1', counterparty: 'self', data: [1] }]
   ] as const)('token-module routes refused with ERR_PERMISSION_DENIED (%s)', async (_n, method, args) => {
     const { wallet, calls } = fakeWallet()
     const pm = buildUnverifiedPermissionsManager(wallet, ADMIN, flags)
@@ -328,7 +328,7 @@ describe('prompts', () => {
     expect(pm).toBeInstanceOf(WalletPermissionsManager)
     expect((pm as any).config.seekBasketListingPermissions).toBe(true)
     expect((pm as any).config.seekSpendingPermissions).toBe(true)
-    expect(Object.keys((pm as any).config.permissionModules).sort()).toEqual(['btms', 'mandala', 'nosend'])
+    expect(Object.keys((pm as any).config.permissionModules).sort()).toEqual(['btms', 'color', 'nosend'])
   })
 })
 
@@ -356,7 +356,7 @@ describe('connect-time group on the unverified manager', () => {
         protocolPermissions: [
           { protocolID: [2, 'notes'], description: 'notes' },
           { protocolID: [2, '3241645161d8'], description: 'pay' },
-          { protocolID: [2, 'p mandala token'], description: 'tokens' }
+          { protocolID: [2, 'p color token'], description: 'tokens' }
         ],
         basketAccess: [{ basket: 'stuff', description: 's' }]
       }

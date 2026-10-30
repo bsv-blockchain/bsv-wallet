@@ -52,7 +52,9 @@ export default function Balance() {
         adminOriginator
       )
 
-      const total = totalOutputs ?? 0
+      // sdk 4 types `totalOutputs` as number | DecimalString (BRC-112 module
+      // balances); the satoshi wallet balance is always a safe integer.
+      const total = Number(totalOutputs ?? 0)
       setAccountBalance({ key: cacheKey, value: total })
 
       // Cache the new balance

@@ -108,7 +108,7 @@ describe('token-module routes (spec 8)', () => {
     const pm = new SigningPolicyPermissionsManager(wallet, ADMIN, {
       differentiatePrivilegedOperations: true,
       ...DEFAULT_VERIFIED_SEEK_FLAGS,
-      permissionModules: { btms: module, mandala: module }
+      permissionModules: { btms: module, color: module }
     } as never)
     grantAll(pm)
     await (pm as never as Record<string, (a: unknown, o: string) => Promise<unknown>>)

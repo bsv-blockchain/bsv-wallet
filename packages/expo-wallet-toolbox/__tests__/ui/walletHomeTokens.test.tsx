@@ -18,7 +18,7 @@
 import React from 'react'
 import { act, fireEvent, render, within } from '@testing-library/react-native'
 import { WalletHomeScreen } from '../../ui/screens/WalletHomeScreen'
-import { activityRow, balanceOf, EURX, makeFakeMandala, settlementRow, USDX } from '../__mocks__/fakeMandalaRuntime'
+import { activityRow, balanceOf, EURX, makeFakeMandala, transferRow, USDX } from '../__mocks__/fakeMandalaRuntime'
 
 const IDENTITY = '02' + 'a'.repeat(64)
 const mockRouter = { push: jest.fn(), replace: jest.fn() }
@@ -218,7 +218,7 @@ describe('WalletHomeScreen holding a stablecoin', () => {
   })
 
   test('the drawer lists BSV and every held coin, and picking one swaps the hero to that figure', async () => {
-    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf(), balanceOf(EURX, 5000)] })
+    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf(), balanceOf(EURX, 5000n)] })
     const screen = render(<WalletHomeScreen />)
     await settle()
     fireEvent.press(screen.getByLabelText('wallet_coin_switcher'))
@@ -287,7 +287,7 @@ describe('WalletHomeScreen holding a stablecoin', () => {
       ]
     }))
     mockWallet.mandala = makeFakeMandala({
-      balances: [balanceOf(), balanceOf(EURX, 5000)],
+      balances: [balanceOf(), balanceOf(EURX, 5000n)],
       activity: [
         activityRow({ txid: USDX_TX, asset: USDX, role: 'sent' }),
         activityRow({ txid: EURX_TX, asset: EURX, role: 'sent' })
@@ -323,8 +323,49 @@ describe('WalletHomeScreen holding a stablecoin', () => {
     expect(screen.queryByText('no_transactions')).toBeNull()
   })
 
+  test('shows the pending portion separately from the settled balance', async () => {
+    // W10: `units` is everything spendable, offline credits included;
+    // `offlineUnits` is the part not yet settled with the issuer.
+    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf(USDX, 150000n, 50000n)] })
+    const screen = render(<WalletHomeScreen />)
+    await settle()
+    fireEvent.press(screen.getByLabelText('wallet_coin_switcher'))
+    // The drawer row: the whole figure, and the pending part on its own line.
+    expect(screen.getByLabelText('1,500.00 USDX')).toBeTruthy()
+    expect(screen.getByText('token_balance_pending:500.00 USDX')).toBeTruthy()
+    fireEvent.press(screen.getByText('Acme Dollar'))
+    await settle()
+    // The hero: the whole figure, then what is pending and what is settled.
+    expect(
+      screen
+        .UNSAFE_getAllByProps({ disabled: true })
+        .some(node => node.props.accessibilityValue?.text === '1,500.00 USDX')
+    ).toBe(true)
+    expect(screen.getByText('token_balance_pending:500.00 USDX')).toBeTruthy()
+    expect(screen.getByText('token_balance_settled:1,000.00 USDX')).toBeTruthy()
+  })
+
+  test('says nothing about pending when every unit is settled', async () => {
+    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf(USDX, 150000n, 0n)] })
+    const screen = render(<WalletHomeScreen />)
+    await settle()
+    fireEvent.press(screen.getByLabelText('wallet_coin_switcher'))
+    fireEvent.press(screen.getByText('Acme Dollar'))
+    await settle()
+    expect(screen.queryByText(/token_balance_pending/)).toBeNull()
+    expect(screen.queryByText(/token_balance_settled/)).toBeNull()
+  })
+
+  test('draws a balance above 2^53 exactly', async () => {
+    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf(USDX, 18446744073709551615n, 0n)] })
+    const screen = render(<WalletHomeScreen />)
+    await settle()
+    fireEvent.press(screen.getByLabelText('wallet_coin_switcher'))
+    expect(screen.getByLabelText('184,467,440,737,095,516.15 USDX')).toBeTruthy()
+  })
+
   test('surfaces a payment that has been waiting to settle', async () => {
-    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf()], stuck: [settlementRow()] })
+    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf()], stuck: [transferRow()] })
     const screen = render(<WalletHomeScreen />)
     await settle()
     expect(screen.getByText('token_attention_one:Acme Bank')).toBeTruthy()
@@ -333,7 +374,7 @@ describe('WalletHomeScreen holding a stablecoin', () => {
   test('says how many are waiting when it cannot name one issuer', async () => {
     mockWallet.mandala = makeFakeMandala({
       balances: [balanceOf()],
-      stuck: [settlementRow(), settlementRow({ txid: 'c'.repeat(64) })]
+      stuck: [transferRow(), transferRow({ txid: 'c'.repeat(64) })]
     })
     const screen = render(<WalletHomeScreen />)
     await settle()
@@ -341,7 +382,7 @@ describe('WalletHomeScreen holding a stablecoin', () => {
   })
 
   test('routes the stuck-settlement badge to Pay with that asset, not to a sheet', async () => {
-    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf()], stuck: [settlementRow()] })
+    mockWallet.mandala = makeFakeMandala({ balances: [balanceOf()], stuck: [transferRow()] })
     const screen = render(<WalletHomeScreen />)
     await settle()
     fireEvent.press(screen.getByText('token_attention_one:Acme Bank'))

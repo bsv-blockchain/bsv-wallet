@@ -2,22 +2,23 @@
  * What the wallet's ONE production drain tick is required to drive, and what
  * must stop happening the moment a wallet is torn down.
  *
- * `MandalaRuntime.drainNow()` has its own suite (it is the same pass, in one
- * function) — but the tick the phone actually runs is the `TaskSendOffline`
- * lambda in `WalletContext`, and nothing else calls it. Two failures there are
- * invisible to every other test in the package:
+ * `MandalaRuntime.tick()` has its own suite (`__tests__/mandala/createRuntime
+ * .test.ts`: redeliver, then the module settle, then the held-receipt
+ * reconcile) — but the tick the phone actually runs is the `TaskSendOffline`
+ * lambda in `WalletContext`, and nothing else calls it. Three failures there
+ * are invisible to every other test in the package:
  *
- *  · a recovery pass that is simply never wired in. The lib's journals
- *    (`reconcileWallet`, `reconcileNotifications`) are the only durable record
- *    of an overlay-accepted transfer whose broadcast never went out and of a
- *    recipient notification a crash swallowed. Nothing else in this wallet
- *    reads them: the settlement drain knows only `token_settlements` rows.
+ *  · a settle that runs AFTER the release pass. `processOfflineActions` posts
+ *    a held 1Color tx only once its `color_transfers` row reads `settled`, so
+ *    the color tick must run first or every release waits a whole pass.
  *  · a tick that outlives its wallet. The task is registered once, on a monitor
  *    whose lifetime spans rebuilds, so it MUST read the runtime out of
  *    `mandalaRef` on every pass. A captured runtime would keep draining the
  *    departed wallet's tables — after `storage.destroy()` has closed them.
+ *  · a foreground or reconnect that never asks the module to settle, leaving
+ *    an offline credit pending until the next periodic pass.
  *
- * Both are structural, so they are checked structurally. Reading the source is
+ * All are structural, so they are checked structurally. Reading the source is
  * deliberate: the alternative is rendering the whole provider, and a test that
  * heavy would be deleted the first time it flaked.
  */
@@ -42,41 +43,54 @@ const tick = (() => {
 })()
 
 describe('the production drain tick', () => {
-  it('drives the lib’s own journals — both of them — on every pass', () => {
-    expect(tick).toContain('mandalaRef.current?.reconcileJournals()')
+  it('ticks the color runtime before the offline queue and reads the ref every pass', () => {
+    expect(code(tick)).toMatch(/mandalaRef\.current\?\.tick\(\)[\s\S]*processOfflineActions\(/)
+    expect(code(tick)).not.toMatch(
+      /settlePendingSends|ensureAdmissionsForHoldings|reconcileJournals|recoverStaleAdmissions|repairAdmittedAborted|pruneBlindingReservations|tokenDeps/
+    )
   })
 
-  it('still drives the settlement pass and the two sweeps beside them', () => {
-    expect(tick).toContain('mandalaRef.current?.recoverStaleAdmissions()')
-    expect(tick).toContain('mandalaRef.current?.pruneBlindingReservations()')
-    expect(tick).toContain('token: mandalaRef.current?.tokenDeps')
+  it('releases through the plain queue and then drains the token inbox, off the ref', () => {
+    expect(tick).toMatch(/processOfflineActions\(\{\s*storage: phoneStorage!,\s*refetchBeef:/)
+    expect(tick).not.toMatch(/token:/)
+    expect(tick).toMatch(/processOfflineActions\([\s\S]*drainMandalaInbox\(mandalaRef\.current\)/)
+    // A captured runtime would survive the teardown that clears the ref.
+    const uses = tick.split('.tick()').length - 1
+    expect(tick.split('mandalaRef.current?.tick()').length - 1).toBe(uses)
   })
+})
 
-  /**
-   * The 2026-09-15 repair rides this tick, and rides it BEFORE the release
-   * pass. A transaction it restores has its inputs re-marked spent, and the
-   * whole point is that `processOfflineActions` below must not plan a send from
-   * a coin that is already gone.
-   */
-  it('runs the admitted-but-aborted repair, ahead of the release pass', () => {
-    expect(tick).toContain('mandalaRef.current?.repairAdmittedAborted()')
-    expect(tick.indexOf('repairAdmittedAborted')).toBeLessThan(tick.indexOf('processOfflineActions'))
+describe('foreground and reconnect settle through the module', () => {
+  it('settles on foreground and reconnect', () => {
+    expect(code(source)).toMatch(/AppState[\s\S]{0,400}mandalaRef\.current\?\.settleAll\(\)/)
+    // The app's NetInfo feed is `subscribeOnline` (core/net/online.ts).
+    expect(code(source)).toMatch(/subscribeOnline\([\s\S]{0,400}mandalaRef\.current\?\.settleAll\(\)/)
   })
+})
 
-  it('reads every one of them off the ref, so a torn-down wallet drains nothing', () => {
-    // A captured `runtime` (or a `mandala` from the closure) would survive the
-    // teardown that clears the ref and keep working the old database.
-    for (const call of [
-      'reconcileJournals',
-      'recoverStaleAdmissions',
-      'repairAdmittedAborted',
-      'pruneBlindingReservations',
-      'tokenDeps'
-    ]) {
-      const uses = tick.split(call).length - 1
-      const guarded = tick.split(`mandalaRef.current?.${call}`).length - 1
-      expect(`${call}:${guarded}/${uses}`).toBe(`${call}:${uses}/${uses}`)
-    }
+describe('the runtime is built with the registered color module', () => {
+  it('passes the module and its provider, read off colorRef', () => {
+    const start = source.indexOf('const runtime = createMandalaRuntime({')
+    expect(start).toBeGreaterThan(0)
+    const call = code(source.slice(start, source.indexOf('mandalaRef.current = runtime', start)))
+    expect(call).toContain('color: colorRef.current?.module')
+    expect(call).toContain('provider: colorRef.current?.provider')
+    expect(call).not.toContain('decodeSealedFrame')
+  })
+})
+
+/**
+ * Guard #2 on the monitor's own retry path: an unsettled 1Color req is held
+ * for the drain by `holdTokenReqsForDrain` (keyed on `colorHeldTxids`, Task 7)
+ * and dropped from the pass, never posted by `TaskSendWaiting`.
+ */
+describe('the processUnsent patch holds unsettled 1Color reqs', () => {
+  it('filters through holdTokenReqsForDrain before the original posts', () => {
+    const start = source.indexOf('sendWaiting.processUnsent = async')
+    expect(start).toBeGreaterThan(0)
+    const patch = code(source.slice(start, source.indexOf('return orig(ready, indent)', start)))
+    expect(patch).toContain('await phoneStorage.holdTokenReqsForDrain(allReqApis')
+    expect(patch).toMatch(/allReqApis\.filter\(r => !heldTokenTxids\.has\(r\.txid\)\)/)
   })
 })
 
@@ -84,9 +98,9 @@ describe('tearing a wallet down stops its tick', () => {
   const clears = [...source.matchAll(/mandalaRef\.current = undefined/g)].map(m => m.index ?? 0)
   /**
    * The three real teardowns (rebuild, network switch, logout), told apart from
-   * the build's own failure path by the session sweep that follows them.
+   * the build's own failure path by the vault-scope reset that follows them.
    */
-  const teardowns = clears.filter(at => source.slice(at, at + 300).includes('forgetSessionPsks()'))
+  const teardowns = clears.filter(at => source.slice(at, at + 300).includes('vaultStore.clearScope()'))
 
   it('every teardown path clears the runtime — rebuild, network/profile switch and logout', () => {
     // Rebuild, network switch and profile switch share teardownBuiltWallet;
@@ -137,28 +151,26 @@ describe('the published manager carries the abort guard', () => {
     expect(wiring).toContain('wrapAbortActionForSettlements(')
   })
 
-  it('sits INSIDE guardVaultAccess, beside the createAction wrapper', () => {
+  it('sits INSIDE guardVaultAccess, around the result-conforming manager', () => {
     expect(wiring.indexOf('guardVaultAccess(')).toBeLessThan(wiring.indexOf('wrapAbortActionForSettlements('))
-    expect(wiring.indexOf('wrapAbortActionForSettlements(')).toBeLessThan(
-      wiring.indexOf('wrapCreateActionForTokenInputs(')
-    )
+    expect(wiring.indexOf('wrapAbortActionForSettlements(')).toBeLessThan(wiring.indexOf('conformWalletResults('))
   })
 
-  it('reads the settlement store off the ref, never a captured runtime', () => {
+  it('reads the transfer journal off the ref, never a captured runtime', () => {
     // The runtime is built AFTER this line and replaced on every rebuild; a
-    // captured store would guard the departed wallet's tables.
-    expect(wiring).toContain('mandalaRef.current?.store')
+    // captured journal would guard the departed wallet's table.
+    expect(wiring).toContain('mandalaRef.current?.journal')
   })
 })
 
-describe('the receiver’s queue gets both settlement hooks', () => {
-  it('passes the pre-internalize hook as well as the post-credit one', () => {
+describe('the receiver’s queue reports nearby receipts to the runtime', () => {
+  it('passes nearby.onReceived, read off the ref, and no pre-internalize hook', () => {
     const start = source.indexOf('const results = await processPending(')
     expect(start).toBeGreaterThan(0)
-    const call = source.slice(start, source.indexOf(')', source.indexOf('onTokenHeld', start)))
-    expect(call).toContain('mandalaRef.current?.onTokenCredited')
-    // The one that runs BEFORE the credit: without it the unadmitted-broadcast
-    // guard has no row to read on the first internalize (§4.3 guard #2).
-    expect(call).toContain('mandalaRef.current?.onTokenHeld')
+    const call = source.slice(start, source.indexOf(')', source.indexOf('nearby.onReceived', start)))
+    expect(call).toContain('mandalaRef.current?.nearby.onReceived')
+    // A missing color_transfers row already holds the tx (W1), so nothing has
+    // to be written before the internalize any more.
+    expect(call).not.toMatch(/onToken(Held|Credited)/)
   })
 })

@@ -119,11 +119,11 @@ export const NETWORKS: Record<AppChain, NetworkProfile> = {
   //
   // Not available yet. The deployed chain runs Teranode regtest parameters
   // (regtest genesis 0f9188f1…, bits 0x207fffff; its chaintracks reports
-  // 'regtest'), so the toolbox chain is 'regtest', not 'tstn'. The installed
-  // @bsv/wallet-toolbox-mobile 2.14.x has no 'regtest' chain and rejects every
-  // header above the mainnet proof-of-work limit, so nothing on it can be
-  // verified. Switch it on once the dependency is 2.15.0 or later
-  // (bsv-blockchain/ts-stack#819).
+  // 'regtest'), so the toolbox chain is 'regtest', not 'tstn'. Toolbox 2.14.x
+  // had no 'regtest' chain and rejected every header above the mainnet
+  // proof-of-work limit. The installed @bsv/wallet-toolbox-mobile 2.15.0 has
+  // it (bsv-blockchain/ts-stack#819), so the services build; switching the
+  // network on is a separate, deliberate change.
   scaletest: {
     walletChain: 'regtest',
     available: false,

@@ -16,8 +16,9 @@
 import { updateOfflineAction } from '../storage/methods/offlineActions'
 import { devLog } from '../logging'
 import { getOnline } from '../net/online'
-import type { FetchAdmissionFn, SettlementStore } from '../mandala/types'
 import type { MandalaRuntime } from '../mandala/runtime'
+import type { TransferJournal } from '../mandala/transferJournal'
+import type { ColorTransferState } from '../mandala/types'
 
 const CANCELLABLE = new Set(['nosend', 'unsigned', 'unprocessed'])
 
@@ -49,43 +50,47 @@ export interface CancelParkedWallet {
  * FIX J: what makes a cancel overlay-authoritative for a token payment.
  *
  * Omit it entirely — every BSV caller does — and the cancel behaves exactly as
- * it always has. There is deliberately no "cancel by respend" path:
- * `token_settlements` has no `cancelling` state, so the only exits from
- * `handed_over`/`held` are the overlay's own eventual terminal verdict or this
- * check of a payment it never admitted.
+ * it always has. For a txid with a `color_transfers` row (plan 07 Task 15) the
+ * overlay, not this device, decides whether the payee's own submit already
+ * landed: a parked payment the payee scanned may have been admitted, and
+ * aborting it then releases inputs the overlay considers spent.
  */
 export interface CancelParkedSettlementDeps {
-  settlements: Pick<SettlementStore, 'getSettlement'>
   /**
-   * GET /admin/admission/:txid.
-   *
-   * The URL this is called with is ADVISORY. The row's `overlayUrl` is
-   * re-derived from frames a counterparty wrote, so the runtime's
-   * implementation pins every request to its own configured overlay and
-   * verifies the answer against its own configured key (§9.10) — which is what
-   * stops a payer naming a server that would happily "admit" their own
-   * payment and talk this cancel out of releasing the coins.
+   * The runtime's `isHandoverAdmitted`: `true` admitted, `false` asked and
+   * not admitted, `undefined` could not be asked. It reads this device's own
+   * configured overlay through the module's provider, never a URL from a
+   * frame or a row.
    */
-  fetchAdmission: FetchAdmissionFn
-  /** Offline there is nothing to poll, so the local check stands alone. */
+  isHandoverAdmitted: (txid: string) => Promise<boolean | undefined>
+  /** The `color_transfers` journal: the row to protect, and where the outcome is recorded. */
+  journal: Pick<TransferJournal, 'get' | 'advance'>
+  /** Offline there is nothing to ask, so the local check stands alone. */
   isOnline: () => Promise<boolean>
 }
 
+/** Journal states a cancel may still release: the payer's own, plus a final word the money never moved. */
+const CANCELLABLE_TRANSFER_STATES: readonly ColorTransferState[] = ['built', 'parked', 'refused', 'cancelled']
+/** The states a cancel moves to `cancelled`. */
+const PAYER_STATES: readonly ColorTransferState[] = ['built', 'parked']
+
 /**
  * Assembles `CancelParkedSettlementDeps` from the Mandala runtime, for a
- * cancel call site: `mandala.store` already satisfies the read-only
- * `settlements` slice, and `mandala.fetchAdmission` is FIX-H-verified and
- * scoped to this session's overlay identity key. Returns `undefined` when
- * Mandala is unavailable — passing that straight through as `settlement`
- * leaves `cancelParkedPayment` exactly as it behaves for a plain BSV payment
- * (the local `nosend` check stands alone).
+ * cancel call site. Returns `undefined` when Mandala is unavailable — passing
+ * that straight through as `settlement` leaves `cancelParkedPayment` exactly
+ * as it behaves for a plain BSV payment (the local `nosend` check stands
+ * alone).
  */
 export function mandalaSettlementDeps(
-  mandala: Pick<MandalaRuntime, 'available' | 'store' | 'fetchAdmission'> | undefined,
+  mandala: Pick<MandalaRuntime, 'available' | 'isHandoverAdmitted' | 'journal'> | undefined,
   isOnline: () => Promise<boolean> = getOnline
 ): CancelParkedSettlementDeps | undefined {
   if (!mandala?.available) return undefined
-  return { settlements: mandala.store, fetchAdmission: mandala.fetchAdmission, isOnline }
+  return {
+    isHandoverAdmitted: async txid => await mandala.isHandoverAdmitted(txid),
+    journal: mandala.journal,
+    isOnline
+  }
 }
 
 export async function cancelParkedPayment(args: {
@@ -124,29 +129,39 @@ export async function cancelParkedPayment(args: {
 
   // FIX J. Locally this transaction still looks cancellable — it is `nosend`
   // and its inputs are still reserved — but for a token payment the overlay,
-  // not this device, decides. The counterparty's own submit may already have
-  // landed (rule 3: the RECIPIENT settles the hop), in which case aborting
-  // would release inputs the overlay has already marked spent and hand the
-  // payer a double-spend against the person they just paid.
+  // not this device, decides. The payee's own submit may already have landed
+  // (the RECIPIENT settles the hop), in which case aborting would release
+  // inputs the overlay has already marked spent and hand the payer a
+  // double-spend against the person they just paid.
   //
-  // XR-100: a settlement ROW is the signal that this txid was genuinely
-  // handed over — once one exists, "cannot ask the overlay" (offline, or a
-  // `fetchAdmission` that comes back `unavailable`) must not be read as "the
-  // overlay says no". Only a txid with NO row at all (never locally tracked
-  // as a token hand-over) is safe to fall through with no admission check.
-  if (settlement) {
-    const row = await settlement.settlements.getSettlement(txid)
-    if (row) {
-      if (await isOnline(settlement)) {
-        const verdict = await fetchAdmissionSafely(settlement, row.overlayUrl, txid)
-        if (verdict?.kind === 'admitted') return 'already-sent'
-        if (verdict?.kind === 'unavailable' && !acknowledgedUnverifiable) return 'unverifiable-offline'
-      } else if (!acknowledgedUnverifiable) {
-        // Cannot ask the overlay at all while offline. Same refusal as the
-        // BSV-rail check below, and the same escape hatch: the caller shows
-        // the destructive confirm and retries with `acknowledgedUnverifiable`.
-        return 'unverifiable-offline'
+  // XR-100: a journal row is the signal that this txid was genuinely built
+  // as a token hand-over — once one exists, "cannot ask the overlay"
+  // (offline, or an `undefined` answer) must not be read as "the overlay says
+  // no". Only a txid with NO row at all is safe to fall through with no
+  // admission check. A journal read fault propagates: it is not "no row".
+  const row = settlement ? await settlement.journal.get(txid) : undefined
+  if (settlement && row) {
+    // The journal already says the payee has it (or the overlay admitted it):
+    // the abort guard would refuse, and the honest answer is "already sent".
+    if (!CANCELLABLE_TRANSFER_STATES.includes(row.state)) return 'already-sent'
+    if (await isOnline(settlement)) {
+      const admitted = await isHandoverAdmittedSafely(settlement, txid)
+      if (admitted === true) {
+        // Record what the overlay just said, so every later reader (the abort
+        // guard, the activity list) agrees with it.
+        try {
+          await settlement.journal.advance(txid, PAYER_STATES, 'handed_over', { delivered: true })
+        } catch (e) {
+          devLog(`[cancelParkedPayment] could not journal ${txid} as handed over:`, e)
+        }
+        return 'already-sent'
       }
+      if (admitted === undefined && !acknowledgedUnverifiable) return 'unverifiable-offline'
+    } else if (!acknowledgedUnverifiable) {
+      // Cannot ask the overlay at all while offline. Same refusal as the
+      // BSV-rail check below, and the same escape hatch: the caller shows
+      // the destructive confirm and retries with `acknowledgedUnverifiable`.
+      return 'unverifiable-offline'
     }
   }
 
@@ -172,6 +187,18 @@ export async function cancelParkedPayment(args: {
 
   const r = await wallet.abortAction({ reference: tx.reference }, originator)
   if (r && r.aborted === false) throw new Error('the wallet refused to cancel this payment')
+
+  // The money never moved: say so in the journal, after the abort landed (a
+  // row journaled cancelled over a live reservation would hide a payment the
+  // payer still has to cancel). A journal fault here does not undo the abort,
+  // so it is logged, not thrown.
+  if (settlement && row) {
+    try {
+      await settlement.journal.advance(txid, PAYER_STATES, 'cancelled')
+    } catch (e) {
+      devLog(`[cancelParkedPayment] could not journal ${txid} as cancelled:`, e)
+    }
+  }
 
   // Only after the abort landed: a retained parked row is recoverable, a
   // retired row over a live reservation is not.
@@ -244,27 +271,17 @@ async function isOnline(deps: CancelParkedSettlementDeps): Promise<boolean> {
 }
 
 /**
- * Only a 200/admitted refuses the cancel outright, and only a definite
- * non-admission — `undefined` (a 404 for a txid the overlay has never seen,
- * or a mismatched/unverifiable answer, per FIX H) or a terminal `refused`/
- * `evicted` — leaves the decision to the local check safely: the overlay
- * affirmatively said this payment was never admitted, so cancelling it cannot
- * double-spend anyone.
- *
  * XR-100: "the overlay could not be asked" is a THIRD answer, not a synonym
- * for either of those. The real runtime's `fetchAdmission` already returns a
- * distinct `{ kind: 'unavailable' }` verdict for an unreachable overlay
- * rather than throwing (`createRuntime.ts`) — the try/catch here exists only
- * for a caller/dependency that fails outright, and folds that failure into
- * the SAME `unavailable` verdict rather than swallowing it into `undefined`,
- * so `cancelParkedPayment` cannot mistake "could not ask" for "asked, and the
- * answer was no".
+ * for "not admitted". The runtime's `isHandoverAdmitted` already answers
+ * `undefined` for an unreachable overlay; a probe that throws outright is
+ * folded into the same `undefined`, so `cancelParkedPayment` cannot mistake
+ * "could not ask" for "asked, and the answer was no".
  */
-async function fetchAdmissionSafely(deps: CancelParkedSettlementDeps, overlayUrl: string, txid: string) {
+async function isHandoverAdmittedSafely(deps: CancelParkedSettlementDeps, txid: string): Promise<boolean | undefined> {
   try {
-    return await deps.fetchAdmission(overlayUrl, txid)
+    return await deps.isHandoverAdmitted(txid)
   } catch (e) {
-    devLog(`[cancelParkedPayment] could not reach ${overlayUrl} for ${txid}:`, e)
-    return { kind: 'unavailable', code: 'ERR_LOCAL_FETCH_FAILED', retryable: true } as const
+    devLog(`[cancelParkedPayment] could not ask the overlay about ${txid}:`, e)
+    return undefined
   }
 }

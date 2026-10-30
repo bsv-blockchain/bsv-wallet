@@ -16,11 +16,15 @@ import { derivationPrefixFor, legacyKeyId } from '../../core/pay/rails/address'
 import { capWalletArgs } from '../../core/services/capWalletArgs'
 import { limitsForTier } from '../../core/services/walletArgLimits'
 import { Wallet } from '@bsv/wallet-toolbox-mobile'
+import { assetBasket, colorProtocolID } from '@bsv/color-permission-module'
 
 const ADMIN = 'admin.com'
 
 const TXID = 'ab'.repeat(32)
 const NORMAL_TXID = 'cd'.repeat(32)
+/** A 1Color asset id and its token protocol, built by the module, never by hand. */
+const COLOR_ASSET = `${'ef'.repeat(32)}_0`
+const COLOR_PROTOCOL = colorProtocolID(COLOR_ASSET, 'AAAAAAAAAAAAAAAA', 'BBBBBBBBBBBBBBBB')
 let cachedVaultLock: string | undefined
 const vaultLock = () =>
   (cachedVaultLock ??= buildLock({
@@ -147,7 +151,7 @@ test('guard.ts itself strips customInstructions from listActions outputs for a n
           tags: [],
           outputIndex: 0,
           outputDescription: 'Token output',
-          basket: 'p mandala',
+          basket: assetBasket(COLOR_ASSET, 'value'),
           lockingScript: '51',
           customInstructions: JSON.stringify({ protocolID: [2, 'mandala'], keyID: 'k', counterparty: 'self' })
         }
@@ -307,16 +311,13 @@ test.each([
   ['createSignature', 'self'],
   ['revealSpecificKeyLinkage', 'self']
 ] as const)(
-  // The token protocol is no longer reserved here: its 'p ' prefix routes it
-  // to MandalaTokenModule, which gates connected-app signing itself.
+  // The 1Color token protocol is not reserved here: its 'p ' prefix routes it
+  // to the BRC-207 color module, which gates connected-app signing itself.
   'passes external token-protocol %s calls (counterparty %p) on to the permissions manager',
   async (method, counterparty) => {
     const { wallet, calls } = fakeWallet()
     const guarded = guardVaultAccess(wallet, ADMIN)
-    await (guarded[method] as any)(
-      { protocolID: [2, 'p mandala token'], keyID: 'x', counterparty, data: [1] },
-      'evil.com'
-    )
+    await (guarded[method] as any)({ protocolID: COLOR_PROTOCOL, keyID: 'x', counterparty, data: [1] }, 'evil.com')
     expect(calls.find(call => call.method === method)).toBeDefined()
   }
 )
@@ -326,7 +327,7 @@ test('still refuses a privileged external token-protocol call', async () => {
   const guarded = guardVaultAccess(wallet, ADMIN)
   await expect(
     guarded.getPublicKey(
-      { protocolID: [2, 'p mandala token'], keyID: 'x', counterparty: 'self', privileged: true } as any,
+      { protocolID: COLOR_PROTOCOL, keyID: 'x', counterparty: 'self', privileged: true } as any,
       'evil.com'
     )
   ).rejects.toBeInstanceOf(VaultAccessDenied)
@@ -433,10 +434,10 @@ test('still refuses a privileged external BRC-29 call', async () => {
   expect(calls.find(c => c.method === 'createSignature')).toBeUndefined()
 })
 
-test('still allows the admin originator to use the FT protocol directly', async () => {
+test('still allows the admin originator to use the 1Color token protocol directly', async () => {
   const { wallet, calls } = fakeWallet()
   const guarded = guardVaultAccess(wallet, ADMIN)
-  await guarded.getPublicKey({ protocolID: [2, 'p mandala token'], keyID: 'x', counterparty: 'anyone' } as any, ADMIN)
+  await guarded.getPublicKey({ protocolID: COLOR_PROTOCOL, keyID: 'x', counterparty: 'anyone' } as any, ADMIN)
   expect(calls.find(c => c.method === 'getPublicKey')).toBeDefined()
 })
 

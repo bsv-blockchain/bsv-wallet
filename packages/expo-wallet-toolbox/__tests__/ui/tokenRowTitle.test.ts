@@ -57,7 +57,7 @@ describe('tokenRowTitle — message-box rail (label transfer/receive, @bsv/manda
         labels: ['mandala', 'transfer'],
         description: `Send 4000 of ${ASSET_ID}`,
         assetId: ASSET_ID,
-        baseUnits: 4000,
+        units: 4000n,
         t
       })
     ).toBe('token_row_sent:USDX')
@@ -68,7 +68,7 @@ describe('tokenRowTitle — message-box rail (label transfer/receive, @bsv/manda
         labels: ['mandala', 'receive'],
         description: `Receive 4000 of ${ASSET_ID}`,
         assetId: ASSET_ID,
-        baseUnits: 4000,
+        units: 4000n,
         t
       })
     ).toBe('token_row_received:USDX')
@@ -82,7 +82,7 @@ describe('tokenRowTitle — message-box rail (label transfer/receive, @bsv/manda
         labels: ['mandala', 'receive'],
         description: 'thanks!',
         assetId: ASSET_ID,
-        baseUnits: 4000,
+        units: 4000n,
         t
       })
     ).toBe('thanks!')
@@ -96,13 +96,13 @@ describe('tokenRowTitle — message-box rail (label transfer/receive, @bsv/manda
         labels: ['mandala'],
         description: `Receive 4000 of ${ASSET_ID}`,
         assetId: ASSET_ID,
-        baseUnits: 4000,
+        units: 4000n,
         t
       })
     ).toBe('token_row_received:USDX')
   })
 
-  it('never shows a message-box description when assetId/baseUnits are unavailable to reconstruct the fixed wording', () => {
+  it('never shows a message-box description when assetId/units are unavailable to reconstruct the fixed wording', () => {
     expect(
       tokenRowTitle({ role: 'sent', ticker: 'USDX', labels: ['mandala', 'transfer'], description: 'lunch split', t })
     ).toBe('token_row_sent:USDX')

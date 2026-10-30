@@ -51,7 +51,9 @@ export function useSpendableBalance(): number | null {
           const pm = managers?.permissionsManager
           if (!pm) return
           const { totalOutputs } = await pm.listOutputs({ basket: sdk.specOpWalletBalance }, adminOriginator)
-          total = totalOutputs ?? 0
+          // sdk 4 types `totalOutputs` as number | DecimalString (BRC-112 module
+          // balances); the satoshi wallet balance is always a safe integer.
+          total = Number(totalOutputs ?? 0)
         }
         if (cancelled) return
         setBalance(prev => (prev?.key === cacheKey && prev.value === total ? prev : { key: cacheKey, value: total }))

@@ -39,9 +39,9 @@ describe('NETWORKS', () => {
   })
 })
 
-// The deployed scaling teratestnet runs regtest parameters, which the installed
-// toolbox (2.14.x) cannot verify. Until @bsv/wallet-toolbox 2.15.0 adds the
-// 'regtest' chain it must stay out of the picker.
+// The deployed scaling teratestnet runs regtest parameters. The toolbox gained
+// the 'regtest' chain in 2.15.0; the network stays out of the picker until it
+// is switched on deliberately.
 describe('scaletest is wired but not offered', () => {
   afterEach(() => resetToolboxConfig())
 
@@ -56,23 +56,23 @@ describe('scaletest is wired but not offered', () => {
     })
   })
 
-  // A canary. The installed toolbox has no 'regtest' chain, which is why
-  // scaletest is gated off. When this starts failing, the dependency supports
-  // regtest (@bsv/wallet-toolbox >= 2.15.0, bsv-blockchain/ts-stack#819): set
-  // NETWORKS.scaletest.available, drop the casts in toWalletChain and
-  // headerStore, and replace this test with one that builds the services.
-  it('cannot build its services on the installed toolbox yet', () => {
+  // This was a canary that threw on the 2.14.x toolbox, which had no
+  // 'regtest' chain. @bsv/wallet-toolbox-mobile 2.15.0 (the 1Color upgrade,
+  // bsv-blockchain/ts-stack#819) adds it, so the services now build. Offering
+  // scaletest in the picker (NETWORKS.scaletest.available) is a separate
+  // product call and stays off here.
+  it('builds its services on the installed toolbox (2.15.0 knows regtest)', () => {
     configureToolbox({ backupUrl: null })
     const stub = { getChain: async () => 'regtest' } as never
-    expect(() =>
-      createServices(
-        'scaletest',
-        'callback-token',
-        { timestamp: new Date(), base: 'USD', rate: 1 },
-        undefined,
-        undefined,
-        stub
-      )
-    ).toThrow()
+    const { services, serviceOptions } = createServices(
+      'scaletest',
+      'callback-token',
+      { timestamp: new Date(), base: 'USD', rate: 1 },
+      undefined,
+      undefined,
+      stub
+    )
+    expect(services).toBeDefined()
+    expect(serviceOptions.chain).toBe('regtest')
   })
 })

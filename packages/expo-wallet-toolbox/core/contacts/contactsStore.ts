@@ -1,7 +1,7 @@
 /**
  * `ContactsStore` over the toolbox's own SQLite connection.
  *
- * Deliberately logic-free, same spirit as `mandala/settlementStore.ts`: every
+ * Deliberately logic-free, same spirit as `mandala/transferJournal.ts`: every
  * decision (what counts as a match, how activity is aggregated) lives in the
  * callers of this module. What is here is statements.
  *
@@ -10,7 +10,7 @@
  * `renameContact`, which exists for exactly that. A background identity
  * refresh calls `refreshContactCache` instead, which never touches `name`.
  *
- * Access pattern matches `settlementStore.ts`: the caller hands in
+ * Access pattern matches `transferJournal.ts`: the caller hands in
  * `storage.sqliteDb` and this module only ever issues parameterised statements
  * against it.
  */

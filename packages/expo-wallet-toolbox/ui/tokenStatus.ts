@@ -1,7 +1,7 @@
 /**
  * What a token row's settlement state is called, and in what colour.
  *
- * Five states reach the UI (`TokenActivityStatus`), and the mapping is here
+ * Four states reach the UI (`TokenActivityStatus`), and the mapping is here
  * rather than inside a component so the same word appears in the activity list,
  * the Asset sheet and the home badge without three chances to disagree.
  *
@@ -19,7 +19,6 @@ const KEYS: Record<TokenActivityStatus, string> = {
   settling: 'token_status_settling',
   settled: 'token_status_settled',
   refused: 'token_status_refused',
-  reversed: 'token_status_reversed',
   stuck: 'token_status_stuck'
 }
 
@@ -27,7 +26,6 @@ const TONES: Record<TokenActivityStatus, TokenStatusTone> = {
   settling: 'neutral',
   settled: 'positive',
   refused: 'error',
-  reversed: 'error',
   stuck: 'warning'
 }
 
@@ -46,8 +44,7 @@ export function tokenRowStatusView(status: TokenActivityStatus, incoming: boolea
     case 'settled':
       return { key: incoming ? 'tx_status_received' : 'tx_status_sent', tone: 'settled' }
     case 'refused':
-    case 'reversed':
-      return { key: KEYS[status], tone: 'failed' }
+      return { key: KEYS.refused, tone: 'failed' }
     case 'stuck':
       return { key: KEYS.stuck, tone: 'attention' }
     default:
@@ -61,8 +58,9 @@ export function tokenStatusTone(status: TokenActivityStatus): TokenStatusTone {
 
 /**
  * The sentence a finished-but-unhappy row explains itself with, or `null` when
- * the status word is the whole story. Refusal and reversal are the two states a
- * holder is owed an explanation for, because money moved back.
+ * the status word is the whole story. A refusal is the state a holder is owed
+ * an explanation for, because money moved back (a received refusal is a
+ * credit the color module withdrew).
  *
  * `refusedCode` narrows a `stuck` or `received`-`refused` row to a more exact
  * reason, the same way `tokenSendCopy.ts` narrows a live send failure — by
@@ -95,6 +93,5 @@ export function tokenStatusDetailKey(
     if (has('shape', 'conservation', 'satoshi')) return 'token_frame_unreadable'
     return 'token_recv_reversed'
   }
-  if (status === 'reversed') return 'token_settle_evicted'
   return null
 }
