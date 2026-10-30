@@ -356,7 +356,7 @@ describe('connect-time group on the unverified manager', () => {
         protocolPermissions: [
           { protocolID: [2, 'notes'], description: 'notes' },
           { protocolID: [2, '3241645161d8'], description: 'pay' },
-          { protocolID: [2, 'p mandala token'], description: 'tokens' }
+          { protocolID: [2, 'p color token'], description: 'tokens' }
         ],
         basketAccess: [{ basket: 'stuff', description: 's' }]
       }
