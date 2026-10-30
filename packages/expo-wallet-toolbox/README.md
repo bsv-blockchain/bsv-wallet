@@ -57,14 +57,14 @@ Expo SDK line.
 
 | Package                        | Version |
 | ------------------------------ | ------- |
-| `@bsv/sdk`                     | ^4.0.0  |
-| `@bsv/wallet-toolbox-mobile`   | ^2.15.0 |
-| `@bsv/btms-permission-module`  | ^1.2.1  |
+| `@bsv/sdk`                     | ^4.0.1  |
+| `@bsv/wallet-toolbox-mobile`   | ^2.15.1 |
+| `@bsv/btms-permission-module`  | ^1.2.4  |
 | `@bsv/color-permission-module` | ^0.2.0  |
 | `@bsv/mandala`                 | ^0.5.0  |
 | `@bsv/air-gap`                 | ^0.1.3  |
 | `@bsv/backup-cache-client`     | ^0.1.0  |
-| `@bsv/message-box-client`      | ^2.5.3  |
+| `@bsv/message-box-client`      | ^2.7.0  |
 | `@bsv/templates`               | ^2.2.0  |
 | `@noble/curves`                | ^2.3.0  |
 | `qrcode`                       | ^1.5.4  |
@@ -76,7 +76,7 @@ React Native app must alias to `@bsv/wallet-toolbox-mobile` (see
 [`metro.config.js`](#metroconfigjs) and [Jest configuration](#jest-configuration)).
 The module also declares `@bsv/wallet-toolbox-client` as a peer; satisfy it
 with an npm alias of the mobile toolbox, e.g.
-`"@bsv/wallet-toolbox-client": "npm:@bsv/wallet-toolbox-mobile@^2.15.0"`, so no
+`"@bsv/wallet-toolbox-client": "npm:@bsv/wallet-toolbox-mobile@^2.15.1"`, so no
 second toolbox is installed. That copy is never loaded (the bundler and Jest
 map the name to `-mobile`), so `patch-package` patches only `-mobile`.
 

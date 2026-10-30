@@ -1,8 +1,9 @@
-// Plan 07 Task 2: the still-unpublished 1Color package (@bsv/mandala) is a
-// vendored tarball (IC §9); @bsv/sdk 4.0.x, @bsv/wallet-toolbox-mobile 2.15.x,
-// @bsv/templates 2.2.x and @bsv/color-permission-module 0.2.x come from the
-// registry. Every package.json is read through fs, because the color module's
-// `exports` does not expose `./package.json`.
+// Plan 07 Task 2: the 1Color packages come from the registry: @bsv/sdk 4.0.x,
+// @bsv/wallet-toolbox-mobile 2.15.x, @bsv/templates 2.2.x,
+// @bsv/color-permission-module 0.2.x and @bsv/mandala 0.5.x (published
+// 2026-10-30, byte-identical to the vendored 0.5.0-152fa60 tarball it
+// replaces). Every package.json is read through fs, because the color
+// module's `exports` does not expose `./package.json`.
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -11,25 +12,21 @@ const readJson = (p: string) => JSON.parse(fs.readFileSync(p, 'utf8'))
 const rootPkg = readJson(path.join(root, 'package.json'))
 const toolboxPkg = readJson(path.join(root, 'packages/expo-wallet-toolbox/package.json'))
 
-const VENDORED: Record<string, string> = {
-  '@bsv/mandala': '0.5.0'
-}
-
 /** Published: registry ranges, still overridden to one root copy. */
 const PUBLISHED: Record<string, { spec: string; version: RegExp }> = {
-  '@bsv/sdk': { spec: '^4.0.0', version: /^4\./ },
+  '@bsv/sdk': { spec: '^4.0.1', version: /^4\./ },
+  '@bsv/mandala': { spec: '^0.5.0', version: /^0\.5\./ },
   '@bsv/templates': { spec: '^2.2.0', version: /^2\.2\./ },
   '@bsv/color-permission-module': { spec: '^0.2.0', version: /^0\.2\./ },
-  '@bsv/wallet-toolbox-mobile': { spec: '^2.15.0', version: /^2\.(1[5-9]|[2-9]\d)\./ },
+  '@bsv/wallet-toolbox-mobile': { spec: '^2.15.1', version: /^2\.(1[5-9]|[2-9]\d)\./ },
   // The color module's peer, satisfied by -mobile itself (IC D21): no second toolbox.
-  '@bsv/wallet-toolbox-client': { spec: 'npm:@bsv/wallet-toolbox-mobile@^2.15.0', version: /^2\.(1[5-9]|[2-9]\d)\./ }
+  '@bsv/wallet-toolbox-client': { spec: 'npm:@bsv/wallet-toolbox-mobile@^2.15.1', version: /^2\.(1[5-9]|[2-9]\d)\./ }
 }
 
 const installedVersionAt = (pkgJsonPath: string): string | undefined =>
   fs.existsSync(pkgJsonPath) ? readJson(pkgJsonPath).version : undefined
 
-const installedVersion = (name: string) =>
-  installedVersionAt(path.join(root, 'node_modules', name, 'package.json'))
+const installedVersion = (name: string) => installedVersionAt(path.join(root, 'node_modules', name, 'package.json'))
 
 // Every nested copy of `name`: node_modules/**/node_modules/<name>/package.json,
 // skipping .bin, at most 6 node_modules levels deep. The top-level copy is not
@@ -62,28 +59,14 @@ function nestedCopies(name: string): string[] {
   return found
 }
 
-describe('1Color vendored packages', () => {
-  it('pins every vendored package to a file: tarball that exists', () => {
-    for (const name of Object.keys(VENDORED)) {
-      const spec = rootPkg.dependencies[name]
-      expect(spec).toMatch(/^file:vendor\/bsv-[a-z-]+-\d+\.\d+\.\d+-[0-9a-f]{7}\.tgz$/)
-      expect(fs.existsSync(path.join(root, spec.slice(5)))).toBe(true)
-      expect(rootPkg.overrides[name]).toBe(`$${name}`)
-    }
-  })
-
-  it('installs exactly the vendored versions', () => {
-    for (const [name, v] of Object.entries(VENDORED)) expect([name, installedVersion(name)]).toEqual([name, v])
-  })
-
-  it('takes the published packages from the registry, with no tarball left', () => {
+describe('1Color packages', () => {
+  it('takes the published packages from the registry, with no vendored tarball left', () => {
     for (const [name, { spec, version }] of Object.entries(PUBLISHED)) {
       expect([name, rootPkg.dependencies[name]]).toEqual([name, spec])
       expect(rootPkg.overrides[name]).toBe(`$${name}`)
       expect(installedVersion(name)).toMatch(version)
     }
-    const left = fs.readdirSync(path.join(root, 'vendor')).filter(f => /^bsv-(sdk|templates|color-permission-module|wallet-toolbox(-client|-mobile)?)-/.test(f))
-    expect(left).toEqual([])
+    expect(fs.existsSync(path.join(root, 'vendor'))).toBe(false)
     const clientPkg = readJson(path.join(root, 'node_modules/@bsv/wallet-toolbox-client/package.json'))
     expect(clientPkg.name).toBe('@bsv/wallet-toolbox-mobile')
   })
@@ -93,16 +76,15 @@ describe('1Color vendored packages', () => {
     expect(nestedCopies('@bsv/sdk').filter(p => installedVersionAt(p) !== top)).toEqual([])
   })
 
-  it('drops the old Mandala tarball and patch', () => {
-    expect(fs.existsSync(path.join(root, 'vendor/bsv-mandala-0.4.1.tgz'))).toBe(false)
+  it('has no Mandala patch', () => {
     expect(fs.readdirSync(path.join(root, 'patches')).filter(f => f.startsWith('@bsv+mandala+'))).toEqual([])
   })
 
   it('declares 1Color peer ranges on the toolbox package', () => {
     expect(toolboxPkg.peerDependencies).toMatchObject({
-      '@bsv/sdk': '^4.0.0',
+      '@bsv/sdk': '^4.0.1',
       '@bsv/templates': '^2.2.0',
-      '@bsv/wallet-toolbox-mobile': '^2.15.0',
+      '@bsv/wallet-toolbox-mobile': '^2.15.1',
       '@bsv/mandala': '^0.5.0',
       '@bsv/color-permission-module': '^0.2.0'
     })

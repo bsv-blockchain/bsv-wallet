@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Peers
+
+- **Raised floors** to the latest published releases: `@bsv/sdk` ^4.0.1,
+  `@bsv/wallet-toolbox-mobile` ^2.15.1, `@bsv/btms-permission-module` ^1.2.4,
+  `@bsv/message-box-client` ^2.7.0, `@bsv/webrtpay` ^0.2.3. Hosts copy
+  `patches/@bsv+wallet-toolbox-mobile+2.15.1.patch` in place of the 2.15.0 patch
+  (same changes, ported onto the 2.15.1 signing guard).
+- `@bsv/backup-cache-client` 0.1.0 still peers `@bsv/sdk` ^2.4.1 (and its
+  `@bsv/auth` 0.1.3 peers ^2.1.6). Hosts keep an `overrides` entry for
+  `@bsv/sdk` until upstream widens these ranges.
+
 ### Wallet data export
 
 - **Encrypted export.** `exportAllWalletDatabases(storage, { encrypt: true, wallet, originator })`
