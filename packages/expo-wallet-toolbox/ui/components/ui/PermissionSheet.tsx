@@ -16,6 +16,7 @@ import {
 } from '../../../core/bridge/consentSheetSource'
 import { SEEK_FLAG_DISCLOSURE, SEEK_FLAG_KEYS, type SeekFlags } from '../../../core/bridge/permissionPolicy'
 import { hostnameOfUnattested, isUnattestedOriginator } from '../../../core/bridge/unverifiedOriginator'
+import { describeColorRequest, type ColorPromptType } from './colorPrompt'
 import {
   spacing,
   radii,
@@ -121,12 +122,11 @@ export interface ActivePermission {
   /** Group-specific sub-permissions. */
   groupPermissions?: GroupPermissions
   /**
-   * XR-040: set when a `mandala_spend`/`mandala_credit` prompt's per-asset
-   * `lines` could not be trusted to be the WHOLE request (absent, malformed,
-   * empty, or past `MANDALA_MAX_PROMPT_LINES`) — every asset a single
-   * approval would release has to be shown, and a request this sheet cannot
-   * fully enumerate must never be approvable. `handleDeny` is unaffected;
-   * only the Allow control reads this.
+   * XR-040 (carried to the color module): set when a token consent message
+   * could not be read in full (`describeColorRequest` returned null) — every
+   * asset a single approval would release has to be shown, and a request this
+   * sheet cannot fully enumerate must never be approvable. `handleDeny` is
+   * unaffected; only the Allow control reads this.
    */
   approvalBlocked?: boolean
   /**
@@ -148,42 +148,22 @@ export interface ActivePermission {
   }
 }
 
-/** One line of a `mandala_spend`/`mandala_credit` prompt's `lines[]` array,
- * as loosely as a JSON.parse of counterparty-adjacent data should be trusted. */
-interface MandalaPromptLine {
-  assetId?: unknown
-  sendAmount?: unknown
-  changeAmount?: unknown
-  creditAmount?: unknown
-  tokenName?: unknown
-  /** Pre-formatted, e.g. "25.00 USDX" — see `MandalaSpendLine`/`MandalaCreditLine`. */
-  display?: unknown
+/** Always-visible copy for each color consent type, completing "<app> …". */
+const COLOR_DESCRIPTIONS: Record<ColorPromptType, string> = {
+  color_send: 'wants to send tokens from your wallet',
+  color_signature: 'wants to sign with one of your token keys. Only approve if you just asked this app to move tokens',
+  color_access: 'wants to see your token holdings',
+  color_relinquish: 'wants to remove a token holding from your wallet'
 }
 
-/**
- * A sane display ceiling for a multi-asset Mandala prompt. Every real prompt
- * this app's own `MandalaTokenModule` builds groups by assetId — a handful at
- * most — so a `lines` array past this is either a bug or a bad-faith caller,
- * either way not something to enumerate as if it were the whole request.
- */
-const MANDALA_MAX_PROMPT_LINES = 25
-
-/**
- * `promptData.lines`, validated into a bounded array of loosely-typed line
- * objects — or `null` for anything this sheet cannot enumerate in full
- * (absent, not an array, empty, oversized, or containing a non-object entry).
- * `null` is the caller's signal to block approval rather than silently fall
- * back to the primary-only view (XR-040).
- */
-function sanitizedMandalaLines(raw: unknown): MandalaPromptLine[] | null {
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MANDALA_MAX_PROMPT_LINES) return null
-  const lines: MandalaPromptLine[] = []
-  for (const entry of raw) {
-    if (!entry || typeof entry !== 'object') return null
-    lines.push(entry as MandalaPromptLine)
-  }
-  return lines
+/** What the sheet needs to render color consent messages. */
+export interface ColorPromptDeps {
+  t: (key: string, o?: object) => string
+  /** Host-resolved, untrusted display metadata; undefined ⇒ exact base units. */
+  assetInfo: (assetId: string) => { ticker: string; decimals: number } | undefined
 }
+
+const NO_COLOR_DEPS: ColorPromptDeps = { t: key => key, assetInfo: () => undefined }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -267,7 +247,8 @@ export function deriveActive(
     certificateAccessModalOpen: boolean
     spendingAuthorizationModalOpen: boolean
   },
-  formatSats: (satoshis: number) => { value: string; unit: string }
+  formatSats: (satoshis: number) => { value: string; unit: string },
+  color: ColorPromptDeps = NO_COLOR_DEPS
 ): ActivePermission | null {
   // Dev preview — override ctx with real captured data so the description
   // logic below is exercised exactly as it would be in production.
@@ -459,130 +440,34 @@ export function deriveActive(
     }
   }
 
-  // mandala: same shape as btms above — driven purely by queue length, resolved via advanceMandalaQueue
+  // mandala: the BRC-207 color module's consent queue — driven purely by queue
+  // length, resolved via advanceMandalaQueue (same shape as btms above).
   if (ctx.mandalaRequests.length > 0) {
     const r = ctx.mandalaRequests[0]
-    let promptData: {
-      type?: string
-      action?: string
-      assetId?: string
-      tokenName?: string
-      sendAmount?: number
-      changeAmount?: number
-      creditAmount?: number
-      lines?: unknown
-      // XR-041: relinquishOutput's own resolved-target fields.
-      amount?: number
-      display?: string
-      outpoint?: string
-    } = {}
-    try {
-      promptData = JSON.parse(r.message)
-    } catch {
-      // message not valid JSON — ignore, use defaults
-    }
-
-    const isRelinquish = promptData.type === 'mandala_access' && promptData.action === 'relinquishOutput'
-    // XR-041: `display` is pre-formatted ("25.00 USDX"); fall back to the raw
-    // base-unit amount + token name when it is not a string, same convention
-    // as the spend/credit lines below.
-    const relinquishAmount =
-      typeof promptData.display === 'string'
-        ? promptData.display
-        : promptData.amount != null
-          ? `${promptData.amount} ${promptData.tokenName || 'Mandala tokens'}`
-          : undefined
-
-    let description: string
-    if (promptData.type === 'mandala_spend' && promptData.sendAmount != null) {
-      description = `wants to spend ${promptData.sendAmount} ${promptData.tokenName || 'Mandala tokens'}`
-    } else if (promptData.type === 'mandala_credit' && promptData.creditAmount != null) {
-      description = `wants to credit ${promptData.creditAmount} ${promptData.tokenName || 'Mandala tokens'} to your wallet`
-    } else if (isRelinquish && relinquishAmount) {
-      // Named, not generic (XR-041): which holding, not just that "a" holding
-      // is being removed.
-      description = `wants to remove ${relinquishAmount} from your wallet`
-    } else if (isRelinquish) {
-      description = 'wants to remove a Mandala token holding from your wallet'
-    } else if (promptData.type === 'mandala_access') {
-      description = 'wants to see your Mandala token balance'
-    } else if (promptData.type === 'mandala_signature') {
-      description = 'wants to sign with one of your token keys. Only approve if you just asked this app to move tokens'
-    } else {
-      description = 'wants to access Mandala tokens'
-    }
-
-    const details: { label: string; value: string }[] = []
-    let approvalBlocked = false
-
-    if (promptData.type === 'mandala_spend' || promptData.type === 'mandala_credit') {
-      // XR-040: `lines` carries EVERY asset this request touches — rendering
-      // only the primary (back-compat) fields below is how a single approval
-      // silently released a second, unshown asset. Every sanitized line is
-      // rendered; an unsanitizable `lines` blocks approval instead of falling
-      // back to a primary-only view that looks complete but is not.
-      const lines = sanitizedMandalaLines(promptData.lines)
-      if (lines === null) {
-        approvalBlocked = true
-        details.push({
-          label: 'Warning',
-          value: 'Could not verify this is the full request — deny and try again.'
-        })
-      } else {
-        const numbered = lines.length > 1
-        lines.forEach((line, i) => {
-          const suffix = numbered ? ` ${i + 1}` : ''
-          if (typeof line.tokenName === 'string' && line.tokenName) {
-            details.push({ label: `Token${suffix}`, value: line.tokenName })
-          }
-          if (typeof line.sendAmount === 'number') {
-            details.push({
-              label: `Send amount${suffix}`,
-              value: typeof line.display === 'string' ? line.display : String(line.sendAmount)
-            })
-          }
-          if (typeof line.changeAmount === 'number' && line.changeAmount !== 0) {
-            details.push({ label: `Change${suffix}`, value: String(line.changeAmount) })
-          }
-          if (typeof line.creditAmount === 'number') {
-            details.push({
-              label: `Credit amount${suffix}`,
-              value: typeof line.display === 'string' ? line.display : String(line.creditAmount)
-            })
-          }
-          if (typeof line.assetId === 'string' && line.assetId) {
-            details.push({ label: `Asset ID${suffix}`, value: truncate(line.assetId, 28) })
-          }
-        })
+    const view = typeof r.message === 'string' ? describeColorRequest(r.message, color.assetInfo, color.t) : null
+    if (view === null) {
+      // Not readable in full: deny-only, and said in the always-visible description.
+      return {
+        kind: 'mandala',
+        requestID: '',
+        ...presentOriginator(r.originator || 'Unknown app'),
+        title: 'Token Request',
+        description: 'wants to use your tokens, but this request could not be read — deny it.',
+        details: [],
+        approvalBlocked: true
       }
-    } else if (isRelinquish) {
-      // XR-041: identify the target the same way mandala_spend/mandala_credit
-      // already identify theirs — token, amount, and the exact outpoint.
-      if (promptData.tokenName) details.push({ label: 'Token', value: promptData.tokenName })
-      if (relinquishAmount) details.push({ label: 'Amount', value: relinquishAmount })
-      if (promptData.assetId) details.push({ label: 'Asset ID', value: truncate(promptData.assetId, 28) })
-      if (promptData.outpoint) details.push({ label: 'Outpoint', value: truncate(promptData.outpoint, 28) })
-    } else {
-      if (promptData.assetId) details.push({ label: 'Asset ID', value: truncate(promptData.assetId, 28) })
     }
-
-    // Said in the ALWAYS-VISIBLE description, not only the collapsed Details
-    // section — the whole point is that this cannot be missed on the way to
-    // an (already-disabled) Allow button.
-    if (approvalBlocked) {
-      description =
-        'wants to spend or credit Mandala tokens, but the full request could not be verified — deny and try again.'
-    }
-
+    const description =
+      view.warning === undefined ? COLOR_DESCRIPTIONS[view.type] : `${COLOR_DESCRIPTIONS[view.type]}. ${view.warning}`
     return {
       kind: 'mandala',
       // mandala requests are resolved via advanceMandalaQueue, not permissionsManager — use a sentinel requestID
       requestID: '',
       ...presentOriginator(r.originator || 'Unknown app'),
-      title: 'Token Spend Request',
+      title: view.title,
       description,
-      details,
-      approvalBlocked
+      details: view.lines,
+      approvalBlocked: false
     }
   }
 
@@ -625,7 +510,8 @@ const PermissionSheet: React.FC = () => {
     advanceGroupQueue,
     advanceBtmsQueue,
     advanceMandalaQueue,
-    settings
+    settings,
+    mandala
   } = useContext(WalletContext)
 
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
@@ -633,6 +519,39 @@ const PermissionSheet: React.FC = () => {
   const formatSats = useCallback(
     (satoshis: number) => formatAmountParts(satoshis, currency, satoshisPerUSD, { abbreviate: true, usdToFiat }),
     [currency, satoshisPerUSD, usdToFiat]
+  )
+
+  // Token display metadata for color consent prompts: host-resolved and
+  // untrusted (the full asset id is always shown beside it). Loaded when a
+  // token prompt is queued; a failed or slow load only means exact base units.
+  const [colorAssets, setColorAssets] = useState<ReadonlyMap<string, { ticker: string; decimals: number }>>(
+    () => new Map()
+  )
+  const hasMandalaRequest = mandalaRequests.length > 0
+  useEffect(() => {
+    if (!hasMandalaRequest || mandala === undefined) return
+    let cancelled = false
+    // Through Promise.resolve so a synchronous throw is caught too, never
+    // crashing the sheet while a token prompt waits.
+    Promise.resolve()
+      .then(() => mandala.listAssets())
+      .then(assets => {
+        if (cancelled) return
+        setColorAssets(new Map(assets.map(a => [a.assetId, { ticker: a.ticker, decimals: a.decimals }])))
+      })
+      .catch(() => {
+        // Metadata is optional: the prompt falls back to exact base units.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [hasMandalaRequest, mandala])
+  const colorDeps = useMemo(
+    () => ({
+      t: (key: string, o?: object) => String(t(key, o as never)),
+      assetInfo: (assetId: string) => colorAssets.get(assetId)
+    }),
+    [t, colorAssets]
   )
 
   const {
@@ -712,7 +631,8 @@ const PermissionSheet: React.FC = () => {
           certificateAccessModalOpen,
           spendingAuthorizationModalOpen
         },
-        formatSats
+        formatSats,
+        colorDeps
       ),
     [
       protocolRequests,
@@ -727,7 +647,8 @@ const PermissionSheet: React.FC = () => {
       basketAccessModalOpen,
       certificateAccessModalOpen,
       spendingAuthorizationModalOpen,
-      formatSats
+      formatSats,
+      colorDeps
     ]
   )
 
@@ -942,8 +863,8 @@ const PermissionSheet: React.FC = () => {
 
   const handleGrant = useCallback(() => {
     // XR-040: belt-and-braces alongside the Allow button's own `disabled` —
-    // a mandala_spend/mandala_credit prompt whose `lines` this sheet could
-    // not fully enumerate must never be approvable, from any call path.
+    // a token consent message this sheet could not read in full must never
+    // be approvable, from any call path.
     if (!active || granted || active.approvalBlocked || tapLocked) return
     haptics.success()
     setGranted(true)
@@ -1164,7 +1085,17 @@ const PermissionSheet: React.FC = () => {
                     {active.details.map((d, i) => (
                       <View key={i} style={styles.detailRow}>
                         <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>{d.label}</Text>
-                        <Text style={[styles.detailValue, { color: colors.textPrimary }]} numberOfLines={1}>
+                        {/* Token prompts wrap instead of truncating: the full asset id and
+                            exact amounts are what the user approves (IC §2.5). */}
+                        <Text
+                          style={[
+                            styles.detailValue,
+                            { color: colors.textPrimary },
+                            active.kind === 'mandala' ? styles.detailValueWrap : null
+                          ]}
+                          numberOfLines={active.kind === 'mandala' ? undefined : 1}
+                          selectable={active.kind === 'mandala'}
+                        >
                           {d.value}
                           {d.unit ? (
                             <Text style={[styles.detailUnit, { color: colors.textSecondary }]}> {d.unit}</Text>
@@ -1422,6 +1353,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'right',
     fontVariant: ['tabular-nums']
+  },
+  detailValueWrap: {
+    flexShrink: 1
   },
   detailUnit: {
     fontSize: 11.5,

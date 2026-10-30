@@ -3,16 +3,25 @@
  * export at a time, a spinner flag while it runs, failures swallowed (the OS
  * share sheet being dismissed is not an error worth a red line).
  *
- * XR-086: the export is a raw, unencrypted SQLite image. The confirmation
- * alert that used to precede it was removed by product decision, so a tap
- * goes straight to the share sheet.
+ * XR-086: the export is encrypted to the wallet by default; `encrypt: false`
+ * still writes the raw SQLite image for development. The confirmation alert
+ * that used to precede it was removed by product decision, so a tap goes
+ * straight to the share sheet.
  */
 let mockStorage: unknown = { dbName: 'wallet-0f7ae53f-mainnet-1788405945.db' }
 const mockExport = jest.fn()
+const mockPermissionsManager = { encrypt: jest.fn() }
+const encrypted = { encrypt: true, wallet: mockPermissionsManager, originator: 'admin.test' }
 
 jest.mock('@bsv/expo-wallet-toolbox', () => ({
-  useWallet: () => ({ storage: mockStorage })
+  useWallet: () => ({
+    storage: mockStorage,
+    managers: { permissionsManager: mockPermissionsManager },
+    adminOriginator: 'admin.test'
+  })
 }))
+const mockShowToast = jest.fn()
+jest.mock('../../ui/components/ui/Toast', () => ({ showToast: (...a: unknown[]) => mockShowToast(...a) }))
 jest.mock('../../ui/exportDatabases', () => ({
   exportAllWalletDatabases: (...args: unknown[]) => mockExport(...args)
 }))
@@ -56,7 +65,7 @@ describe('useExportWalletData', () => {
     await flush()
     expect(result.current.exporting).toBe(true)
     expect(mockExport).toHaveBeenCalledTimes(1)
-    expect(mockExport).toHaveBeenCalledWith(mockStorage)
+    expect(mockExport).toHaveBeenCalledWith(mockStorage, encrypted)
 
     await act(async () => {
       first.resolve(1)
@@ -99,15 +108,16 @@ describe('useExportWalletData', () => {
     expect(result.current.exporting).toBe(false)
   })
 
-  test('swallows a failed export and clears the spinner', async () => {
+  test('reports a failed export as an error toast and clears the spinner', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    mockExport.mockRejectedValueOnce(new Error('share sheet dismissed'))
+    mockExport.mockRejectedValueOnce(new Error('snapshot refused'))
     const { result } = renderHook(() => useExportWalletData())
     await act(async () => {
       await result.current.exportData()
     })
     expect(result.current.exporting).toBe(false)
     expect(warn).toHaveBeenCalledTimes(1)
+    expect(mockShowToast).toHaveBeenCalledWith('snapshot refused', { type: 'error' })
     warn.mockRestore()
   })
 
@@ -118,6 +128,15 @@ describe('useExportWalletData', () => {
     await act(async () => {
       await result.current.exportData()
     })
-    expect(mockExport).toHaveBeenCalledWith(null)
+    expect(mockExport).toHaveBeenCalledWith(null, encrypted)
+  })
+
+  test('encrypt: false exports the raw image, with no wallet handed over', async () => {
+    mockExport.mockResolvedValueOnce(1)
+    const { result } = renderHook(() => useExportWalletData())
+    await act(async () => {
+      await result.current.exportData({ encrypt: false })
+    })
+    expect(mockExport).toHaveBeenCalledWith(mockStorage, {})
   })
 })

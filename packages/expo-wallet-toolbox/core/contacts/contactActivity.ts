@@ -13,13 +13,19 @@
  *     window, not full history: an old inbound payment outside it will not
  *     surface here. Documented limitation (see the 2026-09-18 spec) rather
  *     than a silent one.
- *  3. Token transfers — EXACT, via `token_settlements.counterpartyKey`
- *     (`idx_token_settlements_counterpartyKey`).
+ *  3. Token transfers — EXACT, via the `color_transfers` journal's
+ *     `counterpartyKey` (plan 07 W1). Units are exact `bigint`s read from the
+ *     journal's canonical decimal TEXT, never a number. A received row's key
+ *     is the sender's key as the hand-over named it (blinded A′ by default,
+ *     spec D2), so an inbound blinded payment matches no contact; that is the
+ *     blinding working, not a gap.
  *
  * The address rail is never attributable to a contact (no key in its label)
  * and is excluded here the same way it is everywhere else in the app.
  */
+import { parseDecimalAmount } from '@bsv/mandala'
 import { counterpartyOf } from '../pay/counterparty'
+import type { ColorTransferRole, ColorTransferState } from '../mandala/types'
 
 /** The recent-window size for source (2) above. */
 export const RECENT_WINDOW = 200
@@ -44,14 +50,15 @@ export interface ContactActivityWallet {
   ): Promise<{ actions: ContactBsvAction[] }>
 }
 
-/** The slice of `token_settlements` this module reads. */
-export interface ContactSettlementRow {
+/** The slice of a `color_transfers` row this module reads. */
+export interface ContactTransferRow {
   txid: string
-  role: 'sent' | 'received'
+  role: ColorTransferRole
   assetId: string
-  state: string
+  state: ColorTransferState
   counterpartyKey?: string
-  amountBaseUnits?: number
+  /** Exact token units; absent when the stored text does not read back exactly (no figure beats a wrong one). */
+  units?: bigint
   createdAt: string
 }
 
@@ -59,7 +66,7 @@ export interface ContactSettlementsDb {
   getAllAsync(sql: string, params: (string | number | null)[]): Promise<unknown[]>
 }
 
-export type ContactActivityItem = ({ kind: 'bsv' } & ContactBsvAction) | ({ kind: 'token' } & ContactSettlementRow)
+export type ContactActivityItem = ({ kind: 'bsv' } & ContactBsvAction) | ({ kind: 'token' } & ContactTransferRow)
 
 function timeOf(item: ContactActivityItem): number {
   const raw = item.kind === 'bsv' ? item.created_at : item.createdAt
@@ -68,40 +75,53 @@ function timeOf(item: ContactActivityItem): number {
   return Number.isNaN(ts) ? 0 : ts
 }
 
-/** Token transfers with this counterparty. Exported separately so it can be
- * unit-tested against a real in-memory SQLite (see `mandala/settlementStore.ts`'s
- * own test pattern) without a wallet in the loop. */
-export async function listTokenSettlementsByCounterparty(
+/** How many journal rows one contact page reads; the newest are the ones a person looks for. */
+export const TRANSFER_WINDOW = 500
+
+/**
+ * Token transfers with this counterparty, newest first, from the
+ * `color_transfers` journal. A cancelled send is left out: that money never
+ * moved (the same rule the runtime's activity list keeps). Exported separately
+ * so it can be unit-tested against a real in-memory SQLite without a wallet in
+ * the loop.
+ */
+export async function listTokenTransfersByCounterparty(
   db: ContactSettlementsDb,
   counterpartyKey: string
-): Promise<ContactSettlementRow[]> {
+): Promise<ContactTransferRow[]> {
   const rows = (await db.getAllAsync(
-    'SELECT txid, role, assetId, state, counterpartyKey, amountBaseUnits, createdAt FROM token_settlements WHERE counterpartyKey = ? ORDER BY createdAt DESC',
-    [counterpartyKey]
+    `SELECT txid, role, assetId, units, state, counterpartyKey, createdAt FROM color_transfers
+     WHERE counterpartyKey = ? AND state <> 'cancelled' ORDER BY createdAt DESC, rowid DESC LIMIT ?`,
+    [counterpartyKey, TRANSFER_WINDOW]
   )) as {
     txid: string
     role: string
     assetId: string
+    units: unknown
     state: string
     counterpartyKey: string | null
-    amountBaseUnits: number | null
     createdAt: string
   }[]
-  return rows.map(r => ({
-    txid: r.txid,
-    role: r.role as 'sent' | 'received',
-    assetId: r.assetId,
-    state: r.state,
-    counterpartyKey: r.counterpartyKey ?? undefined,
-    amountBaseUnits: r.amountBaseUnits ?? undefined,
-    createdAt: r.createdAt
-  }))
+  return rows.map(r => {
+    const row: ContactTransferRow = {
+      txid: r.txid,
+      role: r.role as ColorTransferRole,
+      assetId: r.assetId,
+      state: r.state as ColorTransferState,
+      createdAt: r.createdAt
+    }
+    if (r.counterpartyKey) row.counterpartyKey = r.counterpartyKey
+    const units = parseDecimalAmount(r.units)
+    if (units !== null) row.units = units
+    return row
+  })
 }
 
 /**
  * Every activity item with `identityKey`, merged and sorted newest first.
  *
- * `wallet` and `settlementsDb` are both optional so a caller that only has
+ * `wallet` and `settlementsDb` (the wallet database holding `color_transfers`)
+ * are both optional so a caller that only has
  * one half built (e.g. a token-less wallet) still gets what it can — same
  * fail-open posture as `resolveIdentity.ts`.
  */
@@ -142,8 +162,8 @@ export async function getContactActivity(args: {
 
   if (settlementsDb) {
     try {
-      const settlements = await listTokenSettlementsByCounterparty(settlementsDb, identityKey)
-      for (const row of settlements) items.push({ kind: 'token', ...row })
+      const transfers = await listTokenTransfersByCounterparty(settlementsDb, identityKey)
+      for (const row of transfers) items.push({ kind: 'token', ...row })
     } catch {
       // Same posture as above.
     }

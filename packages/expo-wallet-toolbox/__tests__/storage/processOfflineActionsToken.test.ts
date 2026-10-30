@@ -1,14 +1,25 @@
 /**
- * The one branch `processOfflineActions` grows for token settlement.
+ * The one branch `processOfflineActions` keeps for 1Color settlement.
  *
- * What is pinned here is the SEAM, not the drain's own logic (that is
- * `__tests__/mandala/drain.test.ts`): a step whose txid has a
- * `token_settlements` row must go through `postTokenStep` and must NOT reach
- * `postOwned`/`postForeign` on its own, while a plain BSV step must be
- * completely untouched by the feature. The outcome `postTokenStep` returns then
- * feeds the existing `applyOutcome`/cascade/requeue with no token-specific
- * handling anywhere downstream — which is what lets a refused ancestor cascade
- * through descendants that were never token rows.
+ * The drain no longer settles anything itself: the color module's `settle`
+ * submits to the Mandala overlay (which broadcasts what it admits), and the
+ * runtime records the verdict in `color_transfers`. What is pinned here is the
+ * SEAM: a step whose tx carries a 1Color output and whose journal row is not
+ * `settled` is a `serviceError` — never posted, its queue row left `queued` —
+ * and once the row reads `settled` the very next pass posts it through the
+ * ordinary `postOwned`. A plain BSV step never touches the journal. A journal
+ * read fault stalls the step and never posts (XR-045).
+ *
+ * The hold is custody-scoped (the decoy-output finding): a 1Color step is
+ * held only when this wallet's token custody is in it (a journal row, a host
+ * ledger record, or a spent `p color` input) and its row is not `settled`.
+ *
+ * A foreign 1Color ancestor (a counterparty's own unsettled change, inside the
+ * receipt's BEEF) has no custody of its own. It is held while some descendant
+ * in the same graph is held (an unadmitted link under our pending receipt),
+ * and released once none is: a settled descendant's admission means the
+ * overlay already took, and broadcast, the chain it spends; a plain BSV
+ * descendant means the 1Color output is a decoy that is not ours to hold.
  */
 jest.mock('../../core/net/online', () => ({ getOnline: jest.fn(async () => true) }))
 
@@ -18,37 +29,29 @@ jest.mock('@bsv/wallet-toolbox-mobile', () => ({
   attemptToPostReqsToNetwork: (...args: unknown[]) => mockPostReqs(...args)
 }))
 
-import { DatabaseSync } from 'node:sqlite'
-import { Beef, LockingScript, Transaction, UnlockingScript } from '@bsv/sdk'
+import type { DatabaseSync } from 'node:sqlite'
+import { Beef, LockingScript, P2PKH, PrivateKey, Transaction, UnlockingScript } from '@bsv/sdk'
+import { OneColor } from '@bsv/templates'
 import type { TableProvenTxReq } from '@bsv/wallet-toolbox-mobile'
-import { processOfflineActions } from '../../core/storage/methods/processOfflineActions'
+import { postOwnedByTxid, processOfflineActions } from '../../core/storage/methods/processOfflineActions'
 import { getOnline } from '../../core/net/online'
 import type { BindValue, OfflineActionRow } from '../../core/storage/methods/offlineActions'
-import { createTables } from '../../core/storage/schema/createTables'
-import { createSettlementStore, type SettlementDb } from '../../core/mandala/settlementStore'
-import type { CoverResult, OverlayVerdict, SettlementStore } from '../../core/mandala/types'
+import { colorHeldTxids } from '../../core/mandala/colorGuard'
+import { createTransferJournal, type JournalDb, type TransferJournal } from '../../core/mandala/transferJournal'
+import type { ColorTransferState } from '../../core/mandala/types'
+import { openTestDb } from '../__helpers__/nodeSqlite'
 
-function adapt(db: DatabaseSync) {
-  return {
-    execAsync: async (sql: string) => {
-      db.exec(sql)
-    },
-    getAllAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).all(...(params as never[])),
-    getFirstAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).get(...(params as never[])) ?? null,
-    runAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).run(...(params as never[]))
-  }
-}
-
-const OVERLAY = 'https://overlay.issuer.example'
-const OVERLAY_KEY = '02' + 'cd'.repeat(32)
 const ASSET_ID = 'ab'.repeat(32) + '_0'
+const PKH = PrivateKey.fromRandom().toPublicKey().toHash() as number[]
 
-function txSpending(sourceTXID: string): Transaction {
+function txSpending(sourceTXID: string, lockingScript: LockingScript = LockingScript.fromHex('51')): Transaction {
   const tx = new Transaction()
   tx.addInput({ sourceTXID, sourceOutputIndex: 0, unlockingScript: UnlockingScript.fromHex('') })
-  tx.addOutput({ satoshis: 1000, lockingScript: LockingScript.fromHex('51') })
+  tx.addOutput({ satoshis: 1, lockingScript })
   return tx
 }
+const tokenTxSpending = (sourceTXID: string, amount = 1500n) =>
+  txSpending(sourceTXID, new OneColor().lock(ASSET_ID, amount, PKH))
 
 const row = (over: Partial<OfflineActionRow>): OfflineActionRow => ({
   offlineActionId: 1,
@@ -86,9 +89,6 @@ function fakeDb(rows: OfflineActionRow[]) {
   const writes: { sql: string; params: BindValue[] }[] = []
   return {
     writes,
-    // XQ-009's reconciliation pass queries `status: ['sent']` separately from
-    // the main drain's `status: ['queued', 'posting']` — a real filter is
-    // needed so one call does not see the other's rows.
     getAllAsync: async (sql: string, params: BindValue[]) =>
       sql.includes('status IN') ? rows.filter(r => params.includes(r.status)) : rows,
     runAsync: async (sql: string, params: BindValue[]) => {
@@ -98,27 +98,40 @@ function fakeDb(rows: OfflineActionRow[]) {
   }
 }
 
-/** XQ-009: the block height every fake proof below claims. Arbitrary. */
+/** The last status this pass wrote for `txid`'s queue row. */
+const QUEUE_STATUSES: BindValue[] = ['queued', 'posting', 'sent', 'rejected']
+const lastStatusOf = (db: ReturnType<typeof fakeDb>, txid: string) =>
+  db.writes
+    .filter(w => w.sql.includes('offline_actions') && w.params.includes(txid))
+    .at(-1)
+    ?.params.find(p => QUEUE_STATUSES.includes(p))
+
 const FAKE_PROOF_HEIGHT = 700_000
+
+let raw: DatabaseSync
+let journal: TransferJournal
+let log: jest.SpyInstance
 
 function fakeStorage(args: {
   db: ReturnType<typeof fakeDb>
   reqs: TableProvenTxReq[]
   postBeef?: jest.Mock
-  /** What the network says it holds, by txid. Anything unlisted is 'unknown'. */
   networkHas?: Record<string, 'mined' | 'known'>
-  /**
-   * XQ-009: txids the fake chain tracker actually validates a Merkle root
-   * for — a genuine (if minimal, single-leaf) proof, not merely a status
-   * claim. A single-leaf MerklePath's root equals the txid itself, so
-   * `isValidRootForHeight` below just checks membership. A txid present in
-   * `networkHas` but absent here exercises exactly the gap XQ-009 closes:
-   * the status service claims delivery, but no proof backs it up.
-   */
   proven?: string[]
+  /** The journal `colorHeldTxids` reads; defaults to the real one over node:sqlite. */
+  statesOf?: TransferJournal['statesOf']
+  /** Txids with custody beyond a journal row (a host-ledger record, a spent `p color` input). */
+  custodial?: string[]
 }) {
+  const colorHeld = jest.fn(async (reqs: readonly { txid: string; rawTx?: readonly number[] }[]) =>
+    colorHeldTxids(reqs, {
+      statesOf: args.statesOf ?? (txids => journal.statesOf(txids)),
+      custodyOf: async txids => new Set(txids.filter(t => (args.custodial ?? []).includes(t)))
+    })
+  )
   return {
     sqliteDb: args.db,
+    colorHeldTxids: colorHeld,
     findProvenTxReqs: async (a: { partial: { txid?: string } }) =>
       args.reqs.filter(r => a.partial.txid === undefined || r.txid === a.partial.txid).map(r => ({ ...r })),
     findTransactions: async () => [{ transactionId: 11, status: 'unproven' }],
@@ -131,9 +144,6 @@ function fakeStorage(args: {
         status: 'success',
         results: txids.map(t => ({ txid: t, depth: undefined, status: args.networkHas?.[t] ?? 'unknown' }))
       }),
-      // A genuine, if minimal, chain-tracker-validated proof for exactly the
-      // txids `proven` names — everything else gets no Merkle path at all,
-      // matching a proof provider that has never seen this txid either.
       getChainTracker: async () => ({
         isValidRootForHeight: async (root: string, height: number) =>
           height === FAKE_PROOF_HEIGHT && (args.proven ?? []).includes(root)
@@ -142,11 +152,6 @@ function fakeStorage(args: {
         (args.proven ?? []).includes(txid)
           ? {
               merklePath: { blockHeight: FAKE_PROOF_HEIGHT, path: [[{ offset: 0, hash: txid, txid: true }]] },
-              // EntityProvenTx.fromTxid only accepts a Merkle path alongside
-              // a full header — a single-leaf path's root equals the txid,
-              // so merkleRoot is set to that. Format/proof-of-work are not
-              // validated on this call (fromTxid passes both flags false),
-              // only presence and basic shape.
               header: {
                 version: 1,
                 previousHash: 'bb'.repeat(32),
@@ -163,16 +168,25 @@ function fakeStorage(args: {
   }
 }
 
-let raw: DatabaseSync
-let store: SettlementStore
-let log: jest.SpyInstance
+async function journalRow(txid: string, state: ColorTransferState, role: 'sent' | 'received' = 'received') {
+  await journal.insert({
+    txid,
+    role,
+    assetId: ASSET_ID,
+    units: 1500n,
+    outputIndex: 0,
+    rail: 'nearby',
+    state,
+    delivered: false
+  })
+}
 
 beforeEach(async () => {
   mockPostReqs.mockReset()
   ;(getOnline as jest.Mock).mockReset().mockResolvedValue(true)
-  raw = new DatabaseSync(':memory:')
-  await createTables(adapt(raw) as never)
-  store = createSettlementStore(adapt(raw) as unknown as SettlementDb)
+  let db
+  ;({ raw, db } = await openTestDb())
+  journal = createTransferJournal(db as JournalDb)
   log = jest.spyOn(console, 'log').mockImplementation(() => {})
 })
 
@@ -181,202 +195,102 @@ afterEach(() => {
   raw.close()
 })
 
-async function seedSettlement(txid: string) {
-  await store.upsertSettlement({
-    txid,
-    role: 'received',
-    assetId: ASSET_ID,
-    state: 'held',
-    overlayUrl: OVERLAY,
-    overlayIdentityKey: OVERLAY_KEY
-  })
-}
-
-const admitted = (): OverlayVerdict => ({
-  kind: 'admitted',
-  outputsToAdmit: [0],
-  signatureHex: '3045',
-  signerKey: OVERLAY_KEY
-})
-
-describe('processOfflineActions token branch', () => {
-  it('submits before broadcasting a step that has a settlement row', async () => {
-    const tx = txSpending('11'.repeat(32))
+describe('processOfflineActions color branch', () => {
+  it('holds an unsettled 1Color step as serviceError and leaves its row queued', async () => {
+    const tx = tokenTxSpending('11'.repeat(32))
     const txid = tx.id('hex')
-    await seedSettlement(txid)
-
-    const api = req({ txid, rawTx: tx.toBinary() })
-    const order: string[] = []
-    mockPostReqs.mockImplementation(async () => {
-      order.push('broadcast')
-      api.status = 'unmined'
-      return { details: [{ txid, status: 'success' }] }
-    })
-    const submit = jest.fn(async (t: string) => {
-      order.push(`submit:${t}`)
-      return admitted()
-    })
-
-    const db = fakeDb([row({ txid })])
-    const storage = fakeStorage({ db, reqs: [api] })
-
-    const r = await processOfflineActions({
-      storage: storage as never,
-      token: { store, cover: async (): Promise<CoverResult> => ({ ok: true, mustSubmit: [txid] }), submit }
-    })
-
-    expect(order).toEqual([`submit:${txid}`, 'broadcast'])
-    expect(r.sent).toBe(1)
-    expect((await store.getSettlement(txid))?.state).toBe('broadcast')
-  })
-
-  it('leaves a plain BSV step entirely alone', async () => {
-    const tx = txSpending('22'.repeat(32))
-    const txid = tx.id('hex')
-    const api = req({ txid, rawTx: tx.toBinary() })
-    mockPostReqs.mockImplementation(async () => {
-      api.status = 'unmined'
-      return { details: [{ txid, status: 'success' }] }
-    })
-    const submit = jest.fn(async () => admitted())
-
-    const storage = fakeStorage({ db: fakeDb([row({ txid })]), reqs: [api] })
-    const r = await processOfflineActions({
-      storage: storage as never,
-      token: { store, cover: async (): Promise<CoverResult> => ({ ok: true, mustSubmit: [txid] }), submit }
-    })
-
-    expect(submit).not.toHaveBeenCalled()
-    expect(r.sent).toBe(1)
-  })
-
-  it('never broadcasts when the overlay refuses, and cascades through the unchanged applyOutcome', async () => {
-    const tx = txSpending('33'.repeat(32))
-    const txid = tx.id('hex')
-    await seedSettlement(txid)
-
-    const api = req({ txid, rawTx: tx.toBinary() })
-    const db = fakeDb([row({ txid })])
-    const storage = fakeStorage({ db, reqs: [api] })
-
-    const r = await processOfflineActions({
-      storage: storage as never,
-      token: {
-        store,
-        cover: async (): Promise<CoverResult> => ({ ok: true, mustSubmit: [txid] }),
-        submit: async (): Promise<OverlayVerdict> => ({ kind: 'refused', code: 'ERR_CONSERVATION' })
-      }
-    })
-
-    expect(mockPostReqs).not.toHaveBeenCalled()
-    expect(r.rejected).toBe(1)
-    expect(await store.getSettlement(txid)).toMatchObject({ state: 'refused', refusedCode: 'ERR_CONSERVATION' })
-    // The queue row is rejected by the existing cascade, not by anything new.
-    expect(db.writes.some(w => w.params.includes('rejected'))).toBe(true)
-  })
-
-  it('leaves the row queued and non-terminal when the overlay is unavailable', async () => {
-    const tx = txSpending('44'.repeat(32))
-    const txid = tx.id('hex')
-    await seedSettlement(txid)
+    await journalRow(txid, 'held')
 
     const db = fakeDb([row({ txid })])
     const storage = fakeStorage({ db, reqs: [req({ txid, rawTx: tx.toBinary() })] })
-
-    const r = await processOfflineActions({
-      storage: storage as never,
-      token: {
-        store,
-        cover: async (): Promise<CoverResult> => ({ ok: true, mustSubmit: [txid] }),
-        submit: async (): Promise<OverlayVerdict> => ({ kind: 'unavailable', code: 'ERR_PAUSED', retryable: true })
-      }
-    })
+    const r = await processOfflineActions({ storage: storage as never })
 
     expect(mockPostReqs).not.toHaveBeenCalled()
-    expect(r.rejected).toBe(0)
-    expect((await store.getSettlement(txid))?.state).toBe('held')
-    expect(db.writes.at(-1)?.params).toContain('queued')
+    expect(r).toMatchObject({ sent: 0, rejected: 0, stopped: true })
+    expect(lastStatusOf(db, txid)).toBe('queued')
+    expect((await journal.get(txid))!.state).toBe('held')
   })
 
-  // FIX G / FIX I: the reconciliation pass runs before anything else, so a
-  // frame whose settlement row was never written still gets one.
-  it('re-derives evidence and settlement rows before the plan runs', async () => {
-    const tx = txSpending('55'.repeat(32))
+  it('holds a 1Color receipt the host ledger recorded that has no journal row yet', async () => {
+    const tx = tokenTxSpending('12'.repeat(32))
     const txid = tx.id('hex')
-    const storage = fakeStorage({ db: fakeDb([]), reqs: [] })
+    const db = fakeDb([row({ txid })])
+    const storage = fakeStorage({ db, reqs: [req({ txid, rawTx: tx.toBinary() })], custodial: [txid] })
 
-    await processOfflineActions({
-      storage: storage as never,
-      token: {
-        store,
-        cover: async (): Promise<CoverResult> => ({ ok: true, mustSubmit: [] }),
-        submit: async () => admitted(),
-        frames: async () => [
-          {
-            txid,
-            role: 'received' as const,
-            frame: {
-              kind: 'token',
-              transaction: new Uint8Array([0]),
-              token: {
-                assetId: ASSET_ID,
-                overlayUrl: OVERLAY,
-                overlayIdentityKey: OVERLAY_KEY,
-                linkage: [{ txid: 'ff'.repeat(32), payload: new Uint8Array([1, 2]) }]
-              }
-            }
-          }
-        ]
-      }
-    })
+    const r = await processOfflineActions({ storage: storage as never })
 
-    expect(await store.getSettlement(txid)).toMatchObject({ state: 'held', assetId: ASSET_ID })
-    expect(await store.getLinkage('ff'.repeat(32))).toBeDefined()
+    expect(mockPostReqs).not.toHaveBeenCalled()
+    expect(r.sent).toBe(0)
+    expect(lastStatusOf(db, txid)).toBe('queued')
   })
 
-  // A thrown settlement read used to collapse to `undefined`, which the caller
-  // cannot tell from "there is no row, this is an ordinary BSV transaction" —
-  // so a locked database sent an unadmitted token tip straight to broadcast,
-  // defeating the whole §4.3 gate on exactly the transient fault the drain is
-  // built to survive. "I could not tell" must never resolve to "go ahead".
-  it('stalls the step when the settlement read throws, and never broadcasts', async () => {
-    const tx = txSpending('77'.repeat(32))
+  it('releases a 1Color step with no custody of this wallet (a decoy output) like plain BSV', async () => {
+    const tx = tokenTxSpending('14'.repeat(32))
     const txid = tx.id('hex')
-    await seedSettlement(txid)
-
     const api = req({ txid, rawTx: tx.toBinary() })
     mockPostReqs.mockImplementation(async () => {
       api.status = 'unmined'
       return { details: [{ txid, status: 'success' }] }
     })
-    const submit = jest.fn(async () => admitted())
+    const db = fakeDb([row({ txid })])
+    const storage = fakeStorage({ db, reqs: [api] })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(mockPostReqs).toHaveBeenCalledTimes(1)
+    expect(r.sent).toBe(1)
+    expect(lastStatusOf(db, txid)).toBe('sent')
+  })
+
+  it('posts it on the next pass once the journal row is settled, and marks it sent', async () => {
+    const tx = tokenTxSpending('13'.repeat(32))
+    const txid = tx.id('hex')
+    await journalRow(txid, 'held')
+    const api = req({ txid, rawTx: tx.toBinary() })
+    mockPostReqs.mockImplementation(async () => {
+      api.status = 'unmined'
+      return { details: [{ txid, status: 'success' }] }
+    })
+    const db = fakeDb([row({ txid })])
+    const storage = fakeStorage({ db, reqs: [api] })
+
+    await processOfflineActions({ storage: storage as never })
+    expect(mockPostReqs).not.toHaveBeenCalled()
+
+    expect(await journal.advance(txid, ['held'], 'settled')).toBe(true)
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(mockPostReqs).toHaveBeenCalledTimes(1)
+    expect(r.sent).toBe(1)
+    expect(lastStatusOf(db, txid)).toBe('sent')
+  })
+
+  it('stalls the step on a journal read fault and never posts', async () => {
+    const tx = tokenTxSpending('14'.repeat(32))
+    const txid = tx.id('hex')
+    await journalRow(txid, 'settled')
     const postBeef = jest.fn(async () => [])
-    const broken: SettlementStore = {
-      ...store,
-      getSettlement: async () => {
+    const db = fakeDb([row({ txid })])
+    const storage = fakeStorage({
+      db,
+      reqs: [req({ txid, rawTx: tx.toBinary() })],
+      postBeef,
+      statesOf: async () => {
         throw new Error('database is locked')
       }
-    }
-
-    const db = fakeDb([row({ txid })])
-    const storage = fakeStorage({ db, reqs: [api], postBeef })
-    const r = await processOfflineActions({
-      storage: storage as never,
-      token: { store: broken, cover: async (): Promise<CoverResult> => ({ ok: true, mustSubmit: [txid] }), submit }
     })
+
+    const r = await processOfflineActions({ storage: storage as never })
 
     expect(mockPostReqs).not.toHaveBeenCalled()
     expect(postBeef).not.toHaveBeenCalled()
-    expect(submit).not.toHaveBeenCalled()
-    expect(r.sent).toBe(0)
-    expect(r.rejected).toBe(0)
-    // serviceError, so the row is left for the next pass rather than burned.
+    expect(r).toMatchObject({ sent: 0, rejected: 0 })
     expect(db.writes.some(w => w.params.includes('rejected'))).toBe(false)
-    expect((await store.getSettlement(txid))?.state).toBe('held')
+    expect(lastStatusOf(db, txid)).toBe('queued')
   })
 
-  it('works exactly as before when no token deps are supplied at all', async () => {
-    const tx = txSpending('66'.repeat(32))
+  it('leaves a plain BSV step entirely alone and never reads the journal for it', async () => {
+    const tx = txSpending('22'.repeat(32), new P2PKH().lock(PKH))
     const txid = tx.id('hex')
     const api = req({ txid, rawTx: tx.toBinary() })
     mockPostReqs.mockImplementation(async () => {
@@ -385,7 +299,179 @@ describe('processOfflineActions token branch', () => {
     })
     const storage = fakeStorage({ db: fakeDb([row({ txid })]), reqs: [api] })
 
-    await expect(processOfflineActions({ storage: storage as never })).resolves.toMatchObject({ sent: 1 })
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(r.sent).toBe(1)
+    expect(storage.colorHeldTxids).not.toHaveBeenCalled()
+  })
+
+  it('holds the unsettled 1Color step and still releases an independent plain BSV root', async () => {
+    const token = tokenTxSpending('15'.repeat(32))
+    const plain = txSpending('16'.repeat(32))
+    const tokenApi = req({ provenTxReqId: 1, txid: token.id('hex'), rawTx: token.toBinary() })
+    const plainApi = req({ provenTxReqId: 2, txid: plain.id('hex'), rawTx: plain.toBinary() })
+    mockPostReqs.mockImplementation(async (_s: unknown, reqs: { txid: string }[]) => {
+      plainApi.status = 'unmined'
+      return { details: reqs.map(r => ({ txid: r.txid, status: 'success' })) }
+    })
+    const db = fakeDb([row({ txid: token.id('hex') }), row({ offlineActionId: 2, txid: plain.id('hex'), seq: 2 })])
+    const storage = fakeStorage({ db, reqs: [tokenApi, plainApi], custodial: [token.id('hex')] })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(mockPostReqs).toHaveBeenCalledTimes(1)
+    expect((mockPostReqs.mock.calls[0][1] as { txid: string }[]).map(x => x.txid)).toEqual([plain.id('hex')])
+    expect(r).toMatchObject({ sent: 1, stopped: true })
+  })
+})
+
+// The single-txid door a runtime uses outside the queue loop. It calls the
+// toolbox's module-level post directly, past the storage override, so it must
+// carry the same hold itself or it is a way around the guard.
+describe('postOwnedByTxid', () => {
+  it('refuses an unsettled 1Color tx as serviceError, and posts it once settled', async () => {
+    const tx = tokenTxSpending('17'.repeat(32))
+    const txid = tx.id('hex')
+    await journalRow(txid, 'handed_over', 'sent')
+    const api = req({ txid, rawTx: tx.toBinary() })
+    mockPostReqs.mockImplementation(async () => {
+      api.status = 'unmined'
+      return { details: [{ txid, status: 'success' }] }
+    })
+    const storage = fakeStorage({ db: fakeDb([]), reqs: [api] })
+
+    await expect(postOwnedByTxid(storage as never, txid)).resolves.toBe('serviceError')
+    expect(mockPostReqs).not.toHaveBeenCalled()
+
+    await journal.advance(txid, ['handed_over'], 'settled')
+    await expect(postOwnedByTxid(storage as never, txid)).resolves.toBe('success')
+    expect(mockPostReqs).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses on a journal read fault', async () => {
+    const tx = tokenTxSpending('18'.repeat(32))
+    const txid = tx.id('hex')
+    const storage = fakeStorage({
+      db: fakeDb([]),
+      reqs: [req({ txid, rawTx: tx.toBinary() })],
+      statesOf: async () => {
+        throw new Error('database is locked')
+      }
+    })
+
+    await expect(postOwnedByTxid(storage as never, txid)).resolves.toBe('serviceError')
+    expect(mockPostReqs).not.toHaveBeenCalled()
+  })
+})
+
+describe('a foreign 1Color ancestor inside a receipt BEEF', () => {
+  function chain() {
+    const parent = tokenTxSpending('31'.repeat(32), 2000n)
+    const parentTxid = parent.id('hex')
+    const child = tokenTxSpending(parentTxid)
+    const childTxid = child.id('hex')
+    const inputBEEF = new Beef()
+    inputBEEF.mergeRawTx(parent.toBinary())
+    const api = req({ txid: childTxid, rawTx: child.toBinary(), inputBEEF: inputBEEF.toBinary() })
+    return { parentTxid, childTxid, api }
+  }
+
+  it('is held, with the owned child behind it, while the child is unsettled', async () => {
+    const { childTxid, api } = chain()
+    await journalRow(childTxid, 'held')
+    const postBeef = jest.fn(async () => [])
+    const db = fakeDb([row({ txid: childTxid })])
+    const storage = fakeStorage({ db, reqs: [api], postBeef })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(postBeef).not.toHaveBeenCalled()
+    expect(mockPostReqs).not.toHaveBeenCalled()
+    expect(r).toMatchObject({ sent: 0, rejected: 0, stopped: true })
+    expect(lastStatusOf(db, childTxid)).toBe('queued')
+  })
+
+  it('is released once the owned child reads settled, and the child posts after it', async () => {
+    const { parentTxid, childTxid, api } = chain()
+    await journalRow(childTxid, 'settled')
+    const order: string[] = []
+    const postBeef = jest.fn(async () => {
+      order.push('foreign')
+      return [{ txidResults: [{ txid: parentTxid, status: 'success' }] }]
+    })
+    mockPostReqs.mockImplementation(async () => {
+      order.push('owned')
+      api.status = 'unmined'
+      return { details: [{ txid: childTxid, status: 'success' }] }
+    })
+    const db = fakeDb([row({ txid: childTxid })])
+    const storage = fakeStorage({ db, reqs: [api], postBeef })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(order).toEqual(['foreign', 'owned'])
+    expect(r).toMatchObject({ sent: 1, rejected: 0, stopped: false })
+  })
+
+  it('is released when its only descendant is plain BSV: a decoy-carrying parent is not ours to hold', async () => {
+    const parent = tokenTxSpending('41'.repeat(32), 2000n)
+    const child = txSpending(parent.id('hex'))
+    const inputBEEF = new Beef()
+    inputBEEF.mergeRawTx(parent.toBinary())
+    const api = req({ txid: child.id('hex'), rawTx: child.toBinary(), inputBEEF: inputBEEF.toBinary() })
+    const order: string[] = []
+    const postBeef = jest.fn(async (_b: unknown, txids: string[]) => {
+      order.push('foreign')
+      return [{ txidResults: txids.map(txid => ({ txid, status: 'success' })) }]
+    })
+    mockPostReqs.mockImplementation(async () => {
+      order.push('owned')
+      api.status = 'unmined'
+      return { details: [{ txid: child.id('hex'), status: 'success' }] }
+    })
+    const storage = fakeStorage({ db: fakeDb([row({ txid: child.id('hex') })]), reqs: [api], postBeef })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(order).toEqual(['foreign', 'owned'])
+    expect(r.sent).toBe(1)
+  })
+
+  it('is held while its owned 1Color child is a held receipt with no journal row (host-ledger custody)', async () => {
+    const { childTxid, api } = chain()
+    const postBeef = jest.fn(async () => [])
+    const storage = fakeStorage({
+      db: fakeDb([row({ txid: childTxid })]),
+      reqs: [api],
+      postBeef,
+      custodial: [childTxid]
+    })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(postBeef).not.toHaveBeenCalled()
+    expect(mockPostReqs).not.toHaveBeenCalled()
+    expect(r.stopped).toBe(true)
+  })
+
+  it('stalls on a journal read fault, never posting either', async () => {
+    const { childTxid, api } = chain()
+    await journalRow(childTxid, 'settled')
+    const postBeef = jest.fn(async () => [])
+    const storage = fakeStorage({
+      db: fakeDb([row({ txid: childTxid })]),
+      reqs: [api],
+      postBeef,
+      statesOf: async () => {
+        throw new Error('database is locked')
+      }
+    })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
+    expect(postBeef).not.toHaveBeenCalled()
+    expect(mockPostReqs).not.toHaveBeenCalled()
+    expect(r).toMatchObject({ sent: 0, rejected: 0 })
   })
 })
 
@@ -397,32 +483,21 @@ describe('processOfflineActions token branch', () => {
 describe('a transaction the network already has', () => {
   it('closes a queue row on a recorded delivery before asking whether it is online', async () => {
     ;(getOnline as jest.Mock).mockResolvedValueOnce(false)
-    const tx = txSpending('55'.repeat(32))
+    const tx = tokenTxSpending('55'.repeat(32))
     const txid = tx.id('hex')
-    await store.upsertSettlement({
-      txid,
-      role: 'sent',
-      assetId: ASSET_ID,
-      state: 'admitted',
-      overlayUrl: OVERLAY,
-      overlayIdentityKey: OVERLAY_KEY
-    })
-    // settleNow posted this at hand-over: storage already says so.
+    await journalRow(txid, 'settled', 'sent')
+    // Storage already records the broadcast.
     const api = req({ txid, rawTx: tx.toBinary(), status: 'unmined' })
     const db = fakeDb([row({ txid, role: 'sent' })])
     const storage = fakeStorage({ db, reqs: [api] })
 
-    const r = await processOfflineActions({
-      storage: storage as never,
-      token: { store, cover: async (): Promise<CoverResult> => ({ ok: true, mustSubmit: [] }), submit: jest.fn() }
-    })
+    const r = await processOfflineActions({ storage: storage as never })
 
     expect(r).toMatchObject({ sent: 1, rejected: 0, stopped: false })
     // Closed before the probe: nothing about it needed the network.
     expect(getOnline).not.toHaveBeenCalled()
     expect(mockPostReqs).not.toHaveBeenCalled()
     expect(db.writes.some(w => w.params.includes('sent'))).toBe(true)
-    expect((await store.getSettlement(txid))?.state).toBe('broadcast')
   })
 
   it('records an owned request as delivered when the network has it, without posting', async () => {
@@ -440,10 +515,9 @@ describe('a transaction the network already has', () => {
     expect(db.writes.some(w => w.params.includes('sent'))).toBe(true)
   })
 
-  // XQ-009: the exact gap the fix closes — a status endpoint (compromised, or
-  // simply lying) can claim 'known'/'mined' for a txid it has no proof for.
-  // Without a validated Merkle path behind it, that claim must never skip
-  // this device's own broadcast.
+  // XQ-009: a status endpoint can claim 'known'/'mined' for a txid it has no
+  // proof for. Without a validated Merkle path behind it, that claim must never
+  // skip this device's own broadcast.
   it('does not skip the post when the network claims delivery but no proof backs it up', async () => {
     const tx = txSpending('45'.repeat(32))
     const txid = tx.id('hex')
@@ -453,8 +527,6 @@ describe('a transaction the network already has', () => {
       return { details: [{ txid, status: 'success' }] }
     })
     const db = fakeDb([row({ txid, role: 'sent' })])
-    // 'known', but NOT in `proven` — no Merkle path a chain tracker would
-    // accept backs this claim up.
     const storage = fakeStorage({ db, reqs: [api], networkHas: { [txid]: 'known' } })
 
     const r = await processOfflineActions({ storage: storage as never })
@@ -463,24 +535,33 @@ describe('a transaction the network already has', () => {
     expect(r).toMatchObject({ sent: 1, rejected: 0 })
   })
 
-  it('still gates a token tip on admission, then closes it on the network witness', async () => {
-    const tx = txSpending('33'.repeat(32))
+  it('still holds an unsettled 1Color tip even when the network has it proven', async () => {
+    const tx = tokenTxSpending('33'.repeat(32))
     const txid = tx.id('hex')
-    await seedSettlement(txid)
+    await journalRow(txid, 'held')
     const api = req({ txid, rawTx: tx.toBinary() })
-    const submit = jest.fn(async () => admitted())
     const db = fakeDb([row({ txid })])
     const storage = fakeStorage({ db, reqs: [api], networkHas: { [txid]: 'mined' }, proven: [txid] })
 
-    const r = await processOfflineActions({
-      storage: storage as never,
-      token: { store, cover: async (): Promise<CoverResult> => ({ ok: true, mustSubmit: [txid] }), submit }
-    })
+    const r = await processOfflineActions({ storage: storage as never })
 
-    expect(submit).toHaveBeenCalledWith(txid)
+    expect(mockPostReqs).not.toHaveBeenCalled()
+    expect(storage.updateProvenTxReq).not.toHaveBeenCalled()
+    expect(r.sent).toBe(0)
+  })
+
+  it('closes a settled 1Color tip on the network witness without posting', async () => {
+    const tx = tokenTxSpending('34'.repeat(32))
+    const txid = tx.id('hex')
+    await journalRow(txid, 'settled')
+    const api = req({ txid, rawTx: tx.toBinary() })
+    const db = fakeDb([row({ txid })])
+    const storage = fakeStorage({ db, reqs: [api], networkHas: { [txid]: 'mined' }, proven: [txid] })
+
+    const r = await processOfflineActions({ storage: storage as never })
+
     expect(mockPostReqs).not.toHaveBeenCalled()
     expect(r).toMatchObject({ sent: 1 })
-    expect((await store.getSettlement(txid))?.state).toBe('broadcast')
   })
 
   it('does not re-post a foreign ancestor the network has, and releases the child behind it', async () => {
@@ -515,20 +596,13 @@ describe('a transaction the network already has', () => {
   })
 })
 
-// XQ-009 remainder: a row this device once honestly marked 'sent' (real proof,
-// or a real broadcast) can still have its backing request later reclaimed by
-// the toolbox's own proof-timeout machinery if the transaction never actually
-// confirms. Until now nothing ever revisited a 'sent' row again — the queue
-// only ever re-queries 'queued'/'posting' — so the activity list kept saying
-// "sent" forever even after the toolbox itself gave up on the transaction and
-// reclaimed its inputs.
+// XQ-009 remainder: a 'sent' row whose backing request the toolbox's own
+// proof-timeout later reclaimed is brought back in line, locally, before the
+// probe.
 describe('XQ-009 remainder: reconciling a stale sent row', () => {
   it("moves a 'sent' row to rejected once its backing request has gone invalid", async () => {
     const tx = txSpending('77'.repeat(32))
     const txid = tx.id('hex')
-    // Genuinely marked 'sent' at some point in the past; its request has since
-    // been reclaimed by the toolbox's own proof-timeout, exactly as
-    // `applyProofTimeout` would leave it after `attempts` runs out.
     const api = req({ txid, rawTx: tx.toBinary(), status: 'invalid' })
     const db = fakeDb([row({ txid, role: 'sent', status: 'sent' })])
     const storage = fakeStorage({ db, reqs: [api] })
@@ -539,8 +613,6 @@ describe('XQ-009 remainder: reconciling a stale sent row', () => {
     expect(
       db.writes.some(w => w.sql.includes('offline_actions') && w.params.includes('rejected') && w.params.includes(txid))
     ).toBe(true)
-    // Purely local bookkeeping: never re-broadcasts, and never touches the
-    // toolbox's own request/transaction rows.
     expect(mockPostReqs).not.toHaveBeenCalled()
     expect(storage.updateProvenTxReq).not.toHaveBeenCalled()
     expect(storage.updateTransactionStatus).not.toHaveBeenCalled()

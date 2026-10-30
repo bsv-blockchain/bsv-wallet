@@ -1,10 +1,10 @@
 /**
- * XR-040 — a multi-asset `mandala_spend`/`mandala_credit` prompt must show
- * EVERY asset it touches, not only `lines[0]` (the back-compat primary
- * fields). Targets `deriveActive` directly — the pure function that turns a
- * queued request into what the sheet renders — rather than the rendered
- * component, so this stays a fast, focused unit test of the display-building
- * logic itself (see its own doc for why it is exported).
+ * The permission sheet's pure display builder (`deriveActive`). The token
+ * prompts are the BRC-207 color module's consent messages, rendered through
+ * `describeColorRequest`: every asset leg of a request is shown, amounts stay
+ * exact, and a request the sheet cannot read in full is deny-only (XR-040
+ * carried forward). Targets `deriveActive` directly rather than the rendered
+ * component, so this stays a fast unit test of the display logic.
  */
 jest.mock('@bsv/expo-wallet-toolbox', () => {
   const React = require('react')
@@ -60,123 +60,114 @@ function baseCtx(mandalaRequests: { originator: string; message: string }[]) {
 
 const ASSET_A = 'a'.repeat(64) + '_0'
 const ASSET_B = 'b'.repeat(64) + '_0'
+const t = (key: string) => key
+const assetInfo = (assetId: string) =>
+  assetId === ASSET_A
+    ? { ticker: 'USDX', decimals: 2 }
+    : assetId === ASSET_B
+      ? { ticker: 'GOLD', decimals: 0 }
+      : undefined
+const color = { t, assetInfo }
 
-describe('deriveActive — mandala prompts (XR-040)', () => {
-  it('renders BOTH assets of a two-line mandala_spend, not only the primary', () => {
-    const message = JSON.stringify({
-      type: 'mandala_spend',
-      // Back-compat top-level fields mirror only the first line.
-      sendAmount: 2500,
-      changeAmount: 100,
-      assetId: ASSET_A,
-      tokenName: 'USDX',
-      lines: [
-        { assetId: ASSET_A, sendAmount: 2500, changeAmount: 100, tokenName: 'USDX', display: '25.00 USDX' },
-        { assetId: ASSET_B, sendAmount: 900_000, changeAmount: 0, tokenName: 'GOLD', display: '9,000.00 GOLD' }
-      ]
-    })
-    const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats)
+function leg(assetId: string, fields: Record<string, string>) {
+  return {
+    assetId,
+    operations: ['transfer'],
+    inputAmount: '0',
+    foreignAmount: '0',
+    authorityInputs: 0,
+    foreignAuthorityInputs: 0,
+    keptAmount: '0',
+    keptAuthorities: 0,
+    outgoingAmount: '0',
+    outgoingAuthorities: 0,
+    transferred: '0',
+    burned: '0',
+    minted: '0',
+    ...fields
+  }
+}
+
+function colorSend(assets: unknown[]) {
+  return JSON.stringify({
+    type: 'color_send',
+    handoff: false,
+    seekPermission: true,
+    assets,
+    destinations: [],
+    satoshis: { inputs: 1002, outputs: 2, fee: 1000 },
+    signatures: [],
+    lockTime: 0
+  })
+}
+
+describe('deriveActive — color module prompts', () => {
+  it('renders BOTH assets of a two-asset color_send, with exact amounts', () => {
+    const message = colorSend([
+      leg(ASSET_A, { inputAmount: '18446744073709551615', outgoingAmount: '18446744073709551615' }),
+      leg(ASSET_B, { inputAmount: '9000', outgoingAmount: '9000' })
+    ])
+    const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats, color)
 
     expect(active).not.toBeNull()
+    expect(active!.kind).toBe('mandala')
+    expect(active!.title).toBe('color_prompt_send_title')
     expect(active!.approvalBlocked).toBeFalsy()
     const values = active!.details.map(d => d.value)
-    // The primary asset...
-    expect(values).toEqual(expect.arrayContaining(['USDX', '25.00 USDX']))
-    // ...AND the second asset, which the old code never surfaced anywhere.
-    expect(values).toEqual(expect.arrayContaining(['GOLD', '9,000.00 GOLD']))
+    expect(values).toEqual(expect.arrayContaining([ASSET_A, '184467440737095516.15 USDX']))
+    expect(values).toEqual(expect.arrayContaining([ASSET_B, '9000 GOLD']))
   })
 
-  it("renders both a mandala_credit's lines the same way", () => {
+  it('shows the full asset id, never a truncated one', () => {
     const message = JSON.stringify({
-      type: 'mandala_credit',
-      creditAmount: 50,
+      type: 'color_relinquish',
       assetId: ASSET_A,
-      tokenName: 'USDX',
-      lines: [
-        { assetId: ASSET_A, creditAmount: 50, tokenName: 'USDX', display: '0.50 USDX' },
-        { assetId: ASSET_B, creditAmount: 7, tokenName: 'GOLD', display: '7 GOLD' }
-      ]
+      role: 'value',
+      outpoint: 'c'.repeat(64) + '.0',
+      seekPermission: true
     })
-    const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats)
-
-    const values = active!.details.map(d => d.value)
-    expect(values).toEqual(expect.arrayContaining(['0.50 USDX']))
-    expect(values).toEqual(expect.arrayContaining(['7 GOLD']))
+    const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats, color)
+    expect(active!.details).toContainEqual({ label: 'Asset ID', value: ASSET_A })
+    expect(active!.details).toContainEqual({ label: 'Outpoint', value: 'c'.repeat(64) + '.0' })
+    expect(active!.title).toBe('color_prompt_relinquish_title')
     expect(active!.approvalBlocked).toBeFalsy()
   })
 
-  it('a single-line spend keeps the unnumbered back-compat labels', () => {
+  it('blocks approval of the removed color_receive_offline type (B7): unknown, deny-only', () => {
     const message = JSON.stringify({
-      type: 'mandala_spend',
-      sendAmount: 2500,
+      type: 'color_receive_offline',
       assetId: ASSET_A,
-      tokenName: 'USDX',
-      lines: [{ assetId: ASSET_A, sendAmount: 2500, tokenName: 'USDX', display: '25.00 USDX' }]
+      outputs: [{ outputIndex: 0, amount: '1500' }],
+      unsettledTransactions: 2,
+      signers: ['02' + 'd'.repeat(64)],
+      seekPermission: true
     })
-    const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats)
-
-    expect(active!.details).toEqual(
-      expect.arrayContaining([
-        { label: 'Token', value: 'USDX' },
-        { label: 'Send amount', value: '25.00 USDX' }
-      ])
-    )
-    expect(active!.approvalBlocked).toBeFalsy()
+    const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats, color)
+    expect(active!.approvalBlocked).toBe(true)
   })
 
   it.each([
-    ['absent', undefined],
-    ['not an array', { assetId: ASSET_A, sendAmount: 1 }],
-    ['empty', []],
-    ['oversized', Array.from({ length: 26 }, (_, i) => ({ assetId: ASSET_A, sendAmount: i }))],
-    ['containing a non-object entry', [{ assetId: ASSET_A, sendAmount: 1 }, 'not-an-object']]
-  ])('blocks approval when lines is %s, rather than falling back to the primary-only view', (_label, lines) => {
-    const message = JSON.stringify({
-      type: 'mandala_spend',
-      sendAmount: 2500,
-      assetId: ASSET_A,
-      tokenName: 'USDX',
-      lines
-    })
-    const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats)
-
+    ['malformed JSON', '{'],
+    ['an unknown type', JSON.stringify({ type: 'color_mint' })],
+    ['a non-canonical amount', colorSend([leg(ASSET_A, { outgoingAmount: '01' })])],
+    // There is no back-compat with the deleted 'p mandala' P-module's prompts.
+    [
+      'an old mandala_spend prompt',
+      JSON.stringify({ type: 'mandala_spend', sendAmount: 2500, assetId: ASSET_A, tokenName: 'USDX', lines: [] })
+    ]
+  ])('blocks approval for %s and says so in the description', (_label, message) => {
+    const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats, color)
+    expect(active!.kind).toBe('mandala')
     expect(active!.approvalBlocked).toBe(true)
-    // The primary-only fallback view (a Token/Send-amount row with no
-    // indication anything is wrong) must never be shown once blocked.
-    expect(active!.details.some(d => d.label === 'Token' || d.label === 'Send amount')).toBe(false)
-    expect(active!.description).toMatch(/could not be verified/i)
-  })
-})
-
-describe('deriveActive — mandala relinquishOutput (XR-041)', () => {
-  it('names the target — token, amount and outpoint — instead of the bare action name', () => {
-    const OUTPOINT = 'c'.repeat(64) + '.0'
-    const message = JSON.stringify({
-      type: 'mandala_access',
-      action: 'relinquishOutput',
-      assetId: ASSET_A,
-      tokenName: 'USDX',
-      amount: 500,
-      display: '5.00 USDX',
-      outpoint: OUTPOINT
-    })
-    const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats)
-
-    expect(active!.description).toBe('wants to remove 5.00 USDX from your wallet')
-    expect(active!.details).toEqual(
-      expect.arrayContaining([
-        { label: 'Token', value: 'USDX' },
-        { label: 'Amount', value: '5.00 USDX' }
-      ])
-    )
-    expect(active!.details.some(d => d.label === 'Outpoint')).toBe(true)
+    expect(active!.details).toEqual([])
+    expect(active!.description).toMatch(/could not be read/i)
   })
 
-  it('falls back to the old generic copy — never a crash — when the message carries no resolved target', () => {
-    const message = JSON.stringify({ type: 'mandala_access', action: 'relinquishOutput' })
+  it('without asset metadata, still shows exact base units and stays approvable', () => {
+    const message = colorSend([leg(ASSET_A, { inputAmount: '7', outgoingAmount: '7' })])
     const active = deriveActive(baseCtx([{ originator: 'app.example.com', message }]), formatSats)
-
-    expect(active!.description).toBe('wants to remove a Mandala token holding from your wallet')
+    expect(active!.details.map(d => d.value)).toEqual(expect.arrayContaining([ASSET_A, '7 units']))
+    expect(active!.approvalBlocked).toBeFalsy()
   })
 })
 

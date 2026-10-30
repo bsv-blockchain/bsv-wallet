@@ -62,14 +62,14 @@ export interface UseRecipientInputOptions {
  * request that has to wait (holdings not known yet) is applied only if the
  * recipient is still the one the link named.
  */
-export type PeerPayRequest = { identityKey: string; sats?: number; asset?: string; amount?: number }
+export type PeerPayRequest = { identityKey: string; sats?: number; asset?: string; amount?: bigint }
 
 /** The request a classified handle carries, or null when it named no money at all. */
 function requestOf(input: {
   identityKey: string
   sats?: number
   asset?: string
-  amount?: number
+  amount?: bigint
 }): PeerPayRequest | null {
   if (input.sats === undefined && input.asset === undefined) return null
   return {

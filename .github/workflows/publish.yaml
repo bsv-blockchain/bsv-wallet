@@ -60,17 +60,21 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Full history, to check that a release tag points at master.
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # node:sqlite, used by the storage tests, needs Node 22.13+.
-          node-version: '24'
+          node-version: '24.22.1'
           cache: 'npm'
+
+      - name: Verify patched Node and native primitives
+        run: |
+          node -e 'const a=require("node:assert/strict"),z=require("node:zlib"),c=require("node:crypto");a.equal(process.versions.node,"24.22.1");const b=Buffer.from("wallet build runtime");a.deepEqual(z.brotliDecompressSync(z.brotliCompressSync(b)),b);a.equal(c.randomBytes(32).length,32)'
 
       # npm 12 refuses git dependencies by default (react-native-agentation is
       # one), so install with npm 11.
@@ -170,17 +174,21 @@ jobs:
       # The tag's own commit, which `verify` checked. Nothing is installed:
       # the package has no dependencies to bundle and no npm scripts.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       # No package-manager cache in the job that publishes, per npm's
       # trusted-publishing guidance.
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify patched Node and native primitives
+        run: |
+          node -e 'const a=require("node:assert/strict"),z=require("node:zlib"),c=require("node:crypto");a.equal(process.versions.node,"24.22.1");const b=Buffer.from("wallet build runtime");a.deepEqual(z.brotliDecompressSync(z.brotliCompressSync(b)),b);a.equal(c.randomBytes(32).length,32)'
 
       # Trusted publishing needs npm 11.5.1 or later.
       - name: Use npm 11

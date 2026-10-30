@@ -144,7 +144,7 @@ interface InternalizingWallet {
  * A shareable BRC-125 payment link for a handle.
  *
  * `peerpay:<key>[?sats=<n>][&url=<host>]` for BSV, or
- * `peerpay:<key>?asset=<txid.vout>[&amount=<base units>][&url=<host>]` for a
+ * `peerpay:<key>?asset=<txid>_0[&amount=<base units, exact decimal>][&url=<host>]` for a
  * token — the same forms the app parses (parsePeerPayURI.ts) and routes
  * (+native-intent.ts in the host app). A non-positive figure emits no
  * `sats`/`amount` — a zero would be an invalid link, and an open request is
@@ -157,15 +157,16 @@ export function peerPayLinkFor(
   identityKey: string,
   sats?: number,
   messageBoxUrl?: string,
-  token?: { assetId: string; baseUnits?: number },
+  token?: { assetId: string; units?: bigint },
   /** what it's for: the link's `note` extension (see parsePeerPayURI.ts) */
   note?: string
 ): string {
   const params: string[] = []
   if (token) {
     params.push(`asset=${token.assetId.toLowerCase()}`)
-    const units = token.baseUnits !== undefined ? Math.round(Number(token.baseUnits)) : NaN
-    if (Number.isFinite(units) && units > 0) params.push(`amount=${units}`)
+    // Exact: a bigint's decimal string, never through a float (IC §0).
+    const units = token.units
+    if (typeof units === 'bigint' && units > 0n) params.push(`amount=${units.toString()}`)
   } else {
     const amount = sats !== undefined ? Math.round(Number(sats)) : NaN
     if (Number.isFinite(amount) && amount > 0) params.push(`sats=${amount}`)
@@ -832,13 +833,12 @@ export function isAbortSafe(
 // ── The token half of the handle rail (offline-settlement spec §4.5) ──
 //
 // Same rail, different pipeline. A satoshi payment is minted here and delivered
-// through the `payment_inbox` PeerPay box; a Mandala token payment is minted by
-// `@bsv/mandala`'s own overlay-first transfer and delivered through the
-// `'mandala-payments'` box — and unlike the nearby rail, the handle rail's
-// SENDER is online by construction, so it submits before it notifies and can
-// forward the tip's own σ_I in the body. That is why `TokenSendResult` carries
-// `settled`: it is the difference between "sent · settling" and "sent · settled
-// with {{issuer}}" on the payer's screen, decided by evidence rather than hope.
+// through the `payment_inbox` PeerPay box; a token payment is a BRC-207
+// hand-over the color module signs `noSend`, delivered on the `mandala-color`
+// box (IC §7.2) and only then settled with the issuer's overlay (the delivery
+// is the ACK). That is why `TokenSendResult` carries `settled` (admitted before
+// the call returned) and `notified` (the delivery went through; when it did
+// not, the runtime's tick redelivers it, and sending again would pay twice).
 //
 // Neither function reaches into the runtime's internals: both take the
 // narrowest slice of `MandalaRuntime` they need, so this module keeps knowing
@@ -862,15 +862,16 @@ export async function sendTokenViaHandle(args: {
   runtime: HandleTokenRuntime | undefined
   recipient: string
   assetId: string
-  baseUnits: number
+  units: bigint
+  note?: string
 }): Promise<TokenSendResult> {
-  const { runtime, recipient, assetId, baseUnits } = args
+  const { runtime, recipient, assetId, units, note } = args
   if (!runtime?.available) {
     return { kind: 'unavailable', message: 'Stablecoins are not available on this network' }
   }
   const refusal = runtime.recipientRefusal(recipient)
   if (refusal) return { kind: 'refused', code: 'ERR_RECIPIENT', message: refusal }
-  return await runtime.sendToHandle({ assetId, recipientIdentityKey: recipient, baseUnits })
+  return await runtime.sendToHandle({ assetId, recipientIdentityKey: recipient, units, ...(note ? { note } : {}) })
 }
 
 /**

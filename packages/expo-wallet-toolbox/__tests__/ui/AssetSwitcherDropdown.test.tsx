@@ -27,8 +27,7 @@ const REAL: TokenAssetInfo = {
   ticker: 'USDX',
   decimals: 2,
   issuerName: 'Acme Bank',
-  overlayUrl: 'https://overlay.example',
-  overlayIdentityKey: '02'.padEnd(66, 'a')
+  resolved: true
 }
 const LOOKALIKE: TokenAssetInfo = {
   ...REAL,
@@ -43,7 +42,7 @@ describe('AssetSwitcherDropdown — look-alike assets (XR-044)', () => {
         visible
         onClose={jest.fn()}
         top={0}
-        balances={[balanceOf(REAL, 100_000), balanceOf(LOOKALIKE, 100_000)]}
+        balances={[balanceOf(REAL, 100_000n), balanceOf(LOOKALIKE, 100_000n)]}
         selected={null}
         onSelect={jest.fn()}
         bsv={{ value: '0', unit: 'BSV' }}
@@ -67,7 +66,7 @@ describe('AssetSwitcherDropdown — look-alike assets (XR-044)', () => {
         visible
         onClose={jest.fn()}
         top={0}
-        balances={[balanceOf(REAL, 100_000)]}
+        balances={[balanceOf(REAL, 100_000n)]}
         selected={null}
         onSelect={jest.fn()}
         bsv={{ value: '0', unit: 'BSV' }}

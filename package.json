@@ -38,14 +38,16 @@
     "@bsv/backup-cache-client": "^0.1.0",
     "@bsv/btms": "^1.2.3",
     "@bsv/btms-permission-module": "^1.2.1",
+    "@bsv/color-permission-module": "^0.2.0",
     "@bsv/expo-wallet-toolbox": "file:./packages/expo-wallet-toolbox",
-    "@bsv/mandala": "file:vendor/bsv-mandala-0.4.1.tgz",
+    "@bsv/mandala": "file:vendor/bsv-mandala-0.5.0-152fa60.tgz",
     "@bsv/message-box-client": "^2.5.3",
     "@bsv/react-native-localpay-transport": "file:./packages/react-native-localpay-transport",
-    "@bsv/sdk": "^2.8.11",
-    "@bsv/templates": "^2.0.0",
+    "@bsv/sdk": "^4.0.0",
+    "@bsv/templates": "^2.2.0",
     "@bsv/wallet-relay": "^0.5.1",
-    "@bsv/wallet-toolbox-mobile": "^2.14.9",
+    "@bsv/wallet-toolbox-client": "npm:@bsv/wallet-toolbox-mobile@^2.15.0",
+    "@bsv/wallet-toolbox-mobile": "^2.15.0",
     "@expo/ngrok": "^4.1.3",
     "@expo/vector-icons": "^15.0.3",
     "@noble/curves": "^2.3.0",
@@ -152,7 +154,13 @@
     "uuid": "^11.1.1",
     "js-yaml": "^4.2.0",
     "react-native": "0.86.3",
-    "@react-native/virtualized-lists": "0.86.3"
+    "@react-native/virtualized-lists": "0.86.3",
+    "@bsv/sdk": "$@bsv/sdk",
+    "@bsv/templates": "$@bsv/templates",
+    "@bsv/wallet-toolbox-client": "$@bsv/wallet-toolbox-client",
+    "@bsv/wallet-toolbox-mobile": "$@bsv/wallet-toolbox-mobile",
+    "@bsv/color-permission-module": "$@bsv/color-permission-module",
+    "@bsv/mandala": "$@bsv/mandala"
   },
   "private": true,
   "expo": {
@@ -172,10 +180,15 @@
       "<rootDir>/.worktrees/",
       "<rootDir>/.claude/worktrees/"
     ],
+    "transform": {
+      "\\.mjs$": "babel-jest"
+    },
     "moduleNameMapper": {
       "^@babel/runtime/(.*)$": "<rootDir>/node_modules/@babel/runtime/$1",
       "^@bsv/backup-cache-client$": "<rootDir>/node_modules/@bsv/backup-cache-client/dist/index.js",
+      "^@bsv/wallet-toolbox-client$": "<rootDir>/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs",
       "^@bsv/wallet-toolbox-mobile$": "<rootDir>/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs",
+      "^@bsv/color-permission-module$": "<rootDir>/node_modules/@bsv/color-permission-module/dist/index.mjs",
       "^react-native-reanimated$": "<rootDir>/__tests__/__mocks__/reanimated.js",
       "^react-native-worklets$": "<rootDir>/node_modules/react-native-worklets/lib/module/mock.js",
       "^expo-audio$": "<rootDir>/__tests__/__mocks__/expo-audio.js",
@@ -183,7 +196,7 @@
       "^@react-native-async-storage/async-storage$": "<rootDir>/node_modules/@react-native-async-storage/async-storage/jest/async-storage-mock.js"
     },
     "transformIgnorePatterns": [
-      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-reanimated|react-native-gesture-handler|react-native-worklets|expo-modules-core|@noble/secp256k1|@noble/curves|@noble/hashes|@bsv/backup-cache-client|@bsv/auth|@bsv/expo-wallet-toolbox|@bsv/mandala|@bsv/react-native-localpay-transport|@bsv/webrtpay)/)",
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-reanimated|react-native-gesture-handler|react-native-worklets|expo-modules-core|@noble/secp256k1|@noble/curves|@noble/hashes|@bsv/backup-cache-client|@bsv/auth|@bsv/expo-wallet-toolbox|@bsv/color-permission-module|@bsv/templates|@bsv/mandala|@bsv/react-native-localpay-transport|@bsv/webrtpay)/)",
       "/node_modules/react-native-reanimated/plugin/"
     ]
   }

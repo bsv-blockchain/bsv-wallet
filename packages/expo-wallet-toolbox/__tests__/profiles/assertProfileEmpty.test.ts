@@ -45,7 +45,6 @@ function adapt(db: DatabaseSync) {
 const NOW = '2026-10-01T00:00:00.000Z'
 const IDENTITY = '02' + 'ab'.repeat(32)
 const OTHER_IDENTITY = '03' + 'cd'.repeat(32)
-const OVERLAY_KEY = '02' + 'ef'.repeat(32)
 
 let raw: DatabaseSync
 let userId: number
@@ -94,14 +93,15 @@ function addOfflineAction(user: number, status: string): void {
     .run(NOW, NOW, user, `tx-${txCounter}`, txCounter, status)
 }
 
+/** A `color_transfers` journal row (plan 07 W1) in `state`. */
 function addSettlement(state: string): void {
   txCounter += 1
   raw
     .prepare(
-      `INSERT INTO token_settlements (txid, role, assetId, state, overlayUrl, overlayIdentityKey, createdAt, updatedAt)
-       VALUES (?, 'received', 'asset.0', ?, 'https://overlay.example', ?, ?, ?)`
+      `INSERT INTO color_transfers (txid, role, assetId, units, outputIndex, rail, state, delivered, createdAt, updatedAt)
+       VALUES (?, 'received', ?, '18446744073709551615', 0, 'handle', ?, 0, ?, ?)`
     )
-    .run(`settle-${txCounter}`, state, OVERLAY_KEY, NOW, NOW)
+    .run(String(txCounter).padStart(64, '0'), `${'ee'.repeat(32)}_0`, state, NOW, NOW)
 }
 
 function setKv(key: string, value: string): void {
@@ -158,7 +158,7 @@ describe('a profile with nothing in it', () => {
     addTransaction(userId, 'failed')
     addOutput({ user: userId, transactionId: done, spendable: 0 })
     for (const status of ['sent', 'rejected', 'acknowledged']) addOfflineAction(userId, status)
-    for (const state of ['broadcast', 'admitted', 'refused', 'orphaned']) addSettlement(state)
+    for (const state of ['settled', 'refused', 'cancelled']) addSettlement(state)
     setKv(PENDING_KEY, '[]')
     setKv(PENDING_JOURNAL_KEY, '')
     setKv(
@@ -168,8 +168,8 @@ describe('a profile with nothing in it', () => {
     expect(
       await reasonsOf({
         mandalaBalances: async () => [
-          { baseUnits: 0, unsettledBaseUnits: 0 },
-          { baseUnits: 0, unsettledBaseUnits: 0 }
+          { units: 0n, offlineUnits: 0n },
+          { units: 0n, offlineUnits: 0n }
         ]
       })
     ).toBe('ok')
@@ -251,38 +251,60 @@ describe('the offline queue', () => {
 })
 
 describe('token settlements and balances', () => {
-  it.each(['built', 'parked', 'handed_over', 'held', 'submitting'])('blocks on a settlement still %s', async state => {
+  it.each(['built', 'parked', 'handed_over', 'held'])('blocks on a transfer still %s', async state => {
     addSettlement(state)
     expect(await reasonsOf()).toEqual(['token-settlements'])
   })
 
+  it('blocks on a journal state it has never heard of rather than assuming it is finished', async () => {
+    addSettlement('submitting')
+    expect(await reasonsOf()).toEqual(['token-settlements'])
+  })
+
   it('blocks on a token balance', async () => {
-    expect(await reasonsOf({ mandalaBalances: async () => [{ baseUnits: 5, unsettledBaseUnits: 0 }] })).toEqual([
+    expect(await reasonsOf({ mandalaBalances: async () => [{ units: 5n, offlineUnits: 0n }] })).toEqual([
       'token-balance'
     ])
   })
 
-  it('blocks on an unsettled token balance', async () => {
-    expect(await reasonsOf({ mandalaBalances: async () => [{ baseUnits: 0, unsettledBaseUnits: 1 }] })).toEqual([
+  it('treats any unsettled token as non-empty', async () => {
+    expect(await reasonsOf({ mandalaBalances: async () => [{ units: 0n, offlineUnits: 0n }] })).toBe('ok')
+    expect(await reasonsOf({ mandalaBalances: async () => [{ units: 1n, offlineUnits: 1n }] })).toEqual([
       'token-balance'
     ])
+  })
+
+  it('blocks on an offline figure even when the available figure reads zero', async () => {
+    // The two views are separate snapshots (0207:657-660): never trust one alone.
+    expect(await reasonsOf({ mandalaBalances: async () => [{ units: 0n, offlineUnits: 1n }] })).toEqual([
+      'token-balance'
+    ])
+  })
+
+  it('blocks on a balance above 2^53 that a number would have rounded', async () => {
+    expect(
+      await reasonsOf({ mandalaBalances: async () => [{ units: 18446744073709551615n, offlineUnits: 0n }] })
+    ).toEqual(['token-balance'])
   })
 
   it('blocks on one non-zero asset among zeros', async () => {
     expect(
       await reasonsOf({
         mandalaBalances: async () => [
-          { baseUnits: 0, unsettledBaseUnits: 0 },
-          { baseUnits: 0, unsettledBaseUnits: 3 }
+          { units: 0n, offlineUnits: 0n },
+          { units: 3n, offlineUnits: 3n }
         ]
       })
     ).toEqual(['token-balance'])
   })
 
-  it('does not read a figure that is not a number as zero', async () => {
-    expect(await reasonsOf({ mandalaBalances: async () => [{ baseUnits: NaN, unsettledBaseUnits: 0 }] })).toEqual([
-      'token-balance'
-    ])
+  it('does not read a figure that is not a bigint as zero', async () => {
+    expect(
+      await reasonsOf({ mandalaBalances: async () => [{ units: 0 as unknown as bigint, offlineUnits: 0n }] })
+    ).toEqual(['token-balance'])
+    expect(
+      await reasonsOf({ mandalaBalances: async () => [{ units: NaN as unknown as bigint, offlineUnits: 0n }] })
+    ).toEqual(['token-balance'])
   })
 
   it('needs no runtime: without one the SQL checks stand on their own', async () => {
@@ -440,7 +462,7 @@ describe('failing closed', () => {
   })
 
   it('is not ok when a table it reads is missing', async () => {
-    raw.exec('DROP TABLE token_settlements')
+    raw.exec('DROP TABLE color_transfers')
     expect(await reasonsOf()).toEqual(['check-failed'])
   })
 
@@ -507,7 +529,7 @@ describe('reporting', () => {
     expect(
       await reasonsOf({
         creditInbox: async () => ({ attention: 1, pending: true }),
-        mandalaBalances: async () => [{ baseUnits: 1, unsettledBaseUnits: 1 }]
+        mandalaBalances: async () => [{ units: 1n, offlineUnits: 1n }]
       })
     ).toEqual(expected)
   })

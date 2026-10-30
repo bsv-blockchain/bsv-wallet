@@ -9,14 +9,14 @@
  * collapsed as well, which the wallet does not do: refusing them here costs nothing and keeps the
  * rule independent of that detail.
  *
- * Exact-case `p btms ...` / `p mandala ...` names are refused here too. The permissions manager
+ * Exact-case `p btms ...` / `p color ...` names are refused here too. The permissions manager
  * sends them to the refusing stub module only for the methods that call `delegateToPModuleIfNeeded`;
  * `revealSpecificKeyLinkage` does not, and with the linkage-revelation flag off it would answer
  * without a prompt. So the pre-scan, not the stub, is what keeps the namespace closed.
  */
 function isTokenModuleVariant(name: string): boolean {
   const folded = name.trim().toLowerCase().replace(/\s+/g, ' ')
-  return folded.startsWith('p btms') || folded.startsWith('p mandala')
+  return folded.startsWith('p btms') || folded.startsWith('p color')
 }
 
 const MAX_DEPTH = 8

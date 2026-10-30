@@ -78,7 +78,7 @@ export default function AssetPicker({
 
   const current = balances.find(b => b.asset.assetId === selected) ?? null
   const currentLabel = current ? current.asset.label || current.asset.ticker : BSV_LABEL
-  const currentFigure = current ? formatTokenAmountWithUnit(current.baseUnits, current.asset) : bsvBalanceText
+  const currentFigure = current ? formatTokenAmountWithUnit(current.units, current.asset) : bsvBalanceText
 
   const choose = (assetId: string | null) => {
     onSelect(assetId)
@@ -117,7 +117,7 @@ export default function AssetPicker({
               label={b.asset.label || b.asset.ticker}
               issuerName={b.asset.issuerName}
               fingerprint={shortAssetId(b.asset.assetId)}
-              figure={showFigures ? formatTokenAmountWithUnit(b.baseUnits, b.asset) : null}
+              figure={showFigures ? formatTokenAmountWithUnit(b.units, b.asset) : null}
               selected={selected === b.asset.assetId}
               onPress={() => choose(b.asset.assetId)}
             />

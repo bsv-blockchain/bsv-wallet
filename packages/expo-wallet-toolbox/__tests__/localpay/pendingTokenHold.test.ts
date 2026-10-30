@@ -1,279 +1,372 @@
 /**
- * The settlement row is written BEFORE `internalizeAction`, not after
- * (offline-settlement spec §4.2, and §4.3's guard #2).
+ * A pending nearby token payment on the PAYER is held from broadcast until the
+ * journal reads `settled` (plan 07 Task 15, W1).
  *
- * Guard #2 — `StorageExpoSQLite.attemptToPostReqsToNetwork` holding any request
- * whose txid has a `token_settlements` row — is the only thing standing between
- * an online recipient and a real, unmediated broadcast of an unadmitted token
- * transaction. `internalizeAction` triggers exactly that broadcast itself, via
- * `shareReqsWithWorld`.
+ * The payer hands over a signed `noSend` tx and then parks it, holds it, or
+ * releases a park, in any order a screen and a crash allow. Every one of those
+ * moves goes through the runtime's `nearby.onHandedOver` into the one durable
+ * host record, `color_transfers`, and the broadcast hold (`colorHeldTxids`)
+ * reads that same record. These tests use REAL SQLite (`createTables`), the
+ * real journal, the real runtime hooks (`createNearbyPayer`) and the real
+ * `payerHold` functions over the real `offline_actions` table: only the lib's
+ * `sendHandover` is mocked, because it needs a module-hosting wallet.
  *
- * So a row written by `onTokenCredited`, which runs AFTER the credit, is
- * written one call too late: on the FIRST internalize the guard looks up a
- * txid that has no row yet, finds nothing, and falls through. Every subsequent
- * pass is gated; the one that actually put the transaction on chain was not.
- * `onTokenHeld` closes it by running first.
- *
- * These tests use the REAL `StorageExpoSQLite` against real SQLite, with
- * NOTHING pre-seeded, because a pre-seeded row is precisely the assumption that
- * hid the hole.
+ * What is pinned:
+ *  · `handover` journals `built` with the receipt custody, after checking the
+ *    hand-over is bound to the session's remittance and pays output 0;
+ *  · a journal fault, a foreign duplicate row or an unbound hand-over releases
+ *    the signed action (nobody has its bytes yet) and throws;
+ *  · `onHandedOver` is forward-only and idempotent: built → parked →
+ *    handed_over, a repeat or a later state is a success, a cancelled or
+ *    missing row is a failure (so the queue row is never promoted for it);
+ *  · at built, parked and handed_over the tx is held; only settled releases it.
  */
-const mockGetOnline = jest.fn(async () => true)
-jest.mock('../../core/net/online', () => ({ getOnline: () => mockGetOnline() }))
+jest.mock('@bsv/mandala', () => {
+  const actual = jest.requireActual('@bsv/mandala')
+  return { ...actual, sendHandover: jest.fn() }
+})
 
-import { DatabaseSync } from 'node:sqlite'
-import { Beef, Transaction } from '@bsv/sdk'
-import { MandalaToken } from '../../core/mandala/token'
-import { StorageProvider } from '@bsv/wallet-toolbox-mobile'
-import { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
-import { createTables } from '../../core/storage/schema/createTables'
-import { createSettlementStore, type SettlementDb } from '../../core/mandala/settlementStore'
-import { getPending, processPending, savePending, type KVStorage } from '../../core/localpay/pending'
-import { FRAME_VERSION, type PaymentFrame } from '../../core/localpay/codec'
-import type { EvidenceFrame, SettlementStore } from '../../core/mandala/types'
+import type { DatabaseSync } from 'node:sqlite'
+import { P2PKH, PrivateKey, Transaction, type WalletInterface } from '@bsv/sdk'
+import { OneColor } from '@bsv/templates'
+import {
+  createHostLedger,
+  handoverBody,
+  receiptOfBody,
+  sendHandover,
+  type HandoverResult,
+  type HostLedger
+} from '@bsv/mandala'
+import { createNearbyPayer } from '../../core/mandala/nearby'
+import { createHandoverBodies } from '../../core/mandala/handle'
+import { colorHeldTxids } from '../../core/mandala/colorGuard'
+import { createTransferJournal, type JournalDb, type TransferJournal } from '../../core/mandala/transferJournal'
+import { holdSentPaymentOffline, parkSentPaymentOffline, releaseParkedPayment } from '../../core/offline/payerHold'
+import { findOfflineActionByTxid } from '../../core/storage/methods/offlineActions'
+import type { StorageExpoSQLite } from '../../core/storage/StorageExpoSQLite'
+import { TaskSendOffline } from '../../core/monitor/TaskSendOffline'
+import { openTestDb, type ExpoLikeDb } from '../__helpers__/nodeSqlite'
 
+const sendHandoverMock = sendHandover as jest.MockedFunction<typeof sendHandover>
+
+const ME = new PrivateKey(7).toPublicKey().toString()
+const PAYEE = new PrivateKey(11).toPublicKey().toString()
+const A_PRIME = new PrivateKey(13).toPublicKey().toString()
 const ASSET = 'ab'.repeat(32) + '_0'
-const OVERLAY = 'https://overlay.issuer.example'
-const OVERLAY_KEY = '03'.padEnd(66, 'b')
+const PREFIX = 'cHJlZml4cHJlZml4cHJlZml4cHJlZml4cHJlZml4cHI='
+const SUFFIX = 'c3VmZml4c3VmZml4c3VmZml4c3VmZml4c3VmZml4c3U='
 const PKH = new Array(20).fill(9)
+const MAX_U64 = 18446744073709551615n
 
-function adapt(db: DatabaseSync) {
-  return {
-    execAsync: async (sql: string) => {
-      db.exec(sql)
-    },
-    getAllAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).all(...(params as never[])),
-    getFirstAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).get(...(params as never[])) ?? null,
-    runAsync: async (sql: string, params: unknown[] = []) => db.prepare(sql).run(...(params as never[]))
-  }
-}
-
-function memoryStorage(): KVStorage {
-  const map = new Map<string, string>()
-  return {
-    getKeyValue: async (k: string) => map.get(k),
-    setKeyValue: async (k: string, v: string) => {
-      map.set(k, v)
-    }
-  }
-}
-
-function tokenFrame(): { frame: PaymentFrame; txid: string } {
+function signedHandover(units: bigint, over: Partial<HandoverResult> = {}): { h: HandoverResult; rawTx: number[] } {
+  const source = new Transaction()
+  source.addOutput({ lockingScript: new P2PKH().lock(PKH), satoshis: 1000 })
   const tx = new Transaction()
-  tx.addOutput({ satoshis: 1, lockingScript: new MandalaToken().lock(ASSET, 250, PKH) })
-  const beef = new Beef()
-  beef.mergeTransaction(tx)
-  const txid = tx.id('hex')
-  return {
-    txid,
-    frame: {
-      version: FRAME_VERSION,
-      kind: 'token',
-      senderIdentityKey: '02'.padEnd(66, 'a'),
-      outputIndex: 0,
-      derivationPrefix: 'cHJlZml4',
-      derivationSuffix: 'c3VmZml4',
-      token: {
-        assetId: ASSET,
-        overlayUrl: OVERLAY,
-        overlayIdentityKey: OVERLAY_KEY,
-        certificates: [],
-        linkage: [],
-        admissions: []
-      },
-      transaction: new Uint8Array(beef.toBinaryAtomic(txid))
-    }
+  tx.addInput({ sourceTransaction: source, sourceOutputIndex: 0, unlockingScript: new P2PKH().lock(PKH) })
+  tx.addOutput({ lockingScript: new OneColor().lock(ASSET, units, PKH), satoshis: 1 })
+  tx.addOutput({ lockingScript: new P2PKH().lock(PKH), satoshis: 900 })
+  const body = handoverBody({
+    assetId: ASSET,
+    amount: units,
+    outputIndex: 0,
+    tx: tx.toAtomicBEEF(),
+    derivationPrefix: PREFIX,
+    derivationSuffix: SUFFIX,
+    senderIdentityKey: A_PRIME,
+    senderMode: 'blinded',
+    linkage: [{ txid: tx.id('hex'), offChainValues: [1] }]
+  })
+  const h: HandoverResult = {
+    txid: tx.id('hex'),
+    tx: tx.toAtomicBEEF(),
+    reference: 'ref-nearby',
+    outputIndex: 0,
+    offChainValues: [1],
+    receipt: receiptOfBody(body),
+    body,
+    ...over
   }
-}
-
-/** Real storage, with only the request/transaction lookups the guard path reads stubbed. */
-class TestStorage extends StorageExpoSQLite {
-  constructor(
-    private readonly conn: ReturnType<typeof adapt>,
-    private readonly tokenTxid: string
-  ) {
-    super({ chain: 'test' } as never)
-    this.db = conn as never
-  }
-  async findProvenTxReqs(): Promise<never[]> {
-    return [{ provenTxReqId: 1, txid: this.tokenTxid, status: 'unsent' }] as never
-  }
-  async updateProvenTxReq(): Promise<number> {
-    return 1
-  }
-  async findTransactions(a: { partial: { transactionId?: number } }): Promise<never[]> {
-    return [{ transactionId: a.partial.transactionId ?? 1, userId: 7, isOutgoing: false, status: 'unproven' }] as never
-  }
+  return { h, rawTx: tx.toBinary() }
 }
 
 let raw: DatabaseSync
-let conn: ReturnType<typeof adapt>
-let storage: TestStorage
-let store: SettlementStore
-let superPost: jest.SpyInstance
-let log: jest.SpyInstance
-let warn: jest.SpyInstance
+let db: ExpoLikeDb
+let journal: TransferJournal
+let abortAction: jest.Mock
+let onChange: jest.Mock
+let kvMap: Map<string, string>
+let ledger: HostLedger
+const HOST = { revealSpecificKeyLinkage: jest.fn() } as unknown as WalletInterface
 
-const TOKEN = tokenFrame()
-
-/**
- * The forced broadcast `internalizeAction` performs, reduced to the one call
- * that matters: `shareReqsWithWorld` → `attemptToPostReqsToNetwork`.
- */
-function internalizingWallet(order: string[]) {
+function memoryKv() {
   return {
-    internalizeAction: async () => {
-      order.push('internalize')
-      await storage.attemptToPostReqsToNetwork([
-        { txid: TOKEN.txid, provenTxReqId: 1, status: 'unsent', notify: { transactionIds: [1] } } as never
-      ])
-      return { accepted: true }
+    getKeyValue: async (k: string) => kvMap.get(k),
+    setKeyValue: async (k: string, v: string) => {
+      kvMap.set(k, v)
     }
   }
 }
 
-/** Exactly what the Mandala runtime's `onTokenHeld` does: row first, then evidence. */
-const writeHeldRow = (order: string[]) => async (frame: EvidenceFrame, txid: string) => {
-  order.push('held')
-  await store.upsertSettlement({
-    txid,
-    role: 'received',
-    assetId: frame.token!.assetId,
-    state: 'held',
-    overlayUrl: frame.token!.overlayUrl,
-    overlayIdentityKey: frame.token!.overlayIdentityKey
+function payer(j: TransferJournal = journal) {
+  return createNearbyPayer({
+    wallet: { abortAction } as unknown as WalletInterface,
+    identityKey: async () => ME,
+    journal: j,
+    hostWallet: HOST,
+    ledger,
+    bodies: createHandoverBodies(memoryKv()),
+    recipientRefusal: k => (k === 'bad' ? 'not an identity key' : null),
+    onChange
   })
 }
 
+const ask = (units: bigint, note?: string) => ({
+  assetId: ASSET,
+  units,
+  recipientKey: PAYEE,
+  derivationPrefix: PREFIX,
+  derivationSuffix: SUFFIX,
+  ...(note === undefined ? {} : { note })
+})
+
+/** The storage slice `payerHold` reads, over the real database. */
+function storageOver(txid: string, status = 'nosend') {
+  return {
+    sqliteDb: db,
+    findTransactions: jest.fn(async (a: { partial: { txid: string } }) =>
+      a.partial.txid === txid ? [{ transactionId: 1, userId: 1, status }] : []
+    ),
+    updateTransactionStatus: jest.fn(async () => undefined)
+  } as unknown as StorageExpoSQLite
+}
+
 beforeEach(async () => {
-  raw = new DatabaseSync(':memory:')
-  conn = adapt(raw)
-  await createTables(conn as never)
-  raw.prepare(`INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (7,'n','n','k')`).run()
-  store = createSettlementStore(conn as unknown as SettlementDb)
-  storage = new TestStorage(conn, TOKEN.txid)
-  mockGetOnline.mockResolvedValue(true)
-  superPost = jest.spyOn(StorageProvider.prototype, 'attemptToPostReqsToNetwork').mockImplementation((async (
-    reqs: { txid: string }[]
-  ) => ({
-    status: 'success',
-    beef: undefined,
-    details: reqs.map(r => ({ txid: r.txid, req: r, status: 'success' })),
-    log: ''
-  })) as never)
-  log = jest.spyOn(console, 'log').mockImplementation(() => {})
-  warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  ;({ raw, db } = await openTestDb())
+  // `offline_actions.userId` references `users`.
+  raw.prepare(`INSERT INTO users (userId, created_at, updated_at, identityKey) VALUES (1,'n','n','k')`).run()
+  journal = createTransferJournal(db as unknown as JournalDb, () => new Date('2026-10-22T12:00:00.000Z'))
+  abortAction = jest.fn(async () => ({ aborted: true }))
+  onChange = jest.fn()
+  kvMap = new Map()
+  ledger = createHostLedger({
+    getItem: async k => kvMap.get(k) ?? null,
+    setItem: async (k, v) => {
+      kvMap.set(k, v)
+    },
+    removeItem: async k => {
+      kvMap.delete(k)
+    },
+    keys: async prefix => [...kvMap.keys()].filter(k => k.startsWith(prefix))
+  })
+  sendHandoverMock.mockReset()
+  TaskSendOffline.resetForTests()
 })
 
 afterEach(() => {
-  superPost.mockRestore()
-  log.mockRestore()
-  warn.mockRestore()
   raw.close()
 })
 
-describe('onTokenHeld: the row lands before the first internalize', () => {
-  it('never reaches a real broadcast on the very first credit', async () => {
-    const kv = memoryStorage()
-    await savePending(kv, TOKEN.frame)
-    const order: string[] = []
+describe('nearby.handover journals the payer row', () => {
+  it('asks the lib with the session remittance and journals built with the custody fields', async () => {
+    const { h } = signedHandover(MAX_U64)
+    sendHandoverMock.mockResolvedValue(h)
 
-    const results = await processPending(
-      internalizingWallet(order),
-      kv,
-      'test',
-      undefined,
-      undefined,
-      writeHeldRow(order)
-    )
+    await expect(payer().handover(ask(MAX_U64, ' lunch '))).resolves.toBe(h)
 
-    expect(results).toEqual([expect.objectContaining({ success: true })])
-    // The whole point: the guard had a row to find when it looked.
-    expect(superPost).not.toHaveBeenCalled()
-    expect(order).toEqual(['held', 'internalize'])
-    expect(await store.getSettlement(TOKEN.txid)).toMatchObject({ state: 'held', role: 'received' })
+    expect(sendHandoverMock).toHaveBeenCalledWith({
+      wallet: expect.anything(),
+      identityKey: ME,
+      assetId: ASSET,
+      amount: MAX_U64,
+      recipientKey: PAYEE,
+      derivationPrefix: PREFIX,
+      derivationSuffix: SUFFIX,
+      note: 'lunch',
+      hostWallet: HOST,
+      ledger,
+      // The wallet owns durability: no lib txJournal entry per send.
+      journal: false
+    })
+    // The v4 body is kept for a later resend.
+    expect(JSON.parse(kvMap.get(`bsvwallet.color.handover.${h.txid}`)!)).toEqual(h.body)
+    expect(await journal.get(h.txid)).toMatchObject({
+      role: 'sent',
+      state: 'built',
+      rail: 'nearby',
+      delivered: false,
+      reference: 'ref-nearby',
+      units: MAX_U64,
+      outputIndex: 0,
+      assetId: ASSET,
+      counterpartyKey: PAYEE,
+      note: 'lunch',
+      derivationPrefix: PREFIX,
+      derivationSuffix: SUFFIX,
+      senderIdentityKey: A_PRIME
+    })
+    expect(onChange).toHaveBeenCalled()
+    expect(abortAction).not.toHaveBeenCalled()
   })
 
-  // The regression this closes, stated as the behaviour it replaces. With the
-  // row written only after the credit, the first internalize's forced
-  // broadcast goes through unmediated — which is the "payee has Wi-Fi, payer
-  // none" shop case, every time.
-  it('the after-the-credit hook alone would have let that broadcast through', async () => {
-    const kv = memoryStorage()
-    await savePending(kv, TOKEN.frame)
-    const order: string[] = []
+  it.each([
+    ['a foreign derivationPrefix', { receipt: { ...signedHandover(1n).h.receipt, derivationPrefix: 'b3RoZXI=' } }],
+    ['the payee output at index 1', { outputIndex: 1 }],
+    ['another asset', { receipt: { ...signedHandover(1n).h.receipt, assetId: 'cd'.repeat(32) + '_0' } }]
+  ])('releases and throws, journaling nothing, for a hand-over with %s', async (_l, over) => {
+    const { h } = signedHandover(5n, over as Partial<HandoverResult>)
+    sendHandoverMock.mockResolvedValue(h)
 
-    await processPending(internalizingWallet(order), kv, 'test', undefined, writeHeldRow(order))
-
-    expect(superPost).toHaveBeenCalledTimes(1)
-    expect(order).toEqual(['internalize', 'held'])
+    await expect(payer().handover(ask(5n))).rejects.toThrow(/session|output 0|asset/)
+    expect(abortAction).toHaveBeenCalledWith({ reference: 'ref-nearby' })
+    expect(await journal.get(h.txid)).toBeUndefined()
+    // Released: the host ledger stops vouching for its change.
+    expect(await ledger.get(h.txid)).toMatchObject({ state: 'refused', code: 'ERR_RELEASED' })
   })
 
-  it('leaves the BSV path with no settlement write at all', async () => {
-    const kv = memoryStorage()
-    const tx = new Transaction()
-    tx.addOutput({ satoshis: 4200, lockingScript: new MandalaToken().lock(ASSET, 1, PKH) })
-    const beef = new Beef()
-    beef.mergeTransaction(tx)
-    await savePending(kv, { ...TOKEN.frame, kind: 'bsv', token: undefined })
-    const order: string[] = []
+  it('releases the signed action and throws when the journal cannot record it', async () => {
+    const { h } = signedHandover(5n)
+    sendHandoverMock.mockResolvedValue(h)
+    const broken: TransferJournal = {
+      ...journal,
+      insert: async () => {
+        throw new Error('SQLITE_BUSY')
+      }
+    }
 
-    await processPending(internalizingWallet(order), kv, 'test', undefined, undefined, writeHeldRow(order))
-
-    expect(order).toEqual(['internalize'])
+    await expect(payer(broken).handover(ask(5n))).rejects.toThrow('SQLITE_BUSY')
+    expect(abortAction).toHaveBeenCalledWith({ reference: 'ref-nearby' })
   })
 
-  it('is optional: a caller that wires neither hook still drains', async () => {
-    const kv = memoryStorage()
-    await savePending(kv, TOKEN.frame)
-    const order: string[] = []
-    await expect(processPending(internalizingWallet(order), kv, 'test')).resolves.toEqual([
-      expect.objectContaining({ success: true })
-    ])
+  it('releases and throws when the txid already belongs to another transfer', async () => {
+    const { h } = signedHandover(5n)
+    await journal.insert({
+      txid: h.txid,
+      role: 'received',
+      state: 'held',
+      assetId: ASSET,
+      units: 5n,
+      outputIndex: 0,
+      rail: 'external',
+      delivered: false
+    })
+    sendHandoverMock.mockResolvedValue(h)
+
+    await expect(payer().handover(ask(5n))).rejects.toThrow(/another transfer/)
+    expect(abortAction).toHaveBeenCalledWith({ reference: 'ref-nearby' })
+    expect((await journal.get(h.txid))?.role).toBe('received')
+  })
+
+  it('refuses an amount or recipient the request alone rules out, before any wallet call', async () => {
+    await expect(payer().handover(ask(0n))).rejects.toThrow(/base units/)
+    await expect(payer().handover(ask(MAX_U64 + 1n))).rejects.toThrow(/base units/)
+    await expect(payer().handover({ ...ask(1n), recipientKey: 'bad' })).rejects.toThrow('not an identity key')
+    expect(sendHandoverMock).not.toHaveBeenCalled()
+  })
+
+  it('passes a lib refusal through untouched, with nothing to release', async () => {
+    sendHandoverMock.mockRejectedValue(Object.assign(new Error('frozen'), { name: 'ColorProviderError' }))
+    await expect(payer().handover(ask(5n))).rejects.toMatchObject({ name: 'ColorProviderError' })
+    expect(abortAction).not.toHaveBeenCalled()
   })
 })
 
-describe('onTokenHeld: a failed pre-write refuses to credit', () => {
-  it('does not internalize, and does not burn an attempt (FIX I)', async () => {
-    const kv = memoryStorage()
-    await savePending(kv, TOKEN.frame)
-    const order: string[] = []
+describe('onHandedOver is forward-only and idempotent', () => {
+  async function built(): Promise<HandoverResult> {
+    const { h } = signedHandover(5n)
+    sendHandoverMock.mockResolvedValue(h)
+    return await payer().handover(ask(5n))
+  }
 
-    const results = await processPending(internalizingWallet(order), kv, 'test', undefined, undefined, async () => {
-      throw new Error('database is locked')
-    })
-
-    expect(order).toEqual([])
-    expect(superPost).not.toHaveBeenCalled()
-    expect(results[0]).toMatchObject({ success: false })
-    expect(String(results[0].error)).toMatch(/settlement row before crediting/)
-
-    // The frame is durable and the money is real: a local storage fault is a
-    // header-lag-class failure, not a bad frame, so the ceiling must not move.
-    const [entry] = await getPending(kv)
-    expect(entry.status).toBe('failed')
-    expect(entry.attempts ?? 0).toBe(0)
+  it('built → parked → handed_over, delivered on hand-over', async () => {
+    const h = await built()
+    const p = payer()
+    await p.onHandedOver(h.txid, 'parked')
+    expect(await journal.get(h.txid)).toMatchObject({ state: 'parked', delivered: false })
+    await p.onHandedOver(h.txid, 'handed_over')
+    expect(await journal.get(h.txid)).toMatchObject({ state: 'handed_over', delivered: true })
   })
 
-  it('retries the whole step on the next tick, and credits once the write succeeds', async () => {
-    const kv = memoryStorage()
-    await savePending(kv, TOKEN.frame)
-    const order: string[] = []
-    let firstCall = true
+  it('a repeat, or a park after the hand-over, never moves the row back', async () => {
+    const h = await built()
+    const p = payer()
+    await p.onHandedOver(h.txid, 'handed_over')
+    await p.onHandedOver(h.txid, 'handed_over')
+    await p.onHandedOver(h.txid, 'parked')
+    expect((await journal.get(h.txid))?.state).toBe('handed_over')
+    await journal.advance(h.txid, ['handed_over'], 'settled')
+    await p.onHandedOver(h.txid, 'handed_over')
+    expect((await journal.get(h.txid))?.state).toBe('settled')
+  })
 
-    await processPending(internalizingWallet(order), kv, 'test', undefined, undefined, async (frame, txid) => {
-      if (firstCall) {
-        firstCall = false
-        throw new Error('database is locked')
-      }
-      await writeHeldRow(order)(frame, txid)
-    })
-    const second = await processPending(internalizingWallet(order), kv, 'test', undefined, undefined, async (f, t) => {
-      await writeHeldRow(order)(f, t)
-    })
+  it('fails for a cancelled row and for a txid with no row', async () => {
+    const h = await built()
+    await journal.advance(h.txid, ['built'], 'cancelled')
+    await expect(payer().onHandedOver(h.txid, 'handed_over')).rejects.toThrow(/cancelled/)
+    await expect(payer().onHandedOver('ff'.repeat(32), 'parked')).rejects.toThrow(/no sent row/)
+  })
+})
 
-    expect(second).toEqual([expect.objectContaining({ success: true })])
-    expect(order).toEqual(['held', 'internalize'])
-    expect(superPost).not.toHaveBeenCalled()
+describe('the payer’s token tx is held until the journal reads settled', () => {
+  it('parks then releases through the journal, held at every step short of settled', async () => {
+    const { h, rawTx } = signedHandover(1500n)
+    sendHandoverMock.mockResolvedValue(h)
+    const p = payer()
+    const held = async () =>
+      (
+        await colorHeldTxids([{ txid: h.txid, rawTx }], {
+          statesOf: t => journal.statesOf(t),
+          custodyOf: async () => new Set()
+        })
+      ).has(h.txid)
+
+    await p.handover(ask(1500n))
+    expect((await journal.get(h.txid))?.state).toBe('built')
+    expect(await held()).toBe(true)
+
+    const storage = storageOver(h.txid)
+    await expect(
+      parkSentPaymentOffline({ storage, txid: h.txid, framePayload: 'bsvpayf1:x', onHandedOver: p.onHandedOver })
+    ).resolves.toBe(true)
+    expect((await journal.get(h.txid))?.state).toBe('parked')
+    expect((await findOfflineActionByTxid(db as never, h.txid))?.status).toBe('parked')
+    expect(await held()).toBe(true)
+
+    await releaseParkedPayment({ storage, txid: h.txid, isTokenHold: true, onHandedOver: p.onHandedOver })
+    expect((await journal.get(h.txid))?.state).toBe('handed_over')
+    expect((await findOfflineActionByTxid(db as never, h.txid))?.status).toBe('queued')
+    expect(await held()).toBe(true)
+
+    await journal.advance(h.txid, ['handed_over'], 'settled')
+    expect(await held()).toBe(false)
+  })
+
+  it('a positive-ack hold journals handed_over before the queue row wakes the drain', async () => {
+    const { h, rawTx } = signedHandover(1500n)
+    sendHandoverMock.mockResolvedValue(h)
+    const p = payer()
+    await p.handover(ask(1500n))
+
+    await holdSentPaymentOffline({ storage: storageOver(h.txid), txid: h.txid, onHandedOver: p.onHandedOver })
+
+    expect(await journal.get(h.txid)).toMatchObject({ state: 'handed_over', delivered: true })
+    expect((await findOfflineActionByTxid(db as never, h.txid))?.status).toBe('queued')
+    expect(TaskSendOffline.hasPending).toBe(true)
+    expect(
+      (
+        await colorHeldTxids([{ txid: h.txid, rawTx }], {
+          statesOf: t => journal.statesOf(t),
+          custodyOf: async () => new Set()
+        })
+      ).has(h.txid)
+    ).toBe(true)
+  })
+
+  it('a hold whose journal hook fails is left parked, never drainable', async () => {
+    const { h } = signedHandover(1500n)
+    // No hand-over row at all: the hook has nothing to advance.
+    await holdSentPaymentOffline({ storage: storageOver(h.txid), txid: h.txid, onHandedOver: payer().onHandedOver })
+
+    expect((await findOfflineActionByTxid(db as never, h.txid))?.status).toBe('parked')
+    expect(TaskSendOffline.hasPending).toBe(false)
   })
 })

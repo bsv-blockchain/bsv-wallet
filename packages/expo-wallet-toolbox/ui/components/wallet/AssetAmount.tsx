@@ -24,8 +24,8 @@ import { spacing, typography, useTheme } from '@bsv/expo-wallet-toolbox'
 import { formatTokenAmountWithUnit, tokenAmountParts } from '../../tokenFormat'
 
 export interface AssetAmountProps {
-  /** Base units. `null` means UNKNOWN and renders a spinner, never a zero. */
-  baseUnits: number | null
+  /** Exact token units. `null` means UNKNOWN and renders a spinner, never a zero. */
+  units: bigint | null
   asset: { decimals: number; ticker: string }
   /** `row` is the balances/activity figure; `sheet` is the Asset sheet's headline. */
   size?: 'row' | 'sheet'
@@ -35,7 +35,7 @@ export interface AssetAmountProps {
 }
 
 export default function AssetAmount({
-  baseUnits,
+  units,
   asset,
   size = 'row',
   showPlus = false,
@@ -43,13 +43,13 @@ export default function AssetAmount({
 }: AssetAmountProps) {
   const { colors } = useTheme()
 
-  if (baseUnits === null) {
+  if (units === null) {
     return <ActivityIndicator size="small" color={colors.textTertiary} accessibilityRole="progressbar" />
   }
 
-  const parts = tokenAmountParts(baseUnits, asset, { showPlus })
+  const parts = tokenAmountParts(units, asset, { showPlus })
   if (!parts) return null
-  const label = formatTokenAmountWithUnit(baseUnits, asset, { showPlus }) ?? ''
+  const label = formatTokenAmountWithUnit(units, asset, { showPlus }) ?? ''
 
   const color =
     tone === 'incoming' ? colors.successAmount : tone === 'secondary' ? colors.textSecondary : colors.textPrimary
