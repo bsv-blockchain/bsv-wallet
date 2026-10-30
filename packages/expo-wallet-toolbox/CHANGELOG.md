@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Wallet data export
+
+- **Encrypted export.** `exportAllWalletDatabases(storage, { encrypt: true, wallet, originator })`
+  writes `wallet-…-<ts>.db.enc`: a random file key wrapped by `wallet.encrypt` (counterparty
+  `self`, protocol `[2, 'wallet db export']`), body in 1 MiB AES-256-GCM chunks (STREAM nonces,
+  so reordered, dropped or truncated chunks fail). The snapshot comes from `VACUUM INTO` and is
+  encrypted a chunk at a time in native AES (`globalThis.__bsvNativeCrypto`), never held whole
+  in JS memory. Without `encrypt` the plain `.db` export is unchanged.
+- **Encrypted import.** `importWalletDatabase(storage, { wallet, originator })` accepts `.db.enc`
+  up to 2 GiB, decrypting chunk by chunk to a temp file that SQLite opens from disk, then the same
+  identity/schema checks as before. Another wallet's file or a damaged one is refused as
+  untrusted; the picked copy and decrypted temp file are deleted either way.
+- **UI.** Settings and Vault "Export Wallet Data" now export encrypted; dev builds get an extra
+  "Export Wallet Data (unencrypted)" row. `useExportWalletData().exportData({ encrypt })`
+  defaults to `true`.
+- New core exports: `encryptDbImage`, `decryptDbImage`, `isEncryptedDbImage`, `EncryptedDbError`.
 ## 0.22.0
 
 1Color / BRC-207 tokens through `@bsv/color-permission-module`. There is no
