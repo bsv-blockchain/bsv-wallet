@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.22.1
+
+Peer floors raised to the latest `@bsv` releases, and encrypted wallet
+database export/import (#60).
+
 ### Peers
 
 - **Raised floors** to the latest published releases: `@bsv/sdk` ^4.0.1,
@@ -29,6 +34,7 @@
   "Export Wallet Data (unencrypted)" row. `useExportWalletData().exportData({ encrypt })`
   defaults to `true`.
 - New core exports: `encryptDbImage`, `decryptDbImage`, `isEncryptedDbImage`, `EncryptedDbError`.
+
 ## 0.22.0
 
 1Color / BRC-207 tokens through `@bsv/color-permission-module`. There is no
