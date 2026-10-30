@@ -1,5 +1,13 @@
 import { Platform } from 'react-native'
-import { type StorageExpoSQLite, parseDbFilename } from '@bsv/expo-wallet-toolbox'
+import {
+  type StorageExpoSQLite,
+  type DbExportWallet,
+  type ByteSink,
+  type ByteSource,
+  parseDbFilename,
+  encryptDbImage,
+  ENCRYPTED_DB_EXTENSION
+} from '@bsv/expo-wallet-toolbox'
 
 /**
  * expo-file-system and expo-sharing both ship untransformed ESM/raw-TS
@@ -39,21 +47,102 @@ function exportFilename(dbName: string): string {
   return dbName.replace(/\.db$/, `-${ts}.db`)
 }
 
+export interface ExportWalletDatabaseOptions {
+  /**
+   * Encrypt the file to this wallet (`wallet.encrypt`, counterparty `self`)
+   * so only the same wallet can import it again. Off by default: the plain
+   * `.db` is still useful for development (open it in any SQLite browser).
+   */
+  encrypt?: boolean
+  /** Required with `encrypt`: the wallet whose keys wrap the file key. */
+  wallet?: DbExportWallet
+  /** The admin originator, so the wrap never raises a permission prompt. */
+  originator?: string
+  /** Fraction (0..1) of the encryption done, for a progress indicator. */
+  onProgress?: (fraction: number) => void
+}
+
 /**
  * Exports the currently active wallet database as a timestamped `.db` file
- * and presents the OS share dialogue so the user can save or send it.
+ * (or, with `encrypt: true`, a `.db.enc` file) and presents the OS share
+ * dialogue so the user can save or send it.
  *
- * On iOS the file is copied from disk; on Android `serializeAsync` is used
- * to avoid filesystem permission issues with the native database directory.
+ * Plain export: on iOS the file is copied from disk; on Android
+ * `serializeAsync` is used to avoid filesystem permission issues with the
+ * native database directory.
  *
  * Returns the number of database files exported (0 or 1).
  */
-export async function exportAllWalletDatabases(storage: StorageExpoSQLite | null): Promise<number> {
+export async function exportAllWalletDatabases(
+  storage: StorageExpoSQLite | null,
+  opts: ExportWalletDatabaseOptions = {}
+): Promise<number> {
+  if (opts.encrypt) {
+    return exportEncrypted(storage, opts)
+  }
+
   if (Platform.OS === 'android') {
     return exportAndroid(storage)
   }
 
   return exportIOS(storage)
+}
+
+/** A `file://` URI as the plain filesystem path SQLite wants. */
+function nativePath(uri: string): string {
+  return decodeURI(uri.replace(/^file:\/\//, ''))
+}
+
+/**
+ * Encrypted export, on both platforms. `VACUUM INTO` writes a consistent,
+ * compacted snapshot of the live database (WAL included, concurrent writers
+ * unaffected) to a temp file on the native side, which is then encrypted a
+ * chunk at a time in native AES — the database is never held whole in JS
+ * memory. The plaintext snapshot lives only in the app's own cache and is
+ * deleted with the temp directory whether or not the share succeeds.
+ */
+async function exportEncrypted(storage: StorageExpoSQLite | null, opts: ExportWalletDatabaseOptions): Promise<number> {
+  if (!storage?.db) return 0
+  if (!opts.wallet) throw new Error('Encrypted export needs the wallet')
+
+  const { File, Directory, Paths, FileMode } = loadExpoFileSystem()
+  const { shareAsync } = loadExpoSharing()
+
+  const outName = exportFilename(storage.dbName).replace(/\.db$/, ENCRYPTED_DB_EXTENSION)
+  const tempDir = new Directory(Paths.cache, 'bsv-wallet-export')
+  if (tempDir.exists) tempDir.delete()
+  tempDir.create({ intermediates: true })
+
+  try {
+    const snapshot = new File(tempDir, 'snapshot.db')
+    const snapshotPath = nativePath(snapshot.uri).replace(/'/g, "''")
+    await storage.db.execAsync(`VACUUM INTO '${snapshotPath}'`)
+
+    const outFile = new File(tempDir, outName)
+    outFile.create()
+    const reader = snapshot.open(FileMode.ReadOnly)
+    const writer = outFile.open(FileMode.WriteOnly)
+    try {
+      const src: ByteSource = { size: reader.size ?? snapshot.size, read: n => reader.readBytes(n) }
+      const sink: ByteSink = { write: b => writer.writeBytes(b) }
+      await encryptDbImage(opts.wallet, src, sink, { originator: opts.originator, onProgress: opts.onProgress })
+    } finally {
+      reader.close()
+      writer.close()
+    }
+    snapshot.delete()
+
+    await shareAsync(outFile.uri, {
+      mimeType: 'application/octet-stream',
+      dialogTitle: outName
+    })
+  } finally {
+    try {
+      tempDir.delete()
+    } catch {}
+  }
+
+  return 1
 }
 
 async function exportIOS(storage: StorageExpoSQLite | null): Promise<number> {

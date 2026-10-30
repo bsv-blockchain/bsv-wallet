@@ -436,7 +436,10 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
     if (isImporting) return
     setIsImporting(true)
     try {
-      const result = await importWalletDatabase(storage)
+      const result = await importWalletDatabase(storage, {
+        wallet: managers.permissionsManager,
+        originator: adminOriginator
+      })
       if (result.imported) {
         showToast(t('import_success'), { type: 'success' })
         // Not restoreFromBackup: a raw db import already carries a complete
@@ -995,6 +998,15 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                   showChevron={false}
                   trailing={exporting ? <ActivityIndicator size="small" /> : undefined}
                 />
+                {__DEV__ && (
+                  <ListRow
+                    label="Export Wallet Data (unencrypted)"
+                    icon="share-outline"
+                    iconColor="#8E8E93"
+                    onPress={() => void exportData({ encrypt: false })}
+                    showChevron={false}
+                  />
+                )}
                 <ListRow
                   label={t('import_wallet_data')}
                   icon="download-outline"

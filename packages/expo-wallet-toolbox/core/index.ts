@@ -249,6 +249,19 @@ export { processOfflineActions } from './storage/methods/processOfflineActions'
 export { colorHeldTxids, txHasColorOutput } from './mandala/colorGuard'
 export * from './storage/skipQueuedAncestors'
 export { prepareSqliteImageForDeserialize } from './storage/dbImage'
+export {
+  encryptDbImage,
+  decryptDbImage,
+  isEncryptedDbImage,
+  EncryptedDbError,
+  ENCRYPTED_DB_EXTENSION,
+  DB_EXPORT_PROTOCOL,
+  type DbExportWallet,
+  type EncryptedDbErrorCode,
+  type EncryptedDbOptions,
+  type ByteSource,
+  type ByteSink
+} from './storage/encryptedDbImage'
 
 // Local secrets storage
 export {
