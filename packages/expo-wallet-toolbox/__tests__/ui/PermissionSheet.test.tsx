@@ -29,8 +29,9 @@ jest.mock('../../ui/components/ui/Sheet', () => ({
 }))
 jest.mock('../../ui/components/ui/PressableScale', () => ({
   __esModule: true,
-  default: ({ onPress, children }: { onPress?: () => void; children?: unknown }) => {
+  default: ({ onPress, children, testID }: { onPress?: () => void; children?: unknown; testID?: string }) => {
     ;(globalThis as any).__presses.push(onPress)
+    ;((globalThis as any).__pressIds ??= []).push(testID)
     return children ?? null
   }
 }))
@@ -380,7 +381,42 @@ describe('PermissionSheet answers', () => {
     expect(raised.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
     expect(current.grantPermission).not.toHaveBeenCalled()
     expect(advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
-    expect(ui.setProtocolAccessModalOpen).toHaveBeenCalledWith(false)
+    // The queue closes the modal flag itself when it empties; the sheet never closes it on its own.
+    expect(ui.setProtocolAccessModalOpen).not.toHaveBeenCalled()
+  })
+
+  it('keeps the modal open for a second request queued behind the one answered (grant and deny)', async () => {
+    const m = fakeManager()
+    const queued = [protocolRequest('p1', m), protocolRequest('p2', m)]
+    const granted = setup({ protocolRequests: queued })
+    await granted.allow()
+    await elapse()
+    expect(granted.advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
+    expect(granted.ui.setProtocolAccessModalOpen).not.toHaveBeenCalledWith(false)
+    granted.view.unmount()
+    ;(globalThis as any).__presses = []
+
+    const denied = setup({ protocolRequests: queued })
+    await denied.deny()
+    expect(denied.advance.advanceProtocolQueue).toHaveBeenCalledWith('p1')
+    expect(denied.ui.setProtocolAccessModalOpen).not.toHaveBeenCalledWith(false)
+  })
+
+  it('answers a pending grant at once when the app leaves the foreground', async () => {
+    const { AppState } = require('react-native')
+    let onChange!: (s: string) => void
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_t: any, fn: any) => {
+      onChange = fn
+      return { remove: jest.fn() }
+    })
+    const raised = fakeManager()
+    const { allow } = setup({ protocolRequests: [protocolRequest('p1', raised)] })
+    await allow()
+    expect(raised.grantPermission).not.toHaveBeenCalled()
+    await act(async () => {
+      onChange('background')
+    })
+    expect(raised.grantPermission).toHaveBeenCalledWith({ requestID: 'p1' })
   })
 
   it('denies the manager that raised the request, by request ID', async () => {
@@ -922,5 +958,86 @@ describe('tap protection and connection answers', () => {
     mount({})
     await press(0)
     expect(stub.store.answerConsent).toHaveBeenCalledWith('c2', false, { walletRevision: 1, profileKey: '0' })
+  })
+})
+
+describe('stable bridge test ids', () => {
+  const { WalletContext, UserContext, ExchangeRateContext } = require('@bsv/expo-wallet-toolbox')
+
+  const tree = (queues: Record<string, unknown>) => (
+    <WalletContext.Provider
+      value={{
+        protocolRequests: [],
+        basketRequests: [],
+        certificateRequests: [],
+        spendingRequests: [],
+        groupRequests: [],
+        btmsRequests: [],
+        mandalaRequests: [],
+        advanceProtocolQueue: jest.fn(),
+        advanceBasketQueue: jest.fn(),
+        advanceCertificateQueue: jest.fn(),
+        advanceSpendingQueue: jest.fn(),
+        advanceGroupQueue: jest.fn(),
+        advanceBtmsQueue: jest.fn(),
+        advanceMandalaQueue: jest.fn(),
+        managers: { permissionsManager: {} },
+        settings: {},
+        ...queues
+      }}
+    >
+      <UserContext.Provider
+        value={{
+          protocolAccessModalOpen: true,
+          setProtocolAccessModalOpen: jest.fn(),
+          basketAccessModalOpen: true,
+          setBasketAccessModalOpen: jest.fn(),
+          certificateAccessModalOpen: false,
+          setCertificateAccessModalOpen: jest.fn(),
+          spendingAuthorizationModalOpen: true,
+          setSpendingAuthorizationModalOpen: jest.fn()
+        }}
+      >
+        <ExchangeRateContext.Provider value={{}}>
+          <PermissionSheet />
+        </ExchangeRateContext.Provider>
+      </UserContext.Provider>
+    </WalletContext.Provider>
+  )
+  const lastIds = () => ((globalThis as any).__pressIds as string[]).slice(-2)
+
+  beforeEach(() => {
+    ;(globalThis as any).__presses = []
+    ;(globalThis as any).__pressIds = []
+  })
+  afterEach(() => setConsentSheetSource(undefined))
+
+  it('connection sheet exposes bridge-connect-origin with the full ASCII origin', async () => {
+    const entry = {
+      requestId: 'c1',
+      origin: 'http://localhost:3001',
+      attestation: 'unattested',
+      transportId: 'android-loopback',
+      connectedBefore: false,
+      walletRevision: 1,
+      profileKey: '0'
+    }
+    setConsentSheetSource({
+      store: { listPending: () => [entry], answerConsent: jest.fn(), onChange: () => () => {} } as any,
+      context: () => ({ walletRevision: 1, profileKey: '0' })
+    })
+    const view = render(tree({}))
+    expect(view.getByTestId('bridge-connect-origin').props.children).toBe('http://localhost:3001')
+    expect(lastIds()).toEqual(['bridge-deny', 'bridge-approve'])
+  })
+
+  const req = { requestID: 'r1', originator: 'app.example', manager: {} }
+  it.each([
+    ['spending', { spendingRequests: [{ ...req, authorizationAmount: 100, lineItems: [] }] }],
+    ['protocol', { protocolRequests: [{ ...req, protocolSecurityLevel: 2, protocolID: 'some app protocol' }] }],
+    ['basket', { basketRequests: [{ ...req, basket: 'tokens' }] }]
+  ])('approve and deny carry the stable ids for the %s kind', (_kind, queues) => {
+    render(tree(queues))
+    expect(lastIds()).toEqual(['bridge-deny', 'bridge-approve'])
   })
 })

@@ -1,10 +1,21 @@
 import React, { memo, useEffect, useRef } from 'react'
-import { Dimensions, Keyboard, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import {
+  AppState,
+  Dimensions,
+  Keyboard,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native'
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
 import ScreenGradient from './ScreenGradient'
+import { onSheetResumed } from './sheetResumeSignal'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -36,6 +47,12 @@ interface SheetProps {
    * focus a field inside the sheet — focusing before the sheet has finished
    * moving into place drops the first keystroke typed into it. */
   onOpenComplete?: () => void
+  /**
+   * Whether the user can dismiss the sheet by tapping the backdrop or swiping it down. Default true. When false both do
+   * nothing: a swipe springs back to the open position and `onClose` is not called (the Android bridge's overlay, where
+   * an outside tap must not answer a prompt).
+   */
+  dismissible?: boolean
   children?: React.ReactNode
 }
 
@@ -57,6 +74,7 @@ const Sheet: React.FC<SheetProps> = ({
   fullPage = false,
   fitContent = false,
   onOpenComplete,
+  dismissible = true,
   children
 }) => {
   const { colors } = useTheme()
@@ -74,6 +92,18 @@ const Sheet: React.FC<SheetProps> = ({
   // Track whether the sheet is visible for rendering children
   const [rendered, setRendered] = React.useState(false)
 
+  // Whether the sheet is still meant to be open. The open spring's completion reaches JS a frame or more later; by then
+  // a close may have started, and nudging the open position would cancel that close spring and strand the sheet.
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
+
+  // Nudges the open position by half a point and back, which makes a stale paint of the sheet repaint.
+  const reapplyOpen = React.useCallback(() => {
+    if (!visibleRef.current) return
+    translateY.value = 0.5
+    translateY.value = withTiming(0, { duration: 60 })
+  }, [translateY])
+
   // Open / close driven by `visible` prop. Only PLAY the enter animation on an
   // actual closed→open transition — not on every re-run of this effect. In
   // fitContent mode, sheetHeight tracks onLayout-measured content height, which
@@ -87,6 +117,7 @@ const Sheet: React.FC<SheetProps> = ({
       if (!wasVisibleRef.current) {
         translateY.value = sheetHeight
         translateY.value = withSpring(0, { mass: 1, stiffness: 280, damping: 32 }, finished => {
+          if (finished) runOnJS(reapplyOpen)()
           if (finished && onOpenComplete) runOnJS(onOpenComplete)()
         })
       }
@@ -97,6 +128,24 @@ const Sheet: React.FC<SheetProps> = ({
     }
     wasVisibleRef.current = visible
   }, [visible, sheetHeight]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A sheet opened while the activity is not resumed (the Android browser bridge raises the wallet for a request)
+  // can stay painted at its hidden offset although its shared value reads 0 (observed on Pixel_9, Android 16: the
+  // scrim shows, the sheet does not). Re-apply the open position when the app becomes active again.
+  useEffect(() => {
+    if (!visible) return
+    const sub = AppState.addEventListener('change', state => {
+      if (state !== 'active') return
+      reapplyOpen()
+    })
+    // The Android bridge's sheet Activity resumes without an `AppState` change the second root can see (the sheet
+    // mounts after `active`); it signals instead. The open spring above also re-applies once it settles on mount.
+    const unsignal = onSheetResumed(reapplyOpen)
+    return () => {
+      sub.remove()
+      unsignal()
+    }
+  }, [visible, reapplyOpen])
 
   // Lift the sheet above the software keyboard so bottom-anchored content
   // (PIN field, primary button) stays visible. Without this a number-pad — which
@@ -125,13 +174,14 @@ const Sheet: React.FC<SheetProps> = ({
   }))
 
   const panGesture = Gesture.Pan()
+    .withTestId('sheet-pan')
     .activeOffsetY(10)
     .failOffsetX([-25, 25])
     .onUpdate(e => {
       translateY.value = Math.max(0, e.translationY)
     })
     .onEnd(e => {
-      const shouldClose = e.translationY > sheetHeight / 3 || e.velocityY > 800
+      const shouldClose = dismissible && (e.translationY > sheetHeight / 3 || e.velocityY > 800)
       if (shouldClose) {
         translateY.value = withSpring(
           sheetHeight,
@@ -198,11 +248,13 @@ const Sheet: React.FC<SheetProps> = ({
       {isVisible && (
         <Pressable
           style={[styles.backdrop, { backgroundColor: colors.scrim }]}
-          onPress={onClose}
-          accessible={true}
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-          accessibilityHint="Dismisses this sheet"
+          onPress={dismissible ? onClose : undefined}
+          testID="sheet-backdrop"
+          accessible={dismissible}
+          importantForAccessibility={dismissible ? 'auto' : 'no-hide-descendants'}
+          accessibilityRole={dismissible ? 'button' : undefined}
+          accessibilityLabel={dismissible ? 'Close' : undefined}
+          accessibilityHint={dismissible ? 'Dismisses this sheet' : undefined}
         />
       )}
       <Animated.View

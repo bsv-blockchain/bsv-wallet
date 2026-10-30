@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed (review of the Android bridge overlay)
+
+- `Sheet`: the open-spring completion no longer re-applies the open position once the sheet has been closed, and a
+  non-dismissible sheet hides its backdrop from screen readers.
+- `PermissionSheet`: no longer closes a queue's modal flag itself; the queue does it when it empties, so a request
+  enqueued just before an answer cannot be left behind a closed flag.
+
 ### Browser bridge core
 
 - **Transport-agnostic BRC-185 bridge engine** (`core/bridge`): origin rule, site consent with
@@ -11,6 +18,42 @@
 - **Conformance report.** `buildConformanceReport()` returns a versioned JSON listing the 28
   methods, the bridge's refusals and the recorded deviations from BRC-185 / BRC-219; a snapshot
   test keeps it deliberate.
+
+### Browser bridge: seams for the Android loopback kit
+
+- **`ContextRelay`** (`ui/bridgeSheet`). `ContextRelayPublisher` (first root, inside the providers) copies the
+  contexts `PermissionSheet` reads (`RELAYED_CONTEXTS`: theme, wallet, exchange rate, user) into a module store, and
+  `ContextRelaySubscriber` re-provides them on a second React root, rendering nothing until every entry is published.
+  A theme change reaches the second root without remounting it. Language is the i18n singleton and is not relayed;
+  safe-area insets are per native root and the second root mounts its own provider. A scan test fails when the
+  sheet's import closure reads a context that is not listed.
+- **`Sheet` re-applies its open position on mount and on a host signal.** `signalSheetResumed()`
+  (`ui/components/ui/sheetResumeSignal`) nudges every open `Sheet`, for a host window that resumes without an
+  `AppState` change the sheet can see (the Android bridge's second root). The open spring also re-applies once it settles.
+- **`PermissionSheet backdropDismisses={false}`, `Sheet dismissible={false}`.** `PermissionSheet` treats a backdrop tap
+  or a swipe down as a rejection; a host window where an outside tap must do nothing (the Android bridge's overlay root)
+  passes `false` on its own instance. A swipe then springs back to the open position instead of leaving the sheet off
+  screen. The default is unchanged, and the setting is per instance, not process-wide.
+- **A second request queued behind an answered one is shown.** `PermissionSheet` closed the queue's modal flag after
+  every grant or deny, even with another request of the same kind still queued, and the queue only opens that flag when
+  it goes from empty to non-empty, so the next request (another site's, or the same site's) stayed hidden and its call
+  hung. The flag is now closed only when nothing else is queued behind the answered request.
+
+- **`BridgeSnapshot.hostAttached`.** True once a host is attached and the runtime has loaded, false at start and
+  after detach. Every change goes through `onSnapshotChange`, so a transport hears attach and detach even when
+  readiness stays `none` (a cold start with no wallet).
+- **`assertAdvertisesResponder(descriptor, responder)`** (protocol/descriptor): throws `ProofError` unless a
+  `http-json` endpoint of the descriptor has the same scheme, host and port as the responder that answered.
+- **Loopback HTTP router** (`core/bridge/loopback/`): the pure BRC-185 4.1 HTTP semantics for a native loopback
+  transport. Router (describe, connect, RPC, disconnect, outcome mapping), Host check, endpoint list, CORS, status table
+  and the launch proof MACs (hello, describe ack, launch, ack, binding) with their JCS payloads. Platform code supplies
+  requests and receives responses; nothing here opens a socket.
+- **Testing helpers** (`core/bridge/testing`): the `PageClient` contract types and the transport-independent
+  conformance cases (all 28 methods, error codec, request and response caps) a transport runs against its executor.
+- **Stable test ids on the connection and permission sheet.** `bridge-connect-origin` (the full origin),
+  `bridge-approve` and `bridge-deny` for every prompt kind, for UI automation; no visual change.
+- **Android copy.** `bridge_notifications_off`, `bridge_ports_exhausted` and `bridge_not_ready_android` in all
+  12 locales.
 
 ### Browser bridge: seams for a native transport (iOS Safari kit)
 

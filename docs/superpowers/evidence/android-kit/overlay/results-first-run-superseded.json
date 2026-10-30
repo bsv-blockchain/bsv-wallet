@@ -1,0 +1,158 @@
+{
+  "chrome": "155.0.8059.79",
+  "origin": "http://localhost:3001",
+  "at": "2026-10-29T18:52:01.823Z",
+  "results": [
+    {
+      "id": "O1",
+      "name": "warm: Open wallet raises the sheet over Chrome, Connect, back to Chrome",
+      "status": "pass",
+      "note": "bridge-sheet-root and bridge-connect-origin (http://localhost:3001) with Unverified; bridge-approve at {\"x1\":554,\"y1\":2183,\"x2\":1028,\"y2\":2319} on 1080x2424; top resumed was the sheet, Chrome PAUSED; after Connect the sheet is gone and Chrome is top resumed",
+      "ms": 48459
+    },
+    {
+      "id": "O2",
+      "name": "held createSignature across the overlay sheet, one owner",
+      "status": "pass",
+      "note": "the page's createSignature stayed open across the overlay sheet (exactly 1 bridge-approve node), Approve answered it (card pass), the sheet finished and Chrome is top resumed",
+      "ms": 57091
+    },
+    {
+      "id": "O3",
+      "name": "cold regression guard: no sheet Activity in the tracker window, foreground Connect, no notification",
+      "status": "pass",
+      "note": "500 ms (click at 501): no sheet listed, Connect in .MainActivity, no notification; 1500 ms (click at 1501): no sheet listed, Connect in .MainActivity, no notification; 2500 ms (click at 2501): no sheet listed, Connect in .MainActivity, no notification",
+      "ms": 95946
+    },
+    {
+      "id": "O4",
+      "name": "Back in the sheet with the main tree on Settings: request stays parked, notification follows",
+      "status": "pass",
+      "note": "Back finished the sheet, the request stayed parked (card running), MainActivity still on Settings, the attention notification (generic text, no origin) appeared 707 ms later; tapping it re-showed the sheet and Approve answered the request",
+      "ms": 76631
+    },
+    {
+      "id": "O5",
+      "name": "Home with the sheet up: the sheet task goes, a new launch makes a fresh root",
+      "status": "fail",
+      "note": "sheet-root mount count went 1 -> 1, expected +1 (a fresh root)",
+      "ms": 51316
+    },
+    {
+      "id": "O6",
+      "name": "wallet in front when the prompt arrives: in-app sheet, no overlay, no notification",
+      "status": "pass",
+      "note": "the prompt rendered in the main tree (one bridge-approve), no BridgeSheetActivity listed, no create log, no notification",
+      "ms": 54480
+    },
+    {
+      "id": "O7",
+      "name": "screen off then on, and a recents peek then screen off: same root, same prompt",
+      "status": "pass",
+      "note": "screen off then on: the same sheet Activity (create n 1) and root (no new AppRegistry run) with the same pending prompt; the inner tree re-mounted with the owner gate (mount n 1 -> 2, expected: the sheet window was not resumed while the screen was off); after the recents peek the sheet is not resumed",
+      "ms": 134664
+    },
+    {
+      "id": "O8",
+      "name": "a prompt for another origin while the sheet is up shows in the same root, never a second Activity",
+      "status": "fail",
+      "note": "Connection closed.",
+      "ms": 25312
+    },
+    {
+      "id": "O9",
+      "name": "dark mode while the sheet is up: re-themes without remounting",
+      "status": "pass",
+      "note": "night mode switched with the sheet and a prompt up: same Activity (create n 1), no remount (mount n 1), prompt still shown; text colours could not be read (FLAG_SECURE blanks screencap); the re-theme itself is pinned by the Task 8 relay test",
+      "ms": 64042
+    },
+    {
+      "id": "O10",
+      "name": "a second launch while the sheet is up resets the root",
+      "status": "pass",
+      "note": "second SHEETLAUNCH while up: one more \"newintent reset=true\", mount n 1 -> 2, no second Activity (create lines 8 unchanged)",
+      "ms": 54462
+    },
+    {
+      "id": "O11",
+      "name": "prompt pending when the wallet leaves: notification only, no background sheet (variant 11-N)",
+      "status": "pass",
+      "note": "variant 11-N: the prompt left pending raised only the generic attention notification (no site named); no sheet Activity was listed or created for 6 s in the background; the tap then showed it",
+      "ms": 69364
+    },
+    {
+      "id": "O12",
+      "name": "leak: 10 open and Back cycles, Activities count stable",
+      "status": "fail",
+      "note": "Activities readings are not equal: 2,1,1",
+      "ms": 126881
+    },
+    {
+      "id": "O14",
+      "name": "M1 regression: cases 1 to 5, 7, 15, 16, 17 in foreground mode with overlay available",
+      "status": "fail",
+      "note": "M1 case 5 raised an overlay sheet (create n 12 -> 1)",
+      "ms": 379328
+    },
+    {
+      "id": "O15",
+      "name": "idle sheet: nothing pending, window non-touchable, finishes by itself",
+      "status": "fail",
+      "note": "no bridge-sheet-root",
+      "ms": 11022
+    },
+    {
+      "id": "O16",
+      "name": "notification tap: overlay when warm and main not resumed, wallet when cold",
+      "status": "pass",
+      "note": "warm tap: the sheet over the current app with the pending prompt (create n 1 -> 2), Approve answered it; cold tap: MainActivity in front, the sheet Activity not listed and no sheet root created (no \"sheet-activity create\" line)",
+      "ms": 243498
+    },
+    {
+      "id": "O17",
+      "name": "fail-closed after the sheet finishes: no crash from currentActivity readers",
+      "status": "pass",
+      "note": "reachable readers exercised after the sheet finished (Approve while it was current, then getPublicKey and a new prompt with Chrome in front: OK getPublicKey -> {\"publicKey\":\"0394725e3fb4ca73e64a7eec843): no FATAL EXCEPTION, IllegalStateException or destroyed-Activity line in logcat; biometric and NFC readers not reachable here (SPIKES deviation, gate 1)",
+      "ms": 59535
+    },
+    {
+      "id": "O18",
+      "name": "process recreation with the sheet up: a restored sheet finishes at once and arms nothing",
+      "status": "fail",
+      "note": "a sheet was resumed after the crash (a restored sheet must finish at once)",
+      "ms": 60180
+    },
+    {
+      "id": "O19",
+      "name": "Back right after the last Approve: no ERR_NO_ACTIVITY, Chrome in front, no crash",
+      "status": "pass",
+      "note": "Back 250 ms after the last Approve: no ERR_NO_ACTIVITY and no FATAL EXCEPTION in logcat, the wallet process (pid 14125) survived, Chrome is top resumed",
+      "ms": 56866
+    },
+    {
+      "id": "O20",
+      "name": "non-English locale: the sheet shows Spanish copy",
+      "status": "pass",
+      "note": "with the app locale es the overlay sheet shows \"Conectar\" (and not \"Connect\"); the English control run showed \"Connect\". Colours from the relay: see O9 (pixels are blank under FLAG_SECURE)",
+      "ms": 115864
+    },
+    {
+      "id": "O21",
+      "name": "a tap outside the sheet does nothing",
+      "status": "fail",
+      "note": "the sheet finished after a tap on the scrim",
+      "ms": 49382
+    },
+    {
+      "id": "O13",
+      "name": "plaintext check in logcat over the overlay run, M2 log lines are counts only",
+      "status": "fail",
+      "note": "3 BsvBridgeSheet lines carry more than counts: 10-29 13:49:25.176 14125 14190 I ReactNativeJS: Running \"BsvBridgeSheet\" with {\"rootTag\":21,\"initialProps\":{},\"fabric\":true} | 10-29 13:50:33.129 15232 15352 I ReactNativeJS: Running \"BsvBridgeSheet\" with {\"rootTag\":11,\"initialProps\":{},\"fabric\":true}",
+      "ms": 213
+    }
+  ],
+  "gates": [
+    "O7: the recents peek on this AVD did not return to the sheet through KEYCODE_APP_SWITCH, so the peek-then-screen-off half is covered by Task 4 `leave then resume then stop does not finish` only",
+    "O17: the biometric prompt (expo-local-authentication, expo-secure-store AuthenticationHelper) and the YubiKey NFC reader cannot be reached on the throwaway test wallet (no biometric, no key), so they are recorded as a deviation (no instrumented test) and covered by owner gate 1"
+  ]
+}

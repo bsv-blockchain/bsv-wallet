@@ -31,6 +31,18 @@ describe('usePermissionQueue', () => {
     expect(ids(hook)).toEqual(['a', 'b'])
   })
 
+  it('answering the head right after a new item was queued keeps the modal open for the new item', async () => {
+    const { hook, openModal } = setup()
+    await act(async () => hook.result.current.enqueue({ requestID: 'a' }))
+    openModal.mockClear()
+    await act(async () => {
+      hook.result.current.enqueue({ requestID: 'b' })
+      hook.result.current.advance(undefined, 'a')
+    })
+    expect(ids(hook)).toEqual(['b'])
+    expect(openModal).not.toHaveBeenCalledWith(false)
+  })
+
   it('advance() without an id still drops the head', async () => {
     const { hook, openModal, onFocusRelinquished } = setup()
     await act(async () => {

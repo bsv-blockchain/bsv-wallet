@@ -1,0 +1,3 @@
+resumed: com.google.android.apps.nexuslauncher/.NexusLauncherActivity
+top: com.google.android.apps.nexuslauncher/.NexusLauncherActivity
+sheet window flags: (no sheet window)

@@ -1,0 +1,9 @@
+M1 1 ok
+M1 2 ok
+M1 3 failed (log never matched #createAction -> /(OK|ERR) createAction ->[^\n]*/: 19:18:47.518 INFO cre)
+M1 4 ok
+M1 5 ok
+M1 7 ok
+M1 15 failed (no bridge-attention notification posted)
+M1 16 failed (timed out waiting for attention notification in the shade)
+M1 17 ok

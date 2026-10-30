@@ -1,0 +1,358 @@
+[
+  {
+    "id": "isAuthenticated",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "waitForAuthentication",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "getVersion",
+    "status": "fail",
+    "code": "",
+    "cases": "",
+    "message": "Version \"bsv-wallet-bridge-1\" is not vendor-major.minor.patch within 7-30 bytes",
+    "failedCases": []
+  },
+  {
+    "id": "getNetwork",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "getHeight",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "getHeaderForHeight",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "getPublicKey",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "revealCounterpartyKeyLinkage",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "revealSpecificKeyLinkage",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "encrypt",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "decrypt",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "createHmac",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "verifyHmac",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "createSignature",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "verifySignature",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "listActions",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "listOutputs",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "createAction",
+    "status": "fail",
+    "code": "7",
+    "cases": "",
+    "message": "Insufficient funds in the available inputs to cover the cost of the required outputs and the transaction fee (3 more satoshis are needed, for a total of 3), plus whatever would be required in order to pay the fee to unlock and spend the outputs used to provide the additional satoshis.",
+    "failedCases": []
+  },
+  {
+    "id": "signAction",
+    "status": "fail",
+    "code": "7",
+    "cases": "",
+    "message": "Insufficient funds in the available inputs to cover the cost of the required outputs and the transaction fee (3 more satoshis are needed, for a total of 3), plus whatever would be required in order to pay the fee to unlock and spend the outputs used to provide the additional satoshis.",
+    "failedCases": []
+  },
+  {
+    "id": "abortAction",
+    "status": "fail",
+    "code": "7",
+    "cases": "",
+    "message": "Insufficient funds in the available inputs to cover the cost of the required outputs and the transaction fee (3 more satoshis are needed, for a total of 3), plus whatever would be required in order to pay the fee to unlock and spend the outputs used to provide the additional satoshis.",
+    "failedCases": []
+  },
+  {
+    "id": "internalizeAction",
+    "status": "-",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "relinquishOutput",
+    "status": "-",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "listCertificates",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "acquireCertificate",
+    "status": "-",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "proveCertificate",
+    "status": "fail",
+    "code": "",
+    "cases": "",
+    "message": "No conformance certificate to prove. Run acquireCertificate first.",
+    "failedCases": []
+  },
+  {
+    "id": "relinquishCertificate",
+    "status": "-",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "discoverByIdentityKey",
+    "status": "pass",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "discoverByAttributes",
+    "status": "fail",
+    "code": "timeout",
+    "cases": "",
+    "message": "no progress for 120 s (wallet not answering?)",
+    "failedCases": []
+  },
+  {
+    "id": "Authentication and chain metadata sequences",
+    "status": "pass",
+    "code": "",
+    "cases": "4 cases (4 pass, 0 fail, 0 skip)",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "Crypto option matrix",
+    "status": "fail",
+    "code": "",
+    "cases": "24 cases (12 pass, 12 fail, 0 skip)",
+    "message": "12 of 24 branch cases failed. See case results.",
+    "failedCases": [
+      "crypto/level-0/default/privileged-true 6",
+      "crypto/level-0/self/privileged-true 6",
+      "crypto/level-0/anyone/privileged-true 6",
+      "crypto/level-0/peer/privileged-true 6",
+      "crypto/level-1/default/privileged-true 6",
+      "crypto/level-1/self/privileged-true 6",
+      "crypto/level-1/anyone/privileged-true 6",
+      "crypto/level-1/peer/privileged-true 6",
+      "crypto/level-2/default/privileged-true 6",
+      "crypto/level-2/self/privileged-true 6",
+      "crypto/level-2/anyone/privileged-true 6",
+      "crypto/level-2/peer/privileged-true 6"
+    ]
+  },
+  {
+    "id": "Key-linkage option matrix",
+    "status": "fail",
+    "code": "",
+    "cases": "20 cases (10 pass, 10 fail, 0 skip)",
+    "message": "10 of 20 branch cases failed. See case results.",
+    "failedCases": [
+      "linkage/counterparty/privileged-true 6",
+      "linkage/specific/level-0/self/privileged-true 6",
+      "linkage/specific/level-0/anyone/privileged-true 6",
+      "linkage/specific/level-0/peer/privileged-true 6",
+      "linkage/specific/level-1/self/privileged-true 6",
+      "linkage/specific/level-1/anyone/privileged-true 6",
+      "linkage/specific/level-1/peer/privileged-true 6",
+      "linkage/specific/level-2/self/privileged-true 6",
+      "linkage/specific/level-2/anyone/privileged-true 6",
+      "linkage/specific/level-2/peer/privileged-true 6"
+    ]
+  },
+  {
+    "id": "listActions return and query options",
+    "status": "fail",
+    "code": "",
+    "cases": "67 cases (1 pass, 1 fail, 65 skip)",
+    "message": "1 of 67 branch cases failed. See case results.",
+    "failedCases": [
+      "listActions/options-61 6"
+    ]
+  },
+  {
+    "id": "listOutputs return and query options",
+    "status": "fail",
+    "code": "",
+    "cases": "55 cases (1 pass, 1 fail, 53 skip)",
+    "message": "1 of 55 branch cases failed. See case results.",
+    "failedCases": [
+      "listOutputs/options-49 6"
+    ]
+  },
+  {
+    "id": "Certificate discovery options",
+    "status": "pass",
+    "code": "",
+    "cases": "16 cases (16 pass, 0 fail, 0 skip)",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "create → sign → abort option matrix",
+    "status": "-",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "Explicit input and deferred signing sequences",
+    "status": "-",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "Broadcast option matrix — spends funds",
+    "status": "-",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "noSend → noSendChange → sendWith — spends funds",
+    "status": "-",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "Internalize payment / insertion / mixed — spends funds",
+    "status": "-",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "Direct acquisition → list → prove → relinquish",
+    "status": "-",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  },
+  {
+    "id": "Certifier issuance → list → prove → relinquish",
+    "status": "-",
+    "code": "",
+    "cases": "",
+    "message": "",
+    "failedCases": []
+  }
+]

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- enforceNavigationBarContrast needs API 29; minSdk is 24, so it lives only here. -->
+  <style name="Theme.BsvBridgeSheet" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <item name="android:windowIsTranslucent">true</item>
+    <item name="android:windowBackground">@android:color/transparent</item>
+    <item name="android:windowNoTitle">true</item>
+    <item name="android:windowContentOverlay">@null</item>
+    <item name="android:windowCloseOnTouchOutside">false</item>
+    <item name="android:windowAnimationStyle">@style/Animation.BsvBridgeSheet</item>
+    <item name="android:enforceNavigationBarContrast">false</item>
+  </style>
+</resources>

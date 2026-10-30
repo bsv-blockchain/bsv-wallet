@@ -27,7 +27,14 @@ function resolveRelative(from: string, spec: string): string {
 }
 
 function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+  return (
+    src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1')
+      // `import type` is erased by the compiler: it adds nothing to a bundle (the loopback router's port types
+      // name runtime types this way).
+      .replace(/(^|\n)\s*import\s+type\s[^'"]*?from\s*['"][^'"]+['"]/g, '$1')
+  )
 }
 
 function walk(entry: string): { files: string[]; problems: string[] } {
@@ -71,6 +78,13 @@ describe('protocol modules are bundle-safe', () => {
   it.each(entries.map(e => [path.basename(e), e]))('%s has a pure import graph', (_name, entry) => {
     const { problems } = walk(entry as string)
     expect(problems).toEqual([])
+  })
+
+  it('loopback modules have a pure import graph', () => {
+    const dir = path.join(bridgeDir, 'loopback')
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.ts'))
+    expect(files.length).toBeGreaterThanOrEqual(4)
+    for (const f of files) expect(walk(path.join(dir, f)).problems).toEqual([])
   })
 
   it('origin.ts reaches the pure constants module, not the app config', () => {

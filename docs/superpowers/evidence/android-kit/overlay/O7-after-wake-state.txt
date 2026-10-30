@@ -1,0 +1,3 @@
+resumed: com.google.android.apps.nexuslauncher/.NexusLauncherActivity
+top: com.google.android.apps.nexuslauncher/.NexusLauncherActivity
+sheet window flags: LAYOUT_IN_SCREEN SECURE LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS

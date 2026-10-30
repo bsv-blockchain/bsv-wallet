@@ -1,5 +1,5 @@
 import React, { useContext, useState, useCallback, useMemo, useEffect, useRef, useSyncExternalStore } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, AppState } from 'react-native'
 import type { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
 import type { SigningPolicyPermissionsManager } from '../../../core/services/signingPermissionPolicy'
 import Sheet from './Sheet'
@@ -594,7 +594,16 @@ export function usePermissionSheetBusy(): boolean {
   )
 }
 
-const PermissionSheet: React.FC = () => {
+interface PermissionSheetProps {
+  /**
+   * Whether a backdrop tap or a swipe down answers the prompt as a rejection. Default true. The Android bridge's overlay
+   * root passes false: there an outside tap does nothing and only the Reject button rejects. Per instance, so a main-tree
+   * sheet mounted at the same time is unaffected.
+   */
+  backdropDismisses?: boolean
+}
+
+const PermissionSheet: React.FC<PermissionSheetProps> = ({ backdropDismisses = true }) => {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -658,16 +667,8 @@ const PermissionSheet: React.FC = () => {
     [t, colorAssets]
   )
 
-  const {
-    protocolAccessModalOpen,
-    setProtocolAccessModalOpen,
-    basketAccessModalOpen,
-    setBasketAccessModalOpen,
-    certificateAccessModalOpen,
-    setCertificateAccessModalOpen,
-    spendingAuthorizationModalOpen,
-    setSpendingAuthorizationModalOpen
-  } = useContext(UserContext)
+  const { protocolAccessModalOpen, basketAccessModalOpen, certificateAccessModalOpen, spendingAuthorizationModalOpen } =
+    useContext(UserContext)
 
   const connectionRequests = useSyncExternalStore(
     subscribeConsentRequests,
@@ -714,6 +715,21 @@ const PermissionSheet: React.FC = () => {
         pendingGrantRef.current = null
       }
     }
+  }, [])
+
+  // React Native pauses JS timers while the app is backgrounded, so a grant waiting out its 400 ms would
+  // leave the page's call hanging if the user leaves right after tapping. Answer at once instead.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active' || pendingGrantRef.current === null) return
+      if (grantTimerRef.current !== null) {
+        clearTimeout(grantTimerRef.current)
+        grantTimerRef.current = null
+      }
+      pendingGrantRef.current()
+      pendingGrantRef.current = null
+    })
+    return () => sub.remove()
   }, [])
 
   // Derive what (if anything) we should show.
@@ -841,19 +857,15 @@ const PermissionSheet: React.FC = () => {
         switch (active.kind) {
           case 'protocol':
             advanceProtocolQueue(active.requestID)
-            setProtocolAccessModalOpen(false)
             break
           case 'basket':
             advanceBasketQueue(active.requestID)
-            setBasketAccessModalOpen(false)
             break
           case 'certificate':
             advanceCertificateQueue(active.requestID)
-            setCertificateAccessModalOpen(false)
             break
           case 'spending':
             advanceSpendingQueue(active.requestID)
-            setSpendingAuthorizationModalOpen(false)
             break
         }
       }
@@ -869,11 +881,7 @@ const PermissionSheet: React.FC = () => {
     advanceSpendingQueue,
     advanceGroupQueue,
     advanceBtmsQueue,
-    advanceMandalaQueue,
-    setProtocolAccessModalOpen,
-    setBasketAccessModalOpen,
-    setCertificateAccessModalOpen,
-    setSpendingAuthorizationModalOpen
+    advanceMandalaQueue
   ])
 
   // ---- Grant ----
@@ -920,7 +928,6 @@ const PermissionSheet: React.FC = () => {
           })
           .catch((error: unknown) => console.warn('[permissions] grant failed', error))
         advanceSpendingQueue(request.requestID)
-        setSpendingAuthorizationModalOpen(false)
       } else {
         request.manager
           ?.grantPermission({
@@ -930,15 +937,12 @@ const PermissionSheet: React.FC = () => {
         switch (request.kind) {
           case 'protocol':
             advanceProtocolQueue(request.requestID)
-            setProtocolAccessModalOpen(false)
             break
           case 'basket':
             advanceBasketQueue(request.requestID)
-            setBasketAccessModalOpen(false)
             break
           case 'certificate':
             advanceCertificateQueue(request.requestID)
-            setCertificateAccessModalOpen(false)
             break
         }
       }
@@ -955,11 +959,7 @@ const PermissionSheet: React.FC = () => {
       advanceSpendingQueue,
       advanceGroupQueue,
       advanceBtmsQueue,
-      advanceMandalaQueue,
-      setProtocolAccessModalOpen,
-      setBasketAccessModalOpen,
-      setCertificateAccessModalOpen,
-      setSpendingAuthorizationModalOpen
+      advanceMandalaQueue
     ]
   )
 
@@ -984,7 +984,7 @@ const PermissionSheet: React.FC = () => {
   }, [active, granted, tapLocked, executeGrant])
 
   return (
-    <Sheet visible={visible} onClose={handleDeny} heightPercent={0.92} fitContent>
+    <Sheet visible={visible} onClose={handleDeny} dismissible={backdropDismisses} heightPercent={0.92} fitContent>
       {active && (
         <View>
           <View style={styles.content}>
@@ -1008,6 +1008,7 @@ const PermissionSheet: React.FC = () => {
                     { color: colors.textPrimary }
                   ]}
                   numberOfLines={1}
+                  testID="bridge-connect-origin"
                 >
                   {active.originator}
                 </Text>
@@ -1186,6 +1187,7 @@ const PermissionSheet: React.FC = () => {
               ]}
               onPress={handleDeny}
               disabled={granted}
+              testID="bridge-deny"
             >
               <Text style={[styles.buttonDenyText, { color: colors.textPrimary }]}>
                 {t(active.kind === 'connection' ? 'bridge_dont_connect' : 'reject')}
@@ -1199,6 +1201,7 @@ const PermissionSheet: React.FC = () => {
               style={[styles.buttonAllow, { backgroundColor: colors.accent }]}
               onPress={handleGrant}
               disabled={granted || active.approvalBlocked || tapLocked}
+              testID="bridge-approve"
             >
               {granted ? (
                 <Ionicons name="checkmark" size={22} color={colors.textOnAccent} />

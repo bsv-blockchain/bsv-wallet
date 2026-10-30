@@ -1,0 +1,30 @@
+{
+  "name": "@bsv/expo-android-wallet-bridge",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Loopback HTTP server, launch trampoline, foreground service and Expo module that let a page in Android Chrome use the app as its BRC-100 wallet.",
+  "license": "Open BSV",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "peerDependencies": {
+    "@bsv/expo-wallet-toolbox": "*",
+    "@bsv/sdk": "*",
+    "expo-modules-core": "*",
+    "expo-secure-store": "*",
+    "react-native": "*",
+    "react-native-gesture-handler": "*",
+    "react-native-safe-area-context": "*"
+  },
+  "files": [
+    "android",
+    "app.plugin.js",
+    "expo-module.config.json",
+    "plugin",
+    "src",
+    "!**/node_modules",
+    "!**/build"
+  ],
+  "devDependencies": {
+    "puppeteer-core": "^25.16.0"
+  }
+}

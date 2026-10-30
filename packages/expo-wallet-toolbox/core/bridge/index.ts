@@ -43,3 +43,6 @@ export * from './protocol/connectionError'
 export * from './protocol/envelopes'
 export * from './protocol/descriptor'
 export * from './protocol/origin'
+
+// The pure loopback HTTP semantics for the Android kit (spec: Android design 6.2, 6.6).
+export * as loopback from './loopback'

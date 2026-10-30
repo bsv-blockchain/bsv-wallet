@@ -1,0 +1,3 @@
+resumed: org.bsvblockchain.wallet/.MainActivity
+top: org.bsvblockchain.wallet/.MainActivity
+sheet window flags: (no sheet window)

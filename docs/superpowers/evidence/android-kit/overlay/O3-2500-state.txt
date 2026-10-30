@@ -1,0 +1,4 @@
+resumed: org.bsvblockchain.wallet/.MainActivity
+top: org.bsvblockchain.wallet/.MainActivity
+sheet window flags: (no sheet window)
+click at 2501 ms after am start; resumed rows seen: .MainActivity

@@ -5,7 +5,12 @@
  * `wireDemo` takes the document and the client so jest can drive it with fakes; main.ts starts it on the real page
  * (the element `#demo-root` marks that page), together with the Conformance panel.
  */
-import { isConnectionError, type Connection, type DiscoveredProvider, type PageClient } from '../src/testing/pageClient'
+import {
+  isConnectionError,
+  type Connection,
+  type DiscoveredProvider,
+  type PageClient
+} from '@bsv/expo-wallet-toolbox/core/bridge/testing/pageClient'
 
 export interface DemoElement {
   textContent: string | null

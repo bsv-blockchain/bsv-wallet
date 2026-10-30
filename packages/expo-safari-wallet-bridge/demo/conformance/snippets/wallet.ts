@@ -5,7 +5,7 @@
  */
 import { WalletClient, type WalletInterface } from '@bsv/sdk'
 import { createBridgeWallet } from '../../bridgeWallet'
-import type { Connection, PageClient } from '../../../src/testing/pageClient'
+import type { Connection, PageClient } from '@bsv/expo-wallet-toolbox/core/bridge/testing/pageClient'
 
 let current: { client: PageClient; connection: Connection } | undefined
 

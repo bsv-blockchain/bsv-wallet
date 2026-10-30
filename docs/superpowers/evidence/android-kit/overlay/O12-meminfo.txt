@@ -1,0 +1,3 @@
+baseline Activities: 2,2,2,2
+creates 1 -> 11
+after 10 cycles + a MainActivity resume: 2,2,2,2

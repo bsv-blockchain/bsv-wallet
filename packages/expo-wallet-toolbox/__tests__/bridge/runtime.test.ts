@@ -311,6 +311,59 @@ describe('bridge runtime', () => {
   })
 })
 
+describe('hostAttached snapshot field', () => {
+  it('hostAttached is false until attach and runtime load', async () => {
+    expect(getBridgeSnapshot().hostAttached).toBe(false)
+    const d = attachBridgeHost({ withdrawPrompts: jest.fn() })
+    expect(getBridgeSnapshot().hostAttached).toBe(false)
+    const seen: boolean[] = []
+    const off = onSnapshotChange(s => seen.push(s.hostAttached))
+    await initBridgeRuntime()
+    expect(getBridgeSnapshot().hostAttached).toBe(true)
+    expect(seen).toContain(true)
+    off()
+    d()
+  })
+
+  it('attach with no wallet publishes hostAttached true while readiness stays none', async () => {
+    await initBridgeRuntime()
+    const seen: Array<{ r: string; h: boolean }> = []
+    const off = onSnapshotChange(s => seen.push({ r: s.readiness, h: s.hostAttached }))
+    const d = attachBridgeHost({ withdrawPrompts: jest.fn(), hasWallet: false })
+    expect(seen).toEqual([{ r: 'none', h: true }])
+    expect(getBridgeSnapshot().readiness).toBe('none')
+    off()
+    d()
+  })
+
+  it('detach publishes hostAttached false while readiness stays none', async () => {
+    await initBridgeRuntime()
+    const d = attachBridgeHost({ withdrawPrompts: jest.fn(), hasWallet: false })
+    const seen: Array<{ r: string; h: boolean }> = []
+    const off = onSnapshotChange(s => seen.push({ r: s.readiness, h: s.hostAttached }))
+    d()
+    expect(seen).toEqual([{ r: 'none', h: false }])
+    off()
+  })
+
+  it('hostAttached flips false on detach even when readiness was ready', async () => {
+    await start()
+    publish(publication())
+    expect(getBridgeSnapshot()).toMatchObject({ readiness: 'ready', hostAttached: true })
+    detach()
+    expect(getBridgeSnapshot()).toMatchObject({ readiness: 'none', hostAttached: false })
+  })
+
+  it('cold start: hostAttached false does not mean no wallet', async () => {
+    // A host that attached with a wallet before the runtime loaded: readiness is building, hostAttached false.
+    const d = attachBridgeHost({ withdrawPrompts: jest.fn(), hasWallet: true })
+    expect(getBridgeSnapshot()).toMatchObject({ readiness: 'building', hostAttached: false })
+    await initBridgeRuntime()
+    expect(getBridgeSnapshot()).toMatchObject({ readiness: 'building', hostAttached: true })
+    d()
+  })
+})
+
 describe('session teardown', () => {
   it("logout sweeps every profile's connected-sites key, and only logout does", async () => {
     await start()
