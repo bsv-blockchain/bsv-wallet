@@ -313,8 +313,33 @@ export const CASES = [
     async run(ctx) {
       await ensureConnected(ctx)
       const k = await act(ctx, '#getPublicKey', /OK getPublicKey ->[^\n]*/)
-      // createAction on the unfunded test wallet: the wallet's own answer, no sheet (SPIKES Task 22).
-      const ca = await act(ctx, '#createAction', /(OK|ERR) createAction ->[^\n]*/, { timeoutMs: 40000 })
+      // createAction depends on the wallet fixture. Unfunded: the wallet's own answer, no sheet (SPIKES Task 22). Funded (the
+      // emulator wallet now is): the wallet asks to spend, so the request is parked behind a prompt, announced by the attention
+      // notification; that prompt is denied here and the page must get the wallet's error. Both outcomes are recorded.
+      let ca
+      let createActionPath = 'answered by the wallet with no prompt (unfunded fixture)'
+      try {
+        ca = await act(ctx, '#createAction', /(OK|ERR) createAction ->[^\n]*/, { timeoutMs: 15000 })
+      } catch (e) {
+        let notif
+        for (let i = 0; i < 10 && !notif; i++) {
+          await sleep(1500)
+          notif = await attentionNotification()
+        }
+        must(notif, `createAction was neither answered nor announced by a prompt: ${String(e.message).slice(0, 120)}`)
+        await tapAttention()
+        await uiWait('bridge-approve', { timeoutMs: 25000, what: 'createAction spending prompt' })
+        await shot(ctx, '03-createaction-spending-prompt')
+        await approveSheet(ctx, { id: 'bridge-deny', fallback: DENY_XY })
+        ca = await waitLog(await pageNow(ctx), /(OK|ERR) createAction ->[^\n]*/, {
+          timeoutMs: 30000,
+          what: 'createAction result after Deny'
+        })
+        await front('chrome')
+        must(/^ERR/.test(ca), `Deny on the spending prompt did not give the page an error: ${ca.slice(0, 120)}`)
+        createActionPath =
+          'funded fixture: spending prompt shown via the attention notification, denied, page got an error'
+      }
       const h = await startHeldRequest(ctx)
       let n
       for (let i = 0; i < 10 && !n; i++) {
@@ -329,7 +354,7 @@ export const CASES = [
       const final = await finishHeldRequest(ctx, h)
       await shot(ctx, '03-held-request-result')
       must(final === 'pass', `held-open createSignature ended ${final}`)
-      return `getPublicKey ok (${k.slice(0, 40)}...); createAction answered by the wallet: ${ca.slice(0, 90)}; createSignature held open across the sheet, result after Approve: ${final}`
+      return `getPublicKey ok (${k.slice(0, 40)}...); createAction (${createActionPath}): ${ca.slice(0, 90)}; createSignature held open across the sheet, result after Approve: ${final}`
     }
   },
   {
@@ -1159,10 +1184,12 @@ export const OVERLAY_CASES = [
     id: 'O6',
     name: 'wallet in front when the prompt arrives: in-app sheet, no overlay, no notification',
     async run(ctx) {
-      await overlayEstablish(ctx)
+      // The page is taken before the wallet comes forward: with Chrome stopped no tab is visible, so a later pageNow() falls back
+      // to the last tab in the list, which can be a stale one from an earlier case and never answers (a CDP call that hung for
+      // 15 minutes once in a full run).
+      const page = await overlayEstablish(ctx)
       await front('wallet')
       const c0 = await createCount()
-      const page = await pageNow(ctx)
       await clearLog(page)
       await startCard(page, SIGN_CARD)
       await uiWait('bridge-approve', { timeoutMs: 20000, what: 'the in-app sheet' })
@@ -1473,12 +1500,11 @@ export const OVERLAY_CASES = [
     id: 'O14',
     name: 'M1 regression: cases 1 to 5, 7, 15, 16, 17 in foreground mode with overlay available',
     async run(ctx) {
-      // On this emulator wallet (funded, with permission tokens) the M1 cases 3, 15 and 16 fail identically on the M1
-      // build (SPIKES "M1 baseline today"): a request that reaches the wallet while it is stopped waits for the
-      // foreground, so no attention notification follows (15, 16) and createAction prompts for spending instead of
-      // answering with an unfunded-wallet error (3). They are run and their results recorded; the case passes when every
-      // other M1 case passes and the three fail only in the way the M1 build does.
-      const baselineFailures = new Set([3, 15, 16])
+      // Cases 3, 15 and 16 once failed here and were recorded as an M1 baseline. 15 and 16 failed only because Metro ran from a
+      // host path under a directory with its own node_modules (SPIKES "O8 and M1 15/16: the Metro project path"; the runner
+      // now refuses that setup) and case 3 assumed an unfunded wallet (it now accepts and denies a spending prompt). No
+      // baseline failures are left, so any failing case fails O14.
+      const baselineFailures = new Set([])
       const results = []
       const failed = []
       const baselineFailed = []

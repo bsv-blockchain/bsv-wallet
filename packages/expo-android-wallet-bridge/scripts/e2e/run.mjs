@@ -2,6 +2,8 @@
 // Emulator end-to-end runner (plan Task 24). Preconditions (EMU start, install of the host debug build, Metro on 8082,
 // `node demo/serve.mjs 3001`, `adb reverse` for 3001 and 8082, a test wallet) are listed in SPIKES.md.
 //   node run.mjs [--only 1,4,15 | --only O1,O2 | --only overlay] [--origin http://localhost:3001] [--out <evidence dir>] [--keep-chrome]
+//                [--allow-nested-metro]
+// Metro's project root (8082) must be flat: no node_modules in any ancestor directory (see metro.mjs); the run stops otherwise.
 // Overlay cases (M2, `O<n>`) write to <evidence dir>/overlay and never clear the M1 evidence; `--only overlay` runs all of them in
 // order after clearing that subdirectory and the logcat buffer (O13 reads the whole buffer).
 // Each case writes screenshots to the evidence directory; a result table goes to results.json and stdout. Exit code 1
@@ -12,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { chromeVersion, clearLogcat, reverse, setSerial } from './adb.mjs'
 import { setupChrome } from './chrome.mjs'
 import { attach, CASES, OVERLAY_CASES } from './cases.mjs'
+import { checkMetroRoot } from './metro.mjs'
 import { release } from './sockets.mjs'
 
 const arg = (n, d) => {
@@ -37,6 +40,7 @@ async function main() {
   setSerial(arg('serial', 'emulator-5554'))
   await reverse(Number(new URL(origin).port))
   await reverse(8082)
+  console.log(await checkMetroRoot(8082, { allow: process.argv.includes('--allow-nested-metro') }))
   ctx.chrome = await chromeVersion()
   console.log(`Chrome ${ctx.chrome}, origin ${origin}`)
   if (!arg('keep-chrome')) await setupChrome()
