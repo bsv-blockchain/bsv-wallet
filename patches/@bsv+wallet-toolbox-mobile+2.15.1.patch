@@ -1,8 +1,8 @@
 diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
-index 2099c13..9595b6a 100644
+index d1e3ec4..fac146f 100644
 --- a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
 +++ b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs
-@@ -9567,10 +9567,158 @@ async function verifyUnlockScriptsBatch(txids, beef, verifier) {
+@@ -10758,7 +10758,113 @@ async function verifyUnlockScriptsBatch(txids, beef, verifier) {
  * @throws WERR_INVALID_PARAMETER if any unlocking script is invalid, if sourceTXID is invalid, if beef doesn't contain required transactions.
  */
  async function verifyUnlockScripts(txid, beef, verifier) {
@@ -117,6 +117,10 @@ index 2099c13..9595b6a 100644
  }
  //#endregion
  //#region ../src/signer/methods/completeSignedTransaction.ts
+@@ -10783,6 +10889,48 @@ function guardedUnlockingTemplate(template, guard) {
+ 		}
+ 	};
+ }
 +/**
 +* BSV Browser patch (native-crypto M3, issue #9): derive the BRC-29 unlock
 +* keys through ONE async native crossing per counterparty
@@ -159,37 +163,38 @@ index 2099c13..9595b6a 100644
 +		return;
 +	}
 +}
- async function completeSignedTransaction(prior, spends, wallet) {
- 	for (const [key, spend] of Object.entries(spends)) {
- 		const vin = Number(key);
-@@ -9581,7 +9729,7 @@ async function completeSignedTransaction(prior, spends, wallet) {
+ /** Optional authority applies to new managed signing, not recovery of an earlier final. */
+ async function completeSignedTransaction(prior, spends, wallet, checkNewSigning) {
+ 	const guard = synchronousSigningGuard(checkNewSigning);
+@@ -10796,7 +10944,7 @@ async function completeSignedTransaction(prior, spends, wallet, checkNewSigning)
  		input.unlockingScript = asBsvSdkScript(spend.unlockingScript);
  		if (spend.sequenceNumber !== void 0) input.sequence = spend.sequenceNumber;
  	}
 -	const prepareUnlockingTemplates = (keys) => {
 +	const prepareUnlockingTemplates = async (keys) => {
+ 		guard?.();
  		const counterparties = /* @__PURE__ */ new Map();
  		const counterparty = (publicKey) => {
- 			let parsed = counterparties.get(publicKey);
-@@ -9607,7 +9755,7 @@ async function completeSignedTransaction(prior, spends, wallet) {
+@@ -10823,7 +10971,8 @@ async function completeSignedTransaction(prior, spends, wallet, checkNewSigning)
  			keyID: template.getKeyID(),
  			counterparty: unlockerPubKey
  		}));
 -		const derivedPrivateKeys = wallet.keyDeriver.derivePrivateKeys?.(derivations) ?? derivations.map((derivation) => wallet.keyDeriver.derivePrivateKey(derivation.protocolID, derivation.keyID, derivation.counterparty));
 +		const derivedPrivateKeys = await bsvNativeDerivePrivateKeys(wallet.keyDeriver, derivations) ?? wallet.keyDeriver.derivePrivateKeys?.(derivations) ?? derivations.map((derivation) => wallet.keyDeriver.derivePrivateKey(derivation.protocolID, derivation.keyID, derivation.counterparty));
++		guard?.();
  		for (let index = 0; index < prepared.length; index++) {
  			const { pdi, template } = prepared[index];
  			const unlockTemplate = template.unlockWithDerivedPrivateKey(derivedPrivateKeys[index], pdi.sourceSatoshis, asBsvSdkScript(pdi.lockingScript));
-@@ -9630,7 +9778,7 @@ async function completeSignedTransaction(prior, spends, wallet) {
- 			attributes: { "crypto.managed_input_count": prior.pdi.length }
- 		}, () => prepareUnlockingTemplates(keys));
+@@ -10851,7 +11000,7 @@ async function completeSignedTransaction(prior, spends, wallet, checkNewSigning)
  	});
--	else if (prior.pdi.length > 0) prepareUnlockingTemplates(wallet.getClientChangeKeyPair());
-+	else if (prior.pdi.length > 0) await prepareUnlockingTemplates(wallet.getClientChangeKeyPair());
+ 	else if (prior.pdi.length > 0) {
+ 		guard?.();
+-		prepareUnlockingTemplates(wallet.getClientChangeKeyPair());
++		await prepareUnlockingTemplates(wallet.getClientChangeKeyPair());
+ 	}
  	if (wallet.telemetry.enabled) await wallet.telemetry.withSpan("wallet.crypto.transaction_sign", {
  		component: "wallet-toolbox",
- 		carrier: prior.args,
-@@ -13015,7 +13163,12 @@ var Wallet = class {
+@@ -14140,7 +14289,12 @@ var Wallet = class {
  			offset: 0
  		} : vargs;
  		const r = this.actionBatch.overlayListActions(await this.storage.listActions(storageArgs), vargs);
@@ -203,7 +208,7 @@ index 2099c13..9595b6a 100644
  		return r;
  	}
  	get storageParty() {
-@@ -13319,6 +13472,12 @@ var Wallet = class {
+@@ -14444,6 +14598,12 @@ var Wallet = class {
  			prepareKnownTxidsForCreateAction(this, args);
  			const { auth, vargs } = this.validateAuthAndArgs(args, _bsv_sdk_wallet_validationHelpers.validateCreateActionArgs, logger);
  			logger?.log("validated args");
@@ -216,7 +221,7 @@ index 2099c13..9595b6a 100644
  			vargs.includeAllSourceTransactions = this.includeAllSourceTransactions;
  			if (this.randomVals != null && this.randomVals.length > 1) vargs.randomVals = [...this.randomVals];
  			const brc177Requested = hasBrc177NoSendExpiryLabel(vargs.labels);
-@@ -14296,6 +14455,11 @@ async function resolveInputScript(storage, userId, vargs, input, beef, preloaded
+@@ -15516,6 +15676,11 @@ async function resolveInputScript(storage, userId, vargs, input, beef, preloaded
  	} }));
  	if (output != null) applyStoredInputScript(output, input, vargs);
  	else await applyBeefInputScript(storage, beef, input);
@@ -228,7 +233,7 @@ index 2099c13..9595b6a 100644
  }
  async function validateNoSendChange(storage, userId, vargs, changeBasket) {
  	const r = [];
-@@ -14349,11 +14513,23 @@ function makeFundingParams(args) {
+@@ -15569,11 +15734,23 @@ function makeFundingParams(args) {
  		changeFirstSatoshis: compatibilityFallback ? 1 : preferredSatoshis,
  		changeLockingScriptLength: 25,
  		changeUnlockingScriptLength: 107,
@@ -255,7 +260,7 @@ index 2099c13..9595b6a 100644
  		randomVals: vargs.randomVals
  	};
  }
-@@ -18562,7 +18738,7 @@ var StorageProvider = class StorageProvider extends StorageReaderWriter {
+@@ -19098,7 +19275,7 @@ var StorageProvider = class StorageProvider extends StorageReaderWriter {
  				if (tx.noSendExpiryState === "cancelled") return { __abortAction: "brc177-cancelled" };
  				if (tx.noSendExpiryState === "broadcast" || tx.noSendExpiryState === "target-won" || tx.noSendExpiryState === "conflicted") return { __abortAction: "brc177-target-protected" };
  				if (tx.txid != null && tx.txid !== "" && tx.status === "nosend" && tx.noSendExpiryState == null) {
@@ -265,10 +270,10 @@ index 2099c13..9595b6a 100644
  						const req = await EntityProvenTxReq.fromStorageTxid(this, tx.txid, trx);
  						if (req != null) {
 diff --git a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
-index 7e85963..7d0e993 100644
+index d8fd5d4..b2ef280 100644
 --- a/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
 +++ b/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.mjs
-@@ -9532,10 +9532,158 @@ async function verifyUnlockScriptsBatch(txids, beef, verifier) {
+@@ -10723,7 +10723,113 @@ async function verifyUnlockScriptsBatch(txids, beef, verifier) {
  * @throws WERR_INVALID_PARAMETER if any unlocking script is invalid, if sourceTXID is invalid, if beef doesn't contain required transactions.
  */
  async function verifyUnlockScripts(txid, beef, verifier) {
@@ -383,6 +388,10 @@ index 7e85963..7d0e993 100644
  }
  //#endregion
  //#region ../src/signer/methods/completeSignedTransaction.ts
+@@ -10748,6 +10854,48 @@ function guardedUnlockingTemplate(template, guard) {
+ 		}
+ 	};
+ }
 +/**
 +* BSV Browser patch (native-crypto M3, issue #9): derive the BRC-29 unlock
 +* keys through ONE async native crossing per counterparty
@@ -425,37 +434,38 @@ index 7e85963..7d0e993 100644
 +		return;
 +	}
 +}
- async function completeSignedTransaction(prior, spends, wallet) {
- 	for (const [key, spend] of Object.entries(spends)) {
- 		const vin = Number(key);
-@@ -9546,7 +9694,7 @@ async function completeSignedTransaction(prior, spends, wallet) {
+ /** Optional authority applies to new managed signing, not recovery of an earlier final. */
+ async function completeSignedTransaction(prior, spends, wallet, checkNewSigning) {
+ 	const guard = synchronousSigningGuard(checkNewSigning);
+@@ -10761,7 +10909,7 @@ async function completeSignedTransaction(prior, spends, wallet, checkNewSigning)
  		input.unlockingScript = asBsvSdkScript(spend.unlockingScript);
  		if (spend.sequenceNumber !== void 0) input.sequence = spend.sequenceNumber;
  	}
 -	const prepareUnlockingTemplates = (keys) => {
 +	const prepareUnlockingTemplates = async (keys) => {
+ 		guard?.();
  		const counterparties = /* @__PURE__ */ new Map();
  		const counterparty = (publicKey) => {
- 			let parsed = counterparties.get(publicKey);
-@@ -9572,7 +9720,7 @@ async function completeSignedTransaction(prior, spends, wallet) {
+@@ -10788,7 +10936,8 @@ async function completeSignedTransaction(prior, spends, wallet, checkNewSigning)
  			keyID: template.getKeyID(),
  			counterparty: unlockerPubKey
  		}));
 -		const derivedPrivateKeys = wallet.keyDeriver.derivePrivateKeys?.(derivations) ?? derivations.map((derivation) => wallet.keyDeriver.derivePrivateKey(derivation.protocolID, derivation.keyID, derivation.counterparty));
 +		const derivedPrivateKeys = await bsvNativeDerivePrivateKeys(wallet.keyDeriver, derivations) ?? wallet.keyDeriver.derivePrivateKeys?.(derivations) ?? derivations.map((derivation) => wallet.keyDeriver.derivePrivateKey(derivation.protocolID, derivation.keyID, derivation.counterparty));
++		guard?.();
  		for (let index = 0; index < prepared.length; index++) {
  			const { pdi, template } = prepared[index];
  			const unlockTemplate = template.unlockWithDerivedPrivateKey(derivedPrivateKeys[index], pdi.sourceSatoshis, asBsvSdkScript(pdi.lockingScript));
-@@ -9595,7 +9743,7 @@ async function completeSignedTransaction(prior, spends, wallet) {
- 			attributes: { "crypto.managed_input_count": prior.pdi.length }
- 		}, () => prepareUnlockingTemplates(keys));
+@@ -10816,7 +10965,7 @@ async function completeSignedTransaction(prior, spends, wallet, checkNewSigning)
  	});
--	else if (prior.pdi.length > 0) prepareUnlockingTemplates(wallet.getClientChangeKeyPair());
-+	else if (prior.pdi.length > 0) await prepareUnlockingTemplates(wallet.getClientChangeKeyPair());
+ 	else if (prior.pdi.length > 0) {
+ 		guard?.();
+-		prepareUnlockingTemplates(wallet.getClientChangeKeyPair());
++		await prepareUnlockingTemplates(wallet.getClientChangeKeyPair());
+ 	}
  	if (wallet.telemetry.enabled) await wallet.telemetry.withSpan("wallet.crypto.transaction_sign", {
  		component: "wallet-toolbox",
- 		carrier: prior.args,
-@@ -12980,7 +13128,12 @@ var Wallet = class {
+@@ -14105,7 +14254,12 @@ var Wallet = class {
  			offset: 0
  		} : vargs;
  		const r = this.actionBatch.overlayListActions(await this.storage.listActions(storageArgs), vargs);
@@ -469,7 +479,7 @@ index 7e85963..7d0e993 100644
  		return r;
  	}
  	get storageParty() {
-@@ -13284,6 +13437,12 @@ var Wallet = class {
+@@ -14409,6 +14563,12 @@ var Wallet = class {
  			prepareKnownTxidsForCreateAction(this, args);
  			const { auth, vargs } = this.validateAuthAndArgs(args, validateCreateActionArgs, logger);
  			logger?.log("validated args");
@@ -482,7 +492,7 @@ index 7e85963..7d0e993 100644
  			vargs.includeAllSourceTransactions = this.includeAllSourceTransactions;
  			if (this.randomVals != null && this.randomVals.length > 1) vargs.randomVals = [...this.randomVals];
  			const brc177Requested = hasBrc177NoSendExpiryLabel(vargs.labels);
-@@ -14261,6 +14420,11 @@ async function resolveInputScript(storage, userId, vargs, input, beef, preloaded
+@@ -15481,6 +15641,11 @@ async function resolveInputScript(storage, userId, vargs, input, beef, preloaded
  	} }));
  	if (output != null) applyStoredInputScript(output, input, vargs);
  	else await applyBeefInputScript(storage, beef, input);
@@ -494,7 +504,7 @@ index 7e85963..7d0e993 100644
  }
  async function validateNoSendChange(storage, userId, vargs, changeBasket) {
  	const r = [];
-@@ -14314,11 +14478,23 @@ function makeFundingParams(args) {
+@@ -15534,11 +15699,23 @@ function makeFundingParams(args) {
  		changeFirstSatoshis: compatibilityFallback ? 1 : preferredSatoshis,
  		changeLockingScriptLength: 25,
  		changeUnlockingScriptLength: 107,
@@ -521,7 +531,7 @@ index 7e85963..7d0e993 100644
  		randomVals: vargs.randomVals
  	};
  }
-@@ -18527,7 +18703,7 @@ var StorageProvider = class StorageProvider extends StorageReaderWriter {
+@@ -19063,7 +19240,7 @@ var StorageProvider = class StorageProvider extends StorageReaderWriter {
  				if (tx.noSendExpiryState === "cancelled") return { __abortAction: "brc177-cancelled" };
  				if (tx.noSendExpiryState === "broadcast" || tx.noSendExpiryState === "target-won" || tx.noSendExpiryState === "conflicted") return { __abortAction: "brc177-target-protected" };
  				if (tx.txid != null && tx.txid !== "" && tx.status === "nosend" && tx.noSendExpiryState == null) {

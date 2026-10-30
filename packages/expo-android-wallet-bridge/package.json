@@ -8,7 +8,7 @@
   "types": "src/index.ts",
   "peerDependencies": {
     "@bsv/expo-wallet-toolbox": "*",
-    "@bsv/sdk": "*",
+    "@bsv/sdk": "^4.0.1",
     "expo-modules-core": "*",
     "expo-secure-store": "*",
     "react-native": "*",

@@ -12,7 +12,7 @@
   },
   "peerDependencies": {
     "@bsv/expo-wallet-toolbox": "*",
-    "@bsv/sdk": "*",
+    "@bsv/sdk": "^4.0.1",
     "expo-modules-core": "*"
   },
   "files": [
