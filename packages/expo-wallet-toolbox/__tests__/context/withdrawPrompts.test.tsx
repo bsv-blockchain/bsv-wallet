@@ -57,6 +57,9 @@ function build(queues: ReturnType<typeof useQueues>, extra: { loadThreshold?: ()
     seekGroupedPermission: true
   } as any)
   ;(manager as any).findSpendingToken = async () => undefined
+  // With seekGroupedPermission on, a call fetches https://<origin>/manifest.json first. Over the real
+  // network that can outlast launch()'s wait, so the prompt is not queued yet when the test looks.
+  ;(manager as any).fetchManifestPermissions = async () => ({ groupPermissions: null, counterpartyPermissions: null })
   const recorded: string[] = []
   const prompts = guardTokenPromptHandlers({
     btms: (originator, message) =>
