@@ -50,5 +50,6 @@ minimumReleaseAgeExclude:
 # Install scripts that npm ran; pnpm blocks them unless listed.
 allowBuilds:
   '@firebase/util': true
+  esbuild: true
   protobufjs: true
   unrs-resolver: true
