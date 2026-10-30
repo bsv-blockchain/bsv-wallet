@@ -1,0 +1,5 @@
+node_modules/
+.scratch/
+android/jvmtest/build/
+android/jvmtest/.gradle/
+.build/

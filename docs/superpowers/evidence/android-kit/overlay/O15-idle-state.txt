@@ -1,0 +1,4 @@
+resumed: com.android.chrome/com.google.android.apps.chrome.Main
+top: com.android.chrome/com.google.android.apps.chrome.Main
+sheet window flags: (no sheet window)
+window flags: NOT_FOCUSABLE NOT_TOUCHABLE LAYOUT_IN_SCREEN SECURE LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS

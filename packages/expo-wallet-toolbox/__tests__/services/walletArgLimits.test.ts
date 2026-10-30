@@ -166,3 +166,19 @@ describe('checkWalletArgs', () => {
     expect(r?.message).toContain(String(L.inputBEEF))
   })
 })
+
+describe('bridge boundary additions', () => {
+  it('counts typed arrays and ArrayBuffers as byte arrays', () => {
+    const big = L.inputBEEF + 1
+    expect(checkWalletArgs('createAction', { inputBEEF: new Uint8Array(big) }, L)?.field).toBe('inputBEEF')
+    expect(checkWalletArgs('internalizeAction', { tx: new ArrayBuffer(L.internalizeTx + 1) }, L)?.field).toBe('tx')
+    expect(checkWalletArgs('encrypt', { plaintext: new Uint8Array(L.cryptoPayload + 1) }, L)?.field).toBe('plaintext')
+  })
+
+  it('caps acquireCertificate by the size of its string fields', () => {
+    const ok = { fields: { name: 'a'.repeat(1000) }, certifierUrl: 'https://c.example' }
+    expect(checkWalletArgs('acquireCertificate', ok, L)).toBeNull()
+    const big = { fields: { name: 'a'.repeat(L.aggregate + 1) } }
+    expect(checkWalletArgs('acquireCertificate', big, L)?.field).toBe('aggregate')
+  })
+})

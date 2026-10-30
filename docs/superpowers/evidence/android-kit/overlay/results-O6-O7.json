@@ -1,0 +1,24 @@
+{
+  "chrome": "155.0.8059.79",
+  "origin": "http://localhost:3001",
+  "at": "2026-10-29T20:13:24.448Z",
+  "results": [
+    {
+      "id": "O6",
+      "name": "wallet in front when the prompt arrives: in-app sheet, no overlay, no notification",
+      "status": "pass",
+      "note": "the prompt rendered in the main tree (one bridge-approve), no BridgeSheetActivity listed, no create log, no notification",
+      "ms": 61609
+    },
+    {
+      "id": "O7",
+      "name": "screen off then on, and a recents peek then screen off: same root, same prompt",
+      "status": "pass",
+      "note": "screen off then on: the same sheet Activity (create n 1) and root (no new AppRegistry run) with the same pending prompt; the inner tree re-mounted with the owner gate (mount n 1 -> 2, expected: the sheet window was not resumed while the screen was off); after the recents peek the sheet is not resumed",
+      "ms": 143073
+    }
+  ],
+  "gates": [
+    "O7: the recents peek on this AVD did not return to the sheet through KEYCODE_APP_SWITCH, so the peek-then-screen-off half is covered by Task 4 `leave then resume then stop does not finish` only"
+  ]
+}

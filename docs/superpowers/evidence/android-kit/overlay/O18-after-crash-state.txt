@@ -1,0 +1,4 @@
+resumed: com.android.chrome/com.google.android.apps.chrome.Main
+top: com.android.chrome/com.google.android.apps.chrome.Main
+sheet window flags: (no sheet window)
+sheet resumed again within 6 s: true; "sheet-activity create" lines: 0; bridge-port listeners: 0; LaunchStore lines: 0

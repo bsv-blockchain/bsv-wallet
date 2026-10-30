@@ -18,9 +18,11 @@
  * ledger to persistent storage.
  */
 
+import { isUnattestedOriginator } from '../bridge/unverifiedOriginator'
+
 const DAY_MS = 24 * 60 * 60 * 1000
 
-export type AutoApproveReason = 'over-threshold' | 'cooldown' | 'daily-cap' | null
+export type AutoApproveReason = 'over-threshold' | 'cooldown' | 'daily-cap' | 'unattested' | null
 
 export interface AutoApproveDecision {
   approve: boolean
@@ -70,6 +72,9 @@ export function createAutoApprovePolicy(deps: AutoApprovePolicyDeps): AutoApprov
 
   return {
     shouldAutoApprove({ originator, satoshis }) {
+      // An unverified origin may be a local app forging a remembered site: spending always asks.
+      if (isUnattestedOriginator(originator)) return { approve: false, reason: 'unattested' }
+
       const threshold = deps.threshold()
       if (!(threshold > 0) || satoshis > threshold) {
         return { approve: false, reason: 'over-threshold' }
@@ -89,6 +94,7 @@ export function createAutoApprovePolicy(deps: AutoApprovePolicyDeps): AutoApprov
     },
 
     record({ originator, satoshis, at }) {
+      if (isUnattestedOriginator(originator)) return
       lastApproveAtByOriginator.set(originator, at)
       ledger.push({ originator, satoshis, at })
       pruneLedger(at)

@@ -50,7 +50,7 @@ export class WalletArgTooLarge extends Error {
  * caller that supplies its own limits never touches it at all, and a failure to
  * read the tier falls back to 'mid' rather than leaving the surface uncapped.
  */
-function tierLimits(): WalletArgLimits {
+export function tierLimits(): WalletArgLimits {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getDeviceTier } = require('../deviceTier') as typeof import('../deviceTier')
@@ -67,6 +67,7 @@ const SIZED = new Set<keyof WalletInterface>([
   'createAction',
   'signAction',
   'internalizeAction',
+  'acquireCertificate',
   'encrypt',
   'decrypt',
   'createHmac',

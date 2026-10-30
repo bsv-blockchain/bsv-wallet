@@ -1,5 +1,8 @@
 import { Hash, Utils } from '@bsv/sdk'
-import { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
+import { WalletPermissionsManager, type GroupedPermissions } from '@bsv/wallet-toolbox-mobile'
+
+/** A site's manifest group request (BRC-73), as the Connect sheet shows it and `mintGroupedPermissions` mints it. */
+export type GroupPermissions = GroupedPermissions
 
 /**
  * Protocols a connected app may sign under without a protocol prompt, even
@@ -92,7 +95,87 @@ interface ManagerInternals {
   firePermissionRequestEvent(request: ProtocolRequest, key: string): Promise<void>
   underlying: { verifySignature: WalletPermissionsManager['verifySignature'] }
   fetchManifestPermissions(originator: string): Promise<ManifestPermissions>
+  callEvent(eventName: string, param: unknown): Promise<void>
+  denyActiveRequest(requestID: string): void
+  filterAlreadyGrantedPermissions(originator: string, group: GroupPermissions): Promise<GroupPermissions>
+  buildOriginatorLookupValues(displayOriginator: string | undefined, originator: string): unknown
+  persistPermissionGrant(toCreate: MintItem[], toRenew: MintItem[]): Promise<void>
 }
+
+/** One permission token to create or renew, as `persistPermissionGrant` takes it. */
+interface MintItem {
+  request: Record<string, unknown>
+  expiry: number
+  amount?: number
+  oldToken?: unknown
+}
+
+const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+const isObject = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v)
+
+/**
+ * The manifest group as a well-formed GroupPermissions, or null when it lists nothing. A site writes
+ * the manifest, so every entry is checked: one that does not have the shape the manager reads is
+ * left out, and what remains is both what the Connect sheet shows and what Connect mints.
+ */
+function sanitizeGroup(raw: unknown): GroupPermissions | null {
+  if (!isObject(raw)) return null
+  const group: GroupPermissions = {}
+  if (typeof raw.description === 'string') group.description = raw.description
+  const spending = raw.spendingAuthorization
+  if (isObject(spending) && Number.isSafeInteger(spending.amount) && spending.amount > 0) {
+    group.spendingAuthorization = { amount: spending.amount, description: str(spending.description) }
+  }
+  const list = (v: unknown): any[] => (Array.isArray(v) ? v.filter(isObject) : [])
+  group.protocolPermissions = list(raw.protocolPermissions)
+    .filter(
+      p =>
+        Array.isArray(p.protocolID) &&
+        p.protocolID.length === 2 &&
+        [0, 1, 2].includes(p.protocolID[0]) &&
+        typeof p.protocolID[1] === 'string' &&
+        (p.counterparty === undefined || typeof p.counterparty === 'string')
+    )
+    .map(p => ({
+      protocolID: [p.protocolID[0], p.protocolID[1]] as [0 | 1 | 2, string],
+      ...(p.counterparty !== undefined ? { counterparty: p.counterparty as string } : {}),
+      description: str(p.description)
+    }))
+  group.basketAccess = list(raw.basketAccess)
+    .filter(b => typeof b.basket === 'string' && b.basket.length > 0)
+    .map(b => ({ basket: b.basket as string, description: str(b.description) }))
+  group.certificateAccess = list(raw.certificateAccess)
+    .filter(
+      c =>
+        typeof c.type === 'string' &&
+        typeof c.verifierPublicKey === 'string' &&
+        Array.isArray(c.fields) &&
+        c.fields.every((f: unknown) => typeof f === 'string')
+    )
+    .map(c => ({
+      type: c.type as string,
+      fields: [...c.fields] as string[],
+      verifierPublicKey: c.verifierPublicKey as string,
+      description: str(c.description)
+    }))
+  const empty =
+    group.spendingAuthorization === undefined &&
+    !group.protocolPermissions.length &&
+    !group.basketAccess.length &&
+    !group.certificateAccess.length
+  return empty ? null : group
+}
+
+/** The events that put a question to the user (all carry a `requestID`). A
+ * retired manager denies these instead of raising them. */
+const PROMPT_EVENTS = new Set([
+  'onProtocolPermissionRequested',
+  'onBasketAccessRequested',
+  'onCertificateAccessRequested',
+  'onSpendingAuthorizationRequested',
+  'onGroupedPermissionRequested',
+  'onCounterpartyPermissionRequested'
+])
 
 /** The parts of a site's manifest.json permissions the manager reads. */
 interface ManifestPermissions {
@@ -134,7 +217,10 @@ function withoutAskEveryTime(manifest: ManifestPermissions): ManifestPermissions
  *   cover is ever read back for them; a site's manifest never puts them in a
  *   grouped request; and one origin's createSignature calls under them run
  *   one at a time, so a burst of calls cannot ride on one approval;
- * - a non-privileged verifySignature is never prompted.
+ * - a non-privileged verifySignature is never prompted;
+ * - once retired (its wallet was replaced), it raises no prompt: every prompt
+ *   event is denied on the spot, so a call still parked inside it ends instead
+ *   of surfacing a sheet for a wallet that is gone.
  * Every other check runs unchanged.
  */
 export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
@@ -142,6 +228,8 @@ export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
   /** Key ID of the ask-every-time createSignature call each (normalized)
    * origin has in flight. The per-origin queue keeps it to one at a time. */
   private readonly keyIDInFlight = new Map<string, string>()
+  private retired = false
+  private readonly retireHooks: Array<() => void> = []
 
   constructor(...args: ConstructorParameters<typeof WalletPermissionsManager>) {
     super(...args)
@@ -177,6 +265,22 @@ export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
       }
       return await firePermissionRequestEvent(request, key)
     }
+    // Deny, never throw: a throw out of callEvent would leave the entry its
+    // caller registered unsettled (its waiter hangs, and a grouped one holds
+    // the per-originator lock). Denying settles the waiter and removes it.
+    const callEvent = internals.callEvent.bind(this)
+    internals.callEvent = async (eventName, param) => {
+      const requestID = (param as { requestID?: unknown } | null | undefined)?.requestID
+      if (this.retired && PROMPT_EVENTS.has(eventName) && typeof requestID === 'string') {
+        try {
+          internals.denyActiveRequest.call(this, requestID)
+        } catch {
+          // Already settled.
+        }
+        return
+      }
+      await callEvent(eventName, param)
+    }
     const fetchManifestPermissions = internals.fetchManifestPermissions.bind(this)
     internals.fetchManifestPermissions = async originator =>
       withoutAskEveryTime(await fetchManifestPermissions(originator))
@@ -184,6 +288,130 @@ export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
 
   private get internals(): ManagerInternals {
     return this as unknown as ManagerInternals
+  }
+
+  /**
+   * One-way: from here on this manager raises no prompt. Call it only on a
+   * manager that has been replaced, never on the one just published. `onRetire`
+   * hooks run in this same synchronous step.
+   */
+  retire(): void {
+    if (this.retired) return
+    this.retired = true
+    for (const hook of this.retireHooks.splice(0)) {
+      try {
+        hook()
+      } catch {
+        // A hook must not stop the others.
+      }
+    }
+  }
+
+  isRetired(): boolean {
+    return this.retired
+  }
+
+  /** Runs `hook` when this manager is retired (immediately if it already is). */
+  onRetire(hook: () => void): void {
+    if (this.retired) hook()
+    else this.retireHooks.push(hook)
+  }
+
+  /**
+   * The group this origin's manifest asks for, as the later group check will read it: the same
+   * `fetchManifestPermissions` and its 5-minute cache, with ask-every-time protocols already
+   * filtered (and, on the unverified manager, spending and token modules). Null when there is no
+   * manifest, it lists nothing, or the fetch fails. Raises no prompt.
+   */
+  async peekGroupPermissions(originator: string): Promise<GroupPermissions | null> {
+    try {
+      const { normalized } = this.internals.prepareOriginator(originator)
+      const { groupPermissions } = await this.internals.fetchManifestPermissions(normalized)
+      return sanitizeGroup(groupPermissions)
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Mints a permission token for every item of `group` that does not already hold one, the way
+   * `grantGroupedPermission` does for a granted item, but with no active request to answer. An
+   * expired token is renewed. Ask-every-time protocols are never minted. Throws if the mint fails;
+   * the caller decides what that means.
+   */
+  async mintGroupedPermissions(originator: string, group: GroupPermissions): Promise<void> {
+    const i = this.internals
+    const { normalized } = i.prepareOriginator(originator)
+    const wanted: GroupPermissions = {
+      ...group,
+      protocolPermissions: (group.protocolPermissions ?? []).filter(p => !isAskEveryTimeProtocol(p.protocolID))
+    }
+    const todo = await i.filterAlreadyGrantedPermissions(normalized, wanted)
+    const lookup = i.buildOriginatorLookupValues(originator, normalized)
+    const toCreate: MintItem[] = []
+    const toRenew: MintItem[] = []
+    if (todo.spendingAuthorization != null) {
+      toCreate.push({
+        request: {
+          type: 'spending',
+          originator: normalized,
+          spending: { satoshis: todo.spendingAuthorization.amount },
+          reason: todo.spendingAuthorization.description
+        },
+        expiry: 0,
+        amount: todo.spendingAuthorization.amount
+      })
+    }
+    for (const p of todo.protocolPermissions ?? []) {
+      const counterparty = (p.protocolID?.[0] ?? 0) === 1 ? '' : p.counterparty || 'self'
+      const request = {
+        type: 'protocol',
+        originator: normalized,
+        privileged: false,
+        protocolID: p.protocolID,
+        counterparty,
+        reason: p.description
+      }
+      const token = await i.findProtocolToken(normalized, false, p.protocolID, counterparty, true, lookup)
+      if (token == null) toCreate.push({ request, expiry: 0 })
+      else toRenew.push({ oldToken: token, request, expiry: 0 })
+    }
+    for (const b of todo.basketAccess ?? []) {
+      toCreate.push({
+        request: { type: 'basket', originator: normalized, basket: b.basket, reason: b.description },
+        expiry: 0
+      })
+    }
+    for (const c of todo.certificateAccess ?? []) {
+      toCreate.push({
+        request: {
+          type: 'certificate',
+          originator: normalized,
+          privileged: false,
+          certificate: { verifier: c.verifierPublicKey, certType: c.type, fields: c.fields },
+          reason: c.description
+        },
+        expiry: 0
+      })
+    }
+    if (toCreate.length === 0 && toRenew.length === 0) return
+    await i.persistPermissionGrant(toCreate, toRenew)
+  }
+
+  /** Whether a prompt with this ID is still waiting for an answer. */
+  hasActiveRequest(requestID: string): boolean {
+    return this.internals.activeRequests.has(requestID)
+  }
+
+  /** Denies every request still waiting for an answer. Never throws. */
+  denyAllActiveRequests(): void {
+    for (const requestID of [...this.internals.activeRequests.keys()]) {
+      try {
+        this.internals.denyActiveRequest(requestID)
+      } catch {
+        // Already settled.
+      }
+    }
   }
 
   override async ensureProtocolPermission(args: EnsureProtocolPermissionArgs): Promise<boolean> {

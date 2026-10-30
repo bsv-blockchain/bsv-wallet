@@ -2,6 +2,7 @@ import type { AppChain } from './config'
 import type { PushAdapter } from './push/types'
 import { trimTrailingSlashes } from './net/trimTrailingSlashes'
 import { isRelayUrl, isStunUrl } from './directpay/settings'
+import type { PermissionPolicyOverride } from './bridge/permissionPolicy'
 
 /**
  * Service endpoints and API keys for one chain.
@@ -165,7 +166,16 @@ export interface ToolboxConfig {
    * change.
    */
   directPay?: DirectPayHostConfig
+  /**
+   * The browser bridge (BRC-185). Optional; a host that omits it gets the built-in policy.
+   * `allowLocalhostHttp` lets a development build accept `http://localhost` origins.
+   * `permissionPolicy` states this build's default prompt settings for verified and
+   * unverified origins; the user's own stored policy wins over it.
+   */
+  browserBridge?: { allowLocalhostHttp?: boolean; permissionPolicy?: PermissionPolicyOverride }
 }
+
+export type BrowserBridgeHostConfig = NonNullable<ToolboxConfig['browserBridge']>
 
 interface ResolvedConfig {
   backupUrl: string
@@ -176,6 +186,7 @@ interface ResolvedConfig {
   vaultEnabled: boolean
   push: PushAdapter | undefined
   directPay: DirectPayHostConfig | undefined
+  browserBridge: BrowserBridgeHostConfig | undefined
 }
 
 let current: ResolvedConfig | null = null
@@ -271,7 +282,8 @@ export function configureToolbox(config: ToolboxConfig): void {
     handleMinLength: config.handleMinLength === 1 || config.handleMinLength === 2 ? config.handleMinLength : 3,
     vaultEnabled: config.vaultEnabled === true,
     push: config.push,
-    directPay: config.directPay
+    directPay: config.directPay,
+    browserBridge: config.browserBridge
   }
 }
 
@@ -442,6 +454,11 @@ export function getPushAdapter(): PushAdapter | undefined {
  */
 export function getDirectPayConfig(): DirectPayHostConfig | undefined {
   return current?.directPay
+}
+
+/** What the host stated about the browser bridge; `{}` when it stated nothing. Never throws. */
+export function getBrowserBridgeConfig(): BrowserBridgeHostConfig {
+  return current?.browserBridge ?? {}
 }
 
 /**

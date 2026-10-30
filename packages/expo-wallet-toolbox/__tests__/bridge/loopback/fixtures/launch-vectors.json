@@ -1,0 +1,20 @@
+{
+  "k": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "wallet": {
+    "instanceId": "inst-0001",
+    "continuityKey": "02abababababababababababababababababababababababababababababababab"
+  },
+  "origin": "https://example.com",
+  "challenge": "ERERERERERERERERERERERERERERERERERERERERERE",
+  "host": "127.0.0.1:3321",
+  "epoch": "123e4567-e89b-42d3-a456-426614174000",
+  "nonce": "ZGVmZ2hpamtsbW5vcHFycw",
+  "helloPreimage": "{\"challenge\":\"ERERERERERERERERERERERERERERERERERERERERERE\",\"host\":\"127.0.0.1:3321\",\"origin\":\"https://example.com\",\"v\":1}",
+  "describeAckPreimage": "{\"challenge\":\"ERERERERERERERERERERERERERERERERERERERERERE\",\"host\":\"127.0.0.1:3321\",\"nonce\":\"ZGVmZ2hpamtsbW5vcHFycw\",\"origin\":\"https://example.com\",\"v\":1,\"wallet\":{\"continuityKey\":\"02abababababababababababababababababababababababababababababababab\",\"instanceId\":\"inst-0001\"}}",
+  "launchMessage": "{\"challenge\":\"ERERERERERERERERERERERERERERERERERERERERERE\",\"epoch\":\"123e4567-e89b-42d3-a456-426614174000\",\"host\":\"127.0.0.1:3321\",\"nonce\":\"ZGVmZ2hpamtsbW5vcHFycw\",\"origin\":\"https://example.com\",\"v\":1,\"wallet\":{\"continuityKey\":\"02abababababababababababababababababababababababababababababababab\",\"instanceId\":\"inst-0001\"}}",
+  "helloMac": "B-w5BhG21H5qu6YHKEki-HPnbcyVGufjAeJQwsOkn0g",
+  "describeAck": "oCNPnb7p3_p8q7-n780z0ZhvKWyHRltGu-MOExXJ4mw",
+  "launchProof": "9rNy0_AXARESNv7CmXR8ILEp1vRA-SzDWYW68nGp0x8",
+  "connectAck": "TP3q21zs59Cfn8VdPGODN27ywKP9SJ8q2-xgIh154lA",
+  "bindingSecret": "bod8C4f-R5M7Sm5-W8DmTA7172UqBxTEqTfmehsv4Ec"
+}
