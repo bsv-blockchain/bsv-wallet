@@ -374,7 +374,7 @@ export interface HandleReceiveProps {
    */
   asset?: { assetId: string; ticker: string; issuerName?: string } | null
   /** The figure the code asks for, in the asset's base units. Absent for an open request. */
-  requestedBaseUnits?: number
+  requestedUnits?: bigint
   /** The same figure, in the asset's own units, already formatted for the screen. */
   requestedAmountText?: string
   /**
@@ -401,7 +401,7 @@ export interface HandleReceiveProps {
 export default function HandleReceive({
   initialSats,
   asset = null,
-  requestedBaseUnits,
+  requestedUnits,
   requestedAmountText,
   admissionRefusal,
   assetMessageBoxUrl = null,
@@ -530,7 +530,7 @@ export default function HandleReceive({
         identityKey,
         asset ? undefined : initialSats,
         isConfigured ? messageBoxUrl : undefined,
-        asset ? { assetId: asset.assetId, baseUnits: requestedBaseUnits } : undefined
+        asset ? { assetId: asset.assetId, units: requestedUnits } : undefined
       )
     : ''
 
@@ -695,7 +695,7 @@ export default function HandleReceive({
       const firstHold = !seen.includes(arrival.asset.assetId)
       if (firstHold) await markSeen(SEEN_ASSETS_KEY, arrival.asset.assetId)
       setTokenReceived({
-        amountText: formatTokenAmountWithUnit(arrival.baseUnits, arrival.asset, { showPlus: true }) ?? '',
+        amountText: formatTokenAmountWithUnit(arrival.units, arrival.asset, { showPlus: true }) ?? '',
         // Credited and spendable, and not yet confirmed — both true, and the
         // receipt says both rather than claiming a settlement nobody has.
         statusNote: arrival.status === 'settled' ? undefined : t('local_pay_token_not_cleared', { issuer }),

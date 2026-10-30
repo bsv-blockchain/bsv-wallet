@@ -55,17 +55,30 @@ Expo SDK line.
 
 ### BSV SDK & protocol libraries (required)
 
-| Package                       | Version |
-| ----------------------------- | ------- |
-| `@bsv/sdk`                    | ^2.4.1  |
-| `@bsv/wallet-toolbox-mobile`  | ^2.4.3  |
-| `@bsv/btms-permission-module` | ^1.1.0  |
-| `@bsv/air-gap`                | ^0.1.1  |
-| `@bsv/backup-cache-client`    | ^0.1.0  |
-| `@bsv/message-box-client`     | ^2.2.1  |
-| `@bsv/templates`              | ^1.10.0 |
-| `@noble/curves`               | ^2.3.0  |
-| `qrcode`                      | ^1.5.4  |
+| Package                        | Version |
+| ------------------------------ | ------- |
+| `@bsv/sdk`                     | ^4.0.0  |
+| `@bsv/wallet-toolbox-mobile`   | ^2.15.0 |
+| `@bsv/btms-permission-module`  | ^1.2.1  |
+| `@bsv/color-permission-module` | ^0.2.0  |
+| `@bsv/mandala`                 | ^0.5.0  |
+| `@bsv/air-gap`                 | ^0.1.3  |
+| `@bsv/backup-cache-client`     | ^0.1.0  |
+| `@bsv/message-box-client`      | ^2.5.3  |
+| `@bsv/templates`               | ^2.2.0  |
+| `@noble/curves`                | ^2.3.0  |
+| `qrcode`                       | ^1.5.4  |
+
+`@bsv/color-permission-module` is the BRC-207 color module that holds every
+1Color token output; `@bsv/mandala` builds and reads Mandala hand-overs.
+`@bsv/color-permission-module` imports `@bsv/wallet-toolbox-client`, which a
+React Native app must alias to `@bsv/wallet-toolbox-mobile` (see
+[`metro.config.js`](#metroconfigjs) and [Jest configuration](#jest-configuration)).
+The module also declares `@bsv/wallet-toolbox-client` as a peer; satisfy it
+with an npm alias of the mobile toolbox, e.g.
+`"@bsv/wallet-toolbox-client": "npm:@bsv/wallet-toolbox-mobile@^2.15.0"`, so no
+second toolbox is installed. That copy is never loaded (the bundler and Jest
+map the name to `-mobile`), so `patch-package` patches only `-mobile`.
 
 ### Expo native modules (required — each needs its own autolinking/config)
 
@@ -462,6 +475,17 @@ config.resolver.extraNodeModules = {
   ...config.resolver.extraNodeModules
 }
 
+// The 1Color packages (@bsv/color-permission-module, @bsv/mandala,
+// @bsv/templates) resolve through package `exports` to .mjs/.cjs entries.
+config.resolver.unstable_enablePackageExports = true
+for (const ext of ['mjs', 'cjs']) {
+  if (!config.resolver.sourceExts.includes(ext)) config.resolver.sourceExts.push(ext)
+}
+
+// @bsv/color-permission-module imports @bsv/wallet-toolbox-client; on React
+// Native that is the same toolbox as -mobile (one toolbox in the bundle).
+const MODULE_ALIASES = { '@bsv/wallet-toolbox-client': '@bsv/wallet-toolbox-mobile' }
+
 const emptyShim = path.resolve(__dirname, 'metro-shims/empty.js') // module.exports = {}
 const quickCryptoMain = require.resolve('react-native-quick-crypto')
 
@@ -472,6 +496,9 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   }
   if (moduleName === 'node:buffer' || moduleName === 'node:process') {
     return { type: 'sourceFile', filePath: emptyShim }
+  }
+  if (Object.prototype.hasOwnProperty.call(MODULE_ALIASES, moduleName)) {
+    moduleName = MODULE_ALIASES[moduleName]
   }
   if (typeof upstream === 'function') return upstream(context, moduleName, platform)
   return context.resolveRequest(context, moduleName, platform)
@@ -496,7 +523,7 @@ are required — both hard-won during this package's extraction:
 
    ```
    transformIgnorePatterns: [
-     "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-reanimated|react-native-gesture-handler|react-native-worklets|expo-modules-core|@noble/secp256k1|@noble/curves|@noble/hashes|@bsv/backup-cache-client|@bsv/auth|@bsv/expo-wallet-toolbox|@bsv/react-native-localpay-transport)/)",
+     "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|react-native-reanimated|react-native-gesture-handler|react-native-worklets|expo-modules-core|@noble/secp256k1|@noble/curves|@noble/hashes|@bsv/backup-cache-client|@bsv/auth|@bsv/expo-wallet-toolbox|@bsv/color-permission-module|@bsv/templates|@bsv/mandala|@bsv/react-native-localpay-transport|@bsv/webrtpay)/)",
      "/node_modules/react-native-reanimated/plugin/"
    ]
    ```
@@ -510,7 +537,11 @@ are required — both hard-won during this package's extraction:
    `@bsv/expo-wallet-toolbox`, `@bsv/react-native-localpay-transport`
    (also raw TypeScript — `core/localpay/transport/select.ts` imports it
    directly), and `@bsv/backup-cache-client` (see below) must be in
-   whatever pattern you end up with.
+   whatever pattern you end up with. Since 0.21.0 the allowlist must also
+   name `@bsv/color-permission-module`, `@bsv/templates` and `@bsv/mandala`:
+   they ship ES modules (`.mjs`) that Jest's CJS runtime must transform.
+   (`@bsv/webrtpay` is this repo's own optional peer; add it only if you
+   install it.)
 
    `@urbit/sigil-js`, the peer added with the activity-row sigil avatars,
    needs no entry here: the `./core` entry this package imports ships CJS,
@@ -526,6 +557,12 @@ are required — both hard-won during this package's extraction:
    moduleNameMapper: {
      '^@bsv/backup-cache-client$':
        '<rootDir>/node_modules/@bsv/backup-cache-client/dist/index.js',
+     '^@bsv/wallet-toolbox-client$':
+       '<rootDir>/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs',
+     '^@bsv/wallet-toolbox-mobile$':
+       '<rootDir>/node_modules/@bsv/wallet-toolbox-mobile/out/index.mobile.cjs',
+     '^@bsv/color-permission-module$':
+       '<rootDir>/node_modules/@bsv/color-permission-module/dist/index.mjs',
      '^react-native-reanimated$': '<rootDir>/__tests__/__mocks__/reanimated.js',
      '^react-native-worklets$':
        '<rootDir>/node_modules/react-native-worklets/lib/module/mock.js',
@@ -548,6 +585,23 @@ are required — both hard-won during this package's extraction:
    entries below, which only bite once a test actually exercises that
    native API.
 
+   The three 1Color entries (since 0.21.0):
+   - `@bsv/wallet-toolbox-client` → the mobile toolbox's CJS entry. The color
+     module imports `-client`; this is the same alias as in Metro, so tests
+     and the app run one toolbox.
+   - `@bsv/wallet-toolbox-mobile` → the same CJS entry, so both names resolve
+     to one module instance.
+   - `@bsv/color-permission-module` → `dist/index.mjs`. Its `exports` carries
+     only an `import` condition, which Jest's require-side resolver never
+     matches.
+
+   Add a transform for `.mjs` beside the preset's, so those `.mjs` entries go
+   through Babel:
+
+   ```js
+   transform: { '\\.mjs$': 'babel-jest' }
+   ```
+
    `expo-sqlite`/`expo-audio` need hand-written mocks (see this repo's
    `__tests__/__mocks__/` for working examples) since they wrap native
    modules with no official Jest mock; `async-storage` and
@@ -561,6 +615,17 @@ are required — both hard-won during this package's extraction:
    overrides above.
 
 ## Breaking changes
+
+**0.21.0:** tokens are 1Color (BRC-162) assets held by the BRC-207 color
+module, with no compatibility with `@bsv/mandala` 0.4 assets, outputs or the
+`'p mandala'` basket. Install the new peers (`@bsv/color-permission-module`
+^0.2.0, `@bsv/mandala` ^0.5.0) and the raised ones (`@bsv/sdk` ^4.0.0,
+`@bsv/wallet-toolbox-mobile` ^2.15.0, `@bsv/templates` ^2.2.0). Copy
+`patches/@bsv+sdk+4.0.1.patch` and `patches/@bsv+wallet-toolbox-mobile+2.15.0.patch`
+in place of the 2.8.11/2.14.9 patches, and delete any `@bsv+mandala+0.4.1`
+patch. Add the Metro alias and `exports` settings and the Jest `.mjs`
+transform, mappers and allowlist entries above. Token amounts are `bigint`
+everywhere. See the CHANGELOG's 0.21.0 entry for the full list.
 
 **0.10.0:** `verifyFramePayment` takes `{ wallet, chainTracker }`
 (`FrameVerifyDeps`) as its first argument instead of a single wallet, and

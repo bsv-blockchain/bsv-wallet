@@ -1,5 +1,119 @@
 # Changelog
 
+## 0.22.0
+
+1Color / BRC-207 tokens through `@bsv/color-permission-module`. There is no
+compatibility with `@bsv/mandala` 0.4: its assets, `'p mandala'` outputs,
+`[2, 'p mandala token']` derivations, settlement tables and journals, frame
+versions below 7, session version 1 and MessageBox bodies v1-v3 are all gone.
+Built on design Amendment B7: the module transports no token history; the
+host verifies hand-overs with `@bsv/mandala` and a host ledger.
+
+### Breaking
+
+- **Peers.** New: `@bsv/color-permission-module` ^0.2.0 and `@bsv/mandala`
+  ^0.5.0. Raised: `@bsv/sdk` ^4.0.0, `@bsv/wallet-toolbox-mobile` ^2.15.0
+  (both from npm), `@bsv/templates` ^2.2.0. Hosts copy
+  `patches/@bsv+sdk+4.0.1.patch` (the color module 0.2.0 needs sdk ^4.0.1) and
+  `patches/@bsv+wallet-toolbox-mobile+2.15.0.patch` (regenerated against the
+  published 2.15.0) in place of the 2.8.11 / 2.14.9 patches and drop the
+  `@bsv+mandala+0.4.1` patch. The module's `@bsv/wallet-toolbox-client` peer
+  is satisfied by an npm alias of `-mobile` (README).
+- **Metro and Jest.** Alias `@bsv/wallet-toolbox-client` to
+  `@bsv/wallet-toolbox-mobile` and enable package `exports` with `.mjs`/`.cjs`
+  source extensions (Metro). Transform `.mjs` with `babel-jest`, map
+  `@bsv/wallet-toolbox-client` and `@bsv/color-permission-module`, and allow
+  `@bsv/color-permission-module|@bsv/templates|@bsv/mandala` through
+  `transformIgnorePatterns` (Jest). See the README.
+- **Token custody.** The `'p mandala'` P-module (`MandalaTokenModule`), the
+  basket migration and `wrapCreateActionForTokenInputs` are deleted.
+  WalletContext registers the BRC-207 color module as
+  `permissionModules.color` (the Mandala issuer-v1 profile only, over a
+  Mandala host ledger in `key_value_store`; a Mandala overlay provider; a
+  `ColorModuleStore` over `key_value_store`) only when the chain has Mandala
+  endpoints; otherwise `p color` calls fail closed. `BuiltColorModule` adds
+  `ledger`. `configureMandala` no longer takes a basket.
+- **Storage.** A one-time guarded migration drops `token_settlements`,
+  `token_admissions`, `token_admission_edges` and `token_linkage_payloads` and
+  the old lib's `mandala.*` key-value journals, and creates the
+  `color_transfers` journal. The broadcast hold applies only where this
+  wallet's token custody is in a 1Color tx (a journal row, a Mandala
+  host-ledger record, or an input spent from one of its `p color` baskets)
+  and holds it until its row reads `settled`; a 1Color output with no custody
+  of ours (a payer's decoy) never parks a credit, on any rail. The abort
+  refusal keys on the journal: a `handed_over` or `settled` transfer is never
+  aborted. A pre-1Color backup
+  that still carries a settlement table is refused on import.
+  `ensureTokenSettlementColumns`, `createMandalaSettlementTables`,
+  `createSettlementStore`, `TokenTransactionRepair` and `OfflineTokenDeps` are
+  removed.
+- **Exact amounts.** Token amounts are `bigint` in every API (per output
+  `1..18446744073709551615`) and canonical decimal strings on every wire and
+  in SQLite. `TokenBalance`, `TokenActivityRow`, `TokenAssetStatus` and the
+  `ui/tokenFormat` helpers take `bigint` units (`baseUnits` becomes `units`).
+  The `'reversed'` activity status is gone.
+- **Runtime.** `MandalaRuntime` is the host over the color module (only its
+  host-only `markSettled(txid)`), `@bsv/mandala` 0.5.0 with the host ledger,
+  and the journal. `CreateMandalaRuntimeArgs` takes `color`
+  (`Pick<ColorPermissionModule, 'markSettled'>`), `ledger` and `hostWallet`
+  (the underlying wallet; hand-over envelopes are built from its custody);
+  `refetchBeef` is gone. Settlement is the host's: a delivered own hand-over
+  goes through lib `settleHandover`, a pending receipt through
+  `settleReceipts`, and both end in `markSettled` then the journal row.
+  Balances read the `p color balance <assetTag>` view; `offlineUnits` is the
+  same view filtered to `color_offline` (pending), the rest settled. Asset
+  metadata comes from the deploy tx (`readDeploy`). `tick()` redelivers
+  undelivered hand-overs, settles and reconciles held receipts, and the
+  offline drain runs it first.
+- **Handle rail.** MessageBox box `mandala-color`, hand-over body `v: 4`
+  (receipt fields, σ `admission`/`admissions[]`, envelope `linkage[]`). A
+  hand-over's body is kept (`bsvwallet.color.handover.<txid>`) and its row
+  journaled `handed_over` before delivery; the tick redelivers the kept body.
+  Receive runs the lib's recipient path with the host ledger (online submit,
+  or offline COVER with the S1 hop checks) before the plain receipt is
+  internalized; a verified credit is journaled `settled`, a COVER one `held`.
+- **Nearby.** Session version 2 (token units as a decimal string in `a`, no
+  overlay url/key) and localpay frame version 7 (IC §7.3: token block
+  `assetId`, decimal `amount`, `senderMode`, `admission?`, `admissions`,
+  `linkage`, `certificates`; frames below 7 are a `CodecError`). The payer
+  frames the v4 body of its hand-over; the payee pre-checks the evidence by
+  COVER against its own overlay key (`verifyFramePayment` opts gain
+  `overlayIdentityKey`; failures decline `not_covered`), and `processPending`
+  hands a token frame to the runtime's new `nearby.accept` (lib
+  `acceptHandover`) instead of internalizing it; `processPending` takes it as
+  a sixth argument and `NearbyTokenDeps.onReceived` reports `offline`. The
+  σI pieces are removed: `offline/tokenFrames`, `localpay/settlementAck`,
+  `mandala/drain`, `mandala/bundle` (`coverFromFrame`, `assembleBundle`,
+  `tokenParentsOf`) and their exports. A nearby BSV frame carrying a 1Color
+  output is no longer declined: the custody-scoped hold does not park it.
+- **Hosted payer renderers.** On a token session `NearbyConfirm`,
+  `NearbySending` and `NearbyShowCode` carry the exact figure as `units`
+  (bigint) and `amountText`, and `NearbyConfirm` adds `fixedUnits`. The
+  number-shaped `amount` is 0 and `fixedAmount` is undefined there, and
+  `NearbyDone.amount` is 0 on a token payment. `NearbyConfirm.holding` is a
+  bigint, and `setAmount` takes a bigint (token base units) or a number
+  (satoshis). Hosts gate Send on `canSend` and read the payee's figure from
+  `fixedUnits` on a token session, never from `amount` / `fixedAmount`.
+
+### Added
+
+- Core barrel: `buildColorModule`, `createColorModuleStore`,
+  `createColorAccessPolicy`, `colorPromptType`, `COLOR_PROMPT_TYPES`,
+  `createTransferJournal`, `migrateMandalaToColor`, `colorHeldTxids`,
+  `txHasColorOutput`, the inventory readers (`readInventory`,
+  `readAvailable`, `readPending`, `offlineUnitsOf`, `createAssetMetadata`),
+  the v7 frame helpers (`bodyFromFrame`, `tokenPaymentOfHandover`), the
+  receipt failure classifiers and `createHandoverBodies`.
+- The permission sheet renders the color module's consent messages
+  (`color_send`, `color_signature`, `color_access`, `color_relinquish`) with
+  exact amounts and the full asset id. The wallet's own screens are approved
+  for every type; a connected app prompts, and a read approval lasts 30
+  minutes for that app only. The removed `color_receive_offline` type is
+  unknown and refused.
+- The services for the scaling teratestnet (`scaletest`, toolbox chain
+  `'regtest'`) now build on toolbox 2.15.0. The network stays out of the
+  picker.
+
 ## 0.21.0
 
 ### Breaking

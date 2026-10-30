@@ -37,36 +37,36 @@ const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvid
 
 describe('formatTokenAmount', () => {
   it("keeps the asset's decimals fixed — money, not a quantity", () => {
-    expect(formatTokenAmount(124000, 2)).toBe('1,240.00')
-    expect(formatTokenAmount(100, 2)).toBe('1.00')
-    expect(formatTokenAmount(1, 2)).toBe('0.01')
-    expect(formatTokenAmount(0, 2)).toBe('0.00')
+    expect(formatTokenAmount(124000n, 2)).toBe('1,240.00')
+    expect(formatTokenAmount(100n, 2)).toBe('1.00')
+    expect(formatTokenAmount(1n, 2)).toBe('0.01')
+    expect(formatTokenAmount(0n, 2)).toBe('0.00')
   })
 
   it('handles a zero-decimal asset without inventing a point', () => {
-    expect(formatTokenAmount(42, 0)).toBe('42')
+    expect(formatTokenAmount(42n, 0)).toBe('42')
   })
 
   it('does the split on the integer, so no figure is lost to floating point', () => {
-    expect(formatTokenAmount(90071992547409, 2)).toBe('900,719,925,474.09')
+    expect(formatTokenAmount(90071992547409n, 2)).toBe('900,719,925,474.09')
   })
 
   it('signs a negative figure and refuses a non-finite one', () => {
-    expect(formatTokenAmount(-2500, 2)).toBe('−25.00')
-    expect(formatTokenAmount(Number.NaN, 2)).toBeNull()
+    expect(formatTokenAmount(-2500n, 2)).toBe('−25.00')
+    expect(formatTokenAmount(Number.NaN as unknown as bigint, 2)).toBeNull()
   })
 
   it('adds a plus only when asked', () => {
-    expect(formatTokenAmount(4000, 2, { showPlus: true })).toBe('+40.00')
+    expect(formatTokenAmount(4000n, 2, { showPlus: true })).toBe('+40.00')
   })
 })
 
 describe('parseTokenAmount', () => {
   it('maps a typed figure to whole base units', () => {
-    expect(parseTokenAmount('25', 2)).toBe(2500)
-    expect(parseTokenAmount('25.5', 2)).toBe(2550)
-    expect(parseTokenAmount('25.05', 2)).toBe(2505)
-    expect(parseTokenAmount('.5', 2)).toBe(50)
+    expect(parseTokenAmount('25', 2)).toBe(2500n)
+    expect(parseTokenAmount('25.5', 2)).toBe(2550n)
+    expect(parseTokenAmount('25.05', 2)).toBe(2505n)
+    expect(parseTokenAmount('.5', 2)).toBe(50n)
   })
 
   it('refuses blank, junk and over-precise input rather than rounding it', () => {
@@ -76,13 +76,13 @@ describe('parseTokenAmount', () => {
   })
 
   it('round-trips the Max figure the field writes', () => {
-    expect(parseTokenAmount(tokenAmountInputText(112000, 2), 2)).toBe(112000)
+    expect(parseTokenAmount(tokenAmountInputText(112000n, 2), 2)).toBe(112000n)
   })
 })
 
 describe('AssetAmount', () => {
   it('draws the figure and its unit, with one composed label for VoiceOver', () => {
-    const s = wrap(<AssetAmount baseUnits={124000} asset={USDX} />)
+    const s = wrap(<AssetAmount units={124000n} asset={USDX} />)
     // The two halves are drawn but hidden from the accessibility tree on
     // purpose, so the figure and its unit are never read as two fragments.
     expect(s.getByText('1,240.00', { includeHiddenElements: true })).toBeTruthy()
@@ -91,7 +91,7 @@ describe('AssetAmount', () => {
   })
 
   it('shows a spinner for an unknown balance and never a zero', () => {
-    const s = wrap(<AssetAmount baseUnits={null} asset={USDX} />)
+    const s = wrap(<AssetAmount units={null} asset={USDX} />)
     expect(s.queryByText('0.00')).toBeNull()
     expect(s.UNSAFE_getByType(require('react-native').ActivityIndicator)).toBeTruthy()
   })

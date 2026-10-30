@@ -1,7 +1,18 @@
 import { SymmetricKey } from '@bsv/sdk'
-import type { AdmissionEntryWire } from '../mandala/types'
 
-export const FRAME_VERSION = 5
+/**
+ * 7 (IC §7.3, design §9 B7): the token block carries exactly the members of
+ * the v4 MessageBox hand-over body (IC §7.2) that the frame does not already
+ * carry: `assetId`, `amount` (canonical decimal string), `senderMode`, the
+ * optional tip `admission`, the ancestor `admissions[]` (σ) and `linkage[]`
+ * (one envelope per unadmitted transaction, the tip included), plus the
+ * unchanged opaque `certificates`. The frame's own sender key, remittance
+ * strings, output index, note and AtomicBEEF are the body's other members.
+ * The payee rebuilds the body and runs the lib's recipient path on it with
+ * its own configured overlay. Frame 6 (BRC-207 receipt `profileData`) and
+ * older are refused outright; there is no back-compat.
+ */
+export const FRAME_VERSION = 7
 
 export class CodecError extends Error {
   constructor(message: string) {
@@ -12,33 +23,53 @@ export class CodecError extends Error {
 
 export type FrameKind = 'bsv' | 'token'
 
+/**
+ * Ceiling on the token block's evidence JSON (`admission`, `admissions`,
+ * `linkage`). The lib caps each list at 1000 rows; a 1000-hop chain of
+ * envelopes stays well inside this.
+ */
+export const MAX_EVIDENCE_BYTES = 16_777_216
+
+/** The lib's per-list row ceiling (`receive.ts` MAX_EVIDENCE_ROWS). */
+const MAX_EVIDENCE_ROWS = 1000
+
+/** Asset ids are `<64 lowercase hex>_0` (IC §0, Mandala policy). */
+const ASSET_ID_RE = /^[0-9a-f]{64}_0$/
+const DECIMAL_RE = /^(0|[1-9][0-9]*)$/
+const TXID_RE = /^[0-9a-f]{64}$/
+const KEY_RE = /^0[23][0-9a-f]{64}$/
+const EVEN_HEX_RE = /^(?:[0-9a-f]{2})+$/
+const MAX_UINT32 = 4294967295
+
+/** One σ row: the BRC-207 JSON attestation shape (IC §3, §7.2). */
+export interface FrameAttestation {
+  txid: string
+  outputs: number[]
+  signer: string
+  signature: string
+}
+
+/** One envelope row: the off-chain values `txid` is submitted with, lowercase hex. */
+export interface FrameLinkage {
+  txid: string
+  offChainValues: string
+}
+
 export interface TokenPayment {
-  assetId: string // "<64-hex txid>.<vout>"
-  overlayUrl: string
-  overlayIdentityKey: string // 66-hex compressed pubkey
-  certificates: Uint8Array[] // opaque serialized VerifiableCertificates
-  linkage: Array<{ txid: string; payload: Uint8Array }> // per-txid MandalaLinkagePayload bytes, whole chain
-  /**
-   * σ_I evidence for the ancestors this frame's chain bottoms out at — the
-   * AdmissionBundle's `admissions` map, flattened (offline-settlement spec
-   * §1.1/§2.1). One entry per COVERED ancestor: the overlay's own signature
-   * over `(txid, outputsToAdmit)`, which the payee verifies against the
-   * session's `overlayIdentityKey` before crediting.
-   *
-   * REPLACES v3's `recipientLinkage`. A payee-decryptable linkage is
-   * impossible under D2 sender blinding without leaking the payer's real
-   * identity key (BRC-72 decryption by the named verifier requires
-   * `counterparty: prover`), and σ_I bound to the admitted output set is
-   * strictly stronger evidence at roughly a tenth the size: it is the
-   * OVERLAY's assertion, not the payer's assertion about their own honesty.
-   * Removed, not renamed — a v3 decoder cannot read a v4 frame at all.
-   *
-   * `linkage` and `admissions` are keyed by disjoint txid sets in a
-   * well-formed bundle: a txid with σ_I needs no linkage forwarded (nobody
-   * will submit it again); a txid without σ_I needs linkage (so whoever
-   * reconnects first can build its /submit body) and is walked further.
-   */
-  admissions: AdmissionEntryWire[]
+  /** `<64 lowercase hex>_0` — the underscore id form, never the dot outpoint form. */
+  assetId: string
+  /** Exact token units of the named output, canonical decimal string (IC §0). */
+  amount: string
+  /** `blinded` when the sender key is A′, `identity` when it is A. */
+  senderMode: 'blinded' | 'identity'
+  /** σ of the tip, when the payer already holds it. */
+  admission?: FrameAttestation
+  /** σ per admitted ancestor (terminates the payee's COVER walk). */
+  admissions: FrameAttestation[]
+  /** Envelope per unadmitted transaction, the tip included. */
+  linkage: FrameLinkage[]
+  /** Opaque serialized VerifiableCertificates. */
+  certificates: Uint8Array[]
 }
 
 export interface PaymentFrame {
@@ -59,12 +90,9 @@ export interface PaymentFrame {
   derivationPrefix: string
   derivationSuffix: string
   /**
-   * Present iff kind === 'token'. Carried opaquely: the codec validates
-   * shapes and lengths, never parses linkage payloads or certificates.
-   * `linkage` maps EVERY unbroadcast token transaction in `transaction`'s
-   * ancestry to the exact offChainValues bytes its issuer overlay consumes —
-   * forwarded verbatim on chained re-spends so whoever reconnects first can
-   * submit the whole chain.
+   * Present iff kind === 'token'. The codec validates shapes and lengths
+   * (decimal amount, attestation and envelope row shapes); it verifies no
+   * signature and no envelope. The payee's lib does (IC §7.2).
    */
   token?: TokenPayment
   /**
@@ -114,8 +142,10 @@ function putBytes(out: number[], bytes: Uint8Array): void {
   for (const byte of bytes) out.push(byte)
 }
 
-function getBytes(b: Uint8Array, pos: { i: number }): Uint8Array {
+function getBytes(b: Uint8Array, pos: { i: number }, max?: { bytes: number; what: string }): Uint8Array {
   const len = getVarint(b, pos)
+  // A hostile length prefix is refused before anything is sliced.
+  if (max !== undefined && len > max.bytes) throw new CodecError(`${max.what} too large`)
   if (pos.i + len > b.length) throw new CodecError('truncated byte field')
   const slice = b.slice(pos.i, pos.i + len)
   pos.i += len
@@ -148,6 +178,100 @@ function bytesToHex(b: Uint8Array): string {
   return Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
 }
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+function readAttestation(v: unknown, what: string): FrameAttestation {
+  if (!isPlainObject(v)) throw new CodecError(`${what} is not an object`)
+  const keys = Object.keys(v)
+  if (keys.length !== 4 || !['txid', 'outputs', 'signer', 'signature'].every(k => keys.includes(k))) {
+    throw new CodecError(`${what} members must be exactly txid, outputs, signer, signature`)
+  }
+  if (typeof v.txid !== 'string' || !TXID_RE.test(v.txid)) throw new CodecError(`${what}.txid is not a txid`)
+  if (
+    !Array.isArray(v.outputs) ||
+    v.outputs.length === 0 ||
+    v.outputs.some(o => typeof o !== 'number' || !Number.isInteger(o) || o < 0 || o > MAX_UINT32)
+  ) {
+    throw new CodecError(`${what}.outputs is not a non-empty uint32 list`)
+  }
+  if (typeof v.signer !== 'string' || !KEY_RE.test(v.signer)) throw new CodecError(`${what}.signer is not a key`)
+  if (typeof v.signature !== 'string' || !EVEN_HEX_RE.test(v.signature)) {
+    throw new CodecError(`${what}.signature is not hex`)
+  }
+  return { txid: v.txid, outputs: [...(v.outputs as number[])], signer: v.signer, signature: v.signature }
+}
+
+function readLinkage(v: unknown, what: string): FrameLinkage {
+  if (!isPlainObject(v) || Object.keys(v).length !== 2) {
+    throw new CodecError(`${what} must be exactly {txid, offChainValues}`)
+  }
+  if (typeof v.txid !== 'string' || !TXID_RE.test(v.txid)) throw new CodecError(`${what}.txid is not a txid`)
+  if (typeof v.offChainValues !== 'string' || !EVEN_HEX_RE.test(v.offChainValues)) {
+    throw new CodecError(`${what}.offChainValues is not hex`)
+  }
+  return { txid: v.txid, offChainValues: v.offChainValues }
+}
+
+interface Evidence {
+  admission?: FrameAttestation
+  admissions: FrameAttestation[]
+  linkage: FrameLinkage[]
+}
+
+/** The evidence members, checked and normalised; the same rules at encode and decode. */
+function checkEvidence(v: unknown): Evidence {
+  if (!isPlainObject(v)) throw new CodecError('token evidence is not a JSON object')
+  for (const k of Object.keys(v)) {
+    if (k !== 'admission' && k !== 'admissions' && k !== 'linkage') {
+      throw new CodecError(`token evidence has an unexpected member ${JSON.stringify(k)}`)
+    }
+  }
+  if (!Array.isArray(v.admissions) || v.admissions.length > MAX_EVIDENCE_ROWS) {
+    throw new CodecError('token admissions is not a list')
+  }
+  if (!Array.isArray(v.linkage) || v.linkage.length > MAX_EVIDENCE_ROWS) {
+    throw new CodecError('token linkage is not a list')
+  }
+  const linkage = v.linkage.map((l, i) => readLinkage(l, `token linkage[${i}]`))
+  if (new Set(linkage.map(l => l.txid)).size !== linkage.length)
+    throw new CodecError('token linkage names a txid twice')
+  return {
+    ...(v.admission !== undefined ? { admission: readAttestation(v.admission, 'token admission') } : {}),
+    admissions: v.admissions.map((a, i) => readAttestation(a, `token admissions[${i}]`)),
+    linkage
+  }
+}
+
+function checkTokenScalars(t: { assetId: unknown; amount: unknown; senderMode: unknown }): void {
+  if (typeof t.assetId !== 'string' || !ASSET_ID_RE.test(t.assetId)) throw new CodecError('bad token assetId')
+  if (typeof t.amount !== 'string' || !DECIMAL_RE.test(t.amount) || t.amount === '0') {
+    throw new CodecError('token amount is not a positive canonical decimal string')
+  }
+  if (BigInt(t.amount) > (1n << 64n) - 1n) throw new CodecError('token amount exceeds 2^64-1')
+  if (t.senderMode !== 'blinded' && t.senderMode !== 'identity') {
+    throw new CodecError('token senderMode must be blinded or identity')
+  }
+}
+
+const SENDER_MODE_BYTE = { identity: 0x00, blinded: 0x01 } as const
+
+/**
+ * Strict UTF-8 decode, independent of whether the platform TextDecoder
+ * honours `fatal`: a lenient decode would silently rewrite invalid bytes to
+ * U+FFFD, so the carrier the payee hands on would differ from what was sent.
+ * Valid UTF-8 is exactly the bytes that re-encode to themselves.
+ */
+function decodeUtf8Strict(bytes: Uint8Array, what: string): string {
+  const text = dec.decode(bytes)
+  const again = enc.encode(text)
+  if (again.length !== bytes.length) throw new CodecError(`${what} is not valid UTF-8`)
+  for (let i = 0; i < again.length; i++) {
+    if (again[i] !== bytes[i]) throw new CodecError(`${what} is not valid UTF-8`)
+  }
+  return text
+}
+
 // ── frame ──
 
 const KIND_BYTE: Record<FrameKind, number> = { bsv: 0x01, token: 0x02 }
@@ -167,37 +291,22 @@ export function encodeFrame(f: PaymentFrame): Uint8Array {
   putStr(out, f.derivationSuffix)
   if (f.token) {
     const t = f.token
-    if (t.overlayIdentityKey.length !== 66) {
-      throw new CodecError(`overlayIdentityKey must be 66 hex chars, got ${t.overlayIdentityKey.length}`)
-    }
+    // Checked at encode as well as decode: fail where there is still a payer
+    // to tell, rather than ship a frame every payee will refuse.
+    checkTokenScalars(t)
+    const evidence = checkEvidence({
+      ...(t.admission !== undefined ? { admission: t.admission } : {}),
+      admissions: t.admissions,
+      linkage: t.linkage
+    })
+    const evidenceBytes = enc.encode(JSON.stringify(evidence))
+    if (evidenceBytes.length > MAX_EVIDENCE_BYTES) throw new CodecError('token evidence too large')
     putStr(out, t.assetId)
-    putStr(out, t.overlayUrl)
-    for (const byte of hexToBytes(t.overlayIdentityKey.toLowerCase())) out.push(byte)
+    putStr(out, t.amount)
+    out.push(SENDER_MODE_BYTE[t.senderMode])
     putVarint(out, t.certificates.length)
     for (const cert of t.certificates) putBytes(out, cert)
-    putVarint(out, t.linkage.length)
-    for (const entry of t.linkage) {
-      if (entry.txid.length !== 64) throw new CodecError(`linkage txid must be 64 hex chars, got ${entry.txid.length}`)
-      for (const byte of hexToBytes(entry.txid.toLowerCase())) out.push(byte)
-      putBytes(out, entry.payload)
-    }
-    putVarint(out, t.admissions.length)
-    for (const entry of t.admissions) {
-      if (entry.txid.length !== 64)
-        throw new CodecError(`admission txid must be 64 hex chars, got ${entry.txid.length}`)
-      // Same shape check the overlay key already gets: a signerKey that is not
-      // a 33-byte compressed point can never verify, and one that is silently
-      // truncated on the wire would verify against a DIFFERENT key on the far
-      // side. Fail at encode, where there is still a payer to tell.
-      if (entry.signerKey.length !== 66) {
-        throw new CodecError(`admission signerKey must be 66 hex chars, got ${entry.signerKey.length}`)
-      }
-      for (const byte of hexToBytes(entry.txid.toLowerCase())) out.push(byte)
-      putVarint(out, entry.outputsToAdmit.length)
-      for (const vout of entry.outputsToAdmit) putVarint(out, vout)
-      putBytes(out, entry.signature)
-      for (const byte of hexToBytes(entry.signerKey.toLowerCase())) out.push(byte)
-    }
+    putBytes(out, evidenceBytes)
   }
   putStr(out, f.note ?? '')
   putBytes(out, f.transaction)
@@ -220,40 +329,28 @@ export function decodeFrame(b: Uint8Array): PaymentFrame {
   let token: TokenPayment | undefined
   if (kind === 'token') {
     const assetId = getStr(b, pos)
-    const overlayUrl = getStr(b, pos)
-    if (pos.i + 33 > b.length) throw new CodecError('truncated overlayIdentityKey')
-    const overlayIdentityKey = bytesToHex(b.slice(pos.i, pos.i + 33))
-    pos.i += 33
+    const amount = getStr(b, pos)
+    if (pos.i >= b.length) throw new CodecError('truncated token senderMode')
+    const modeByte = b[pos.i++]
+    const senderMode = modeByte === 0x00 ? 'identity' : modeByte === 0x01 ? 'blinded' : undefined
+    if (senderMode === undefined) throw new CodecError(`unsupported token senderMode ${modeByte}`)
+    checkTokenScalars({ assetId, amount, senderMode })
     const certificates: Uint8Array[] = []
+    // Each certificate consumes bytes and bounds-checks first, so a hostile
+    // count cannot make this loop spin: it throws the moment the buffer runs out.
     const certCount = getVarint(b, pos)
     for (let c = 0; c < certCount; c++) certificates.push(getBytes(b, pos))
-    const linkage: Array<{ txid: string; payload: Uint8Array }> = []
-    const linkCount = getVarint(b, pos)
-    for (let l = 0; l < linkCount; l++) {
-      if (pos.i + 32 > b.length) throw new CodecError('truncated linkage txid')
-      const txid = bytesToHex(b.slice(pos.i, pos.i + 32))
-      pos.i += 32
-      linkage.push({ txid, payload: getBytes(b, pos) })
+    const evidenceText = decodeUtf8Strict(
+      getBytes(b, pos, { bytes: MAX_EVIDENCE_BYTES, what: 'token evidence' }),
+      'token evidence'
+    )
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(evidenceText)
+    } catch {
+      throw new CodecError('token evidence is not JSON')
     }
-    const admissions: AdmissionEntryWire[] = []
-    const admissionCount = getVarint(b, pos)
-    for (let a = 0; a < admissionCount; a++) {
-      // Every field below consumes bytes and bounds-checks first, so a hostile
-      // count cannot make this loop spin: it throws the moment the buffer runs
-      // out, on the first entry that does not fit.
-      if (pos.i + 32 > b.length) throw new CodecError('truncated admission txid')
-      const txid = bytesToHex(b.slice(pos.i, pos.i + 32))
-      pos.i += 32
-      const voutCount = getVarint(b, pos)
-      const outputsToAdmit: number[] = []
-      for (let v = 0; v < voutCount; v++) outputsToAdmit.push(getVarint(b, pos))
-      const signature = getBytes(b, pos)
-      if (pos.i + 33 > b.length) throw new CodecError('truncated admission signerKey')
-      const signerKey = bytesToHex(b.slice(pos.i, pos.i + 33))
-      pos.i += 33
-      admissions.push({ txid, outputsToAdmit, signature, signerKey })
-    }
-    token = { assetId, overlayUrl, overlayIdentityKey, certificates, linkage, admissions }
+    token = { assetId, amount, senderMode, ...checkEvidence(parsed), certificates }
   }
   const note = getStr(b, pos)
   const transaction = getBytes(b, pos)

@@ -146,7 +146,6 @@ export * from './offline/hold'
 export * from './offline/order'
 export * from './offline/plan'
 export * from './offline/payerHold'
-export * from './offline/tokenFrames'
 export {
   cancelParkedPayment,
   chainAlreadyKnows,
@@ -156,79 +155,98 @@ export {
   type CancelParkedSettlementDeps
 } from './offline/cancelParked'
 
-// Mandala token settlement — the four evidence tables, and the
-// submit-before-broadcast drain over them.
+// 1Color transfers — the journal types, the `color_transfers` journal (the
+// one key for the broadcast hold and the abort refusal), and the one-time
+// migration off the Mandala settlement tables.
 export * from './mandala/types'
-export { createSettlementStore, type SettlementDb, type SqlSettlementStore } from './mandala/settlementStore'
+export {
+  createTransferJournal,
+  migrateMandalaToColor,
+  COLOR_MIGRATION_MARKER,
+  type JournalDb,
+  type TransferJournal
+} from './mandala/transferJournal'
 // Guard #4: an abortAction may not release the inputs of a token payment the
 // overlay already has (the 2026-09-15 incident).
 export {
   abortIsBlockedBy,
   wrapAbortActionForSettlements,
-  ABORT_BLOCKED_SETTLEMENT_STATES,
+  ABORT_BLOCKED_TRANSFER_STATES,
   type AbortableManager,
-  type SettlementStoreLookup
+  type TransferJournalLookup,
+  type TokenSettlementPossible
 } from './mandala/abortGuard'
-export {
-  deriveTokenEdges,
-  isRetriableInternalizeFailure,
-  listStuckSettlements,
-  populateEvidenceFromFrame,
-  postTokenStep,
-  reconcileSettlements,
-  NON_TERMINAL_SETTLEMENT_STATES,
-  TERMINAL_SETTLEMENT_STATES,
-  type EvidenceFrame,
-  type EvidencePopulated,
-  type EvidenceTokenBlock,
-  type EvidenceTrustAnchor,
-  type TokenFrameSource,
-  type TokenStepDeps
-} from './mandala/drain'
 // The runtime the UI consumes: its pure interface, and its one construction
 // site. `useMandala()` reads `useWallet().mandala`; nothing above this line in
 // an app may import `@bsv/mandala` itself.
 export type {
   MandalaRuntime,
+  NearbyTokenDeps,
   TokenActivityRow,
   TokenActivityStatus,
   TokenAssetInfo,
+  TokenAssetStatus,
   TokenBalance,
-  TokenSendResult
+  TokenHoldingsReview,
+  TokenSendResult,
+  TokenSettleState
 } from './mandala/runtime'
+export {
+  createAssetMetadata,
+  offlineUnitsOf,
+  readAvailable,
+  readInventory,
+  readPending,
+  shortAssetId,
+  type InventoryRecord
+} from './mandala/assets'
 export {
   activityStatusOf,
   bindOriginator,
   createMandalaKvStorage,
   createMandalaRuntime,
-  verdictFromError,
   type CreateMandalaRuntimeArgs,
   type MandalaKvStorage,
   type MandalaMessageBox
 } from './mandala/createRuntime'
+// The BRC-207 color module as WalletContext registers it
+// (`permissionModules.color`): the module with the Mandala issuer-v1 profile
+// and the host ledger it credits from (B7), its `ColorModuleStore` over
+// `key_value_store`, and the host consent policy. A host that builds its own
+// permissions manager needs all of them to give `createMandalaRuntime` a
+// module, a provider and a ledger.
+export { buildColorModule, type BuildColorModuleArgs, type BuiltColorModule } from './mandala/colorModule'
+export { createColorModuleStore, type WalletKv } from './mandala/kvStore'
 export {
-  assembleBundle,
-  coverFromFrame,
-  tokenParentsOf,
-  type AdmissionBundle,
-  type BundleStore,
-  type CoverBundle,
-  type CoverTip,
-  type CoverVerifier
-} from './mandala/bundle'
+  createColorAccessPolicy,
+  colorPromptType,
+  COLOR_PROMPT_TYPES,
+  type ColorAccessPolicyOptions,
+  type ColorPromptType
+} from './mandala/accessPolicy'
+// A nearby token frame as the v4 hand-over body (B7, IC §7.3), and how a
+// failed receipt is classified.
+export {
+  bodyFromFrame,
+  isRetriableReceiptFailure,
+  isTransportReceiptFailure,
+  receiptFailureCode,
+  tokenPaymentOfHandover
+} from './mandala/receipt'
+export { createHandoverBodies, handoverBodyKey, type HandoverBodies } from './mandala/handle'
 
 // Contacts
 export { mergeContactCache, type ContactCache } from './contacts/contactCache'
 
 // Local SQLite storage layer
 export { StorageExpoSQLite } from './storage/StorageExpoSQLite'
-export type { StorageExpoSQLiteOptions, TokenTransactionRepair } from './storage/StorageExpoSQLite'
-export { createTables, ensureOfflineActionsColumns, ensureTokenSettlementColumns } from './storage/schema/createTables'
+export type { StorageExpoSQLiteOptions } from './storage/StorageExpoSQLite'
+export { createTables, ensureOfflineActionsColumns } from './storage/schema/createTables'
 export { findOfflineActions, findOfflineActionByTxid, updateOfflineAction } from './storage/methods/offlineActions'
 export type { OfflineActionRow, OfflineActionStatus, BindValue } from './storage/methods/offlineActions'
 export { readWalletBalance } from './storage/methods/walletBalanceSql'
-export { processOfflineActions, type OfflineTokenDeps } from './storage/methods/processOfflineActions'
-export { createMandalaSettlementTables } from './storage/schema/createTables'
+export { processOfflineActions } from './storage/methods/processOfflineActions'
+export { colorHeldTxids, txHasColorOutput } from './mandala/colorGuard'
 export * from './storage/skipQueuedAncestors'
 export { prepareSqliteImageForDeserialize } from './storage/dbImage'
 

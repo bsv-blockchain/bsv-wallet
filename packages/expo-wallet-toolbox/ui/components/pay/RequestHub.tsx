@@ -15,6 +15,7 @@ import PayCellRow from './PayCellRow'
 import { ConsequenceNote, PayAmountField, PayField } from './PayForm'
 import { spacing } from '@bsv/expo-wallet-toolbox'
 import type { TokenAssetStatus, TokenBalance } from '../../../core/mandala/runtime'
+import { tokenUnitsFromField } from '../../tokenFormat'
 
 export type RequestMethod = 'get-nearby' | 'get-handle' | 'get-address'
 
@@ -53,6 +54,15 @@ export interface RequestHubProps {
 export function requestSatsFrom(text: string): number | undefined {
   const n = Math.round(Number(text))
   return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+/**
+ * Exact token units from the hub's raw field in token mode, or undefined for
+ * an open request. The field emits whole units as plain digits; anything else
+ * is not a figure, and nothing is rounded into one or passed through a number.
+ */
+export function requestUnitsFrom(text: string): bigint | undefined {
+  return tokenUnitsFromField(text)
 }
 
 export default function RequestHub({
