@@ -58,7 +58,8 @@ describe('triggerHandoff', () => {
     const out = await stageInvoke(s.deps, { frame, binding, invokeId, method: 'createAction', params: { secret: 'x' } })
     await triggerHandoff(hand, 1)
     const url = s.browser.tabs.updates[0].url as string
-    expect(url).toMatch(new RegExp(`^${SCHEME.replace(/\./g, '\\.')}://bridge\\?v=1&n=[0-9a-f]{16}$`))
+    const scheme = SCHEME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    expect(url).toMatch(new RegExp(`^${scheme}://bridge\\?v=1&n=[0-9a-f]{16}$`))
     if (out.kind === 'staged') expect(url).not.toContain(out.recordId)
     expect(url).not.toContain(invokeId)
     expect(url).not.toContain('app.example')
