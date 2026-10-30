@@ -16,18 +16,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      # pnpm version comes from `packageManager` in package.json.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: '24.22.1'
-          cache: 'npm'
+          cache: 'pnpm'
 
       - name: Verify patched Node and native primitives
         run: |
           node -e 'const a=require("node:assert/strict"),z=require("node:zlib"),c=require("node:crypto");a.equal(process.versions.node,"24.22.1");const b=Buffer.from("wallet build runtime");a.deepEqual(z.brotliDecompressSync(z.brotliCompressSync(b)),b);a.equal(c.randomBytes(32).length,32)'
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Setup Expo and EAS
         uses: expo/expo-github-action@v8
