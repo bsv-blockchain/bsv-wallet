@@ -152,7 +152,9 @@ describe('Android demo page', () => {
 
   it('conformance panel mounts on #demo-root and Run all safe skips spending cards', async () => {
     const html = fs.readFileSync(path.join(KIT, 'demo', 'index.html'), 'utf8')
-    document.documentElement.innerHTML = html.replace(/<script[\s\S]*?<\/script>/g, '')
+    const parsed = new DOMParser().parseFromString(html, 'text/html')
+    parsed.querySelectorAll('script').forEach(s => s.remove())
+    document.documentElement.innerHTML = parsed.documentElement.innerHTML
     expect(document.getElementById('demo-root')).not.toBeNull()
     expect(document.getElementById('conformance')).not.toBeNull()
     for (const b of BUTTONS) expect(document.getElementById(b)).not.toBeNull()
