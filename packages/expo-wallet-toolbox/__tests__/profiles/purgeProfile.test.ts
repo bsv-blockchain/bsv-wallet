@@ -189,3 +189,19 @@ describe('against the real ARC token store', () => {
     expect(secureStoreFake.__get(arcApiTokenStorageKey('main'))).toBe('p0-token')
   })
 })
+
+describe('purgeProfile and the browser bridge', () => {
+  it("removes a removed profile's connected sites and permission policy, and no other profile's", async () => {
+    const { profileScopedKey } = jest.requireActual('../../core/profiles/profileStore') as {
+      profileScopedKey: (base: string, index: number) => string
+    }
+    const { io, stored } = fakeIo([
+      `bsv-bridge-sites:${profileScopedKey('', 2)}`,
+      `bsv-bridge-permission-policy:${profileScopedKey('', 2)}`,
+      `bsv-bridge-sites:${profileScopedKey('', 20)}`,
+      `bsv-bridge-sites:${profileScopedKey('', 0)}`
+    ])
+    await purgeProfile({ index: 2, identityKey: IDENTITY }, io)
+    expect([...stored].sort()).toEqual(['bsv-bridge-sites:', 'bsv-bridge-sites:__p20'])
+  })
+})

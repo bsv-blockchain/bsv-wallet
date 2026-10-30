@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Browser bridge core
+
+- **Transport-agnostic BRC-185 bridge engine** (`core/bridge`): origin rule, site consent with
+  reconnect tokens and a fresh grant tag per approval, a separate permissions manager for
+  unverified origins, bindings, the 28-method dispatcher, a durable inbox contract and host
+  wiring through `BrowserBridgeProvider`. No transport ships yet.
+- **Conformance report.** `buildConformanceReport()` returns a versioned JSON listing the 28
+  methods, the bridge's refusals and the recorded deviations from BRC-185 / BRC-219; a snapshot
+  test keeps it deliberate.
+
 ### Wallet data export
 
 - **Encrypted export.** `exportAllWalletDatabases(storage, { encrypt: true, wallet, originator })`
@@ -18,6 +28,7 @@
   "Export Wallet Data (unencrypted)" row. `useExportWalletData().exportData({ encrypt })`
   defaults to `true`.
 - New core exports: `encryptDbImage`, `decryptDbImage`, `isEncryptedDbImage`, `EncryptedDbError`.
+
 ## 0.22.0
 
 1Color / BRC-207 tokens through `@bsv/color-permission-module`. There is no

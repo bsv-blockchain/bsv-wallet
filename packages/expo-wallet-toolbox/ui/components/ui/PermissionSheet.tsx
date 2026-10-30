@@ -1,11 +1,21 @@
-import React, { useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native'
+import React, { useContext, useState, useCallback, useMemo, useEffect, useRef, useSyncExternalStore } from 'react'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native'
 import type { WalletPermissionsManager } from '@bsv/wallet-toolbox-mobile'
+import type { SigningPolicyPermissionsManager } from '../../../core/services/signingPermissionPolicy'
 import Sheet from './Sheet'
 import PressableScale from './PressableScale'
 import { useTranslation } from 'react-i18next'
 import AmountDisplay from '../wallet/AmountDisplay'
 import { describeProtocolPrompt } from './protocolPrompt'
+import type { PendingConsent } from '../../../core/bridge/consent'
+import {
+  answerConnection,
+  connectionFlags,
+  getPendingConnections,
+  subscribeConsentRequests
+} from '../../../core/bridge/consentSheetSource'
+import { SEEK_FLAG_DISCLOSURE, SEEK_FLAG_KEYS, type SeekFlags } from '../../../core/bridge/permissionPolicy'
+import { hostnameOfUnattested, isUnattestedOriginator } from '../../../core/bridge/unverifiedOriginator'
 import { describeColorRequest, type ColorPromptType } from './colorPrompt'
 import {
   spacing,
@@ -23,6 +33,22 @@ import {
 // Dev preview — set to true to keep the BTMS spend sheet visible for design work
 // ---------------------------------------------------------------------------
 const DEV_BTMS_PREVIEW = false
+
+/** How long Authorize stays inert when a connection or unverified prompt reaches the head (spec 6.4). */
+const managerTokens = new WeakMap<object, number>()
+let managerTokenCount = 0
+/** A stable small number per manager object, '-' for a prompt that has none. */
+function managerToken(manager: unknown): string {
+  if (manager === null || typeof manager !== 'object') return '-'
+  let n = managerTokens.get(manager)
+  if (n === undefined) {
+    n = ++managerTokenCount
+    managerTokens.set(manager, n)
+  }
+  return String(n)
+}
+
+const TAP_PROTECTION_MS = 700
 
 // ---------------------------------------------------------------------------
 // @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -45,7 +71,7 @@ function loadIonicons(): IoniconsComponent {
 // Types
 // ---------------------------------------------------------------------------
 
-type PermissionKind = 'protocol' | 'basket' | 'certificate' | 'spending' | 'group' | 'btms' | 'mandala'
+type PermissionKind = 'protocol' | 'basket' | 'certificate' | 'spending' | 'group' | 'btms' | 'mandala' | 'connection'
 
 interface GroupProtocol {
   protocolID: [number, string]
@@ -79,6 +105,8 @@ type GrantedGroupPermissions = Parameters<WalletPermissionsManager['grantGrouped
 export interface ActivePermission {
   kind: PermissionKind
   requestID: string
+  /** The manager that raised the request: the one the answer goes to. */
+  manager?: SigningPolicyPermissionsManager
   originator: string
   title: string
   description: string
@@ -101,6 +129,23 @@ export interface ActivePermission {
    * unaffected; only the Allow control reads this.
    */
   approvalBlocked?: boolean
+  /**
+   * The prompt came from a website the wallet could not verify (spec 6.5). `originator` then holds
+   * the plain hostname, with the `.<grantTag>.unverified.invalid` suffix already stripped.
+   */
+  unverified?: boolean
+  /** Text the website supplied about itself (a manifest). Shown quoted, after the wallet's own words. */
+  siteSays?: string
+  /** `connection` only: what the sheet tells the user connecting allows (spec 6.4). */
+  connection?: {
+    transportId: string
+    connectedBefore: boolean
+    /** i18n keys, in `SEEK_FLAG_KEYS` order. */
+    allows: string[]
+    asksFirst: string[]
+    /** i18n key of the payments line, absent when the payment flag is off and listed under `allows`. */
+    payments?: string
+  }
 }
 
 /** Always-visible copy for each color consent type, completing "<app> …". */
@@ -125,6 +170,61 @@ const NO_COLOR_DEPS: ColorPromptDeps = { t: key => key, assetInfo: () => undefin
 // ---------------------------------------------------------------------------
 
 /**
+ * The originator a prompt shows. An unverified site reaches the wallet as
+ * `<hostname>.<grantTag>.unverified.invalid`; the user sees the hostname and the badge, never the suffix.
+ */
+function presentOriginator(raw: string): { originator: string; unverified: boolean } {
+  return isUnattestedOriginator(raw)
+    ? { originator: hostnameOfUnattested(raw), unverified: true }
+    : { originator: raw, unverified: false }
+}
+
+/**
+ * What a site said about itself, kept apart from the wallet's own wording for an unverified site.
+ * A verified site's text keeps the old inline treatment.
+ */
+function siteWords(
+  unverified: boolean,
+  text: string | undefined,
+  own: string
+): { description: string; siteSays?: string } {
+  if (!unverified) return { description: text || own }
+  return { description: own, siteSays: text || undefined }
+}
+
+/** Builds the `connection` prompt from a pending consent request and the flags that apply to it. */
+function deriveConnection(c: PendingConsent, flags: SeekFlags): ActivePermission {
+  const unverified = c.attestation === 'unattested'
+  const allows: string[] = []
+  const asksFirst: string[] = []
+  for (const key of SEEK_FLAG_KEYS) {
+    // Payments have their own line below; only a payment flag that is off needs listing.
+    if (key === 'seekSpendingPermissions' && flags[key]) continue
+    ;(flags[key] ? asksFirst : allows).push(SEEK_FLAG_DISCLOSURE[key][flags[key] ? 'on' : 'off'])
+  }
+  return {
+    kind: 'connection',
+    requestID: c.requestId,
+    originator: c.origin,
+    unverified,
+    title: 'Connect Website',
+    description: 'wants to connect to your wallet',
+    details: [],
+    connection: {
+      transportId: c.transportId,
+      connectedBefore: c.connectedBefore,
+      allows,
+      asksFirst,
+      payments: flags.seekSpendingPermissions
+        ? unverified
+          ? 'bridge_payments_unverified'
+          : 'bridge_payments_verified'
+        : undefined
+    }
+  }
+}
+
+/**
  * Derive the human-friendly "what is being asked" description for each
  * permission type. Technical specifics go into the expandable Details section.
  */
@@ -137,6 +237,9 @@ export function deriveActive(
     certificateRequests: any[]
     spendingRequests: any[]
     groupRequests?: any[]
+    /** Pending site-connection requests, with the flags that describe each one. */
+    connectionRequests?: PendingConsent[]
+    connectionFlags?: (attestation: PendingConsent['attestation']) => SeekFlags
     btmsRequests: any[]
     mandalaRequests: any[]
     protocolAccessModalOpen: boolean
@@ -181,26 +284,38 @@ export function deriveActive(
         ...formatSats(item.satoshis)
       })
     )
+    const who = presentOriginator(r.originator || 'Unknown app')
     return {
       kind: 'spending',
       requestID: r.requestID,
-      originator: r.originator || 'Unknown app',
+      manager: r.manager,
+      originator: who.originator,
+      unverified: who.unverified,
       title: 'Spending Authorization',
-      description: r.description || 'wants to spend from your wallet',
+      ...siteWords(who.unverified, r.description, 'wants to spend from your wallet'),
       amount: r.authorizationAmount,
       renewal: r.renewal,
       details: lineItemDetails
     }
   }
 
+  // A website asking to connect. Core-owned, so it is not one of the manager queues above.
+  if (ctx.connectionRequests && ctx.connectionRequests.length > 0 && ctx.connectionFlags) {
+    const c = ctx.connectionRequests[0]
+    return deriveConnection(c, ctx.connectionFlags(c.attestation))
+  }
+
   // A site's grouped request (its manifest's metanet.groupPermissions) is the
   // whole set it will use, asked once when it connects.
   if (ctx.groupRequests && ctx.groupRequests.length > 0) {
     const r = ctx.groupRequests[0]
+    const who = presentOriginator(r.originator)
     return {
       kind: 'group',
       requestID: r.requestID,
-      originator: r.originator,
+      manager: r.manager,
+      originator: who.originator,
+      unverified: who.unverified,
       title: 'Permissions',
       description: 'wants these permissions',
       details: [],
@@ -218,12 +333,15 @@ export function deriveActive(
     if (certType) details.push({ label: 'Certificate type', value: certType })
     if (verifier) details.push({ label: 'Verifier', value: truncate(verifier, 20) })
 
+    const who = presentOriginator(r.originator || 'Unknown app')
     return {
       kind: 'certificate',
       requestID: r.requestID,
-      originator: r.originator || 'Unknown app',
+      manager: r.manager,
+      originator: who.originator,
+      unverified: who.unverified,
       title: r.renewal ? 'Certificate Access Renewal' : 'Certificate Access',
-      description: r.description || 'wants to access certificate information',
+      ...siteWords(who.unverified, r.description, 'wants to access certificate information'),
       renewal: r.renewal,
       fields: fieldsArray.length > 0 ? fieldsArray : undefined,
       details
@@ -240,12 +358,18 @@ export function deriveActive(
     if (prompt.counterpartyLabel) details.push({ label: 'Shared with', value: prompt.counterpartyLabel })
     if (prompt.keyIDLabel) details.push({ label: 'Key ID', value: truncate(prompt.keyIDLabel, 40) })
     if (prompt.askEveryTime) details.push({ label: 'Approval', value: 'This signature only' })
+    const who = presentOriginator(r.originator || 'Unknown app')
     return {
       kind: 'protocol',
       requestID: r.requestID,
-      originator: r.originator || 'Unknown app',
+      manager: r.manager,
+      originator: who.originator,
+      unverified: who.unverified,
       title: r.renewal ? `${prompt.title} Renewal` : prompt.title,
-      description: prompt.description ?? (r.description || 'wants to use a cryptographic protocol'),
+      // The wallet's own wording for a known protocol; otherwise whatever the site said.
+      ...(prompt.description !== undefined
+        ? { description: prompt.description, siteSays: who.unverified ? r.description || undefined : undefined }
+        : siteWords(who.unverified, r.description, 'wants to use a cryptographic protocol')),
       renewal: r.renewal,
       details
     }
@@ -253,12 +377,15 @@ export function deriveActive(
 
   if (ctx.basketAccessModalOpen && ctx.basketRequests.length > 0) {
     const r = ctx.basketRequests[0]
+    const who = presentOriginator(r.originator || 'Unknown app')
     return {
       kind: 'basket',
       requestID: r.requestID,
-      originator: r.originator || 'Unknown app',
+      manager: r.manager,
+      originator: who.originator,
+      unverified: who.unverified,
       title: r.renewal ? 'Basket Access Renewal' : 'Basket Access',
-      description: r.reason || 'wants to access a transaction basket',
+      ...siteWords(who.unverified, r.reason, 'wants to access a transaction basket'),
       renewal: r.renewal,
       details: r.basket ? [{ label: 'Basket', value: r.basket }] : []
     }
@@ -306,7 +433,7 @@ export function deriveActive(
       kind: 'btms',
       // btms requests are resolved via advanceBtmsQueue, not permissionsManager — use a sentinel requestID
       requestID: '',
-      originator: r.originator || 'Unknown app',
+      ...presentOriginator(r.originator || 'Unknown app'),
       title: 'Token Spend Request',
       description,
       details
@@ -323,7 +450,7 @@ export function deriveActive(
       return {
         kind: 'mandala',
         requestID: '',
-        originator: r.originator || 'Unknown app',
+        ...presentOriginator(r.originator || 'Unknown app'),
         title: 'Token Request',
         description: 'wants to use your tokens, but this request could not be read — deny it.',
         details: [],
@@ -336,7 +463,7 @@ export function deriveActive(
       kind: 'mandala',
       // mandala requests are resolved via advanceMandalaQueue, not permissionsManager — use a sentinel requestID
       requestID: '',
-      originator: r.originator || 'Unknown app',
+      ...presentOriginator(r.originator || 'Unknown app'),
       title: view.title,
       description,
       details: view.lines,
@@ -345,6 +472,11 @@ export function deriveActive(
   }
 
   return null
+}
+
+/** The browser named on a verified connection. Only Safari attests today; anything else is generic. */
+function browserName(transportId: string, t: (key: string) => string): string {
+  return /^safari/i.test(transportId) ? 'Safari' : t('bridge_browser_generic')
 }
 
 function truncate(str: string, max: number): string {
@@ -378,7 +510,6 @@ const PermissionSheet: React.FC = () => {
     advanceGroupQueue,
     advanceBtmsQueue,
     advanceMandalaQueue,
-    managers,
     settings,
     mandala
   } = useContext(WalletContext)
@@ -434,12 +565,38 @@ const PermissionSheet: React.FC = () => {
     setSpendingAuthorizationModalOpen
   } = useContext(UserContext)
 
+  const connectionRequests = useSyncExternalStore(
+    subscribeConsentRequests,
+    getPendingConnections,
+    getPendingConnections
+  )
+
   const [detailsExpanded, setDetailsExpanded] = useState(false)
   const [granted, setGranted] = useState(false)
   const grantTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Stores the executeGrant closure that is scheduled but not yet fired, so it
   // can be flushed synchronously if a higher-priority request preempts.
   const pendingGrantRef = useRef<(() => void) | null>(null)
+
+  // Whether the request a pending answer was meant for is still in its queue.
+  // A withdrawal (profile switch, logout) empties the queues, and the new
+  // wallet's manager can then raise a request with the very same ID, so a
+  // request is the same one only if it also came from the same manager.
+  const queuesRef = useRef({ protocolRequests, basketRequests, certificateRequests, spendingRequests, groupRequests })
+  queuesRef.current = { protocolRequests, basketRequests, certificateRequests, spendingRequests, groupRequests }
+  const stillQueued = useCallback((request: ActivePermission): boolean => {
+    // Connection requests live in the consent store; ids there are never reused.
+    if (request.kind === 'connection') return getPendingConnections().some(c => c.requestId === request.requestID)
+    const q = queuesRef.current
+    const list: any[] | undefined = {
+      protocol: q.protocolRequests,
+      basket: q.basketRequests,
+      certificate: q.certificateRequests,
+      spending: q.spendingRequests,
+      group: q.groupRequests
+    }[request.kind as 'protocol' | 'basket' | 'certificate' | 'spending' | 'group']
+    return !!list?.some(r => r.requestID === request.requestID && r.manager === request.manager)
+  }, [])
 
   // Clear the pending grant timer (or flush it) on unmount to prevent stale handler calls.
   useEffect(() => {
@@ -465,6 +622,8 @@ const PermissionSheet: React.FC = () => {
           certificateRequests,
           spendingRequests,
           groupRequests,
+          connectionRequests,
+          connectionFlags,
           btmsRequests,
           mandalaRequests,
           protocolAccessModalOpen,
@@ -481,6 +640,7 @@ const PermissionSheet: React.FC = () => {
       certificateRequests,
       spendingRequests,
       groupRequests,
+      connectionRequests,
       btmsRequests,
       mandalaRequests,
       protocolAccessModalOpen,
@@ -493,6 +653,8 @@ const PermissionSheet: React.FC = () => {
   )
 
   const visible = active !== null
+  // A manifest's own words for an unverified site are shown as the site's quote (spec 6.5).
+  const quoted = (text: string) => (active?.unverified ? `\u201C${text}\u201D` : text)
 
   // Figure and unit are set at different sizes, so they have to be formatted
   // apart — same treatment as the wallet balance.
@@ -521,12 +683,35 @@ const PermissionSheet: React.FC = () => {
     setGranted(false)
   }, [activeRequestID])
 
+  // Tap protection (spec 6.4): a connection or unverified prompt cannot be approved for the first
+  // 700 ms it is at the head of the queue, so a tap aimed at the previous sheet cannot land on it.
+  // Keyed on the head's identity, so a request queueing behind it does not restart the window.
+  const needsTapDelay = active !== null && (active.kind === 'connection' || active.unverified === true)
+  // The manager is part of the identity: a replacement manager restarts its request counters, so a
+  // re-raised prompt can repeat the kind, id, originator and description of the one before it.
+  const headKey = active
+    ? `${active.kind}|${managerToken(active.manager)}|${active.requestID}|${active.originator}|${active.description}`
+    : ''
+  const [armedKey, setArmedKey] = useState('')
+  useEffect(() => {
+    // A new head, or none, is never armed from an earlier head's window.
+    setArmedKey('')
+    if (!needsTapDelay) return
+    const timer = setTimeout(() => setArmedKey(headKey), TAP_PROTECTION_MS)
+    return () => clearTimeout(timer)
+  }, [needsTapDelay, headKey])
+  const tapLocked = needsTapDelay && armedKey !== headKey
+
   // ---- Deny ----
   const handleDeny = useCallback(async () => {
     if (granted) return
     if (!active) return
     haptics.warning()
-    if (active.kind === 'btms') {
+    if (active.kind === 'connection') {
+      await answerConnection(active.requestID, false).catch((e: unknown) =>
+        console.warn('[bridge] connection decline failed', e)
+      )
+    } else if (active.kind === 'btms') {
       // BTMS uses its own promise-based resolution — no permissionsManager.denyPermission
       advanceBtmsQueue(false)
     } else if (active.kind === 'mandala') {
@@ -537,41 +722,45 @@ const PermissionSheet: React.FC = () => {
       // then asked for on its own when used. A hard deny would make the
       // site's waitForAuthentication throw.
       try {
-        await managers.permissionsManager?.dismissGroupedPermission(active.requestID)
+        await active.manager?.dismissGroupedPermission(active.requestID)
       } catch {
         // Already settled (e.g. the site went away) -- nothing left to answer.
       }
-      advanceGroupQueue()
+      if (stillQueued(active)) advanceGroupQueue(active.requestID)
     } else {
       try {
-        await managers.permissionsManager?.denyPermission(active.requestID)
+        await active.manager?.denyPermission(active.requestID)
       } catch {
         // User denial is expected -- not an error condition
       }
-      switch (active.kind) {
-        case 'protocol':
-          advanceProtocolQueue()
-          setProtocolAccessModalOpen(false)
-          break
-        case 'basket':
-          advanceBasketQueue()
-          setBasketAccessModalOpen(false)
-          break
-        case 'certificate':
-          advanceCertificateQueue()
-          setCertificateAccessModalOpen(false)
-          break
-        case 'spending':
-          advanceSpendingQueue()
-          setSpendingAuthorizationModalOpen(false)
-          break
+      // The answer went to the manager that raised the request; the queue
+      // loses it only if it is still the same one (see stillQueued).
+      if (stillQueued(active)) {
+        switch (active.kind) {
+          case 'protocol':
+            advanceProtocolQueue(active.requestID)
+            setProtocolAccessModalOpen(false)
+            break
+          case 'basket':
+            advanceBasketQueue(active.requestID)
+            setBasketAccessModalOpen(false)
+            break
+          case 'certificate':
+            advanceCertificateQueue(active.requestID)
+            setCertificateAccessModalOpen(false)
+            break
+          case 'spending':
+            advanceSpendingQueue(active.requestID)
+            setSpendingAuthorizationModalOpen(false)
+            break
+        }
       }
     }
     setDetailsExpanded(false)
   }, [
     granted,
     active,
-    managers.permissionsManager,
+    stillQueued,
     advanceProtocolQueue,
     advanceBasketQueue,
     advanceCertificateQueue,
@@ -595,45 +784,58 @@ const PermissionSheet: React.FC = () => {
       // Clear the pending ref so flush-on-preempt guards don't double-fire.
       pendingGrantRef.current = null
 
-      if (request.kind === 'btms') {
+      if (request.kind === 'connection') {
+        // The store drops the answer if the request is gone or the wallet has changed.
+        answerConnection(request.requestID, true).catch((e: unknown) =>
+          console.warn('[bridge] connection approval failed', e)
+        )
+      } else if (request.kind === 'btms') {
         advanceBtmsQueue(true)
       } else if (request.kind === 'mandala') {
         advanceMandalaQueue(true)
+      } else if (!stillQueued(request)) {
+        // Withdrawn while the checkmark showed (a profile switch or logout
+        // emptied the queue): the manager that raised it is gone and what is
+        // queued now is not this request. Answer nothing, drop nothing.
       } else if (request.kind === 'group') {
         // Grants exactly the set shown. The manager mints the permission
         // tokens, then resolves the site's waitForAuthentication; if minting
         // fails it rejects that call itself.
-        managers.permissionsManager
+        request.manager
           ?.grantGroupedPermission({
             requestID: request.requestID,
             // The manager's own request object, passed back unchanged.
             granted: (request.groupPermissions ?? {}) as GrantedGroupPermissions
           })
           .catch((error: unknown) => console.warn('[permissions] grouped grant failed', error))
-        advanceGroupQueue()
+        advanceGroupQueue(request.requestID)
       } else if (request.kind === 'spending') {
-        managers.permissionsManager?.grantPermission({
-          requestID: request.requestID,
-          ephemeral: true,
-          amount: request.amount
-        })
-        advanceSpendingQueue()
+        request.manager
+          ?.grantPermission({
+            requestID: request.requestID,
+            ephemeral: true,
+            amount: request.amount
+          })
+          .catch((error: unknown) => console.warn('[permissions] grant failed', error))
+        advanceSpendingQueue(request.requestID)
         setSpendingAuthorizationModalOpen(false)
       } else {
-        managers.permissionsManager?.grantPermission({
-          requestID: request.requestID
-        })
+        request.manager
+          ?.grantPermission({
+            requestID: request.requestID
+          })
+          .catch((error: unknown) => console.warn('[permissions] grant failed', error))
         switch (request.kind) {
           case 'protocol':
-            advanceProtocolQueue()
+            advanceProtocolQueue(request.requestID)
             setProtocolAccessModalOpen(false)
             break
           case 'basket':
-            advanceBasketQueue()
+            advanceBasketQueue(request.requestID)
             setBasketAccessModalOpen(false)
             break
           case 'certificate':
-            advanceCertificateQueue()
+            advanceCertificateQueue(request.requestID)
             setCertificateAccessModalOpen(false)
             break
         }
@@ -644,7 +846,7 @@ const PermissionSheet: React.FC = () => {
       setGranted(false)
     },
     [
-      managers.permissionsManager,
+      stillQueued,
       advanceProtocolQueue,
       advanceBasketQueue,
       advanceCertificateQueue,
@@ -663,7 +865,7 @@ const PermissionSheet: React.FC = () => {
     // XR-040: belt-and-braces alongside the Allow button's own `disabled` —
     // a token consent message this sheet could not read in full must never
     // be approvable, from any call path.
-    if (!active || granted || active.approvalBlocked) return
+    if (!active || granted || active.approvalBlocked || tapLocked) return
     haptics.success()
     setGranted(true)
     if (grantTimerRef.current !== null) {
@@ -677,7 +879,7 @@ const PermissionSheet: React.FC = () => {
       grantTimerRef.current = null
       pendingFn()
     }, 400)
-  }, [active, granted, executeGrant])
+  }, [active, granted, tapLocked, executeGrant])
 
   return (
     <Sheet visible={visible} onClose={handleDeny} heightPercent={0.92} fitContent>
@@ -696,16 +898,79 @@ const PermissionSheet: React.FC = () => {
                   {(active.originator[0] ?? '?').toUpperCase()}
                 </Text>
               </View>
-              <Text style={[styles.originator, { color: colors.textPrimary }]} numberOfLines={1}>
-                {active.originator}
-              </Text>
+              <View style={styles.originatorText}>
+                <Text
+                  style={[
+                    styles.originator,
+                    active.unverified || active.kind === 'connection' ? styles.originatorMono : null,
+                    { color: colors.textPrimary }
+                  ]}
+                  numberOfLines={1}
+                >
+                  {active.originator}
+                </Text>
+                {active.kind === 'connection' && active.connection && !active.unverified && (
+                  <Text style={[styles.originatorSub, { color: colors.textSecondary }]} numberOfLines={1}>
+                    {t('bridge_verified_by', { browser: browserName(active.connection.transportId, t) })}
+                  </Text>
+                )}
+              </View>
+              {active.unverified && (
+                <View style={[styles.unverifiedBadge, { backgroundColor: colors.warning + '26' }]}>
+                  <Text style={[styles.unverifiedBadgeText, { color: colors.warning }]}>
+                    {t('bridge_badge_unverified')}
+                  </Text>
+                </View>
+              )}
             </View>
+            {active.unverified && (
+              <Text style={[styles.channelNote, { color: colors.textSecondary }]}>
+                {t('bridge_unverified_channel')}
+              </Text>
+            )}
 
             {/* -------- Renewal badge -------- */}
             {active.renewal && (
               <View style={[styles.renewalBadge, { backgroundColor: colors.accentSecondary + '1A' }]}>
                 <Text style={[styles.renewalText, { color: colors.accentSecondary }]}>{t('renewal')}</Text>
               </View>
+            )}
+
+            {/* -------- Site connection: what connecting allows, in the wallet's words -------- */}
+            {active.kind === 'connection' && active.connection && (
+              <ScrollView style={styles.groupScroll} bounces={false}>
+                <Text style={[styles.connectHeader, { color: colors.textSecondary }]}>{t('bridge_allows_header')}</Text>
+                {['bridge_allows_sign_in', ...active.connection.allows].map(key => (
+                  <Text key={key} style={[styles.connectItem, { color: colors.textPrimary }]}>
+                    {'\u2022'} {t(key)}
+                  </Text>
+                ))}
+                {active.connection.asksFirst.length > 0 && (
+                  <>
+                    <Text style={[styles.connectHeader, { color: colors.textSecondary }]}>
+                      {t('bridge_asks_header')}
+                    </Text>
+                    {active.connection.asksFirst.map(key => (
+                      <Text key={key} style={[styles.connectItem, { color: colors.textPrimary }]}>
+                        {'\u2022'} {t(key)}
+                      </Text>
+                    ))}
+                  </>
+                )}
+                {active.connection.payments && (
+                  <Text style={[styles.connectNote, { color: colors.textPrimary }]}>
+                    {t(active.connection.payments)}
+                  </Text>
+                )}
+                <Text style={[styles.connectNote, { color: colors.textSecondary }]}>
+                  {t(active.unverified ? 'bridge_remember_unverified' : 'bridge_remember_verified')}
+                </Text>
+                {active.unverified && active.connection.connectedBefore && (
+                  <Text style={[styles.connectNote, { color: colors.textPrimary }]}>
+                    {t('bridge_connected_before')}
+                  </Text>
+                )}
+              </ScrollView>
             )}
 
             {/* -------- Group permissions list -------- */}
@@ -722,7 +987,7 @@ const PermissionSheet: React.FC = () => {
                       </Text>
                       {active.groupPermissions.spendingAuthorization.description && (
                         <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>
-                          {active.groupPermissions.spendingAuthorization.description}
+                          {quoted(active.groupPermissions.spendingAuthorization.description)}
                         </Text>
                       )}
                     </View>
@@ -740,7 +1005,9 @@ const PermissionSheet: React.FC = () => {
                             {describeProtocolPrompt(p.protocolID[1], p.counterparty).protocolLabel}
                           </Text>
                           {p.description && (
-                            <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>{p.description}</Text>
+                            <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>
+                              {quoted(p.description)}
+                            </Text>
                           )}
                         </View>
                       ))}
@@ -755,7 +1022,9 @@ const PermissionSheet: React.FC = () => {
                       <View key={i} style={styles.groupRow}>
                         <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>{b.basket}</Text>
                         {b.description && (
-                          <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>{b.description}</Text>
+                          <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>
+                            {quoted(b.description)}
+                          </Text>
                         )}
                       </View>
                     ))}
@@ -770,7 +1039,9 @@ const PermissionSheet: React.FC = () => {
                       <View key={i} style={styles.groupRow}>
                         <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>{c.type}</Text>
                         {c.description && (
-                          <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>{c.description}</Text>
+                          <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>
+                            {quoted(c.description)}
+                          </Text>
                         )}
                         {c.fields && c.fields.length > 0 && (
                           <Text style={[styles.groupRowDesc, { color: colors.textTertiary }]}>
@@ -854,6 +1125,17 @@ const PermissionSheet: React.FC = () => {
             <View style={styles.askBlock}>
               <Text style={[styles.description, { color: colors.textSecondary }]}>{active.description}</Text>
 
+              {active.siteSays ? (
+                <View style={[styles.siteSays, { borderColor: colors.separator }]}>
+                  <Text style={[styles.siteSaysLabel, { color: colors.textTertiary }]}>{t('bridge_site_says')}</Text>
+                  <Text style={[styles.siteSaysText, { color: colors.textSecondary }]}>
+                    {'\u201C'}
+                    {active.siteSays}
+                    {'\u201D'}
+                  </Text>
+                </View>
+              ) : null}
+
               {active.kind === 'spending' && active.amount != null && (
                 <Text style={[styles.amountValue, { color: colors.textPrimary }]}>
                   {amountParts.value}
@@ -884,7 +1166,7 @@ const PermissionSheet: React.FC = () => {
             <PressableScale
               style={[styles.buttonAllow, { backgroundColor: colors.accent }]}
               onPress={handleGrant}
-              disabled={granted || active.approvalBlocked}
+              disabled={granted || active.approvalBlocked || tapLocked}
             >
               {granted ? (
                 <Ionicons name="checkmark" size={22} color={colors.textOnAccent} />
@@ -929,11 +1211,68 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700'
   },
+  originatorText: {
+    flex: 1
+  },
   originator: {
     fontSize: 15,
     fontWeight: '600',
-    letterSpacing: -0.1,
-    flex: 1
+    letterSpacing: -0.1
+  },
+  // The raw origin is the identity being asked about, so it is set in a face where lookalike
+  // characters stay distinct.
+  originatorMono: {
+    fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
+    fontSize: 14,
+    letterSpacing: 0
+  },
+  originatorSub: {
+    ...typography.caption1,
+    marginTop: 1
+  },
+  unverifiedBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.sm,
+    marginLeft: spacing.sm
+  },
+  unverifiedBadgeText: {
+    ...typography.caption1,
+    fontWeight: '700'
+  },
+  channelNote: {
+    ...typography.footnote,
+    marginBottom: spacing.md
+  },
+  connectHeader: {
+    ...typography.caption1,
+    fontWeight: '600',
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs
+  },
+  connectItem: {
+    ...typography.footnote,
+    marginLeft: spacing.sm,
+    marginTop: 2
+  },
+  connectNote: {
+    ...typography.footnote,
+    marginTop: spacing.md
+  },
+  siteSays: {
+    borderLeftWidth: 2,
+    paddingLeft: spacing.md,
+    marginTop: spacing.lg,
+    alignSelf: 'stretch'
+  },
+  siteSaysLabel: {
+    ...typography.caption1,
+    fontWeight: '600',
+    marginBottom: 2
+  },
+  siteSaysText: {
+    ...typography.footnote,
+    fontStyle: 'italic'
   },
 
   // Renewal badge

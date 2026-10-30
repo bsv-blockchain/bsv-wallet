@@ -92,7 +92,20 @@ interface ManagerInternals {
   firePermissionRequestEvent(request: ProtocolRequest, key: string): Promise<void>
   underlying: { verifySignature: WalletPermissionsManager['verifySignature'] }
   fetchManifestPermissions(originator: string): Promise<ManifestPermissions>
+  callEvent(eventName: string, param: unknown): Promise<void>
+  denyActiveRequest(requestID: string): void
 }
+
+/** The events that put a question to the user (all carry a `requestID`). A
+ * retired manager denies these instead of raising them. */
+const PROMPT_EVENTS = new Set([
+  'onProtocolPermissionRequested',
+  'onBasketAccessRequested',
+  'onCertificateAccessRequested',
+  'onSpendingAuthorizationRequested',
+  'onGroupedPermissionRequested',
+  'onCounterpartyPermissionRequested'
+])
 
 /** The parts of a site's manifest.json permissions the manager reads. */
 interface ManifestPermissions {
@@ -134,7 +147,10 @@ function withoutAskEveryTime(manifest: ManifestPermissions): ManifestPermissions
  *   cover is ever read back for them; a site's manifest never puts them in a
  *   grouped request; and one origin's createSignature calls under them run
  *   one at a time, so a burst of calls cannot ride on one approval;
- * - a non-privileged verifySignature is never prompted.
+ * - a non-privileged verifySignature is never prompted;
+ * - once retired (its wallet was replaced), it raises no prompt: every prompt
+ *   event is denied on the spot, so a call still parked inside it ends instead
+ *   of surfacing a sheet for a wallet that is gone.
  * Every other check runs unchanged.
  */
 export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
@@ -142,6 +158,8 @@ export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
   /** Key ID of the ask-every-time createSignature call each (normalized)
    * origin has in flight. The per-origin queue keeps it to one at a time. */
   private readonly keyIDInFlight = new Map<string, string>()
+  private retired = false
+  private readonly retireHooks: Array<() => void> = []
 
   constructor(...args: ConstructorParameters<typeof WalletPermissionsManager>) {
     super(...args)
@@ -177,6 +195,22 @@ export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
       }
       return await firePermissionRequestEvent(request, key)
     }
+    // Deny, never throw: a throw out of callEvent would leave the entry its
+    // caller registered unsettled (its waiter hangs, and a grouped one holds
+    // the per-originator lock). Denying settles the waiter and removes it.
+    const callEvent = internals.callEvent.bind(this)
+    internals.callEvent = async (eventName, param) => {
+      const requestID = (param as { requestID?: unknown } | null | undefined)?.requestID
+      if (this.retired && PROMPT_EVENTS.has(eventName) && typeof requestID === 'string') {
+        try {
+          internals.denyActiveRequest.call(this, requestID)
+        } catch {
+          // Already settled.
+        }
+        return
+      }
+      await callEvent(eventName, param)
+    }
     const fetchManifestPermissions = internals.fetchManifestPermissions.bind(this)
     internals.fetchManifestPermissions = async originator =>
       withoutAskEveryTime(await fetchManifestPermissions(originator))
@@ -184,6 +218,49 @@ export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
 
   private get internals(): ManagerInternals {
     return this as unknown as ManagerInternals
+  }
+
+  /**
+   * One-way: from here on this manager raises no prompt. Call it only on a
+   * manager that has been replaced, never on the one just published. `onRetire`
+   * hooks run in this same synchronous step.
+   */
+  retire(): void {
+    if (this.retired) return
+    this.retired = true
+    for (const hook of this.retireHooks.splice(0)) {
+      try {
+        hook()
+      } catch {
+        // A hook must not stop the others.
+      }
+    }
+  }
+
+  isRetired(): boolean {
+    return this.retired
+  }
+
+  /** Runs `hook` when this manager is retired (immediately if it already is). */
+  onRetire(hook: () => void): void {
+    if (this.retired) hook()
+    else this.retireHooks.push(hook)
+  }
+
+  /** Whether a prompt with this ID is still waiting for an answer. */
+  hasActiveRequest(requestID: string): boolean {
+    return this.internals.activeRequests.has(requestID)
+  }
+
+  /** Denies every request still waiting for an answer. Never throws. */
+  denyAllActiveRequests(): void {
+    for (const requestID of [...this.internals.activeRequests.keys()]) {
+      try {
+        this.internals.denyActiveRequest(requestID)
+      } catch {
+        // Already settled.
+      }
+    }
   }
 
   override async ensureProtocolPermission(args: EnsureProtocolPermissionArgs): Promise<boolean> {

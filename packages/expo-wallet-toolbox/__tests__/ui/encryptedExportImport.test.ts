@@ -254,7 +254,9 @@ describe('encrypted wallet database export/import', () => {
     expect(result).toMatchObject({ imported: true, keySuffix: 'deadbeef', chain: 'test' })
     const imported = new DatabaseSync(path.join(mockRoot.dir, 'SQLite', result.filename!))
     expect(imported.prepare('SELECT storageIdentityKey FROM settings').get()).toEqual({ storageIdentityKey: IDENTITY })
-    expect(imported.prepare('SELECT COUNT(*) AS n FROM key_value_store').get()).toEqual({ n: 300 })
+    // The 300 seeded rows, plus the marker the 1Color migration writes when the import opens the file.
+    expect(imported.prepare("SELECT COUNT(*) AS n FROM key_value_store WHERE key LIKE 'k%'").get()).toEqual({ n: 300 })
+    expect(imported.prepare('SELECT COUNT(*) AS n FROM key_value_store').get()).toEqual({ n: 301 })
     imported.close()
     expect(fs.existsSync(path.join(mockRoot.dir, 'cache', 'bsv-wallet-import'))).toBe(false)
     expect(fs.existsSync(pickedPath)).toBe(false)
