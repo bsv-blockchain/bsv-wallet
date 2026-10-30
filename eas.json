@@ -26,7 +26,8 @@
         "EXPO_PUBLIC_HANDLE_REGISTRY_URL": "https://messagebox.bsvblockchain.tech",
         "EXPO_PUBLIC_TEST_HANDLE_REGISTRY_DOMAIN": "deggen.com",
         "EXPO_PUBLIC_TEST_HANDLE_REGISTRY_URL": "https://messagebox.bsvblockchain.tech"
-      }
+      },
+      "node": "24.22.1"
     },
     "dev-physical": {
       "developmentClient": true,
@@ -40,13 +41,15 @@
         "EXPO_PUBLIC_HANDLE_REGISTRY_URL": "https://messagebox.bsvblockchain.tech",
         "EXPO_PUBLIC_TEST_HANDLE_REGISTRY_DOMAIN": "deggen.com",
         "EXPO_PUBLIC_TEST_HANDLE_REGISTRY_URL": "https://messagebox.bsvblockchain.tech"
-      }
+      },
+      "node": "24.22.1"
     },
     "preview-apk": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
-      }
+      },
+      "node": "24.22.1"
     },
     "production": {
       "autoIncrement": true,
@@ -82,13 +85,15 @@
         "EXPO_PUBLIC_HANDLE_REGISTRY_URL": "https://messagebox.bsvblockchain.tech",
         "EXPO_PUBLIC_TEST_HANDLE_REGISTRY_DOMAIN": "deggen.com",
         "EXPO_PUBLIC_TEST_HANDLE_REGISTRY_URL": "https://messagebox.bsvblockchain.tech"
-      }
+      },
+      "node": "24.22.1"
     },
     "production-apk": {
       "extends": "production",
       "android": {
         "buildType": "apk"
-      }
+      },
+      "node": "24.22.1"
     }
   },
   "submit": {
