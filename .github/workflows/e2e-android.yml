@@ -104,9 +104,15 @@ jobs:
           # assembleRelease embeds the JS bundle. assembleDebug does not
           # (debuggableVariants skips it) and the APK then waits for Metro,
           # which this job does not start.
+          # The app enables R8 for store releases. On a GitHub runner that
+          # minification runs out of heap. The harness does not need it; the
+          # JS bundle is still embedded.
           printf 'EXPO_PUBLIC_E2E=true\n' > .env
           npx expo prebuild --platform android --no-install --clean
-          cd android && ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=x86_64
+          cd android && ./gradlew assembleRelease --no-daemon \
+            -PreactNativeArchitectures=x86_64 \
+            -Pandroid.enableMinifyInReleaseBuilds=false \
+            -Pandroid.enableShrinkResourcesInReleaseBuilds=false
 
       - name: Install Maestro
         run: |

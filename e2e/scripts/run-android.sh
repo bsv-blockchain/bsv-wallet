@@ -15,7 +15,11 @@ if [[ "${E2E_SKIP_BUILD:-}" != "1" ]]; then
   else
     npx expo prebuild --platform android --no-install
   fi
-  (cd "$ROOT/android" && ./gradlew assembleRelease --no-daemon)
+  # Skip R8. The store build minifies; the harness only needs the embedded
+  # bundle, and R8 runs out of memory on a GitHub-sized machine.
+  (cd "$ROOT/android" && ./gradlew assembleRelease --no-daemon \
+    -Pandroid.enableMinifyInReleaseBuilds=false \
+    -Pandroid.enableShrinkResourcesInReleaseBuilds=false)
 fi
 
 APK="$ROOT/android/app/build/outputs/apk/release/app-release.apk"

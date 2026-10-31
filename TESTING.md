@@ -30,7 +30,7 @@ The mock listens on port 8787.
 
 `plugins/withE2eCleartext.js` allows that HTTP only when the prebuild sees `EXPO_PUBLIC_E2E=true`. A production prebuild does not.
 
-The EAS profile is `e2e` in `eas.json` (internal APK, iOS simulator). Local scripts use `expo prebuild` plus a release Android APK or an iOS Release simulator build, which do not need Apple or Play signing. The Android release variant is signed with the debug keystore from the Expo template. A debug APK does not embed the JavaScript bundle and waits for Metro, so it is not a harness binary.
+The EAS profile is `e2e` in `eas.json` (internal APK, iOS simulator). Local scripts use `expo prebuild` plus a release Android APK or an iOS Release simulator build, which do not need Apple or Play signing. The Android release variant is signed with the debug keystore from the Expo template. A debug APK does not embed the JavaScript bundle and waits for Metro, so it is not a harness binary. The harness turns R8 and resource shrinking off for that APK. The store build in `app.json` still minifies.
 
 The application id stays `org.bsvblockchain.wallet`. An E2E install shares the keychain with a normal install of this app. Use a dedicated simulator or emulator. Do not install the harness over a wallet that holds funds.
 
