@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.22.1
+## 0.23.0
 
 Peer floors raised to the latest `@bsv` releases, the browser wallet bridge
 (BRC-185 core, Android loopback and iOS Safari seams: #57, #58, #59) and
