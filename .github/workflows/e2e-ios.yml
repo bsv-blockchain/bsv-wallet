@@ -16,6 +16,10 @@ on:
   push:
     tags:
       - 'v*'
+    # Temporary, so this branch can finish one simulator pass. Remove it
+    # once that run has been triaged. It is not the release gate.
+    branches:
+      - cursor/e2e-maestro-6394
   pull_request:
     types: [labeled, synchronize]
 
@@ -32,6 +36,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/cursor/e2e-maestro-6394') ||
       (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release'))
     runs-on: macos-15
     timeout-minutes: 180
