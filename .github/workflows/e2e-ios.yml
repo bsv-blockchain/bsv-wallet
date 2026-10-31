@@ -57,7 +57,21 @@ jobs:
             ls -d /Applications/Xcode*.app >&2 || true
             exit 1
           fi
-          selected="$(printf '%s\n' "${candidates[@]}" | sort -V | tail -1)"
+          # Xcode 26.3 treats ExpoModulesCore EventEmitter.swift
+          # ("sending 'emitter' risks causing data races") as an error.
+          # Prefer the newest 26.x below 26.3. Fall back to whatever is installed.
+          mapfile -t sorted < <(printf '%s\n' "${candidates[@]}" | sort -V)
+          selected=""
+          for c in "${sorted[@]}"; do
+            base="$(basename "$c")"
+            if [[ "$base" != Xcode_26.3* && "$base" != Xcode_26.4* && "$base" != Xcode_26.5* && "$base" != Xcode_26.6* ]]; then
+              selected="$c"
+            fi
+          done
+          if [[ -z "$selected" ]]; then
+            selected="${sorted[0]}"
+            echo "Only Xcode 26.3 or newer is installed; using ${selected}" >&2
+          fi
           echo "Using ${selected}"
           sudo xcode-select -s "${selected}"
           xcodebuild -version
