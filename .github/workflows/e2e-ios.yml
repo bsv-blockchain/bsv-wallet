@@ -90,6 +90,15 @@ jobs:
         run: |
           mkdir -p e2e/artifacts
           xcrun simctl spawn booted log show --last 10m --style compact > e2e/artifacts/simulator.log || true
+          # run-ios.sh copies these when the build returns. Copy again in case
+          # the step was killed before that. The full xcodebuild log is huge;
+          # the error file and a tail are enough to see the real failure.
+          if [[ -f .expo/xcodebuild-error.log ]]; then
+            cp .expo/xcodebuild-error.log e2e/artifacts/xcodebuild-error.log || true
+          fi
+          if [[ -f .expo/xcodebuild.log && ! -s e2e/artifacts/xcodebuild.tail.log ]]; then
+            tail -n 400 .expo/xcodebuild.log > e2e/artifacts/xcodebuild.tail.log || true
+          fi
 
       - name: Upload failure artifacts
         if: failure()
