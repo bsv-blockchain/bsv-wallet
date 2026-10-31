@@ -23,6 +23,22 @@ if [[ "${E2E_SKIP_BUILD:-}" != "1" ]]; then
   # the simulator binary without prompting for a destination, and CI=true
   # (set by GitHub Actions) keeps Expo from asking questions.
   mkdir -p "$ROOT/build/ios"
+  # prebuild rewrites ios/Podfile from the Expo template. Re-apply the YubiKit
+  # git pin if that rewrite dropped it. The config plugin does the same; this
+  # is the backstop for a Podfile that was already on disk.
+  python3 - "$ROOT/ios/Podfile" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+anchor = "use_expo_modules!\n"
+pin = "  pod 'YubiKit', :git => 'https://github.com/Yubico/yubikit-ios.git', :tag => '4.4.1'\n"
+if "pod 'YubiKit'" not in text:
+    if anchor not in text:
+        sys.exit("Podfile has no use_expo_modules! anchor")
+    text = text.replace(anchor, anchor + "\n" + pin, 1)
+    open(path, "w").write(text)
+    print("Restored the YubiKit 4.4.1 git pin in the Podfile")
+PY
   npx expo run:ios --configuration Release --no-bundler --device generic --output "$ROOT/build/ios"
 fi
 
