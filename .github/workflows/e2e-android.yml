@@ -32,7 +32,7 @@ jobs:
   android:
     name: Android emulator
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -52,8 +52,30 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # ubuntu-latest already has the Android SDK. android-actions/setup-android@v3
+      # installs the removed `tools` package and fails before the build starts.
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          CMDLINE="$(echo "$SDK"/cmdline-tools/*/bin/sdkmanager | awk '{print $1}')"
+          if [[ ! -x "$CMDLINE" ]]; then
+            echo "sdkmanager not found under $SDK/cmdline-tools" >&2
+            ls -la "$SDK" || true
+            exit 1
+          fi
+          # `yes` exits with SIGPIPE once sdkmanager has read enough answers.
+          set +o pipefail
+          yes | "$CMDLINE" --licenses >/dev/null || true
+          set -o pipefail
+          "$CMDLINE" --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.1.12297006" \
+            "cmake;3.22.1"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -65,9 +87,11 @@ jobs:
         env:
           EXPO_PUBLIC_E2E: 'true'
           EXPO_NO_TELEMETRY: '1'
+          # The emulator is x86_64. Building the other ABIs only adds time.
+          ORG_GRADLE_PROJECT_reactNativeArchitectures: x86_64
         run: |
           npx expo prebuild --platform android --no-install --clean
-          cd android && ./gradlew assembleDebug --no-daemon
+          cd android && ./gradlew assembleDebug --no-daemon -PreactNativeArchitectures=x86_64
 
       - name: Install Maestro
         run: |
