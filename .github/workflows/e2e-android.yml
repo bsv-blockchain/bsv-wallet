@@ -109,22 +109,8 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: |
-            set +e
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-            install_status=$?
-            if [ "$install_status" -ne 0 ]; then
-              mkdir -p e2e/artifacts
-              adb logcat -d > e2e/artifacts/logcat.txt || true
-              exit "$install_status"
-            fi
-            bash e2e/scripts/run.sh
-            status=$?
-            if [ "$status" -ne 0 ]; then
-              mkdir -p e2e/artifacts
-              adb logcat -d > e2e/artifacts/logcat.txt || true
-            fi
-            exit "$status"
+          # One line. The action executes each line of `script` in its own shell.
+          script: bash e2e/scripts/ci-android.sh
 
       - name: Collect device logs
         if: failure()

@@ -19,13 +19,6 @@ on:
     - cron: '0 6 * * *'
   pull_request:
     types: [labeled]
-  # workflow_dispatch cannot see this file until it is on the default branch,
-  # and this token cannot create the e2e-ios label. A push to the proof
-  # branch is what starts the one-off simulator run. Remove this trigger
-  # once that run is green so later pushes do not spend macOS minutes.
-  push:
-    branches:
-      - cursor/e2e-maestro-6394
 
 permissions:
   contents: read
@@ -40,7 +33,6 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      github.event_name == 'push' ||
       github.event.label.name == 'e2e-ios'
     runs-on: macos-15
     timeout-minutes: 180
