@@ -1,16 +1,55 @@
-# End-to-end tests
+# Testing
+
+BSV Wallet is a React Native + Expo app. The wallet logic and screens live in `packages/expo-wallet-toolbox`. Tests stay off mainnet: chain clients are mocked, sends used in these suites pass `noSend`, and the only keys are fixtures or keys generated in the test process.
+
+## Why these tools
+
+Jest with `jest-expo` and React Native Testing Library is already how this repo tests. The suite is thousands of cases written against that preset (SQLite via `node:sqlite`, the BRC-185 router, screen renders). Vitest would mean a second transform of the same React Native modules, so the new layers stay on Jest.
+
+End-to-end uses Playwright (Chromium). The browser wallet bridge is an HTTP loopback on `127.0.0.1`, which is what Android Chrome and the `bsv-browser` client speak. A real browser can drive that without a phone. Maestro drives the installed iOS and Android apps (see [Device end-to-end (Maestro)](#device-end-to-end-maestro)). Those jobs need a harness build and a simulator or emulator, so they run only for the `release` label, a `v*` tag, or by hand. They are not a substitute for the Playwright gate.
+
+## Layers
+
+| Layer            | What it covers                                                                                                                                | Command                 |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| Unit             | Keys, shares, storage SQL, pay rails, permissions, bridge protocol                                                                            | `pnpm test:unit`        |
+| Component        | Screens and sheets under `packages/expo-wallet-toolbox/__tests__/ui` and the app-root tests in `__tests__/`                                   | `pnpm test:ui`          |
+| Integration      | Module journeys (restore → SQLite → testnet address → P2PKH send → approved BRC-100 `createAction`) plus the existing bridge integration test | `pnpm test:integration` |
+| All of the above | Default local / CI suite                                                                                                                      | `pnpm test`             |
+| End-to-end       | Chromium: create, restore, receive, settings, connect, approve, pay 1 sat with `noSend`                                                       | `pnpm test:e2e`         |
+| Coverage         | Same as `pnpm test`, writing `coverage/`                                                                                                      | `pnpm test:coverage`    |
+
+`pnpm test` does not launch a browser. `pnpm test:e2e` does. The first e2e run needs Chromium:
+
+```bash
+pnpm exec playwright install chromium
+pnpm test:e2e
+```
+
+On Linux CI the browser install is `pnpm exec playwright install --with-deps chromium`.
+
+## What the end-to-end test drives
+
+`e2e/bridge-wallet.e2e.test.ts` starts the real loopback router and the real bridge dispatcher, bundles `e2e/browser/page.ts` (the Android loopback page client) and opens it in Chromium at `http://localhost`. The page:
+
+1. Creates a wallet and restores the same phrase (real BIP-39 / BIP-32).
+2. Shows a testnet receive address derived from that key.
+3. Reads settings as testnet with broadcasts off.
+4. Connects as a site, using the launch-intent and describe/connect proofs.
+5. Asks for the identity key. The call parks until **Approve** is clicked (real consent store).
+6. Pays 1 satoshi. The wallet records `noSend: true` and returns a fixture txid. No transaction is broadcast.
+
+## Device end-to-end (Maestro)
 
 Maestro drives the installed iOS and Android apps. The flows are YAML, the same shape used for the sibling wallets. They run against a **harness build** that cannot select mainnet and never talks to a real broadcaster.
 
-Jest (`npm test`) stays the unit and component suite. This document is only the device suite.
-
-## Why Maestro
+### Why Maestro
 
 The app is Expo SDK 57 with a development client, the New Architecture, and Nitro modules (secp, the transaction engine, YubiKey, local payments) plus React Native Firebase. Detox has to be linked into the native projects that `expo prebuild` regenerates, and that link fights this setup. Maestro talks to the installed binary from outside, on an iOS simulator and an Android emulator, locally and in CI. `testID`s are already how the bridge sheets are addressed.
 
 A harness build is a normal release-or-debug binary with `EXPO_PUBLIC_E2E=true`. It is not Expo Go, and it does not need Metro once the JavaScript is bundled.
 
-## What the harness changes
+### What the harness changes
 
 Nothing changes unless `EXPO_PUBLIC_E2E` is the string `true`. Development and production profiles do not set it.
 
@@ -34,13 +73,13 @@ The EAS profile is `e2e` in `eas.json` (internal APK, iOS simulator). Local scri
 
 The application id stays `org.bsvblockchain.wallet`. An E2E install shares the keychain with a normal install of this app. Use a dedicated simulator or emulator. Do not install the harness over a wallet that holds funds.
 
-## The recovery phrase
+### The recovery phrase
 
 `e2e/fixtures/bip39-test-vector.txt` is the **published BIP-39 test vector** (`abandon` × 11, then `about`). It is not a secret, and it is not a wallet anyone should fund. The restore flow types it. The harness cannot put that wallet on mainnet. Do not replace the file with any other phrase. The scripts refuse to start if the file changes.
 
 The send flow pays `mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn`, a public testnet address (version byte `0x6f`), not a key.
 
-## Flows
+### Flows
 
 | Flow                           | What it covers                                                                                                                                                          |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -55,7 +94,7 @@ The send flow pays `mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn`, a public testnet addres
 
 `02-create-wallet` waits up to 40s for Confirm because the screen hides it for 15s on purpose (`HANDWRITTEN_BACKUP_DELAY_MS`). That wait is not a retry. Flows do not retry a failed assertion.
 
-## Run it locally
+### Run it locally
 
 Install Maestro once:
 
@@ -86,7 +125,7 @@ The harness rules (no mainnet, no biometric probe) are also covered by Jest:
 npx jest packages/expo-wallet-toolbox/__tests__/e2e/harness.test.ts
 ```
 
-### Add a flow
+#### Add a flow
 
 1. Add `testID`s on the controls the flow taps. Prefer an id over copy. Do not change behaviour to make a screen easier to reach.
 2. Put the YAML in `e2e/flows/`. Give it an `appId: org.bsvblockchain.wallet` header. Shared steps go in `e2e/subflows/` and are pulled in with `runFlow`.
@@ -96,7 +135,7 @@ npx jest packages/expo-wallet-toolbox/__tests__/e2e/harness.test.ts
 
 `e2e/subflows/go-home.yaml` opens `bsv-wallet://`, which lands on the wallet. Use it instead of counting back buttons.
 
-### Debug a failure
+#### Debug a failure
 
 Maestro writes screenshots and a hierarchy into `e2e/artifacts/` (`--debug-output`). The mock appends one JSON line per request to `e2e/mock/requests.log`. Both paths are gitignored.
 
@@ -110,7 +149,7 @@ Useful checks:
 
 On a booted emulator, `adb logcat` is the app log. On a booted simulator, `xcrun simctl spawn booted log show --last 5m` is the same idea. `maestro hierarchy` prints the accessibility tree of the current screen.
 
-## CI
+### Device CI
 
 The device jobs do not run on an ordinary pull request or push. The repo has no pre-existing release label, so both workflows use one label, `release`. Create that label in the repository (this token cannot), then apply it to the pull request that should be gated. A later push to a pull request that still carries `release` runs the suite again. Pushing a version tag `v*` (the same pattern as Publish APK) is the backstop, and `workflow_dispatch` starts a run by hand.
 
@@ -119,13 +158,13 @@ The device jobs do not run on an ordinary pull request or push. The repo has no 
 | `.github/workflows/e2e-android.yml` | Label `release`, a later push while it is applied, tag `v*`, `workflow_dispatch`              | `ubuntu-latest`, API 34 emulator |
 | `.github/workflows/e2e-ios.yml`     | The same gate. The job selects the newest Xcode 26 (Swift tools 6.2). On 26.2 or 26.3 it compiles ExpoModulesCore as Swift 5.10; 26.4+ compiles it as shipped. Then the Rust xcframeworks and the simulator build | `macos-15` simulator |
 
-Jest and `tsc` for `@bsv/expo-wallet-toolbox` stay on `.github/workflows/publish.yaml`. They are not part of these device jobs.
+Jest runs in `.github/workflows/ci.yml` (see [CI](#ci)), and `publish.yaml` stays the npm publish gate. Neither is part of these device jobs.
 
 Both device jobs upload `e2e/artifacts` and `e2e/mock/requests.log` when the suite fails, and the Android job also saves `logcat`.
 
 There is no retry wrapper around Maestro. A red run is a failed assertion, a missing id, or a crash. A flow that fails because of the app, not the harness, stays as written and is recorded as a bug. It is not edited to go green, and the app is not changed in the harness pull request to satisfy it.
 
-## Gaps
+### Gaps
 
 These are real limits of this suite, not skipped assertions.
 
@@ -137,8 +176,30 @@ These are real limits of this suite, not skipped assertions.
 - **Same application id as production.** See the warning above.
 - **This environment did not boot an emulator or a simulator.** The mock's tests and the Jest harness tests are what can run here. The GitHub workflows are the device runs.
 
-## Decisions
+### Decisions
 
 1. Device jobs run only for the `release` label (and again on each push while that label is on the pull request), for a `v*` tag, or by `workflow_dispatch`. They do not run on ordinary pull requests. The label does not exist in the repo yet; it has to be created before it can be applied.
 2. The send hook stops at the mock. A signed regtest broadcast is a follow-up if deggen wants one.
 3. The harness uses the production application id. A separate id would isolate the keychain, but `google-services.json` is pinned to `org.bsvblockchain.wallet`, so the Firebase plugin would have to be dropped from the harness or given a second client.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request and on `master`:
+
+- **Unit, component, and integration** — `pnpm test:ci` (coverage on), Node 24.22.1, pnpm cache. The summary is uploaded as the `coverage` artifact.
+- **End-to-end (browser)** — Playwright Chromium, `pnpm test:e2e`.
+
+The Maestro device jobs (`e2e-android.yml`, `e2e-ios.yml`) are separate. See [Device end-to-end (Maestro)](#device-end-to-end-maestro).
+
+`publish.yaml`'s **Verify** job is still the npm publish gate for `@bsv/expo-wallet-toolbox`. It runs when that package (or the workflow file) changes. A leading-zero private key used to fail its Shamir round-trip about once in 256 runs; the share test now uses fixed keys, including one whose first byte is zero.
+
+## Coverage
+
+Collected from `packages/expo-wallet-toolbox/core`, `ui`, `app`, `utils` and `hooks`, with Jest's V8 provider. The workspace pins `minimatch` 10, whose export shape breaks `babel-plugin-istanbul`, so the Istanbul provider cannot instrument this repo. The i18n dictionary (`core/i18n/translations.tsx`) is excluded: it is string data, and counting it would hide regressions in the logic. Reports:
+
+- `coverage/coverage-summary.json`
+- `coverage/lcov.info`
+
+```bash
+pnpm test:coverage
+```

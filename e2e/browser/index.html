@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>BSV Wallet journeys</title>
+    <style>
+      body {
+        font:
+          16px/1.4 system-ui,
+          sans-serif;
+        margin: 24px;
+        max-width: 40rem;
+      }
+      button {
+        margin: 0 8px 8px 0;
+        padding: 8px 12px;
+      }
+      pre,
+      p {
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      #status {
+        color: #8a1f11;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>BSV Wallet</h1>
+    <p>Test driver for onboarding, receive, pay, settings and the browser bridge. No mainnet calls.</p>
+
+    <section>
+      <h2>Wallet</h2>
+      <button type="button" id="create">Create wallet</button>
+      <button type="button" id="restore">Restore wallet</button>
+      <button type="button" id="receive">Show receive address</button>
+      <button type="button" id="settings">Settings</button>
+      <p data-testid="mnemonic" id="mnemonic"></p>
+      <p data-testid="identity" id="identity"></p>
+      <p data-testid="restored" id="restored"></p>
+      <p data-testid="address" id="address"></p>
+      <p data-testid="address-network" id="address-network"></p>
+      <p data-testid="settings-out" id="settings-out"></p>
+    </section>
+
+    <section>
+      <h2>Browser bridge</h2>
+      <button type="button" id="connect">Connect site</button>
+      <button type="button" id="whoami">Request identity</button>
+      <button type="button" id="pay">Pay 1 sat</button>
+      <div id="pending"></div>
+      <p data-testid="connected" id="connected"></p>
+      <p data-testid="bridge-identity" id="bridge-identity"></p>
+      <p data-testid="txid" id="txid"></p>
+      <p data-testid="nosend" id="nosend"></p>
+    </section>
+
+    <p data-testid="status" id="status"></p>
+    <script src="/page.js"></script>
+  </body>
+</html>
