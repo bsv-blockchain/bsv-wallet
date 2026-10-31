@@ -1,36 +1,39 @@
 name: E2E Android
 
-# Builds a debug harness APK and runs the Maestro flows on an Android emulator.
-# The iOS job is separate (e2e-ios.yml) because macOS minutes are much more
-# expensive; see TESTING.md.
+# Device suite for a release, not for ordinary pull requests.
+# The repo has no existing release label, so the gate is the label `release`
+# (create it in the repo before applying it). See TESTING.md.
+#
+# Runs when:
+#   - a pull request is labeled `release`, and again on each push while that
+#     label is still applied
+#   - a version tag `v*` is pushed (same pattern as Publish APK)
+#   - someone starts it by hand (workflow_dispatch)
+#
+# Jest and tsc stay on the toolbox publish workflow. This file is the device job.
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
   pull_request:
-    paths:
-      - 'e2e/**'
-      - 'app/**'
-      - 'packages/expo-wallet-toolbox/**'
-      - 'packages/expo-android-wallet-bridge/**'
-      - 'packages/expo-safari-wallet-bridge/**'
-      - 'packages/react-native-*/**'
-      - 'eas.json'
-      - 'app.json'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'plugins/**'
-      - '.github/workflows/e2e-android.yml'
+    types: [labeled, synchronize]
 
 permissions:
   contents: read
 
 concurrency:
-  group: e2e-android-${{ github.ref }}
+  group: e2e-android-device-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   android:
     name: Android emulator
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release'))
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
