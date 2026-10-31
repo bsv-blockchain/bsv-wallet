@@ -72,6 +72,11 @@ PY
   else
     UDID="$(xcrun simctl list devices booted | grep -oE '[0-9A-Fa-f-]{36}' | head -1)"
   fi
+  # Passing a real simulator makes Expo also enumerate physical devices.
+  # `devicectl` is installed on the runner, and Expo records that by writing
+  # ~/.expo/devicectl-exists. The directory does not exist until something
+  # else creates it, so the write throws ENOENT before xcodebuild starts.
+  mkdir -p "${HOME}/.expo"
   set +e
   npx expo run:ios --configuration Release --no-bundler --device "$UDID" --output "$ROOT/build/ios"
   build_status=$?
