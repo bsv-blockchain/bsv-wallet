@@ -9,6 +9,13 @@ export EXPO_PUBLIC_E2E=true
 export EXPO_NO_TELEMETRY=1
 export RCT_USE_PREBUILT_RNCORE="${RCT_USE_PREBUILT_RNCORE:-0}"
 
+# Gradle and the Xcode bundle step inline EXPO_PUBLIC_* from .env as well as
+# the environment. A daemon that does not inherit this shell still has to
+# produce a harness binary.
+if ! grep -q '^EXPO_PUBLIC_E2E=' "$ROOT/.env" 2>/dev/null; then
+  echo 'EXPO_PUBLIC_E2E=true' >> "$ROOT/.env"
+fi
+
 # The fixture is the twelve published BIP-39 words, one line.
 E2E_MNEMONIC="$(tr -d '\r\n' < "$ROOT/e2e/fixtures/bip39-test-vector.txt")"
 export E2E_MNEMONIC
