@@ -1,0 +1,12 @@
+appId: org.bsvblockchain.wallet
+name: Receive, pay, and settings
+---
+# Assumes a wallet already exists (run onboarding first, or install over a
+# seeded dev-client). Strings are the English UI.
+- launchApp
+- assertVisible: 'Pay'
+- tapOn: 'Pay'
+- assertVisible: 'Get paid'
+- back
+- tapOn: 'Settings'
+- assertVisible: 'Settings'

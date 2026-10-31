@@ -121,11 +121,25 @@ describe('share round-trip', () => {
   })
 
   test('legacy key shares still recombine and classify as legacy', () => {
-    const key = Array.from(PrivateKey.fromRandom().toArray())
+    // Fixed 32-byte key. PrivateKey.fromRandom().toArray() drops a leading 0x00
+    // about once in 256 draws, and recovery always returns the padded width, so
+    // comparing a random toArray() result to the recovered key flakes in CI.
+    const key = Array.from({ length: PAYLOAD_BYTES }, (_, i) => (i === 0 ? 0x42 : i))
     const result = recoverSecretFromShares(generateLegacyKeyShares(key).slice(0, 2))
 
     expect(result.kind).toBe('legacy')
     expect(result.kind === 'legacy' && result.primaryKey).toEqual(key)
+  })
+
+  test('a legacy key with a leading zero round-trips at full width', () => {
+    // The byte PrivateKey.toArray() would drop. Shares split the integer; recovery
+    // left-pads back to 32. The restored key must be the original 32 bytes.
+    const key = [0, ...Array.from({ length: PAYLOAD_BYTES - 1 }, () => 0xab)]
+    const result = recoverSecretFromShares(generateLegacyKeyShares(key).slice(0, 2))
+
+    expect(result.kind).toBe('legacy')
+    expect(result.kind === 'legacy' && result.primaryKey).toEqual(key)
+    expect(result.kind === 'legacy' && result.primaryKey).toEqual(padPayload(key))
   })
 
   test('entropy and legacy shares of the same wallet carry different integrity hashes', () => {
