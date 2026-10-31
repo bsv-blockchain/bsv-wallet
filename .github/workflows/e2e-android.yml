@@ -90,6 +90,10 @@ jobs:
           # The emulator is x86_64. Building the other ABIs only adds time.
           ORG_GRADLE_PROJECT_reactNativeArchitectures: x86_64
         run: |
+          # Expo inlines EXPO_PUBLIC_* from the environment and from .env.
+          # Writing .env makes the debug bundle a harness even if Gradle
+          # starts a daemon that does not inherit the step environment.
+          printf 'EXPO_PUBLIC_E2E=true\n' > .env
           npx expo prebuild --platform android --no-install --clean
           cd android && ./gradlew assembleDebug --no-daemon -PreactNativeArchitectures=x86_64
 
@@ -126,7 +130,9 @@ jobs:
         if: failure()
         run: |
           mkdir -p e2e/artifacts
-          adb logcat -d > e2e/artifacts/logcat.txt || true
+          # The emulator is already gone, so a bare `adb logcat` waits forever
+          # for a device and the failure artifacts never upload.
+          timeout 20 adb logcat -d > e2e/artifacts/logcat.txt || true
 
       - name: Upload failure artifacts
         if: failure()
