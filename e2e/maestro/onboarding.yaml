@@ -1,0 +1,17 @@
+appId: org.bsvblockchain.wallet
+name: Create or restore a wallet
+---
+# Fresh install. The chooser is Wallet Data (app/auth/mnemonic.tsx).
+# A dev-client that already has a wallet will not show these buttons;
+# clear app state before recording a run.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: 'Create New Wallet'
+    timeout: 60000
+- tapOn: 'Create New Wallet'
+- assertVisible: 'Save these words'
+- tapOn: 'Cancel'
+- tapOn: 'Import Existing Wallet'
+- assertVisible: 'Import Wallet'
+- assertVisible: 'Enter 12 word mnemonic'
