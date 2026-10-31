@@ -30,14 +30,27 @@ if [[ "${E2E_SKIP_BUILD:-}" != "1" ]]; then
 import sys
 path = sys.argv[1]
 text = open(path).read()
-anchor = "use_expo_modules!\n"
+changed = False
+firebase = (
+    "# react-native-firebase: opt out of SPM; SPM + use_frameworks static collides.\n"
+    "$RNFirebaseDisableSPM = true\n"
+)
+if "$RNFirebaseDisableSPM" not in text:
+    anchor = "prepare_react_native_project!\n"
+    if anchor not in text:
+        sys.exit("Podfile has no prepare_react_native_project! anchor")
+    text = text.replace(anchor, firebase + "\n" + anchor, 1)
+    changed = True
 pin = "  pod 'YubiKit', :git => 'https://github.com/Yubico/yubikit-ios.git', :tag => '4.4.1'\n"
 if "pod 'YubiKit'" not in text:
+    anchor = "use_expo_modules!\n"
     if anchor not in text:
         sys.exit("Podfile has no use_expo_modules! anchor")
     text = text.replace(anchor, anchor + "\n" + pin, 1)
+    changed = True
+if changed:
     open(path, "w").write(text)
-    print("Restored the YubiKit 4.4.1 git pin in the Podfile")
+    print("Restored Podfile pins dropped by prebuild (YubiKit git tag, RNFirebaseDisableSPM)")
 PY
   npx expo run:ios --configuration Release --no-bundler --device generic --output "$ROOT/build/ios"
 fi
