@@ -1,0 +1,34 @@
+appId: org.bsvblockchain.wallet
+---
+# Confirm posts a description to the local mock. The mock does not relay, and
+# the real address rail is not asked to spend. The receipt stays on the review step.
+- runFlow: ../subflows/launch-fresh.yaml
+- runFlow: ../subflows/create-via-pay.yaml
+- tapOn:
+    id: pay-recipient
+- inputText: ${E2E_TESTNET_ADDRESS}
+- hideKeyboard
+- extendedWaitUntil:
+    visible:
+      id: pay-continue
+    timeout: 20000
+- tapOn:
+    id: pay-continue
+- tapOn:
+    id: pay-amount
+- inputText: "1"
+- hideKeyboard
+- tapOn:
+    id: pay-continue
+- extendedWaitUntil:
+    visible:
+      id: pay-send
+    timeout: 20000
+- assertVisible: "To"
+- tapOn:
+    id: pay-send
+- extendedWaitUntil:
+    visible:
+      id: e2e-broadcast-receipt
+    timeout: 30000
+- assertVisible: Test broadcaster accepted

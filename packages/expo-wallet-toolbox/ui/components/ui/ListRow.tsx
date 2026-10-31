@@ -49,6 +49,7 @@ interface ListRowProps {
   destructive?: boolean
   trailing?: React.ReactNode
   isLast?: boolean
+  testID?: string
 }
 
 /**
@@ -67,7 +68,8 @@ export const ListRow: React.FC<ListRowProps> = ({
   chevronDown = false,
   destructive = false,
   trailing,
-  isLast = false
+  isLast = false,
+  testID
 }) => {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
@@ -135,7 +137,7 @@ export const ListRow: React.FC<ListRowProps> = ({
 
   if (onPress) {
     return (
-      <PressableScale onPress={onPress} scaleTo={0.98} haptic="tap">
+      <PressableScale onPress={onPress} scaleTo={0.98} haptic="tap" testID={testID}>
         {content}
       </PressableScale>
     )

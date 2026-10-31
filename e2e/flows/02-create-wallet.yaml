@@ -1,0 +1,36 @@
+appId: org.bsvblockchain.wallet
+---
+# Explicit create, the "Create New Wallet" screen. The 15s wait below is the
+# app's own handwriting delay before Confirm appears, not a retry.
+- runFlow: ../subflows/launch-fresh.yaml
+- openLink: bsv-wallet://auth/mnemonic
+- extendedWaitUntil:
+    visible:
+      id: create-new-wallet
+    timeout: 20000
+- assertVisible:
+    id: import-existing-wallet
+- assertVisible: Wallet Data
+- tapOn:
+    id: create-new-wallet
+- extendedWaitUntil:
+    visible:
+      id: mnemonic-display
+    timeout: 180000
+- assertVisible: Save these words
+- scrollUntilVisible:
+    element:
+      id: backup-confirm
+    direction: DOWN
+    timeout: 40000
+    visibilityPercentage: 40
+- tapOn:
+    id: backup-confirm
+- extendedWaitUntil:
+    visible:
+      id: e2e-harness
+    timeout: 60000
+- assertNotVisible:
+    id: import-from-backup
+- assertVisible:
+    id: activity-empty

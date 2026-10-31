@@ -95,6 +95,9 @@ There is no separate browsing mode -- the app opens straight into the wallet (ba
 | `npm run format:check`   | Check formatting without writing                                    |
 | `npm run fix`            | Run `format` then `lint:fix`                                        |
 | `npm test`               | Run the Jest test suite                                             |
+| `npm run e2e:android`    | Build the Android harness and run Maestro (see `TESTING.md`)        |
+| `npm run e2e:ios`        | Build the iOS simulator harness and run Maestro (macOS only)        |
+| `npm run e2e`            | Run Maestro against an already-installed harness build              |
 | `npm run clean`          | Delete generated caches and build artifacts                         |
 | `npm run version`        | Bump version in package.json + app.json, commit and tag             |
 

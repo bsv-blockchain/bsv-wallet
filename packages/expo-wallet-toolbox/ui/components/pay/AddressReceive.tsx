@@ -319,13 +319,17 @@ export default function AddressReceive({
               <AmountDisplay>{initialSats}</AmountDisplay>
             </Text>
           )}
-          <View style={styles.qrHero}>
+          <View style={styles.qrHero} testID="receive-qr">
             <View style={styles.qrPlate}>
               <QRCode value={address} size={240} color="#000" backgroundColor="#fff" />
             </View>
           </View>
 
-          <TouchableOpacity onPress={handleCopy} style={[styles.addressChip, { backgroundColor: colors.fillTertiary }]}>
+          <TouchableOpacity
+            onPress={handleCopy}
+            testID="receive-address"
+            style={[styles.addressChip, { backgroundColor: colors.fillTertiary }]}
+          >
             <Text
               style={[styles.addressText, { color: colors.textSecondary }]}
               numberOfLines={1}

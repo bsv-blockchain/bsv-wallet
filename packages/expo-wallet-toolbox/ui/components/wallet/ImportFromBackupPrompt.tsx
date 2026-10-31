@@ -46,7 +46,12 @@ export const ImportFromBackupPrompt: React.FC<{
           <Text style={[styles.title, { color: colors.textPrimary }]}>{t('import_prompt_title')}</Text>
           <Text style={[styles.body, { color: colors.textSecondary }]}>{t('import_prompt_body')}</Text>
         </View>
-        <PressableScale haptic="tap" onPress={onImport} style={[styles.button, { borderColor: colors.accent }]}>
+        <PressableScale
+          haptic="tap"
+          onPress={onImport}
+          testID="import-from-backup"
+          style={[styles.button, { borderColor: colors.accent }]}
+        >
           <Text style={[styles.buttonLabel, { color: colors.accent }]}>{t('import_prompt_action')}</Text>
         </PressableScale>
       </View>

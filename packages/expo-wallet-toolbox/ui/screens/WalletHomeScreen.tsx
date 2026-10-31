@@ -1741,6 +1741,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           onPress={heldAsset ? undefined : () => setFlipped(f => !f)}
           disabled={Boolean(heldAsset)}
           activeOpacity={0.7}
+          testID="home-balance"
           style={styles.balanceBlock}
           accessibilityLabel={
             heldAsset
@@ -1798,6 +1799,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           <PressableScale
             haptic="confirm"
             onPress={() => destinationPress(payDestination('pay'))}
+            testID="home-pay"
             style={[styles.dest, styles.destPrimary, { backgroundColor: colors.accent }]}
           >
             <MaterialCommunityIcons name="arrow-top-right" size={19} color={colors.textOnAccent} />
@@ -1809,6 +1811,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
           <PressableScale
             haptic="confirm"
             onPress={() => destinationPress(payDestination('get'))}
+            testID="home-receive"
             style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
           >
             <MaterialCommunityIcons name="arrow-bottom-left" size={19} color={colors.textPrimary} />
@@ -1830,6 +1833,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
             <PressableScale
               haptic="confirm"
               onPress={() => router.push('/vault')}
+              testID="home-vault"
               style={[styles.dest, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
             >
               <MaterialCommunityIcons name="safe" size={19} color={colors.textPrimary} />
@@ -1966,6 +1970,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
                 controls is on screen, so the button says it is on. */}
             <TouchableOpacity
               onPress={toggleFilter}
+              testID="activity-filter"
               // Never disabled while open: an emptied list (a network switch)
               // must not strand the panel with no way to close it.
               disabled={actions.length === 0 && !filterOpen}
@@ -2159,6 +2164,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         <View style={[styles.headerSide, styles.headerSideEnd]}>
           <TouchableOpacity
             onPress={() => router.push('/wallet-config')}
+            testID="home-settings"
             style={[styles.iconBtn, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
             accessibilityRole="button"
             accessibilityLabel={t('wallet_settings')}
@@ -2214,7 +2220,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
                 <ActivityIndicator style={styles.pad} color={colors.textSecondary} />
               )
             ) : (
-              <Text style={[styles.empty, { color: colors.textSecondary }]}>
+              <Text testID="activity-empty" style={[styles.empty, { color: colors.textSecondary }]}>
                 {heldAsset
                   ? t('wallet_activity_empty_asset', { ticker: heldAsset.asset.ticker })
                   : t('no_transactions')}

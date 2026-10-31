@@ -1,0 +1,12 @@
+appId: org.bsvblockchain.wallet
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- extendedWaitUntil:
+    visible:
+      id: e2e-harness
+    timeout: 90000
+- extendedWaitUntil:
+    visible: You have
+    timeout: 30000

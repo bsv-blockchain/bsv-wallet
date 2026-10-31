@@ -139,6 +139,7 @@ import { buildUnverifiedPermissionsManager } from '../bridge/unverifiedManager'
 import { DEFAULT_STORAGE_URL, DEFAULT_CHAIN, ADMIN_ORIGINATOR, toWalletChain } from '../config'
 import { NETWORKS, isAppChain } from '../networks'
 import { getBackupUrl, getHandleRegistryConfig, getMandalaEndpoints, getPushAdapter } from '../toolboxConfig'
+import { e2eSafeChain } from '../e2e/mode'
 import { inboxSeenStore } from '../directpay/receive'
 import {
   DEFAULT_AUTO_APPROVE_THRESHOLD,
@@ -1407,7 +1408,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
 
   // ---- WAB + network + storage configuration ----
   const [selectedMethod, setSelectedMethod] = useState<string>('')
-  const [selectedNetwork, setSelectedNetwork] = useState<AppChain>(DEFAULT_CHAIN)
+  const [selectedNetwork, setSelectedNetwork] = useState<AppChain>(e2eSafeChain(DEFAULT_CHAIN))
   /**
    * The network a build should use, readable without a closure.
    *
@@ -1417,7 +1418,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
    * and published it, leaving a mainnet label over a testnet wallet. The state
    * is what the UI renders; this ref is what the build reads.
    */
-  const selectedNetworkRef = useRef<AppChain>(DEFAULT_CHAIN)
+  const selectedNetworkRef = useRef<AppChain>(e2eSafeChain(DEFAULT_CHAIN))
   selectedNetworkRef.current = selectedNetwork
   const [selectedStorageUrl, setSelectedStorageUrl] = useState<string>(DEFAULT_STORAGE_URL)
   // Wallet profiles (one mnemonic, many wallets). The store is module state so
@@ -1463,8 +1464,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       console.error('Network selection is required')
       return false
     }
+    const chain = e2eSafeChain(network)
     setSelectedMethod(method || 'mnemonic')
-    setSelectedNetwork(network)
+    setSelectedNetwork(chain)
     setSelectedStorageUrl(storageUrl || 'local')
     setConfigStatus('configured')
     return true
@@ -1519,7 +1521,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           })
           await setItem(
             'finalConfig',
-            JSON.stringify({ wabUrl: 'noWAB', method: 'mnemonic', network: DEFAULT_CHAIN, storageUrl: 'local' })
+            JSON.stringify({
+              wabUrl: 'noWAB',
+              method: 'mnemonic',
+              network: e2eSafeChain(DEFAULT_CHAIN),
+              storageUrl: 'local'
+            })
           )
         }
       } else {
@@ -1532,7 +1539,12 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         })
         await setItem(
           'finalConfig',
-          JSON.stringify({ wabUrl: 'noWAB', method: 'mnemonic', network: DEFAULT_CHAIN, storageUrl: 'local' })
+          JSON.stringify({
+            wabUrl: 'noWAB',
+            method: 'mnemonic',
+            network: e2eSafeChain(DEFAULT_CHAIN),
+            storageUrl: 'local'
+          })
         )
       }
     })()
@@ -3261,6 +3273,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
   // strands the user on an unusable wallet. Switching again retries.
   const switchNetwork = useCallback(
     async (network: AppChain, opts: { fallback?: boolean } = {}) => {
+      // The harness cannot be moved onto mainnet, whatever asked.
+      if (e2eSafeChain(network) !== network) return
       // The ref, not the state: the fallback below runs inside the same call.
       const from = selectedNetworkRef.current
       if (network === from || switchInFlightRef.current) return

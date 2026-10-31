@@ -1,0 +1,44 @@
+appId: org.bsvblockchain.wallet
+---
+# Restores the published BIP-39 test vector (see e2e/fixtures and TESTING.md).
+# The harness is locked to testnet, and backup is off, so this does not
+# contact a backup server and cannot broadcast on mainnet.
+- runFlow: ../subflows/launch-fresh.yaml
+- tapOn:
+    id: import-from-backup
+- extendedWaitUntil:
+    visible:
+      id: import-mnemonic-input
+    timeout: 20000
+- assertVisible: Import Wallet
+- assertVisible:
+    id: scan-backup-shares
+- tapOn:
+    id: import-mnemonic-input
+- inputText: ${E2E_MNEMONIC}
+- hideKeyboard
+- tapOn:
+    id: import-wallet-submit
+- extendedWaitUntil:
+    visible:
+      id: e2e-harness
+    timeout: 180000
+- assertNotVisible:
+    id: import-from-backup
+- assertVisible:
+    id: activity-empty
+# Relaunch without wiping storage. The harness key has no biometric ceremony,
+# so the wallet opens instead of showing the unlock notice.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: e2e-harness
+    timeout: 90000
+- assertNotVisible: Unlock your wallet
+- assertNotVisible:
+    id: import-from-backup
+- assertVisible:
+    id: home-balance
+- assertVisible:
+    id: activity-empty

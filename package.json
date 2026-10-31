@@ -30,7 +30,11 @@
     "prebuild": "expo prebuild --clean",
     "prebuild:ios": "expo prebuild --platform ios --clean",
     "prebuild:android": "expo prebuild --platform android --clean",
-    "test": "jest"
+    "test": "jest",
+    "e2e": "bash e2e/scripts/run.sh",
+    "e2e:android": "bash e2e/scripts/run-android.sh",
+    "e2e:ios": "bash e2e/scripts/run-ios.sh",
+    "e2e:mock": "node e2e/mock/server.mjs"
   },
   "dependencies": {
     "@bsv/air-gap": "^0.1.3",

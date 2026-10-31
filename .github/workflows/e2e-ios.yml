@@ -1,0 +1,84 @@
+name: E2E iOS
+
+# macOS minutes cost about ten times a Linux minute, and this app builds
+# React Native from source (RCT_USE_PREBUILT_RNCORE=0) plus several Nitro
+# modules. The suite therefore does not run on every pull request.
+#
+# It runs when:
+#   - someone starts it by hand (workflow_dispatch)
+#   - the nightly schedule fires
+#   - a pull request is labeled `e2e-ios`
+#
+# Android covers the same flows on every pull request that touches the app.
+# See TESTING.md.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    name: iOS simulator
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      github.event.label.name == 'e2e-ios'
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.22.1'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Mock broadcaster unit tests
+        run: node --test e2e/mock/server.test.mjs
+
+      - name: Install Maestro
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Build and run on the iOS simulator
+        env:
+          EXPO_PUBLIC_E2E: 'true'
+          EXPO_NO_TELEMETRY: '1'
+          RCT_USE_PREBUILT_RNCORE: '0'
+        run: bash e2e/scripts/run-ios.sh
+
+      - name: Collect simulator logs
+        if: failure()
+        run: |
+          mkdir -p e2e/artifacts
+          xcrun simctl spawn booted log show --last 10m --style compact > e2e/artifacts/simulator.log || true
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-ios-failure
+          path: |
+            e2e/artifacts
+            e2e/mock/requests.log
+          if-no-files-found: ignore
+          retention-days: 14

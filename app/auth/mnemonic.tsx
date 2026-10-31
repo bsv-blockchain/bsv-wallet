@@ -516,6 +516,7 @@ export default function MnemonicScreen() {
               style={[s.primaryButton, { backgroundColor: colors.accent }]}
               onPress={handleGenerateNew}
               disabled={loading || walletBuilding}
+              testID="create-new-wallet"
               haptic="confirm"
             >
               <Ionicons name="add-circle-outline" size={22} color={colors.textOnAccent} style={s.btnIcon} />
@@ -536,6 +537,7 @@ export default function MnemonicScreen() {
                 }
               ]}
               onPress={() => setMode('import')}
+              testID="import-existing-wallet"
               haptic="tap"
             >
               <Ionicons name="download-outline" size={22} color={colors.accent} style={s.btnIcon} />
@@ -594,6 +596,7 @@ export default function MnemonicScreen() {
               has to act on, so it needs to read as distinct from the
               surrounding chrome, not blend into it. */}
           <View
+            testID="mnemonic-display"
             style={[
               s.mnemonicDisplay,
               {
@@ -683,6 +686,7 @@ export default function MnemonicScreen() {
                 ]}
                 onPress={handleConfirmBackup}
                 disabled={backupBusy || !backupSession}
+                testID="backup-confirm"
                 accessibilityRole="button"
                 accessibilityLabel={t('confirm', { defaultValue: 'Confirm' })}
                 accessibilityState={{ disabled: backupBusy || !backupSession, busy: backupBusy }}
@@ -727,6 +731,7 @@ export default function MnemonicScreen() {
         </Text>
 
         <TextInput
+          testID="import-mnemonic-input"
           style={[
             s.mnemonicInput,
             {
@@ -756,6 +761,7 @@ export default function MnemonicScreen() {
           ]}
           onPress={handleContinueWithImported}
           disabled={!importedMnemonic.trim() || loading}
+          testID="import-wallet-submit"
           haptic="confirm"
         >
           {loading ? (
@@ -805,6 +811,7 @@ export default function MnemonicScreen() {
             }
           ]}
           onPress={() => router.push('/auth/scan-shares')}
+          testID="scan-backup-shares"
           haptic="tap"
         >
           <Ionicons name="scan-outline" size={22} color={colors.accent} style={s.btnIcon} />
