@@ -125,6 +125,10 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
+          # Software rendering on the runner ANRs System UI at the default
+          # 2 cores / 2.5 GB. Give the emulator more of the runner.
+          cores: 4
+          ram-size: 4096
           disable-animations: true
           # One line. The action executes each line of `script` in its own shell.
           script: bash e2e/scripts/ci-android.sh

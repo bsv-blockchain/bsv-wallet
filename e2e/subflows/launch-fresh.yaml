@@ -3,10 +3,30 @@ appId: org.bsvblockchain.wallet
 - launchApp:
     clearState: true
     stopApp: true
+# The GitHub emulator has no hardware acceleration. System UI posts
+# "isn't responding" over the wallet, and Maestro then cannot see
+# e2e-harness even though the home screen rendered behind the dialog.
+# "Wait" keeps the app. "Close app" would dismiss System UI itself.
+- repeat:
+    times: 12
+    commands:
+      - tapOn:
+          text: "Wait"
+          optional: true
+      - runFlow:
+          when:
+            notVisible:
+              id: e2e-harness
+          commands:
+            - extendedWaitUntil:
+                optional: true
+                visible:
+                  id: e2e-harness
+                timeout: 5000
 - extendedWaitUntil:
     visible:
       id: e2e-harness
-    timeout: 90000
+    timeout: 30000
 - extendedWaitUntil:
     visible: You have
     timeout: 30000

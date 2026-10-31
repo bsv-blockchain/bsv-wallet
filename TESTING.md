@@ -102,7 +102,7 @@ Maestro writes screenshots and a hierarchy into `e2e/artifacts/` (`--debug-outpu
 
 Useful checks:
 
-- The screen never shows `e2e-harness`. The installed binary was not built with `EXPO_PUBLIC_E2E=true`, it is a debug APK still waiting for Metro, or it was installed before a prebuild that included `withE2eCleartext`. Rebuild the release APK. `E2E_CLEAN=1` if the native project already existed.
+- The screen never shows `e2e-harness`. The installed binary was not built with `EXPO_PUBLIC_E2E=true`, it is a debug APK still waiting for Metro, or it was installed before a prebuild that included `withE2eCleartext`. Rebuild the release APK. `E2E_CLEAN=1` if the native project already existed. On a slow emulator, a "System UI isn't responding" dialog can cover the marker. `launch-fresh` taps Wait. Do not tap Close app.
 - Send fails with a connection error. The mock is not running, or the device cannot reach the host. An emulator uses `10.0.2.2`. A physical device needs `EXPO_PUBLIC_E2E_BROADCASTER_URL=http://<lan-ip>:8787` at **bundle** time, then a rebuild.
 - Create sits on "Secure Your Wallet". Continue is `biometric-continue`. The harness must not raise a system biometric sheet. If it does, the binary is not a harness build.
 - Restore does not finish. Confirm `E2E_MNEMONIC` is the fixture line. The scripts set it. A hand-run `maestro test` must pass `-e E2E_MNEMONIC=...`.
