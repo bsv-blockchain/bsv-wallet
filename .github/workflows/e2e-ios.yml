@@ -44,6 +44,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # ExpoModulesJSI's Package.swift declares Swift tools 6.2. That ships
+      # with Xcode 26. This image defaults to Xcode 16.4 (Swift 6.1), and the
+      # nested xcodebuild then exits with "Could not resolve package dependencies".
+      - name: Select Xcode 26
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          candidates=(/Applications/Xcode_26*.app)
+          if [[ ${#candidates[@]} -eq 0 ]]; then
+            echo "No Xcode 26 on this image. ExpoModulesJSI needs Swift tools 6.2." >&2
+            ls -d /Applications/Xcode*.app >&2 || true
+            exit 1
+          fi
+          selected="$(printf '%s\n' "${candidates[@]}" | sort -V | tail -1)"
+          echo "Using ${selected}"
+          sudo xcode-select -s "${selected}"
+          xcodebuild -version
+          xcrun swiftc --version
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
@@ -89,7 +108,7 @@ jobs:
         if: failure()
         run: |
           mkdir -p e2e/artifacts
-          xcrun simctl spawn booted log show --last 10m --style compact > e2e/artifacts/simulator.log || true
+          xcrun simctl spawn booted log show --last 10m --style compact --predicate 'processImagePath CONTAINS "BSVWallet"' > e2e/artifacts/simulator.log || true
           # run-ios.sh copies these when the build returns. Copy again in case
           # the step was killed before that. The full xcodebuild log is huge;
           # the error file and a tail are enough to see the real failure.
