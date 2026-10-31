@@ -199,7 +199,7 @@ export default function ScanSharesScreen() {
   const sharesRemaining = sharesNeeded - scanned
 
   return (
-    <View style={styles.container}>
+    <View testID="scan-shares-screen" style={styles.container}>
       <StatusBar style="light" />
       <QRScanner
         multiScan

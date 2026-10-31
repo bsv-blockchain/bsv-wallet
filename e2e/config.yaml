@@ -1,0 +1,2 @@
+# Maestro config for the BSV Wallet harness. Flows live in e2e/flows.
+appId: org.bsvblockchain.wallet

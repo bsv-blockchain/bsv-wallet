@@ -1,0 +1,104 @@
+name: E2E Android
+
+# Builds a debug harness APK and runs the Maestro flows on an Android emulator.
+# The iOS job is separate (e2e-ios.yml) because macOS minutes are much more
+# expensive; see TESTING.md.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'e2e/**'
+      - 'app/**'
+      - 'packages/expo-wallet-toolbox/**'
+      - 'packages/expo-android-wallet-bridge/**'
+      - 'packages/expo-safari-wallet-bridge/**'
+      - 'packages/react-native-*/**'
+      - 'eas.json'
+      - 'app.json'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'plugins/**'
+      - '.github/workflows/e2e-android.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.22.1'
+          cache: pnpm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Mock broadcaster unit tests
+        run: node --test e2e/mock/server.test.mjs
+
+      - name: Prebuild and assemble the harness APK
+        env:
+          EXPO_PUBLIC_E2E: 'true'
+          EXPO_NO_TELEMETRY: '1'
+        run: |
+          npx expo prebuild --platform android --no-install --clean
+          cd android && ./gradlew assembleDebug --no-daemon
+
+      - name: Install Maestro
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Run flows on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            bash e2e/scripts/run.sh
+
+      - name: Collect device logs
+        if: failure()
+        run: |
+          mkdir -p e2e/artifacts
+          adb logcat -d > e2e/artifacts/logcat.txt || true
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-android-failure
+          path: |
+            e2e/artifacts
+            e2e/mock/requests.log
+          if-no-files-found: ignore
+          retention-days: 14

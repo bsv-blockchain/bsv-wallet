@@ -68,6 +68,7 @@ export {
   isVaultAvailable,
   resetToolboxConfig
 } from './toolboxConfig'
+export { isE2eBuild, getE2eBroadcasterUrl, e2eSafeChain } from './e2e/mode'
 export type {
   ToolboxConfig,
   ToolboxServiceConfig,

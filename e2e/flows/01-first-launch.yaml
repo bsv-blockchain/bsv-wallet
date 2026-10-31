@@ -1,0 +1,36 @@
+appId: org.bsvblockchain.wallet
+---
+- runFlow: ../subflows/launch-fresh.yaml
+- assertVisible:
+    id: e2e-harness
+- assertVisible: You have
+- assertVisible:
+    id: home-pay
+- assertVisible:
+    id: home-receive
+- assertVisible:
+    id: home-balance
+- assertVisible:
+    id: activity-empty
+- assertVisible: No transactions yet
+- assertVisible: Already have a wallet?
+- assertVisible:
+    id: import-from-backup
+# Vault stays off in the harness, so the home destination is absent.
+- assertNotVisible:
+    id: home-vault
+- tapOn:
+    id: home-settings
+- extendedWaitUntil:
+    visible: Settings
+    timeout: 20000
+- tapOn:
+    id: settings-advanced
+- extendedWaitUntil:
+    visible:
+      id: settings-network
+    timeout: 15000
+- assertVisible: Testnet
+- assertNotVisible: Mainnet
+- tapOn:
+    id: settings-back

@@ -10,6 +10,7 @@
  * item written with requireAuthentication.
  */
 import * as LocalAuthentication from 'expo-local-authentication'
+import { isE2eBuild } from '../../e2e/mode'
 import { KekPolicy } from './types'
 
 /** ALWAYS written with requireAuthentication: true. */
@@ -98,6 +99,10 @@ export async function biometricKind(): Promise<'face' | 'fingerprint' | 'iris' |
  * so it is not merely unreachable in production, it is not present.
  */
 export async function resolveProvisioningPolicy(): Promise<ResolvedPolicy> {
+  // The harness stores the key without a biometric ceremony so a simulator
+  // with nothing enrolled, and one with Face ID enrolled, take the same path.
+  // Production never sets the harness flag, so this branch is not taken there.
+  if (isE2eBuild()) return DEV_PLAIN
   const strong = await hasStrongBiometrics()
   if (strong) return BIOMETRIC
   return __DEV__ ? DEV_PLAIN : DEGRADED
@@ -114,6 +119,7 @@ export async function resolveProvisioningPolicy(): Promise<ResolvedPolicy> {
  * *can* do biometrics must be re-wrapped before the KEK is honoured.
  */
 export async function needsUpgrade(current: KekPolicy): Promise<boolean> {
+  if (isE2eBuild()) return false
   if (current === 'biometric') return false
   if (__DEV__) return false
   return hasStrongBiometrics()

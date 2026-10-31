@@ -75,6 +75,7 @@ interface AmountInputProps {
    * fee comes out of BSV.
    */
   maxValue?: string
+  testID?: string
 }
 
 /**
@@ -93,7 +94,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   showMax = true,
   maxLabelKey = 'entire_wallet_balance',
   asset,
-  maxValue
+  maxValue,
+  testID
 }) => {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -245,6 +247,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           placeholderTextColor={colors.textTertiary}
           keyboardType={keyboardType}
           returnKeyType="done"
+          testID={testID}
           style={[styles.input, { color: colors.textPrimary }]}
         />
         <View style={styles.unitLabelPressable}>

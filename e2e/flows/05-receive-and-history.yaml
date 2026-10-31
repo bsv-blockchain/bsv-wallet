@@ -1,0 +1,36 @@
+appId: org.bsvblockchain.wallet
+---
+- runFlow: ../subflows/launch-fresh.yaml
+- runFlow: ../subflows/create-via-pay.yaml
+- tapOn:
+    id: pay-back
+- runFlow: ../subflows/dismiss-backup-reminder.yaml
+- extendedWaitUntil:
+    visible:
+      id: home-receive
+    timeout: 20000
+- tapOn:
+    id: home-receive
+- extendedWaitUntil:
+    visible: To a BSV address
+    timeout: 20000
+- tapOn: To a BSV address
+- extendedWaitUntil:
+    visible:
+      id: receive-address
+    timeout: 30000
+- assertVisible:
+    id: receive-qr
+- tapOn:
+    id: receive-address
+- tapOn:
+    id: pay-back
+- extendedWaitUntil:
+    visible:
+      id: activity-empty
+    timeout: 20000
+- assertVisible: No transactions yet
+- assertVisible:
+    id: activity-filter
+- assertVisible:
+    id: home-balance

@@ -44,6 +44,20 @@
       },
       "node": "24.22.1"
     },
+    "e2e": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_E2E": "true",
+        "RCT_USE_PREBUILT_RNCORE": "0"
+      },
+      "node": "24.22.1"
+    },
     "preview-apk": {
       "distribution": "internal",
       "android": {

@@ -19,7 +19,7 @@ import { AgentationGate } from '@/utils/AgentationGate'
 import { firebasePushAdapter } from '@/utils/push/firebasePushAdapter'
 
 import React, { useEffect } from 'react'
-import { View, useColorScheme } from 'react-native'
+import { Platform, View, useColorScheme } from 'react-native'
 import { Stack } from 'expo-router'
 import * as SystemUI from 'expo-system-ui'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -70,90 +70,119 @@ import { VaultCeremonySheet } from '@bsv/expo-wallet-toolbox/ui'
  * EXPO_PUBLIC_PUSH_ENABLED wires the Firebase adapter in. EAS development and
  * dev-physical enable it; production, production-apk and preview-apk do not.
  */
+/**
+ * Set only for the E2E harness (`EXPO_PUBLIC_E2E=true`). Production and
+ * development profiles leave it unset, and every branch below then matches
+ * the build that shipped before the harness existed.
+ *
+ * Android emulator reaches the host at 10.0.2.2. The iOS simulator uses
+ * loopback. `EXPO_PUBLIC_E2E_BROADCASTER_URL` overrides both for a device.
+ */
+function e2eBroadcasterUrl(): string | undefined {
+  if (process.env.EXPO_PUBLIC_E2E !== 'true') return undefined
+  const explicit = process.env.EXPO_PUBLIC_E2E_BROADCASTER_URL?.trim().replace(/\/$/, '')
+  if (explicit) return explicit
+  return Platform.OS === 'android' ? 'http://10.0.2.2:8787' : 'http://127.0.0.1:8787'
+}
+
+const e2eBroadcaster = e2eBroadcasterUrl()
+
 configureToolbox({
-  backupUrl: process.env.EXPO_PUBLIC_BACKUP_URL ?? null,
-  vaultEnabled: process.env.EXPO_PUBLIC_VAULT_ENABLED === 'true',
+  backupUrl: e2eBroadcaster ? null : (process.env.EXPO_PUBLIC_BACKUP_URL ?? null),
+  vaultEnabled: e2eBroadcaster ? false : process.env.EXPO_PUBLIC_VAULT_ENABLED === 'true',
+  e2e: e2eBroadcaster ? { broadcasterUrl: e2eBroadcaster } : undefined,
   // Mandala stablecoin endpoints, per chain. A chain without a complete entry
   // has no token runtime: the wallet neither drains the 'mandala-payments'
   // MessageBox nor offers token assets in Pay / Get paid on that chain.
   // `main` comes from EXPO_PUBLIC_MANDALA_* (unset in the production profile
   // until a mainnet overlay is deployed); `test` from EXPO_PUBLIC_TEST_MANDALA_*
   // (the flux testnet overlay, mandala-test-overlay.bsvblockchain.tech).
-  mandala: {
-    main: {
-      overlayUrl: process.env.EXPO_PUBLIC_MANDALA_OVERLAY_URL ?? '',
-      overlayIdentityKey: process.env.EXPO_PUBLIC_MANDALA_OVERLAY_IDENTITY_KEY ?? '',
-      messageBoxUrl:
-        process.env.EXPO_PUBLIC_MANDALA_MESSAGEBOX_URL ??
-        process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL ??
-        'https://messagebox.bsvblockchain.tech'
-    },
-    test: {
-      overlayUrl: process.env.EXPO_PUBLIC_TEST_MANDALA_OVERLAY_URL ?? '',
-      overlayIdentityKey: process.env.EXPO_PUBLIC_TEST_MANDALA_OVERLAY_IDENTITY_KEY ?? '',
-      messageBoxUrl:
-        process.env.EXPO_PUBLIC_TEST_MANDALA_MESSAGEBOX_URL ??
-        process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL ??
-        'https://messagebox.bsvblockchain.tech'
-    }
-  },
+  mandala: e2eBroadcaster
+    ? undefined
+    : {
+        main: {
+          overlayUrl: process.env.EXPO_PUBLIC_MANDALA_OVERLAY_URL ?? '',
+          overlayIdentityKey: process.env.EXPO_PUBLIC_MANDALA_OVERLAY_IDENTITY_KEY ?? '',
+          messageBoxUrl:
+            process.env.EXPO_PUBLIC_MANDALA_MESSAGEBOX_URL ??
+            process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL ??
+            'https://messagebox.bsvblockchain.tech'
+        },
+        test: {
+          overlayUrl: process.env.EXPO_PUBLIC_TEST_MANDALA_OVERLAY_URL ?? '',
+          overlayIdentityKey: process.env.EXPO_PUBLIC_TEST_MANDALA_OVERLAY_IDENTITY_KEY ?? '',
+          messageBoxUrl:
+            process.env.EXPO_PUBLIC_TEST_MANDALA_MESSAGEBOX_URL ??
+            process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL ??
+            'https://messagebox.bsvblockchain.tech'
+        }
+      },
   // The paymail handle registry, per chain: the domain this build's handles
   // live under and the host that serves it. A chain with no complete entry
   // shows "not available yet" in Profile and adds no registry tier to Pay.
   // The EAS development and dev-physical profiles point both chains at
   // deggen.com served by messagebox.bsvblockchain.tech; production carries
   // neither until a production domain is decided.
-  handleRegistry: {
-    main: {
-      domain: process.env.EXPO_PUBLIC_HANDLE_REGISTRY_DOMAIN ?? '',
-      url: process.env.EXPO_PUBLIC_HANDLE_REGISTRY_URL ?? ''
-    },
-    test: {
-      domain: process.env.EXPO_PUBLIC_TEST_HANDLE_REGISTRY_DOMAIN ?? '',
-      url: process.env.EXPO_PUBLIC_TEST_HANDLE_REGISTRY_URL ?? ''
-    }
-  },
+  handleRegistry: e2eBroadcaster
+    ? undefined
+    : {
+        main: {
+          domain: process.env.EXPO_PUBLIC_HANDLE_REGISTRY_DOMAIN ?? '',
+          url: process.env.EXPO_PUBLIC_HANDLE_REGISTRY_URL ?? ''
+        },
+        test: {
+          domain: process.env.EXPO_PUBLIC_TEST_HANDLE_REGISTRY_DOMAIN ?? '',
+          url: process.env.EXPO_PUBLIC_TEST_HANDLE_REGISTRY_URL ?? ''
+        }
+      },
   // Per-chain service overrides. Anything left unset uses the toolbox's
   // built-in default for that chain (its NETWORKS table): each chain has its
   // own Arcade, chaintracks and MessageBox server. Teratest has no TAAL ARC,
   // so it takes no TAAL key; scaletest has no WhatsOnChain, so it takes no
   // WoC key either.
-  services: {
-    main: {
-      arcUrl: process.env.EXPO_PUBLIC_ARC_URL,
-      arcApiKey: process.env.EXPO_PUBLIC_ARC_API_KEY,
-      chaintracksUrl: process.env.EXPO_PUBLIC_CHAINTRACKS_URL,
-      messageBoxUrl: process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL,
-      whatsOnChainApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY,
-      taalApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY
-    },
-    test: {
-      arcUrl: process.env.EXPO_PUBLIC_TEST_ARC_URL,
-      arcApiKey: process.env.EXPO_PUBLIC_TEST_ARC_API_KEY,
-      chaintracksUrl: process.env.EXPO_PUBLIC_TEST_CHAINTRACKS_URL,
-      messageBoxUrl: process.env.EXPO_PUBLIC_TEST_MESSAGEBOX_URL,
-      whatsOnChainApiKey: process.env.EXPO_PUBLIC_TEST_WOC_API_KEY,
-      taalApiKey: process.env.EXPO_PUBLIC_TEST_TAAL_API_KEY
-    },
-    teratest: {
-      arcUrl: process.env.EXPO_PUBLIC_TERATEST_ARC_URL,
-      arcApiKey: process.env.EXPO_PUBLIC_TERATEST_ARC_API_KEY,
-      chaintracksUrl: process.env.EXPO_PUBLIC_TERATEST_CHAINTRACKS_URL,
-      messageBoxUrl: process.env.EXPO_PUBLIC_TERATEST_MESSAGEBOX_URL,
-      whatsOnChainApiKey: process.env.EXPO_PUBLIC_TERATEST_WOC_API_KEY
-    },
-    scaletest: {
-      arcUrl: process.env.EXPO_PUBLIC_SCALETEST_ARC_URL,
-      arcApiKey: process.env.EXPO_PUBLIC_SCALETEST_ARC_API_KEY,
-      chaintracksUrl: process.env.EXPO_PUBLIC_SCALETEST_CHAINTRACKS_URL,
-      messageBoxUrl: process.env.EXPO_PUBLIC_SCALETEST_MESSAGEBOX_URL
-    }
-  },
+  services: e2eBroadcaster
+    ? {
+        test: {
+          arcUrl: e2eBroadcaster,
+          chaintracksUrl: `${e2eBroadcaster}/chaintracks/v1`
+        }
+      }
+    : {
+        main: {
+          arcUrl: process.env.EXPO_PUBLIC_ARC_URL,
+          arcApiKey: process.env.EXPO_PUBLIC_ARC_API_KEY,
+          chaintracksUrl: process.env.EXPO_PUBLIC_CHAINTRACKS_URL,
+          messageBoxUrl: process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL,
+          whatsOnChainApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY,
+          taalApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY
+        },
+        test: {
+          arcUrl: process.env.EXPO_PUBLIC_TEST_ARC_URL,
+          arcApiKey: process.env.EXPO_PUBLIC_TEST_ARC_API_KEY,
+          chaintracksUrl: process.env.EXPO_PUBLIC_TEST_CHAINTRACKS_URL,
+          messageBoxUrl: process.env.EXPO_PUBLIC_TEST_MESSAGEBOX_URL,
+          whatsOnChainApiKey: process.env.EXPO_PUBLIC_TEST_WOC_API_KEY,
+          taalApiKey: process.env.EXPO_PUBLIC_TEST_TAAL_API_KEY
+        },
+        teratest: {
+          arcUrl: process.env.EXPO_PUBLIC_TERATEST_ARC_URL,
+          arcApiKey: process.env.EXPO_PUBLIC_TERATEST_ARC_API_KEY,
+          chaintracksUrl: process.env.EXPO_PUBLIC_TERATEST_CHAINTRACKS_URL,
+          messageBoxUrl: process.env.EXPO_PUBLIC_TERATEST_MESSAGEBOX_URL,
+          whatsOnChainApiKey: process.env.EXPO_PUBLIC_TERATEST_WOC_API_KEY
+        },
+        scaletest: {
+          arcUrl: process.env.EXPO_PUBLIC_SCALETEST_ARC_URL,
+          arcApiKey: process.env.EXPO_PUBLIC_SCALETEST_ARC_API_KEY,
+          chaintracksUrl: process.env.EXPO_PUBLIC_SCALETEST_CHAINTRACKS_URL,
+          messageBoxUrl: process.env.EXPO_PUBLIC_SCALETEST_MESSAGEBOX_URL
+        }
+      },
   // Payment push notifications (MessageBox device registration). The adapter
   // wraps React Native Firebase Messaging; the toolbox package never imports a
   // push SDK itself. Gated by EXPO_PUBLIC_PUSH_ENABLED (see above): without an
   // adapter the toolbox registers nothing and shows no push UI.
-  push: process.env.EXPO_PUBLIC_PUSH_ENABLED === 'true' ? firebasePushAdapter : undefined
+  push: e2eBroadcaster ? undefined : process.env.EXPO_PUBLIC_PUSH_ENABLED === 'true' ? firebasePushAdapter : undefined
 })
 
 const nativeHandlers: NativeHandlers = {
