@@ -1,8 +1,9 @@
 name: E2E iOS
 
-# macOS minutes cost about ten times a Linux minute, and this app builds
-# React Native from source (RCT_USE_PREBUILT_RNCORE=0) plus several Nitro
-# modules. The suite therefore does not run on every pull request.
+# macOS minutes cost about ten times a Linux minute. The release harness uses
+# the prebuilt React core (the dev menu is debug-only) but still has to
+# compile the gitignored Rust xcframeworks before CocoaPods. The suite
+# therefore does not run on every pull request.
 #
 # It runs when:
 #   - someone starts it by hand (workflow_dispatch)
@@ -67,11 +68,25 @@ jobs:
           curl -Ls "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
+      # EngineNative and SecpNative ship as gitignored xcframeworks. pod install
+      # refuses to continue until both exist. The scripts add the iOS Rust
+      # targets themselves.
+      - name: Build Rust xcframeworks
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          source "$HOME/.cargo/env"
+          (cd native-secp-poc && scripts/build-secp-xcframework.sh)
+          (cd native-engine-ffi && scripts/build-engine-xcframework.sh)
+
       - name: Build and run on the iOS simulator
         env:
           EXPO_PUBLIC_E2E: 'true'
           EXPO_NO_TELEMETRY: '1'
-          RCT_USE_PREBUILT_RNCORE: '0'
+          # Release does not link expo-dev-menu, so the prebuilt React core is
+          # the same path production uses. Building React Native from source
+          # is only required for a dev-client.
+          RCT_USE_PREBUILT_RNCORE: '1'
         run: bash e2e/scripts/run-ios.sh
 
       - name: Collect simulator logs

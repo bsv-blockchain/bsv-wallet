@@ -119,7 +119,7 @@ On a booted emulator, `adb logcat` is the app log. On a booted simulator, `xcrun
 
 Both jobs upload `e2e/artifacts` and `e2e/mock/requests.log` when the suite fails, and the Android job also saves `logcat`.
 
-iOS is not on every pull request. A macOS minute costs about ten Linux minutes, and this build compiles React Native from source plus the Nitro modules, so a green iOS run is a long job. Android runs the same flows on pull requests. Label a pull request `e2e-ios` when a change is specific to iOS (deep links, the share scanner, the secure-store path).
+iOS is not on every pull request. A macOS minute costs about ten Linux minutes, and the job compiles the gitignored Rust xcframeworks before the simulator build, so a green iOS run is a long job. The release harness uses the prebuilt React core. Android runs the same flows on pull requests. Label a pull request `e2e-ios` when a change is specific to iOS (deep links, the share scanner, the secure-store path).
 
 There is no retry wrapper around Maestro. A red run is a failed assertion, a missing id, or a crash.
 
