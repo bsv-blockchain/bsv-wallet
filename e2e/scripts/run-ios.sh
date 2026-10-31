@@ -14,18 +14,22 @@ export LANG="${LANG:-en_US.UTF-8}"
 export LC_ALL="${LC_ALL:-en_US.UTF-8}"
 
 if [[ "${E2E_SKIP_BUILD:-}" != "1" ]]; then
-  if [[ "${E2E_CLEAN:-}" == "1" || ! -d "$ROOT/ios" ]]; then
-    npx expo prebuild --platform ios --no-install --clean
-  else
-    npx expo prebuild --platform ios --no-install
+  # The committed ios/ project already pins YubiKit and disables Firebase SPM.
+  # `expo prebuild` rewrites that Podfile and Xcode then fails to resolve the
+  # generated Swift packages. Only prebuild when the native project is absent
+  # or E2E_CLEAN=1.
+  if [[ "${E2E_CLEAN:-}" == "1" || ! -f "$ROOT/ios/Podfile" ]]; then
+    if [[ "${E2E_CLEAN:-}" == "1" ]]; then
+      npx expo prebuild --platform ios --no-install --clean
+    else
+      npx expo prebuild --platform ios --no-install
+    fi
   fi
   # `expo run:ios` has no --non-interactive flag. `--device generic` builds
   # the simulator binary without prompting for a destination, and CI=true
   # (set by GitHub Actions) keeps Expo from asking questions.
   mkdir -p "$ROOT/build/ios"
-  # prebuild rewrites ios/Podfile from the Expo template. Re-apply the YubiKit
-  # git pin if that rewrite dropped it. The config plugin does the same; this
-  # is the backstop for a Podfile that was already on disk.
+  # If a prebuild did run, put back the pins it drops. No-op for the committed Podfile.
   python3 - "$ROOT/ios/Podfile" <<'PY'
 import sys
 path = sys.argv[1]
