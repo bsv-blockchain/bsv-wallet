@@ -71,6 +71,7 @@ import { PrivateKey } from '@bsv/sdk'
 import { useExportWalletData } from '../hooks/useExportWalletData'
 import { importWalletDatabase } from '../importDatabases'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { isE2eBuild } from '../../core/e2e/mode'
 import { profileScopedKey } from '../../core/profiles/profileStore'
 import { profileLabel } from '../../core/profiles/profileLabel'
 import { NETWORKS } from '../../core/networks'
@@ -536,9 +537,10 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
       { id: 'teratest', label: t('teratest'), color: colors.info },
       { id: 'scaletest', label: t('scaletest'), color: colors.accent }
     ] as { id: AppChain; label: string; color: string }[]
-  ).filter(n => NETWORKS[n.id].available || n.id === selectedNetwork)
+  ).filter(n => (isE2eBuild() ? n.id !== 'main' : true) && (NETWORKS[n.id].available || n.id === selectedNetwork))
 
   const handleSelectNetwork = async (target: AppChain) => {
+    if (isE2eBuild() && target === 'main') return
     if (target === selectedNetwork) {
       setNetworkExpanded(false)
       return
@@ -558,7 +560,13 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
     <View style={{ flex: 1, backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }}>
       {/* Header */}
       <View style={[localStyles.header, { borderBottomColor: colors.separator }]}>
-        <TouchableOpacity onPress={() => router.back()} style={localStyles.headerBack}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          testID="settings-back"
+          accessibilityRole="button"
+          accessibilityLabel={t('go_back')}
+          style={localStyles.headerBack}
+        >
           <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
         </TouchableOpacity>
         <Text style={[localStyles.headerTitle, { color: colors.textPrimary }]}>{t('settings')}</Text>
@@ -611,6 +619,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
             </View>
           )}
           <ListRow
+            testID="settings-connections"
             label={t('connect_to_app')}
             icon="qr-code-outline"
             iconColor="#0A84FF"
@@ -620,6 +629,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
               reaches for when something looks wrong, and they must not have to
               open a section labelled "Advanced" to find it. */}
           <ListRow
+            testID="settings-troubleshooting"
             label={t('check_wallet')}
             icon="checkmark-done-circle-outline"
             iconColor="#30D158"
@@ -631,6 +641,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
         {/* ── Advanced ── */}
         <GroupedSection>
           <ListRow
+            testID="settings-advanced"
             label={t('advanced')}
             icon="construct-outline"
             iconColor="#8E8E93"
@@ -657,6 +668,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
               }
             >
               <ListRow
+                testID="settings-network"
                 label={t('bsv_network')}
                 value={
                   switchingNetwork
@@ -901,6 +913,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                 </View>
               )}
               <ListRow
+                testID="settings-trust"
                 label={t('trust_network')}
                 icon="shield-checkmark-outline"
                 iconColor="#BF5AF2"
@@ -1016,6 +1029,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                   trailing={isImporting ? <ActivityIndicator size="small" /> : undefined}
                 />
                 <ListRow
+                  testID="settings-logs"
                   label="Debugging"
                   icon="terminal-outline"
                   iconColor="#8E8E93"
@@ -1061,6 +1075,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
         {!hideLogout && (
           <GroupedSection>
             <ListRow
+              testID="settings-log-out"
               label={t('log_out')}
               icon="log-out-outline"
               iconColor={colors.error}

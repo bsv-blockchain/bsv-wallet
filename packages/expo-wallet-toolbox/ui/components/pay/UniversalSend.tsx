@@ -29,6 +29,8 @@ import { useDirectPay } from '../../../core/directpay/DirectPayProvider'
 import { fallbackPrompt, payIdentity } from '../../../core/directpay/payFlow'
 import type { PayOutcome } from '../../../core/directpay/types'
 import { userFacingPayError } from '../../../core/pay/userError'
+import { postE2eBroadcast } from '../../../core/e2e/broadcaster'
+import { isE2eBuild } from '../../../core/e2e/mode'
 import PressableScale from '../ui/PressableScale'
 import { showToast } from '../ui/Toast'
 import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
@@ -394,6 +396,8 @@ function UniversalSendInner(
   // read-and-set before any await.
   const sendingRef = useRef(false)
   const [sendResult, setSendResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  /** Stays on the review step after the mock broadcaster accepts. Production never sets it. */
+  const [e2eReceipt, setE2eReceipt] = useState<string | null>(null)
   /**
    * The failed-token-send note, kept apart from `sendResult` because it carries
    * an action ("Check again") that a plain banner has nowhere to put.
@@ -1077,6 +1081,14 @@ function UniversalSendInner(
           if (target.kind !== 'handle' || units === undefined) return
           const sent = await sendToken(target, units)
           if (!sent) return
+        } else if (isE2eBuild() && target.kind === 'address') {
+          // The harness has no coins. Confirm posts a description to the mock
+          // broadcaster and stays on this step so the receipt can be asserted.
+          // The real address rail is not called, and the mock does not relay.
+          const txid = await postE2eBroadcast(target.address, amount)
+          setE2eReceipt(txid)
+          flashResult({ type: 'success', message: 'Test broadcaster accepted' })
+          return
         } else if (target.kind === 'handle') await sendHandle(target, amount)
         else await sendAddress(target, amount)
         setFigure(current => ({ ...current, text: '' }))
@@ -1493,11 +1505,13 @@ function UniversalSendInner(
               busy={false}
               label={t('pay_step_continue')}
               icon="arrow-forward"
+              testID="pay-continue"
             />
           ) : (
             <PressableScale
               onPress={() => loadExpoRouter().router.push('/contacts' as never)}
               haptic="tap"
+              testID="pay-contacts"
               style={[
                 styles.outlineBtn,
                 { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }
@@ -1540,6 +1554,7 @@ function UniversalSendInner(
             busy={false}
             label={t('pay_step_continue')}
             icon="arrow-forward"
+            testID="pay-continue"
           />
         </>
       )}
@@ -1687,7 +1702,12 @@ function UniversalSendInner(
             <Text style={[styles.consequence, { color: colors.textSecondary }]}>{t('finish_or_cancel_outgoing')}</Text>
           )}
 
-          <PayCta onPress={handleSend} disabled={!canSend} busy={isSending} labelKey="send" />
+          <PayCta onPress={handleSend} disabled={!canSend} busy={isSending} labelKey="send" testID="pay-send" />
+          {e2eReceipt ? (
+            <Text testID="e2e-broadcast-receipt" accessibilityLabel={`Test broadcaster accepted ${e2eReceipt}`}>
+              Test broadcaster accepted
+            </Text>
+          ) : null}
 
           {/* A failed token send, in the app's own failure channel: error tone,
               dismissible, and carrying at most one affordance. "Check again"

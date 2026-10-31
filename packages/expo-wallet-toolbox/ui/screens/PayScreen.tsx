@@ -569,6 +569,7 @@ export function PayScreen({ dismissTo = '/' }: PayScreenProps = {}) {
         <PressableScale
           onPress={goBack}
           haptic="tap"
+          testID="pay-back"
           style={styles.headerBtn}
           accessibilityRole="button"
           accessibilityLabel={t('go_back')}

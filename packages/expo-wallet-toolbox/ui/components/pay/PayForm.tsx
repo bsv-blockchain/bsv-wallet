@@ -84,7 +84,14 @@ export function PayAmountField({
 }) {
   return (
     <PayField labelKey="amount">
-      <AmountInput value={value} onChangeText={onChangeText} showMax={showMax} asset={asset} maxValue={maxValue} />
+      <AmountInput
+        value={value}
+        onChangeText={onChangeText}
+        showMax={showMax}
+        asset={asset}
+        maxValue={maxValue}
+        testID="pay-amount"
+      />
       {showBalance && <AvailableBalance text={availableText} note={availableNote} />}
     </PayField>
   )
@@ -149,7 +156,8 @@ export function PayCta({
   busy,
   labelKey = 'pay',
   label,
-  icon = 'arrow-up'
+  icon = 'arrow-up',
+  testID
 }: {
   onPress: () => void
   disabled: boolean
@@ -163,6 +171,7 @@ export function PayCta({
    */
   label?: string
   icon?: keyof IoniconsComponent['glyphMap']
+  testID?: string
 }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -174,6 +183,7 @@ export function PayCta({
       onPress={onPress}
       disabled={disabled}
       haptic="confirm"
+      testID={testID}
       style={[styles.cta, { backgroundColor: enabled ? colors.accent : colors.fill }]}
       accessibilityRole="button"
       accessibilityLabel={text}

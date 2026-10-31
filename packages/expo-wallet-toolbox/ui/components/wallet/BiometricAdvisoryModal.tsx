@@ -88,6 +88,7 @@ export const BiometricAdvisoryModal: React.FC<{
             haptic="confirm"
             onPress={loading ? undefined : onContinue}
             disabled={loading}
+            testID="biometric-continue"
             style={[styles.primary, { backgroundColor: colors.accent, opacity: loading ? 0.7 : 1 }]}
           >
             {loading ? (
@@ -101,6 +102,7 @@ export const BiometricAdvisoryModal: React.FC<{
             haptic="tap"
             onPress={loading ? undefined : onCancel}
             disabled={loading}
+            testID="biometric-cancel"
             style={styles.secondary}
           >
             <Text style={[styles.secondaryLabel, { color: loading ? colors.textTertiary : colors.textSecondary }]}>

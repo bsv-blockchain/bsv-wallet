@@ -157,6 +157,7 @@ export default function RecipientField({
           placeholderTextColor={colors.textTertiary}
           autoCapitalize="none"
           autoCorrect={false}
+          testID="pay-recipient"
           style={[styles.recipientInput, { color: colors.textPrimary }]}
         />
         <TouchableOpacity onPress={onOpenScanner} style={styles.inputAction} accessibilityLabel={t('scan_qr_code')}>

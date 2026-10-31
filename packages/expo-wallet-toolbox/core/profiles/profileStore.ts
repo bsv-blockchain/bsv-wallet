@@ -24,6 +24,7 @@
 import { useSyncExternalStore } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { DEFAULT_CHAIN, type AppChain } from '../config'
+import { e2eSafeChain } from '../e2e/mode'
 import { APP_CHAINS } from '../networks'
 
 export const PROFILES_STORAGE_KEY = 'wallet_profiles_v1'
@@ -78,7 +79,7 @@ export function normalizeRestorePending(raw: unknown): AppChain[] | undefined {
 }
 
 export function defaultProfilesState(): ProfilesState {
-  return { active: 0, profiles: [{ index: 0, network: DEFAULT_CHAIN }] }
+  return { active: 0, profiles: [{ index: 0, network: e2eSafeChain(DEFAULT_CHAIN) }] }
 }
 
 /** Trim and cap a profile name; undefined when nothing is left (the default label applies). */
@@ -128,7 +129,7 @@ export function parseProfilesState(raw: string | null): ProfilesState {
     )
     byIndex.set(r.index as number, {
       index: r.index as number,
-      network: CHAINS.includes(r.network as AppChain) ? (r.network as AppChain) : DEFAULT_CHAIN,
+      network: e2eSafeChain(CHAINS.includes(r.network as AppChain) ? (r.network as AppChain) : DEFAULT_CHAIN),
       ...(typeof r.identityKey === 'string' ? { identityKey: r.identityKey } : {}),
       ...(restorePending ? { restorePending } : {}),
       ...(CHAINS.includes(r.lastBuiltNetwork as AppChain) ? { lastBuiltNetwork: r.lastBuiltNetwork as AppChain } : {}),

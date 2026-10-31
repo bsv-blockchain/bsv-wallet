@@ -1,0 +1,112 @@
+name: E2E iOS
+
+# Same release gate as E2E Android. macOS minutes cost about ten times a
+# Linux minute, and this job compiles the gitignored Rust xcframeworks
+# before CocoaPods. The release harness uses the prebuilt React core.
+# See TESTING.md.
+#
+# Runs when:
+#   - a pull request is labeled `release`, and again on each push while that
+#     label is still applied
+#   - a version tag `v*` is pushed (same pattern as Publish APK)
+#   - someone starts it by hand (workflow_dispatch)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+    # Temporary, so this branch can finish one simulator pass. Remove it
+    # once that run has been triaged. It is not the release gate.
+    branches:
+      - cursor/e2e-maestro-6394
+  pull_request:
+    types: [labeled, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-ios-device-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    name: iOS simulator
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/cursor/e2e-maestro-6394') ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release'))
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.22.1'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Mock broadcaster unit tests
+        run: node --test e2e/mock/server.test.mjs
+
+      - name: Install Maestro
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      # EngineNative and SecpNative ship as gitignored xcframeworks. pod install
+      # refuses to continue until both exist. The scripts add the iOS Rust
+      # targets themselves.
+      - name: Build Rust xcframeworks
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          source "$HOME/.cargo/env"
+          (cd native-secp-poc && scripts/build-secp-xcframework.sh)
+          (cd native-engine-ffi && scripts/build-engine-xcframework.sh)
+
+      - name: Build and run on the iOS simulator
+        env:
+          EXPO_PUBLIC_E2E: 'true'
+          EXPO_NO_TELEMETRY: '1'
+          # Release does not link expo-dev-menu, so the prebuilt React core is
+          # the same path production uses. Building React Native from source
+          # is only required for a dev-client.
+          RCT_USE_PREBUILT_RNCORE: '1'
+        run: bash e2e/scripts/run-ios.sh
+
+      - name: Collect simulator logs
+        if: failure()
+        run: |
+          mkdir -p e2e/artifacts
+          xcrun simctl spawn booted log show --last 10m --style compact > e2e/artifacts/simulator.log || true
+          # run-ios.sh copies these when the build returns. Copy again in case
+          # the step was killed before that. The full xcodebuild log is huge;
+          # the error file and a tail are enough to see the real failure.
+          if [[ -f .expo/xcodebuild-error.log ]]; then
+            cp .expo/xcodebuild-error.log e2e/artifacts/xcodebuild-error.log || true
+          fi
+          if [[ -f .expo/xcodebuild.log && ! -s e2e/artifacts/xcodebuild.tail.log ]]; then
+            tail -n 400 .expo/xcodebuild.log > e2e/artifacts/xcodebuild.tail.log || true
+          fi
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-ios-failure
+          path: |
+            e2e/artifacts
+            e2e/mock/requests.log
+          if-no-files-found: ignore
+          retention-days: 14

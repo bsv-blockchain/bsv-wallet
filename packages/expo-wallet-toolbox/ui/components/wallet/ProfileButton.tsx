@@ -86,6 +86,7 @@ export default function ProfileButton() {
           onPress={onPress}
           haptic="tap"
           hitSlop={5}
+          testID="profile-button"
           style={[styles.disc, { backgroundColor: colors.surfaceRaised, borderColor: colors.surfaceRaisedBorder }]}
           accessibilityRole="button"
           accessibilityLabel={profilesSupported ? t('profile_switcher_a11y') : t('profile')}

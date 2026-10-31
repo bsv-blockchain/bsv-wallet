@@ -1,0 +1,146 @@
+name: E2E Android
+
+# Device suite for a release, not for ordinary pull requests.
+# The repo has no existing release label, so the gate is the label `release`
+# (create it in the repo before applying it). See TESTING.md.
+#
+# Runs when:
+#   - a pull request is labeled `release`, and again on each push while that
+#     label is still applied
+#   - a version tag `v*` is pushed (same pattern as Publish APK)
+#   - someone starts it by hand (workflow_dispatch)
+#
+# Jest and tsc stay on the toolbox publish workflow. This file is the device job.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+    # Temporary, so this branch can finish one emulator pass after the
+    # release-APK fix. Remove it once that run has been triaged.
+    branches:
+      - cursor/e2e-maestro-6394
+  pull_request:
+    types: [labeled, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-android-device-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android emulator
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/cursor/e2e-maestro-6394') ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.22.1'
+          cache: pnpm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # ubuntu-latest already has the Android SDK. android-actions/setup-android@v3
+      # installs the removed `tools` package and fails before the build starts.
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          CMDLINE="$(echo "$SDK"/cmdline-tools/*/bin/sdkmanager | awk '{print $1}')"
+          if [[ ! -x "$CMDLINE" ]]; then
+            echo "sdkmanager not found under $SDK/cmdline-tools" >&2
+            ls -la "$SDK" || true
+            exit 1
+          fi
+          # `yes` exits with SIGPIPE once sdkmanager has read enough answers.
+          set +o pipefail
+          yes | "$CMDLINE" --licenses >/dev/null || true
+          set -o pipefail
+          "$CMDLINE" --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.1.12297006" \
+            "cmake;3.22.1"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Mock broadcaster unit tests
+        run: node --test e2e/mock/server.test.mjs
+
+      - name: Prebuild and assemble the harness APK
+        env:
+          EXPO_PUBLIC_E2E: 'true'
+          EXPO_NO_TELEMETRY: '1'
+          # The emulator is x86_64. Building the other ABIs only adds time.
+          ORG_GRADLE_PROJECT_reactNativeArchitectures: x86_64
+        run: |
+          # Expo inlines EXPO_PUBLIC_* from the environment and from .env.
+          # Writing .env makes the bundle a harness even if Gradle starts a
+          # daemon that does not inherit the step environment.
+          # assembleRelease embeds the JS bundle. assembleDebug does not
+          # (debuggableVariants skips it) and the APK then waits for Metro,
+          # which this job does not start.
+          printf 'EXPO_PUBLIC_E2E=true\n' > .env
+          npx expo prebuild --platform android --no-install --clean
+          cd android && ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=x86_64
+
+      - name: Install Maestro
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Run flows on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          # One line. The action executes each line of `script` in its own shell.
+          script: bash e2e/scripts/ci-android.sh
+
+      - name: Collect device logs
+        if: failure()
+        run: |
+          mkdir -p e2e/artifacts
+          # ci-android.sh already saved logcat, a screenshot, and the UI dump
+          # while the emulator was alive. A bare `adb logcat` here waits on a
+          # dead emulator and would overwrite that file with nothing.
+          if [[ ! -s e2e/artifacts/logcat.txt ]]; then
+            timeout 20 adb logcat -d > e2e/artifacts/logcat.txt || true
+          fi
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-android-failure
+          path: |
+            e2e/artifacts
+            e2e/mock/requests.log
+          if-no-files-found: ignore
+          retention-days: 14

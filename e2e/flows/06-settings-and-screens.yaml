@@ -1,0 +1,93 @@
+appId: org.bsvblockchain.wallet
+---
+- runFlow: ../subflows/launch-fresh.yaml
+- runFlow: ../subflows/create-via-pay.yaml
+- runFlow: ../subflows/go-home.yaml
+- tapOn:
+    id: profile-button
+- extendedWaitUntil:
+    visible:
+      id: profile-switcher
+    timeout: 15000
+- assertVisible: Testnet
+- tapOn:
+    id: profile-row-0
+- extendedWaitUntil:
+    visible: Profile
+    timeout: 20000
+- runFlow: ../subflows/go-home.yaml
+- openLink: bsv-wallet://identifier
+- extendedWaitUntil:
+    visible: Your Identifier
+    timeout: 20000
+- openLink: bsv-wallet://contacts
+- extendedWaitUntil:
+    visible: No contacts yet
+    timeout: 20000
+- openLink: bsv-wallet://contact/add
+- extendedWaitUntil:
+    visible: New Contact
+    timeout: 20000
+- openLink: bsv-wallet://trust
+- extendedWaitUntil:
+    visible: Trust Network
+    timeout: 20000
+- openLink: bsv-wallet://connections
+- extendedWaitUntil:
+    visible: Connections
+    timeout: 20000
+- openLink: bsv-wallet://logs
+- extendedWaitUntil:
+    visible: Debugging
+    timeout: 20000
+- openLink: bsv-wallet://wallet-check
+- extendedWaitUntil:
+    visible: Troubleshooting
+    timeout: 20000
+- openLink: bsv-wallet://vault
+- extendedWaitUntil:
+    visible: Not available yet
+    timeout: 20000
+- runFlow: ../subflows/go-home.yaml
+- tapOn:
+    id: home-settings
+- extendedWaitUntil:
+    visible: Settings
+    timeout: 20000
+- assertVisible:
+    id: settings-connections
+- assertVisible:
+    id: settings-troubleshooting
+- tapOn:
+    id: settings-advanced
+- extendedWaitUntil:
+    visible:
+      id: settings-network
+    timeout: 15000
+- assertVisible: Testnet
+- assertNotVisible: Mainnet
+- scrollUntilVisible:
+    element:
+      id: settings-trust
+    direction: DOWN
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: settings-logs
+    direction: DOWN
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: settings-log-out
+    direction: DOWN
+    timeout: 15000
+- tapOn:
+    id: settings-log-out
+- extendedWaitUntil:
+    visible: Delete Wallet?
+    timeout: 15000
+- tapOn: Delete Wallet
+- extendedWaitUntil:
+    visible:
+      id: import-from-backup
+    timeout: 60000

@@ -3,6 +3,7 @@ import type { PushAdapter } from './push/types'
 import { trimTrailingSlashes } from './net/trimTrailingSlashes'
 import { isRelayUrl, isStunUrl } from './directpay/settings'
 import type { PermissionPolicyOverride } from './bridge/permissionPolicy'
+import { resetE2eMode, setE2eMode } from './e2e/mode'
 
 /**
  * Service endpoints and API keys for one chain.
@@ -173,6 +174,17 @@ export interface ToolboxConfig {
    * unverified origins; the user's own stored policy wins over it.
    */
   browserBridge?: { allowLocalhostHttp?: boolean; permissionPolicy?: PermissionPolicyOverride }
+  /**
+   * End-to-end harness. Omit it in every build that can hold funds.
+   *
+   * Presence locks the wallet off mainnet, stores new keys without a biometric
+   * prompt, and points Pay's confirm button at `broadcasterUrl` instead of a
+   * real broadcaster. The host sets it only when `EXPO_PUBLIC_E2E` is the
+   * string `"true"`. A harness build also has to disable backup, the vault
+   * and push, and must not pass mainnet service endpoints — `configureToolbox`
+   * throws otherwise, so a copied production profile cannot boot as E2E.
+   */
+  e2e?: { broadcasterUrl: string }
 }
 
 export type BrowserBridgeHostConfig = NonNullable<ToolboxConfig['browserBridge']>
@@ -249,6 +261,51 @@ function normalizeBackupUrl(raw: string): string {
   return trimmed
 }
 
+/**
+ * The mock broadcaster has to be a local or private origin. `10.0.2.2` is the
+ * Android emulator's alias for its host and is not an RFC 1918 address, so it
+ * is named here. It is not added to the general service-origin policy.
+ * Public hosts are refused even over https: the harness must not post a
+ * payment description off the machine running the tests.
+ */
+function isE2eBroadcasterUrl(raw: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return false
+  }
+  if (parsed.username || parsed.password) return false
+  if (parsed.pathname !== '' && parsed.pathname !== '/') return false
+  if (parsed.search !== '' || parsed.hash !== '') return false
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+  const host = parsed.hostname
+  return host === '10.0.2.2' || host === 'localhost' || host === '127.0.0.1' || PRIVATE_HOST.test(host)
+}
+
+function checkE2eConfig(config: ToolboxConfig): string | undefined {
+  if (config.e2e === undefined) return undefined
+  const url = config.e2e.broadcasterUrl?.trim() ?? ''
+  if (!isE2eBroadcasterUrl(url)) {
+    throw new Error(
+      `configureToolbox: e2e.broadcasterUrl must be a loopback, 10.0.2.2, or private-network origin: ${config.e2e.broadcasterUrl}`
+    )
+  }
+  if (config.backupUrl != null) {
+    throw new Error('configureToolbox: an E2E build must pass backupUrl: null')
+  }
+  if (config.vaultEnabled === true) {
+    throw new Error('configureToolbox: an E2E build must not enable the vault')
+  }
+  if (config.push !== undefined) {
+    throw new Error('configureToolbox: an E2E build must not install a push adapter')
+  }
+  if (config.services?.main !== undefined) {
+    throw new Error('configureToolbox: an E2E build must not configure mainnet services')
+  }
+  return url.replace(/\/$/, '')
+}
+
 /** Throws unless the host's direct pay addresses are acceptable; unset fields are fine. */
 function checkDirectPayHostConfig(directPay: DirectPayHostConfig | undefined): void {
   if (directPay === undefined) return
@@ -273,6 +330,7 @@ export function configureToolbox(config: ToolboxConfig): void {
   if (config == null || !('backupUrl' in config)) {
     throw new Error('configureToolbox: backupUrl is required. Pass null to disable backup.')
   }
+  const e2eBroadcasterUrl = checkE2eConfig(config)
   checkDirectPayHostConfig(config.directPay)
   current = {
     backupUrl: config.backupUrl == null ? '' : normalizeBackupUrl(config.backupUrl),
@@ -285,6 +343,7 @@ export function configureToolbox(config: ToolboxConfig): void {
     directPay: config.directPay,
     browserBridge: config.browserBridge
   }
+  setE2eMode(e2eBroadcasterUrl)
 }
 
 /**
@@ -488,4 +547,5 @@ export function isVaultAvailable(chain: AppChain, profileIndex: number): boolean
 /** Test-only: drop the installed configuration. */
 export function resetToolboxConfig(): void {
   current = null
+  resetE2eMode()
 }

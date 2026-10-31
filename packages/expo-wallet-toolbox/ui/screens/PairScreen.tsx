@@ -242,7 +242,7 @@ export function PairScreen() {
                   keeps the registrable-domain suffix visible even for a long
                   attacker-chosen hostname designed to hide it behind a
                   trustworthy-looking prefix. */}
-              <Text style={styles.infoValue} numberOfLines={1} ellipsizeMode="middle">
+              <Text testID="pair-origin" style={styles.infoValue} numberOfLines={1} ellipsizeMode="middle">
                 {canonicalOrigin ?? ''}
               </Text>
             </View>
@@ -266,10 +266,10 @@ export function PairScreen() {
           </View>
 
           <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.rejectBtn} onPress={handleReject}>
+            <TouchableOpacity testID="pair-reject" style={styles.rejectBtn} onPress={handleReject}>
               <Text style={styles.rejectBtnText}>Reject</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.approveBtn} onPress={() => void handleApprove()}>
+            <TouchableOpacity testID="pair-approve" style={styles.approveBtn} onPress={() => void handleApprove()}>
               <Text style={styles.approveBtnText}>Approve</Text>
             </TouchableOpacity>
           </View>

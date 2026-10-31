@@ -1,0 +1,7 @@
+appId: org.bsvblockchain.wallet
+---
+# The reminder is not modal. Closing it is optional: a build that does not
+# show it should continue.
+- tapOn:
+    id: backup-reminder-close
+    optional: true

@@ -1,0 +1,17 @@
+appId: org.bsvblockchain.wallet
+---
+# Lazy create: the first Pay tap is the product's own onboarding.
+# Ends on the Pay screen, with a wallet stored and no biometric prompt.
+- tapOn:
+    id: home-pay
+- extendedWaitUntil:
+    visible:
+      id: biometric-continue
+    timeout: 30000
+- assertVisible: Secure Your Wallet
+- tapOn:
+    id: biometric-continue
+- extendedWaitUntil:
+    visible:
+      id: pay-recipient
+    timeout: 180000
