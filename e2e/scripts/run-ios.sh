@@ -25,10 +25,13 @@ if [[ "${E2E_SKIP_BUILD:-}" != "1" ]]; then
       npx expo prebuild --platform ios --no-install
     fi
   fi
-  # `expo run:ios` has no --non-interactive flag. `--device generic` builds
-  # the simulator binary without prompting for a destination, and CI=true
-  # (set by GitHub Actions) keeps Expo from asking questions.
+  # `expo run:ios` has no --non-interactive flag. CI=true (set by GitHub
+  # Actions) keeps Expo from asking questions. `--device generic` selects
+  # destination `generic/platform=iOS Simulator`, and Xcode 16 then exits 65
+  # with "Could not resolve package dependencies" and no package name.
+  # A concrete booted simulator does not.
   mkdir -p "$ROOT/build/ios"
+  mkdir -p "$ROOT/e2e/artifacts"
   # If a prebuild did run, put back the pins it drops. No-op for the committed Podfile.
   python3 - "$ROOT/ios/Podfile" <<'PY'
 import sys
@@ -56,7 +59,36 @@ if changed:
     open(path, "w").write(text)
     print("Restored Podfile pins dropped by prebuild (YubiKit git tag, RNFirebaseDisableSPM)")
 PY
-  npx expo run:ios --configuration Release --no-bundler --device generic --output "$ROOT/build/ios"
+  if ! xcrun simctl list devices booted | grep -q Booted; then
+    UDID="$(xcrun simctl list devices available | grep -E 'iPhone' | grep -oE '[0-9A-Fa-f-]{36}' | head -1 || true)"
+    if [[ -z "$UDID" ]]; then
+      echo "No available iPhone simulator." >&2
+      xcrun simctl list devices available || true
+      exit 1
+    fi
+    echo "Booting simulator $UDID"
+    xcrun simctl boot "$UDID" || true
+    xcrun simctl bootstatus "$UDID" -b
+  else
+    UDID="$(xcrun simctl list devices booted | grep -oE '[0-9A-Fa-f-]{36}' | head -1)"
+  fi
+  set +e
+  npx expo run:ios --configuration Release --no-bundler --device "$UDID" --output "$ROOT/build/ios"
+  build_status=$?
+  set -e
+  if [[ -f "$ROOT/.expo/xcodebuild-error.log" ]]; then
+    cp "$ROOT/.expo/xcodebuild-error.log" "$ROOT/e2e/artifacts/xcodebuild-error.log" || true
+  fi
+  if [[ -f "$ROOT/.expo/xcodebuild.log" ]]; then
+    tail -n 400 "$ROOT/.expo/xcodebuild.log" > "$ROOT/e2e/artifacts/xcodebuild.tail.log" || true
+  fi
+  if [[ "$build_status" -ne 0 ]]; then
+    if ! find "$ROOT/build/ios" -name '*.app' -type d -print -quit | grep -q .; then
+      echo "iOS build failed (exit $build_status). See e2e/artifacts/xcodebuild-error.log." >&2
+      exit "$build_status"
+    fi
+    echo "expo run:ios exited $build_status after writing a simulator .app; continuing."
+  fi
 fi
 
 APP="$(find "$ROOT/build/ios" -name '*.app' -type d -print -quit || true)"
