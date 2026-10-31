@@ -35,8 +35,9 @@
     "test:ui": "jest --watchman=false --testPathPattern=packages/expo-wallet-toolbox/__tests__/ui",
     "test:integration": "jest --watchman=false --testPathPattern=packages/expo-wallet-toolbox/__tests__/journeys|packages/expo-wallet-toolbox/__tests__/bridge/integration.test",
     "test:e2e": "jest --config jest.e2e.config.cjs --runInBand --watchman=false",
-    "test:coverage": "jest --ci --coverage --watchman=false --maxWorkers=2",
-    "test:ci": "jest --ci --coverage --watchman=false --maxWorkers=2"
+    "test:coverage": "jest --ci --coverage --watchman=false --maxWorkers=2 --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns=/e2e/ --testPathIgnorePatterns=walletConnectionMemoryBudget.test",
+    "test:ci": "jest --ci --coverage --watchman=false --maxWorkers=2 --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns=/e2e/ --testPathIgnorePatterns=walletConnectionMemoryBudget.test",
+    "test:memory-budget": "jest --ci --watchman=false --runInBand packages/expo-wallet-toolbox/__tests__/context/walletConnectionMemoryBudget.test.tsx"
   },
   "dependencies": {
     "@bsv/air-gap": "^0.1.3",

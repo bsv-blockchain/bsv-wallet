@@ -66,3 +66,7 @@ Collected from `packages/expo-wallet-toolbox/core`, `ui`, `app`, `utils` and `ho
 ```bash
 pnpm test:coverage
 ```
+
+Global thresholds in `package.json` are statements 85, branches 80, functions 82, lines 85. The last local run was about 88.5% statements, 84.4% branches, 86.2% functions, 88.5% lines.
+
+`walletConnectionMemoryBudget.test.tsx` (paired-connection byte budget) is part of `pnpm test` and of Verify. The coverage command skips it: its multi-megabyte ciphertext makes the assertion flake once the worker is also collecting coverage. CI runs `pnpm test:memory-budget` immediately afterwards, without coverage.
