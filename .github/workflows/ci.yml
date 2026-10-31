@@ -53,6 +53,13 @@ jobs:
       - name: Test with coverage
         run: pnpm test:ci
 
+      # XR-026 allocates multi-megabyte ciphertexts. Under V8 coverage the
+      # worker is already large, and the assertion flakes (decrypt never
+      # starts). Verify runs this file uninstrumented and it passes; so does
+      # this step.
+      - name: In-flight byte budget
+        run: pnpm test:memory-budget
+
       - name: Coverage summary
         if: always()
         run: |
