@@ -59,17 +59,18 @@ jobs:
           fi
           # Xcode 26.3 treats ExpoModulesCore EventEmitter.swift
           # ("sending 'emitter' risks causing data races") as an error.
-          # Prefer the newest 26.x below 26.3. Fall back to whatever is installed.
-          mapfile -t sorted < <(printf '%s\n' "${candidates[@]}" | sort -V)
+          # Prefer the newest 26.x below 26.3. macOS bash is 3.2 (no mapfile).
+          # Fall back to whatever is installed.
           selected=""
-          for c in "${sorted[@]}"; do
+          while IFS= read -r c; do
             base="$(basename "$c")"
-            if [[ "$base" != Xcode_26.3* && "$base" != Xcode_26.4* && "$base" != Xcode_26.5* && "$base" != Xcode_26.6* ]]; then
-              selected="$c"
-            fi
-          done
+            case "$base" in
+              Xcode_26.3*|Xcode_26.4*|Xcode_26.5*|Xcode_26.6*) ;;
+              *) selected="$c" ;;
+            esac
+          done < <(printf '%s\n' "${candidates[@]}" | sort -V)
           if [[ -z "$selected" ]]; then
-            selected="${sorted[0]}"
+            selected="$(printf '%s\n' "${candidates[@]}" | sort -V | head -1)"
             echo "Only Xcode 26.3 or newer is installed; using ${selected}" >&2
           fi
           echo "Using ${selected}"
