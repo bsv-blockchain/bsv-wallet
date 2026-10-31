@@ -30,7 +30,7 @@ The mock listens on port 8787.
 
 `plugins/withE2eCleartext.js` allows that HTTP only when the prebuild sees `EXPO_PUBLIC_E2E=true`. A production prebuild does not.
 
-The EAS profile is `e2e` in `eas.json` (internal APK, iOS simulator). Local scripts use `expo prebuild` plus a debug Android APK or an iOS Release simulator build, which do not need Apple or Play signing.
+The EAS profile is `e2e` in `eas.json` (internal APK, iOS simulator). Local scripts use `expo prebuild` plus a release Android APK or an iOS Release simulator build, which do not need Apple or Play signing. The Android release variant is signed with the debug keystore from the Expo template. A debug APK does not embed the JavaScript bundle and waits for Metro, so it is not a harness binary.
 
 The application id stays `org.bsvblockchain.wallet`. An E2E install shares the keychain with a normal install of this app. Use a dedicated simulator or emulator. Do not install the harness over a wallet that holds funds.
 
@@ -66,7 +66,7 @@ curl -Ls "https://get.maestro.mobile.dev" | bash
 Boot a simulator or emulator, then:
 
 ```bash
-npm run e2e:android    # prebuild, debug APK, install, mock, Maestro
+npm run e2e:android    # prebuild, release APK, install, mock, Maestro
 npm run e2e:ios        # macOS only: prebuild, Release simulator build, mock, Maestro
 npm run e2e            # app already installed; starts the mock and runs Maestro
 npm run e2e:mock       # only the mock, on port 8787
@@ -102,7 +102,7 @@ Maestro writes screenshots and a hierarchy into `e2e/artifacts/` (`--debug-outpu
 
 Useful checks:
 
-- The screen never shows `e2e-harness`. The installed binary was not built with `EXPO_PUBLIC_E2E=true`, or it was installed before a prebuild that included `withE2eCleartext`. Rebuild. `E2E_CLEAN=1` if the native project already existed.
+- The screen never shows `e2e-harness`. The installed binary was not built with `EXPO_PUBLIC_E2E=true`, it is a debug APK still waiting for Metro, or it was installed before a prebuild that included `withE2eCleartext`. Rebuild the release APK. `E2E_CLEAN=1` if the native project already existed.
 - Send fails with a connection error. The mock is not running, or the device cannot reach the host. An emulator uses `10.0.2.2`. A physical device needs `EXPO_PUBLIC_E2E_BROADCASTER_URL=http://<lan-ip>:8787` at **bundle** time, then a rebuild.
 - Create sits on "Secure Your Wallet". Continue is `biometric-continue`. The harness must not raise a system biometric sheet. If it does, the binary is not a harness build.
 - Restore does not finish. Confirm `E2E_MNEMONIC` is the fixture line. The scripts set it. A hand-run `maestro test` must pass `-e E2E_MNEMONIC=...`.
