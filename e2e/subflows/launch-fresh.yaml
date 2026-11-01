@@ -11,10 +11,13 @@ appId: org.bsvblockchain.wallet
 - repeat:
     times: 20
     commands:
-      - tapOn:
-          text: "Wait"
-          optional: true
-          timeout: 1500
+      # `when` is a point-in-time check. `tapOn` plus `optional` still waits
+      # out the command timeout, which on this emulator is about a minute.
+      - runFlow:
+          when:
+            visible: "Wait"
+          commands:
+            - tapOn: "Wait"
       - extendedWaitUntil:
           optional: true
           visible:
