@@ -57,22 +57,11 @@ jobs:
             ls -d /Applications/Xcode*.app >&2 || true
             exit 1
           fi
-          # Xcode 26.3 treats ExpoModulesCore EventEmitter.swift
-          # ("sending 'emitter' risks causing data races") as an error.
-          # Prefer the newest 26.x below 26.3. macOS bash is 3.2 (no mapfile).
-          # Fall back to whatever is installed.
-          selected=""
-          while IFS= read -r c; do
-            base="$(basename "$c")"
-            case "$base" in
-              Xcode_26.3*|Xcode_26.4*|Xcode_26.5*|Xcode_26.6*) ;;
-              *) selected="$c" ;;
-            esac
-          done < <(printf '%s\n' "${candidates[@]}" | sort -V)
-          if [[ -z "$selected" ]]; then
-            selected="$(printf '%s\n' "${candidates[@]}" | sort -V | head -1)"
-            echo "Only Xcode 26.3 or newer is installed; using ${selected}" >&2
-          fi
+          # SDK 57 compiles ExpoModulesCore as written on Xcode 26.4+.
+          # 26.2 and 26.3 reject EventEmitter.swift. Prefer the newest 26.x.
+          # macOS bash is 3.2, so no mapfile.
+          selected="$(printf '%s\n' "${candidates[@]}" | sort -V | tail -1)"
+          echo "Installed:"; printf '  %s\n' "${candidates[@]}"
           echo "Using ${selected}"
           sudo xcode-select -s "${selected}"
           xcodebuild -version

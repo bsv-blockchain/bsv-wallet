@@ -59,6 +59,39 @@ if changed:
     open(path, "w").write(text)
     print("Restored Podfile pins dropped by prebuild (YubiKit git tag, RNFirebaseDisableSPM)")
 PY
+  # SDK 57's EventEmitter.swift fails on Xcode 26.2 and 26.3 with
+  # "sending 'emitter' risks causing data races". Expo ships the fix in the
+  # Xcode 26.4 compiler. On an older 26.x, compile that one pod as Swift 5.10
+  # so the check is not an error. This does not change the committed Podfile.
+  xver="$(xcodebuild -version | awk '/^Xcode /{print $2}')"
+  xminor="$(printf '%s' "$xver" | awk -F. '{print $2}')"
+  if [[ "${xver%%.*}" -eq 26 && "${xminor:-0}" -lt 4 ]]; then
+    python3 - "$ROOT/ios/Podfile" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+marker = "E2E_EXPO_SWIFT_5"
+if marker in text:
+    sys.exit(0)
+snippet = """
+    # E2E_EXPO_SWIFT_5: Xcode 26.2/26.3 rejects ExpoModulesCore EventEmitter.swift.
+    installer.pods_project.targets.each do |target|
+      next unless target.name == 'ExpoModulesCore'
+      target.build_configurations.each do |bc|
+        bc.build_settings['SWIFT_VERSION'] = '5.10'
+        bc.build_settings['SWIFT_STRICT_CONCURRENCY'] = 'minimal'
+        bc.build_settings['SWIFT_COMPILATION_MODE'] = 'singlefile'
+      end
+    end
+"""
+anchor = "    floor = (podfile_properties['ios.deploymentTarget'] || '16.4')\n"
+if anchor not in text:
+    sys.exit("Podfile has no deployment-target floor anchor")
+text = text.replace(anchor, snippet + "\n" + anchor, 1)
+open(path, "w").write(text)
+print("Compiling ExpoModulesCore as Swift 5.10 for this Xcode")
+PY
+  fi
   if ! xcrun simctl list devices booted | grep -q Booted; then
     UDID="$(xcrun simctl list devices available | grep -E 'iPhone' | grep -oE '[0-9A-Fa-f-]{36}' | head -1 || true)"
     if [[ -z "$UDID" ]]; then

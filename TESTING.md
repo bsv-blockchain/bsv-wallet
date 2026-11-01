@@ -117,7 +117,7 @@ The device jobs do not run on an ordinary pull request or push. The repo has no 
 | Workflow                            | When                                                                                          | Runner                           |
 | ----------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------- |
 | `.github/workflows/e2e-android.yml` | Label `release`, a later push while it is applied, tag `v*`, `workflow_dispatch`              | `ubuntu-latest`, API 34 emulator |
-| `.github/workflows/e2e-ios.yml`     | The same gate. The job selects Xcode 26 (Swift tools 6.2, required by ExpoModulesJSI), compiles the Rust xcframeworks, then the simulator build | `macos-15` simulator |
+| `.github/workflows/e2e-ios.yml`     | The same gate. The job selects the newest Xcode 26 (Swift tools 6.2). On 26.2 or 26.3 it compiles ExpoModulesCore as Swift 5.10; 26.4+ compiles it as shipped. Then the Rust xcframeworks and the simulator build | `macos-15` simulator |
 
 Jest and `tsc` for `@bsv/expo-wallet-toolbox` stay on `.github/workflows/publish.yaml`. They are not part of these device jobs.
 
