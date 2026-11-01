@@ -97,6 +97,9 @@ jobs:
           EXPO_NO_TELEMETRY: '1'
           # The emulator is x86_64. Building the other ABIs only adds time.
           ORG_GRADLE_PROJECT_reactNativeArchitectures: x86_64
+          # packageRelease of the unminified APK has run out of heap on the
+          # runner. --no-daemon uses this JVM.
+          GRADLE_OPTS: '-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
         run: |
           # Expo inlines EXPO_PUBLIC_* from the environment and from .env.
           # Writing .env makes the bundle a harness even if Gradle starts a
