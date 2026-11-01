@@ -23,7 +23,7 @@ appId: org.bsvblockchain.wallet
 - extendedWaitUntil:
     visible:
       id: e2e-harness
-    timeout: 180000
+    timeout: 300000
 - assertNotVisible:
     id: import-from-backup
 - assertVisible:

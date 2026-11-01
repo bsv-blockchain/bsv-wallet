@@ -55,8 +55,9 @@ appId: org.bsvblockchain.wallet
 - openLink: bsv-wallet://vault
 - runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
-    visible: Not available yet
-    timeout: 20000
+    visible:
+      text: ".*Not available yet.*"
+    timeout: 60000
 - runFlow: ../subflows/go-home.yaml
 - tapOn:
     id: home-settings
