@@ -8,6 +8,11 @@ config plugin. The BRC-185 engine itself (consent, dispatcher, inbox processor, 
 Design: `docs/superpowers/specs/2026-10-28-browser-bridge-ios-kit-design.md`. BRC-185 profile choices:
 `CONFORMANCE.md`. Spike results, build facts and owner device gates: `SPIKES.md`.
 
+Install: `npm install @bsv/expo-safari-wallet-bridge` beside `@bsv/expo-wallet-toolbox` 0.23 or later, then add
+`['@bsv/expo-safari-wallet-bridge/app.plugin', { appleTeamId, extensionName, profile }]` to the app config's `plugins`.
+The extension target, its App Group and its keychain group must exist in the Apple developer account before a release
+build can sign them.
+
 ## What the host does
 
 1. **Plugin entry** in `app.config.js` (nothing else in that file changes):

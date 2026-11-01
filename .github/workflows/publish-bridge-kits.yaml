@@ -1,0 +1,276 @@
+name: Publish a browser bridge kit
+
+# Releases @bsv/expo-safari-wallet-bridge or @bsv/expo-android-wallet-bridge to
+# npm from CI. It is publish.yaml for the two kits, with the kit taken from the
+# release tag (or, for a manual run, from the `kit` input).
+#
+# To release: bump `version` in packages/<kit>/package.json, add a `## X.Y.Z`
+# entry to its CHANGELOG.md, merge to master, then push the tag
+#
+#   git tag <kit>-vX.Y.Z <merged commit> && git push origin <kit>-vX.Y.Z
+#
+# where <kit> is expo-safari-wallet-bridge or expo-android-wallet-bridge. Both
+# kits ship raw TypeScript and native sources, so there is no build step.
+#
+# npm authenticates `publish` by OIDC (trusted publishing). Each kit's trusted
+# publisher on npmjs.com names this repository and this file,
+# `publish-bridge-kits.yaml`, with no environment. npm adds a trusted publisher
+# only to a package that exists, so the first release of each kit (0.1.0) is a
+# manual `npm publish` by a maintainer; every later release is a tag.
+#
+# As in publish.yaml, only `publish` holds `id-token: write`, it runs only for a
+# release tag, and it installs and runs nothing but npm itself. Pull requests
+# and manual runs run `verify` only and end in `npm publish --dry-run`.
+
+on:
+  push:
+    tags:
+      - 'expo-safari-wallet-bridge-v*'
+      - 'expo-android-wallet-bridge-v*'
+  pull_request:
+    paths:
+      - 'packages/expo-safari-wallet-bridge/**'
+      - 'packages/expo-android-wallet-bridge/**'
+      - '.github/workflows/publish-bridge-kits.yaml'
+  workflow_dispatch:
+    inputs:
+      kit:
+        description: Kit to verify
+        type: choice
+        options:
+          - expo-safari-wallet-bridge
+          - expo-android-wallet-bridge
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-bridge-kits-${{ github.ref }}-${{ inputs.kit }}
+  cancel-in-progress: false
+
+env:
+  IS_RELEASE: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  plan:
+    name: Pick the kits
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      kits: ${{ steps.kits.outputs.kits }}
+    steps:
+      - name: Pick the kits
+        id: kits
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_KIT: ${{ inputs.kit }}
+        run: |
+          case "$EVENT" in
+            push)
+              # The tag is <kit>-vX.Y.Z; the kit is everything before the last "-v".
+              KIT="${REF_NAME%-v*}"
+              case "$KIT" in
+                expo-safari-wallet-bridge|expo-android-wallet-bridge) ;;
+                *) echo "::error::Tag $REF_NAME names no bridge kit."; exit 1 ;;
+              esac
+              echo "kits=[\"$KIT\"]" >> "$GITHUB_OUTPUT" ;;
+            workflow_dispatch)
+              echo "kits=[\"$INPUT_KIT\"]" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo 'kits=["expo-safari-wallet-bridge","expo-android-wallet-bridge"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  verify:
+    name: Verify ${{ matrix.kit }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        kit: ${{ fromJSON(needs.plan.outputs.kits) }}
+    env:
+      PACKAGE_DIR: packages/${{ matrix.kit }}
+      PACKAGE_NAME: '@bsv/${{ matrix.kit }}'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # Full history, to check that a release tag points at master.
+          fetch-depth: 0
+
+      # pnpm version comes from `packageManager` in package.json.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.22.1'
+          cache: 'pnpm'
+
+      - name: Verify patched Node and native primitives
+        run: |
+          node -e 'const a=require("node:assert/strict"),z=require("node:zlib"),c=require("node:crypto");a.equal(process.versions.node,"24.22.1");const b=Buffer.from("wallet build runtime");a.deepEqual(z.brotliDecompressSync(z.brotliCompressSync(b)),b);a.equal(c.randomBytes(32).length,32)'
+
+      - name: Read package version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./${PACKAGE_DIR}/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # A prerelease (1.2.0-beta.1) goes to the `next` dist-tag, so it never
+          # becomes what `npm install` picks by default.
+          if [[ "$VERSION" == *-* ]]; then
+            echo "dist_tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Package version: $VERSION"
+
+      - name: Check the package is not private
+        run: |
+          if [ "$(node -p "require('./${PACKAGE_DIR}/package.json').private === true")" = "true" ]; then
+            echo "::error::${PACKAGE_DIR}/package.json is private."
+            exit 1
+          fi
+
+      - name: Check the release tag matches the package
+        if: env.IS_RELEASE == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          KIT: ${{ matrix.kit }}
+        run: |
+          EXPECTED="${KIT}-v${VERSION}"
+          if [ "$GITHUB_REF_NAME" != "$EXPECTED" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION (expected $EXPECTED)."
+            exit 1
+          fi
+          git fetch --no-tags origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::Tag $GITHUB_REF_NAME points at $GITHUB_SHA, which is not on master. Merge the release first, then tag the merged commit."
+            exit 1
+          fi
+
+      - name: Check the changelog has an entry for this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ! grep -qxF "## ${VERSION}" "${PACKAGE_DIR}/CHANGELOG.md"; then
+            MESSAGE="${PACKAGE_DIR}/CHANGELOG.md has no '## ${VERSION}' heading."
+            if [ "$IS_RELEASE" = "true" ]; then echo "::error::$MESSAGE"; exit 1; fi
+            echo "::warning::$MESSAGE Required before tagging a release."
+          fi
+
+      - name: Check this version is not already on npm
+        id: registry
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Compare what `npm view` prints rather than trust its exit code: for a
+          # version that does not exist, npm versions differ between failing
+          # with E404 and printing nothing.
+          if [ "$(npm view "${PACKAGE_NAME}@${VERSION}" version 2>/dev/null)" = "$VERSION" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            MESSAGE="${PACKAGE_NAME}@${VERSION} is already published."
+            if [ "$IS_RELEASE" = "true" ]; then echo "::error::$MESSAGE Bump the version."; exit 1; fi
+            echo "::notice::$MESSAGE Bump the version before tagging a release."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit -p .
+
+      - name: Test the package
+        run: pnpm exec jest --ci "${PACKAGE_DIR}/"
+
+      - name: Show the package contents
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: npm pack --dry-run
+
+      # npm refuses even a dry-run publish of a version it already has, so this
+      # only runs once the version has been bumped.
+      - name: Publish (dry run)
+        if: steps.registry.outputs.published == 'false'
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: npm publish --dry-run --access public --tag "${{ steps.version.outputs.dist_tag }}"
+
+  publish:
+    name: Publish ${{ matrix.kit }} to npm
+    needs: [plan, verify]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # OIDC token for npm trusted publishing
+    strategy:
+      matrix:
+        kit: ${{ fromJSON(needs.plan.outputs.kits) }}
+    env:
+      PACKAGE_DIR: packages/${{ matrix.kit }}
+      PACKAGE_NAME: '@bsv/${{ matrix.kit }}'
+
+    steps:
+      # The tag's own commit, which `verify` checked. Nothing is installed:
+      # the kits have no npm scripts, and npm bundles no dependencies.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # No package-manager cache in the job that publishes, per npm's
+      # trusted-publishing guidance.
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.22.1'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify patched Node and native primitives
+        run: |
+          node -e 'const a=require("node:assert/strict"),z=require("node:zlib"),c=require("node:crypto");a.equal(process.versions.node,"24.22.1");const b=Buffer.from("wallet build runtime");a.deepEqual(z.brotliDecompressSync(z.brotliCompressSync(b)),b);a.equal(c.randomBytes(32).length,32)'
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - name: Use npm 11
+        run: |
+          npm install -g npm@11
+          npm --version
+
+      - name: Read package version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./${PACKAGE_DIR}/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then echo "dist_tag=next" >> "$GITHUB_OUTPUT"; else echo "dist_tag=latest" >> "$GITHUB_OUTPUT"; fi
+
+      # Trusted publishing also attaches a provenance attestation linking the
+      # tarball to this run.
+      - name: Publish
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: npm publish --access public --tag "${{ steps.version.outputs.dist_tag }}"
+
+      # npm accepts a publish (HTTP 202) before the version is installable, so
+      # wait for the registry to serve it before calling the release done.
+      - name: Wait for the registry to serve the new version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for attempt in $(seq 1 30); do
+            if [ "$(npm view "${PACKAGE_NAME}@${VERSION}" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "${PACKAGE_NAME}@${VERSION} is live."
+              exit 0
+            fi
+            echo "Not visible yet (attempt $attempt/30)."
+            sleep 20
+          done
+          echo "::error::${PACKAGE_NAME}@${VERSION} was published but is not visible on the registry after 10 minutes. Check https://www.npmjs.com/package/${PACKAGE_NAME}."
+          exit 1

@@ -3,8 +3,11 @@
 Lets a page in Android Chrome use an Expo app as its BRC-100 wallet over BRC-185's loopback HTTP transport. A Kotlin
 loopback server, a launch trampoline, a foreground service and an Expo module form the transport; a TypeScript
 controller wires them to `@bsv/expo-wallet-toolbox`'s `core/bridge` (consent, dispatcher, Connect sheet) and a config
-plugin does the manifest work. `private: true`, version `0.0.0`: milestone 1 (foreground mode) only. The sheet over
-Chrome (overlay, M2) is not built.
+plugin does the manifest work. Foreground mode (milestone 1) is the supported mode. The sheet over Chrome (overlay,
+milestone 2) is experimental and not shippable until the owner device gates in `SPIKES.md` pass.
+
+Install: `npm install @bsv/expo-android-wallet-bridge` beside `@bsv/expo-wallet-toolbox` 0.23 or later, then add
+`['@bsv/expo-android-wallet-bridge', { scheme: '<your scheme>' }]` to the app config's `plugins`.
 
 Design: `docs/superpowers/specs/2026-10-28-browser-bridge-android-design.md` (revision 3). BRC-185 profile choices and
 what is not claimed: `CONFORMANCE.md`. Spike results, emulator evidence, device gates and release gates: `SPIKES.md`.

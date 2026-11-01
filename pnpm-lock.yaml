@@ -364,7 +364,7 @@ importers:
   packages/expo-android-wallet-bridge:
     dependencies:
       '@bsv/expo-wallet-toolbox':
-        specifier: '*'
+        specifier: ^0.23.0
         version: link:../expo-wallet-toolbox
       '@bsv/sdk':
         specifier: ^4.0.1
@@ -395,7 +395,7 @@ importers:
         specifier: 5.0.0
         version: 5.0.0(expo@57.0.30)(typescript@6.0.3)
       '@bsv/expo-wallet-toolbox':
-        specifier: '*'
+        specifier: ^0.23.0
         version: link:../expo-wallet-toolbox
       '@bsv/sdk':
         specifier: ^4.0.1

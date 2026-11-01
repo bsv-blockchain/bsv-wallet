@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased, `private: true` until release)
+## 0.1.0
 
 - Safari Web Extension (MV3, non-persistent background, page-world provider at `document_start`) that
   speaks BRC-185 to the page and stages every call through the app's inbox.

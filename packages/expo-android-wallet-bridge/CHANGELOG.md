@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.0.0 (unreleased, `private: true` until release)
+## 0.1.0
 
 - Kotlin loopback HTTP server (strict HTTP/1.1 parser, dual-family exclusive bind on 3321 to 3384, hold-open responses,
   Kotlin deadline timers), exported launch trampoline (`bsv-wallet-bridge://launch`), foreground service (`specialUse`,
