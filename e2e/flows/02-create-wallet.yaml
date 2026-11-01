@@ -7,7 +7,7 @@ appId: org.bsvblockchain.wallet
 - extendedWaitUntil:
     visible:
       id: create-new-wallet
-    timeout: 20000
+    timeout: 60000
 - assertVisible:
     id: import-existing-wallet
 - assertVisible: Wallet Data

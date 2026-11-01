@@ -151,4 +151,11 @@ xcrun simctl install booted "$APP"
 
 trap stop_mock EXIT
 start_mock
+set +e
 run_maestro "$@"
+maestro_status=$?
+set -e
+if [[ "$maestro_status" -ne 0 ]]; then
+  xcrun simctl io booted screenshot "$ROOT/e2e/artifacts/screen.png" || true
+fi
+exit "$maestro_status"
