@@ -20,10 +20,17 @@ appId: org.bsvblockchain.wallet
     optional: true
 - tapOn:
     id: import-wallet-submit
+# Home is the only screen with e2e-harness. If this wait expires, the
+# screenshot and the failure hierarchy show the screen restore actually
+# stopped on (form, alert, or celebration).
 - extendedWaitUntil:
+    optional: true
     visible:
       id: e2e-harness
     timeout: 300000
+- takeScreenshot: 03-after-import
+- assertVisible:
+    id: e2e-harness
 - assertNotVisible:
     id: import-from-backup
 - assertVisible:

@@ -2,6 +2,10 @@ appId: org.bsvblockchain.wallet
 ---
 - runFlow: ../subflows/launch-fresh.yaml
 - runFlow: ../subflows/create-via-pay.yaml
+- extendedWaitUntil:
+    visible:
+      id: pay-back
+    timeout: 60000
 - tapOn:
     id: pay-back
 - runFlow: ../subflows/dismiss-backup-reminder.yaml
@@ -48,7 +52,7 @@ appId: org.bsvblockchain.wallet
 - extendedWaitUntil:
     visible:
       id: pay-back
-    timeout: 20000
+    timeout: 60000
 - tapOn:
     id: pay-back
 # An external import link must not open the restore form.
@@ -66,4 +70,4 @@ appId: org.bsvblockchain.wallet
 - extendedWaitUntil:
     visible:
       id: pay-back
-    timeout: 20000
+    timeout: 60000

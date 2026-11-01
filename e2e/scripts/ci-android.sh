@@ -24,7 +24,10 @@ mkdir -p e2e/artifacts
 capture_device() {
   # The emulator runner kills the device when this script exits, and a later
   # step cannot read logcat from a dead emulator. Capture while it is up.
-  timeout 20 adb logcat -d > e2e/artifacts/logcat.txt || true
+  # 16M keeps the restore attempt in the buffer after the later flows.
+  adb logcat -G 16M >/dev/null 2>&1 || true
+  timeout 30 adb logcat -d > e2e/artifacts/logcat.txt || true
+  timeout 20 adb logcat -d ReactNativeJS:V ReactNative:V AndroidRuntime:E *:S > e2e/artifacts/logcat-js.txt || true
   adb exec-out screencap -p > e2e/artifacts/screen.png || true
   adb shell uiautomator dump /sdcard/e2e-window.xml >/dev/null 2>&1 || true
   adb pull /sdcard/e2e-window.xml e2e/artifacts/window.xml >/dev/null 2>&1 || true
@@ -34,6 +37,7 @@ if [[ "$install_status" -ne 0 ]]; then
   exit "$install_status"
 fi
 
+adb logcat -G 16M >/dev/null 2>&1 || true
 bash e2e/scripts/run.sh
 status=$?
 if [[ "$status" -ne 0 ]]; then

@@ -112,7 +112,7 @@ jobs:
         if: failure()
         run: |
           mkdir -p e2e/artifacts
-          xcrun simctl spawn booted log show --last 10m --style compact --predicate 'processImagePath CONTAINS "BSVWallet"' > e2e/artifacts/simulator.log || true
+          xcrun simctl spawn booted log show --last 40m --style compact --predicate 'processImagePath CONTAINS "BSVWallet"' > e2e/artifacts/simulator.log || true
           # run-ios.sh copies these when the build returns. Copy again in case
           # the step was killed before that. The full xcodebuild log is huge;
           # the error file and a tail are enough to see the real failure.

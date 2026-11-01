@@ -77,21 +77,29 @@ appId: org.bsvblockchain.wallet
 - assertVisible:
     text: ".*Testnet.*"
 - assertNotVisible: Mainnet
+# The software emulator spends several seconds on each swipe. 15s runs
+# out before Debugging (settings-logs) enters the viewport.
 - scrollUntilVisible:
     element:
       id: settings-trust
     direction: DOWN
-    timeout: 15000
+    timeout: 90000
+    visibilityPercentage: 40
+    centerElement: true
 - scrollUntilVisible:
     element:
       id: settings-logs
     direction: DOWN
-    timeout: 15000
+    timeout: 90000
+    visibilityPercentage: 40
+    centerElement: true
 - scrollUntilVisible:
     element:
       id: settings-log-out
     direction: DOWN
-    timeout: 15000
+    timeout: 90000
+    visibilityPercentage: 40
+    centerElement: true
 - tapOn:
     id: settings-log-out
 - extendedWaitUntil:

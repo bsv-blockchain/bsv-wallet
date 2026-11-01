@@ -63,9 +63,13 @@ run_maestro() {
     exit 1
   fi
   mkdir -p "$ROOT/e2e/artifacts"
+  # Failure screenshots and view hierarchies land in e2e/artifacts, flat,
+  # so the upload step picks up the restore-timeout capture.
   "$maestro" test \
     --config "$ROOT/e2e/config.yaml" \
     --debug-output "$ROOT/e2e/artifacts" \
+    --flatten-debug-output \
+    --test-output-dir "$ROOT/e2e/artifacts" \
     -e "E2E_MNEMONIC=${E2E_MNEMONIC}" \
     -e "E2E_TESTNET_ADDRESS=${E2E_TESTNET_ADDRESS}" \
     "$@" \

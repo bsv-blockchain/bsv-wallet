@@ -13,8 +13,12 @@ appId: org.bsvblockchain.wallet
     id: home-balance
 - assertVisible:
     id: activity-empty
-- assertVisible: No transactions yet
-- assertVisible: Already have a wallet?
+- assertVisible:
+    text: "No transactions yet"
+# `?` is a regex quantifier in Maestro text selectors. Unescaped, this
+# looks for "Already have a walle" and the failure line can drop the reason.
+- assertVisible:
+    text: "Already have a wallet\\?"
 - assertVisible:
     id: import-from-backup
 # Vault stays off in the harness, so the home destination is absent.
