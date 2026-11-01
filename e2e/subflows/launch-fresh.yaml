@@ -28,5 +28,6 @@ appId: org.bsvblockchain.wallet
       id: e2e-harness
     timeout: 60000
 - extendedWaitUntil:
-    visible: You have
+    visible:
+      id: home-balance
     timeout: 30000

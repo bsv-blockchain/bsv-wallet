@@ -3,7 +3,8 @@ appId: org.bsvblockchain.wallet
 - runFlow: ../subflows/launch-fresh.yaml
 - assertVisible:
     id: e2e-harness
-- assertVisible: You have
+- assertVisible:
+    id: home-balance
 - assertVisible:
     id: home-pay
 - assertVisible:
