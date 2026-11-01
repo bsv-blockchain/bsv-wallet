@@ -13,11 +13,21 @@ appId: org.bsvblockchain.wallet
 - assertVisible: Import Wallet
 - assertVisible:
     id: scan-backup-shares
+# inputText leaves the software keyboard up. The Continue button sits
+# under it, so the tap lands on a key and corrupts the phrase
+# ("abandon" becomes "abandont"). Paste, then dismiss the keyboard by
+# tapping the title, which is above the field, before Continue.
 - tapOn:
     id: import-mnemonic-input
-- inputText: ${E2E_MNEMONIC}
-- hideKeyboard:
-    optional: true
+- eraseText
+- pasteText: ${E2E_MNEMONIC}
+- tapOn: "Import Wallet"
+- scrollUntilVisible:
+    element:
+      id: import-wallet-submit
+    direction: DOWN
+    timeout: 30000
+    visibilityPercentage: 50
 - tapOn:
     id: import-wallet-submit
 # Home is the only screen with e2e-harness. If this wait expires, the

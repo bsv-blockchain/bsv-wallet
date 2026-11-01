@@ -77,29 +77,25 @@ appId: org.bsvblockchain.wallet
 - assertVisible:
     text: ".*Testnet.*"
 - assertNotVisible: Mainnet
-# The software emulator spends several seconds on each swipe. 15s runs
-# out before Debugging (settings-logs) enters the viewport.
+# The software emulator spends several seconds on each swipe. Do not
+# require the row to be centered: Debugging sits above the system
+# navigation bar, and a 40% centered check fails while the row is
+# already fully on screen.
 - scrollUntilVisible:
     element:
       id: settings-trust
     direction: DOWN
-    timeout: 90000
-    visibilityPercentage: 40
-    centerElement: true
+    timeout: 60000
 - scrollUntilVisible:
     element:
       id: settings-logs
     direction: DOWN
-    timeout: 90000
-    visibilityPercentage: 40
-    centerElement: true
+    timeout: 60000
 - scrollUntilVisible:
     element:
       id: settings-log-out
     direction: DOWN
-    timeout: 90000
-    visibilityPercentage: 40
-    centerElement: true
+    timeout: 60000
 - tapOn:
     id: settings-log-out
 - extendedWaitUntil:
