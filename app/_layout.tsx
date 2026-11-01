@@ -18,7 +18,7 @@ import '@/utils/devMenu' // dev-only profiling controls in the expo-dev-client m
 import { AgentationGate } from '@/utils/AgentationGate'
 import { firebasePushAdapter } from '@/utils/push/firebasePushAdapter'
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Platform, View, useColorScheme } from 'react-native'
 import { Stack } from 'expo-router'
 import * as SystemUI from 'expo-system-ui'
@@ -207,6 +207,45 @@ function LocalPayNotificationBridge() {
   return null
 }
 
+/**
+ * Maestro's clearState removes the app container but not the iOS keychain.
+ * A marker file in Documents is removed with the container. When it is
+ * missing, this harness build drops leftover secrets so the next flow
+ * starts with no wallet. A relaunch that keeps Documents keeps the key.
+ * Production never sets EXPO_PUBLIC_E2E, so this gate is immediate.
+ */
+function E2eFreshInstallGate({ children }: { children: React.ReactNode }) {
+  const harness = process.env.EXPO_PUBLIC_E2E === 'true'
+  const [ready, setReady] = useState(!harness)
+  useEffect(() => {
+    if (!harness) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const FileSystem = await import('expo-file-system/legacy')
+        const { deleteAllSecrets } = await import('@bsv/expo-wallet-toolbox/core/services/secrets/store')
+        const dir = FileSystem.documentDirectory
+        if (dir) {
+          const marker = `${dir}e2e-install-marker`
+          const info = await FileSystem.getInfoAsync(marker)
+          if (!info.exists) {
+            await deleteAllSecrets()
+            await FileSystem.writeAsStringAsync(marker, '1')
+          }
+        }
+      } catch (err) {
+        console.warn('e2e fresh-install keychain reset failed', err)
+      }
+      if (!cancelled) setReady(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [harness])
+  if (!ready) return null
+  return <>{children}</>
+}
+
 export default function RootLayout() {
   const isDark = useColorScheme() === 'dark'
   // Root canvas — the colour every screen's own background sits on during
@@ -220,6 +259,7 @@ export default function RootLayout() {
   }, [backgroundColor])
 
   return (
+    <E2eFreshInstallGate>
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
         <LanguageProvider>
@@ -281,5 +321,6 @@ export default function RootLayout() {
         </LanguageProvider>
       </ErrorBoundary>
     </GestureHandlerRootView>
+    </E2eFreshInstallGate>
   )
 }
