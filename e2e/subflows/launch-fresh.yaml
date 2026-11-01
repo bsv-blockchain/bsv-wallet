@@ -18,6 +18,13 @@ appId: org.bsvblockchain.wallet
             visible: "Wait"
           commands:
             - tapOn: "Wait"
+      # iOS asks "Open in BSV Wallet?" for bsv-wallet:// and leaves the
+      # alert up across the next launch, which hides e2e-harness.
+      - runFlow:
+          when:
+            visible: "Open in"
+          commands:
+            - tapOn: "^Open$"
       - extendedWaitUntil:
           optional: true
           visible:

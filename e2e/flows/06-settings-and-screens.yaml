@@ -17,34 +17,42 @@ appId: org.bsvblockchain.wallet
     timeout: 20000
 - runFlow: ../subflows/go-home.yaml
 - openLink: bsv-wallet://identifier
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible: Your Identifier
     timeout: 20000
 - openLink: bsv-wallet://contacts
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible: No contacts yet
     timeout: 20000
 - openLink: bsv-wallet://contact/add
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible: New Contact
     timeout: 20000
 - openLink: bsv-wallet://trust
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible: Trust Network
     timeout: 20000
 - openLink: bsv-wallet://connections
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible: Connections
     timeout: 20000
 - openLink: bsv-wallet://logs
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible: Debugging
     timeout: 20000
 - openLink: bsv-wallet://wallet-check
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible: Troubleshooting
     timeout: 20000
 - openLink: bsv-wallet://vault
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible: Not available yet
     timeout: 20000

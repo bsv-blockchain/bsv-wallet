@@ -1,0 +1,9 @@
+appId: org.bsvblockchain.wallet
+---
+# iOS shows "Open in BSV Wallet?" the first time a bsv-wallet:// link is
+# opened. Until Open is tapped, the alert covers the app.
+- runFlow:
+    when:
+      visible: "Open in"
+    commands:
+      - tapOn: "^Open$"

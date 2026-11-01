@@ -4,6 +4,7 @@ appId: org.bsvblockchain.wallet
 # app's own handwriting delay before Confirm appears, not a retry.
 - runFlow: ../subflows/launch-fresh.yaml
 - openLink: bsv-wallet://auth/mnemonic
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible:
       id: create-new-wallet

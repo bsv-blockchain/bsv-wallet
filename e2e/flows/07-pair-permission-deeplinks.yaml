@@ -7,6 +7,7 @@ appId: org.bsvblockchain.wallet
 - runFlow: ../subflows/dismiss-backup-reminder.yaml
 # External pairing consent. Reject, so nothing tries to open a relay.
 - openLink: bsv-wallet://pair?topic=e2e-topic-0001&backendIdentityKey=0215643bc656ca42007faa32e94f70050f64a566ffd9e3a2ebc098389936dea57e&protocolID=1-e2e&origin=https%3A%2F%2Fe2e.example&expiry=2000000000
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible: Connect Wallet
     timeout: 20000
@@ -25,6 +26,7 @@ appId: org.bsvblockchain.wallet
 # BRC-100 style connection sheet. The in-app browser is not in this repo;
 # the harness route raises the same PermissionSheet the bridge uses.
 - openLink: bsv-wallet://e2e-consent
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible:
       id: bridge-deny
@@ -42,6 +44,7 @@ appId: org.bsvblockchain.wallet
     timeout: 15000
 # A retired payments link still opens Pay.
 - openLink: bsv-wallet://payments
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible:
       id: pay-back
@@ -50,6 +53,7 @@ appId: org.bsvblockchain.wallet
     id: pay-back
 # An external import link must not open the restore form.
 - openLink: bsv-wallet://auth/mnemonic?flow=import
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible:
       id: e2e-harness
@@ -58,6 +62,7 @@ appId: org.bsvblockchain.wallet
     id: import-mnemonic-input
 # A payment link opens Pay rather than a browser.
 - openLink: peerpay:e2e
+- runFlow: ../subflows/confirm-open-in-app.yaml
 - extendedWaitUntil:
     visible:
       id: pay-back
