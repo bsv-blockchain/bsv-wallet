@@ -9,7 +9,8 @@ appId: org.bsvblockchain.wallet
     visible:
       id: profile-switcher
     timeout: 15000
-- assertVisible: Testnet
+- assertVisible:
+    text: ".*Testnet.*"
 - tapOn:
     id: profile-row-0
 - extendedWaitUntil:
@@ -72,7 +73,8 @@ appId: org.bsvblockchain.wallet
     visible:
       id: settings-network
     timeout: 15000
-- assertVisible: Testnet
+- assertVisible:
+    text: ".*Testnet.*"
 - assertNotVisible: Mainnet
 - scrollUntilVisible:
     element:

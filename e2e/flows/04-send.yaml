@@ -7,7 +7,8 @@ appId: org.bsvblockchain.wallet
 - tapOn:
     id: pay-recipient
 - inputText: ${E2E_TESTNET_ADDRESS}
-- hideKeyboard
+- hideKeyboard:
+    optional: true
 - extendedWaitUntil:
     visible:
       id: pay-continue
@@ -17,7 +18,8 @@ appId: org.bsvblockchain.wallet
 - tapOn:
     id: pay-amount
 - inputText: "1"
-- hideKeyboard
+- hideKeyboard:
+    optional: true
 - tapOn:
     id: pay-continue
 - extendedWaitUntil:

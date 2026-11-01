@@ -31,7 +31,9 @@ appId: org.bsvblockchain.wallet
     visible:
       id: settings-network
     timeout: 15000
-- assertVisible: Testnet
-- assertNotVisible: Mainnet
+- assertVisible:
+    text: ".*Testnet.*"
+- assertNotVisible:
+    text: ".*Mainnet.*"
 - tapOn:
     id: settings-back

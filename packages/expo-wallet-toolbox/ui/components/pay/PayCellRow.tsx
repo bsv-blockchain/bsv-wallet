@@ -33,9 +33,10 @@ export interface PayCellRowProps {
   onPress: () => void
   /** Dimmed and unpressable — used for rails that need internet. */
   disabled?: boolean
+  testID?: string
 }
 
-export default function PayCellRow({ title, subtitle, icon, onPress, disabled = false }: PayCellRowProps) {
+export default function PayCellRow({ title, subtitle, icon, onPress, disabled = false, testID }: PayCellRowProps) {
   const { colors } = useTheme()
   const Ionicons = loadIonicons()
   return (
@@ -52,6 +53,7 @@ export default function PayCellRow({ title, subtitle, icon, onPress, disabled = 
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       accessibilityLabel={`${title}. ${subtitle}`}
+      testID={testID}
     >
       <View
         style={[styles.iconWrap, { backgroundColor: colors.surfaceSunken, borderColor: colors.surfaceSunkenBorder }]}

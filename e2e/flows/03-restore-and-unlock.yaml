@@ -16,7 +16,8 @@ appId: org.bsvblockchain.wallet
 - tapOn:
     id: import-mnemonic-input
 - inputText: ${E2E_MNEMONIC}
-- hideKeyboard
+- hideKeyboard:
+    optional: true
 - tapOn:
     id: import-wallet-submit
 - extendedWaitUntil:

@@ -137,7 +137,13 @@ export const ListRow: React.FC<ListRowProps> = ({
 
   if (onPress) {
     return (
-      <PressableScale onPress={onPress} scaleTo={0.98} haptic="tap" testID={testID}>
+      <PressableScale
+        onPress={onPress}
+        scaleTo={0.98}
+        haptic="tap"
+        testID={testID}
+        accessibilityLabel={value ? `${label}, ${value}` : label}
+      >
         {content}
       </PressableScale>
     )

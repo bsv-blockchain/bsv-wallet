@@ -12,9 +12,11 @@ appId: org.bsvblockchain.wallet
 - tapOn:
     id: home-receive
 - extendedWaitUntil:
-    visible: To a BSV address
+    visible:
+      id: receive-bsv-address
     timeout: 20000
-- tapOn: To a BSV address
+- tapOn:
+    id: receive-bsv-address
 - extendedWaitUntil:
     visible:
       id: receive-address
