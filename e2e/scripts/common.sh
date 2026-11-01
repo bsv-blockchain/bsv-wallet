@@ -7,6 +7,8 @@ cd "$ROOT"
 
 export EXPO_PUBLIC_E2E=true
 export EXPO_NO_TELEMETRY=1
+# The software emulator is slow to accept the instrumentation driver.
+export MAESTRO_DRIVER_STARTUP_TIMEOUT="${MAESTRO_DRIVER_STARTUP_TIMEOUT:-180000}"
 export RCT_USE_PREBUILT_RNCORE="${RCT_USE_PREBUILT_RNCORE:-0}"
 
 # Gradle and the Xcode bundle step inline EXPO_PUBLIC_* from .env as well as
