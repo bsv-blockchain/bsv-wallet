@@ -97,6 +97,9 @@ jobs:
           EXPO_NO_TELEMETRY: '1'
           # The emulator is x86_64. Building the other ABIs only adds time.
           ORG_GRADLE_PROJECT_reactNativeArchitectures: x86_64
+          # Default heap OOMs in packageRelease. 4g made the runner swap
+          # until the assemble never finished. 3g is the middle.
+          GRADLE_OPTS: '-Xmx3g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8'
         run: |
           # Expo inlines EXPO_PUBLIC_* from the environment and from .env.
           # Writing .env makes the bundle a harness even if Gradle starts a
@@ -110,6 +113,10 @@ jobs:
           printf 'EXPO_PUBLIC_E2E=true\n' > .env
           npx expo prebuild --platform android --no-install --clean
           cd android && ./gradlew assembleRelease --no-daemon \
+            -PreactNativeArchitectures=x86_64 \
+            -Pandroid.enableMinifyInReleaseBuilds=false \
+            -Pandroid.enableShrinkResourcesInReleaseBuilds=false \
+            || ./gradlew assembleRelease --no-daemon \
             -PreactNativeArchitectures=x86_64 \
             -Pandroid.enableMinifyInReleaseBuilds=false \
             -Pandroid.enableShrinkResourcesInReleaseBuilds=false
