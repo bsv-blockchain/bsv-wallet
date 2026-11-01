@@ -1,0 +1,7 @@
+appId: com.apple.springboard
+---
+# The "Open in BSV Wallet?" alert is SpringBoard, not the app, so the
+# wallet's hierarchy never contains it.
+- tapOn:
+    text: "Open"
+    optional: true
