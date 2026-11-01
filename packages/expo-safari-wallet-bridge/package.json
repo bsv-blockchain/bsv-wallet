@@ -21,7 +21,7 @@
   "peerDependencies": {
     "@bsv/expo-wallet-toolbox": "^0.23.0",
     "@bsv/sdk": "^4.0.1",
-    "expo-modules-core": "*"
+    "expo-modules-core": "~57.0.0"
   },
   "files": [
     "app.plugin.js",

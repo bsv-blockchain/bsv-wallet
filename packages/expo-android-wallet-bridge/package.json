@@ -17,11 +17,11 @@
   "peerDependencies": {
     "@bsv/expo-wallet-toolbox": "^0.23.0",
     "@bsv/sdk": "^4.0.1",
-    "expo-modules-core": "*",
-    "expo-secure-store": "*",
-    "react-native": "*",
-    "react-native-gesture-handler": "*",
-    "react-native-safe-area-context": "*"
+    "expo-modules-core": "~57.0.0",
+    "expo-secure-store": "~57.0.4",
+    "react-native": "^0.86.3",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-safe-area-context": "~5.7.0"
   },
   "files": [
     "android",
