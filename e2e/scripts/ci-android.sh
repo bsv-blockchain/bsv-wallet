@@ -9,8 +9,17 @@ if [[ ! -f "$APK" ]]; then
   exit 1
 fi
 
-adb install -r "$APK"
-install_status=$?
+# boot_completed can flip before the package service is listening. A single
+# adb install then fails with "Broken pipe" / "Can't find service: package".
+install_status=1
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  if adb install -r "$APK"; then
+    install_status=0
+    break
+  fi
+  echo "adb install failed; waiting for the package service"
+  sleep 10
+done
 mkdir -p e2e/artifacts
 capture_device() {
   # The emulator runner kills the device when this script exits, and a later
