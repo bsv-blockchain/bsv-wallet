@@ -1,7 +1,7 @@
 import { Hash, PrivateKey, Utils } from '@bsv/sdk'
 import { decodeEntry, emptyChunk, encodeChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
-import { restoreFromBackup } from '../../core/backup/restore'
+import { pickTarget, restoreFromBackup } from '../../core/backup/restore'
 import { RemoteSyncReader } from '../../core/backup/RemoteSyncReader'
 import { BACKUP_PROTOCOL, backupKeyId } from '../../core/backup/constants'
 
@@ -35,9 +35,9 @@ function reader(blobs: number[][], device = DEVICE, generation = 1) {
   return new RemoteSyncReader(backend(blobs) as any, wallet, 'main', device, generation, settings)
 }
 
-async function boundLog() {
+async function boundLog(length = 3) {
   const blobs: number[][] = []
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < length; i++) {
     blobs.push(
       await encodeChunk(
         wallet,
@@ -218,3 +218,44 @@ it('handles an empty generation as unverified recovery without fetching blobs', 
   expect((await empty.getSyncChunk(args)).provenTxs).toEqual([])
   expect(blob).not.toHaveBeenCalled()
 })
+
+it.each([undefined, 1])(
+  'reports activity throughout long authentication with generation override %s',
+  async generation => {
+    const blobs = await boundLog(16)
+    const client = backend(blobs)
+    const readBlob = client.blob
+    jest.useFakeTimers()
+    try {
+      const started = Date.now()
+      let lastActivity = started
+      let longestSilence = 0
+      const onActivity = () => {
+        longestSilence = Math.max(longestSilence, Date.now() - lastActivity)
+        lastActivity = Date.now()
+      }
+      // Each request is healthy and within the 30-second transport deadline;
+      // together they exceed the rebuild's five-minute inactivity deadline.
+      client.blob = async (...args) => {
+        jest.setSystemTime(Date.now() + 20_000)
+        return await readBlob(...args)
+      }
+      const selected = await pickTarget(
+        [{ deviceId: DEVICE, generation: 1, headSeq: blobs.length, updatedAt: '2026-01-01' }] as any,
+        client as any,
+        wallet,
+        'main',
+        settings,
+        DEVICE,
+        generation,
+        onActivity
+      )
+      expect(selected.verified).toBe(true)
+      expect(Date.now() - started).toBeGreaterThan(300_000)
+      expect(longestSilence).toBeLessThan(30_000)
+      expect(selected.reader.appData).toBeUndefined()
+    } finally {
+      jest.useRealTimers()
+    }
+  }
+)

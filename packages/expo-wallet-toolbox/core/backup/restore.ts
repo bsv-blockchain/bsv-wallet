@@ -39,8 +39,9 @@ export interface RestoreDeps {
   onProgress?: (chunks: number, total: number) => void
   /**
    * Called whenever the restore finishes a step that is not a chunk: ranking a candidate
-   * generation, and each page of the post-replay proof reconciliation. Carries nothing; it
-   * only says the restore is still working, so a caller waiting on it can tell a slow
+   * generation, authenticating each entry, and each page of the post-replay proof
+   * reconciliation. Carries nothing; it only says the restore is still working,
+   * so a caller waiting on it can tell a slow
    * restore from a stuck one.
    */
   onActivity?: () => void
@@ -260,7 +261,7 @@ export async function pickTarget(
   }
 
   const readerFor = (d: DeviceSummary): RemoteSyncReader =>
-    new RemoteSyncReader(client, wallet, chain, d.deviceId, d.generation, settings, d.headSeq)
+    new RemoteSyncReader(client, wallet, chain, d.deviceId, d.generation, settings, d.headSeq, onActivity)
 
   if (generation != null) {
     const exact = candidates.find(d => d.generation === generation)

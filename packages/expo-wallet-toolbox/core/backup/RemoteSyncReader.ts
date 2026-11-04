@@ -49,7 +49,8 @@ export class RemoteSyncReader {
     private readonly deviceId: string,
     private readonly generation: number,
     private readonly settings: TableSettings,
-    private readonly expectedHeadSeq?: number
+    private readonly expectedHeadSeq?: number,
+    private readonly onActivity?: () => void
   ) {}
 
   /** Settings for the storage being restored into. */
@@ -251,6 +252,9 @@ export class RemoteSyncReader {
       if (seal && entries[seal.initialChunkCount - 1]?.sha256 !== seal.initialHeadSha256) {
         throw new BackupChainError('authenticated initial snapshot head does not match the backup log')
       }
+      // Authentication can take longer than the rebuild's inactivity deadline.
+      // Report work without exposing any recovery data before the whole log verifies.
+      this.onActivity?.()
     }
     this.authenticatedLog = true
     return true
