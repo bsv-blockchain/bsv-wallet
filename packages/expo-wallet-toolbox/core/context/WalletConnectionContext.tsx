@@ -664,6 +664,13 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
       if (!isCurrent()) return
       const mobileIdentityKey = validateBackendIdentityKey(identityResult.publicKey)
 
+      // The current socket can accept requests while the stored floor and
+      // identity are being read. Preserve its newer floor when re-pairing the
+      // same topic, with no await between this snapshot and replacing it.
+      if (sessionMetaRef.current?.topic === validated.params.topic) {
+        initialSeq = Math.max(initialSeq, lastSeqRef.current)
+      }
+
       const meta: SessionMeta = {
         topic: validated.params.topic,
         origin: validated.external.origin,
