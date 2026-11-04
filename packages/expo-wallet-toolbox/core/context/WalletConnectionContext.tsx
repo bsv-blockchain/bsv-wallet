@@ -622,6 +622,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
       setErrorMsg(null)
 
       let relay: string
+      let initialSeq: number
       let validated: ReturnType<typeof validateConnectParams>
       try {
         // This provider is a public embedding boundary. Validate every field here
@@ -632,6 +633,11 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
 
         // Fetch relay URL from origin over HTTPS — TLS cert is the trust anchor
         relay = await fetchRelay(validated.external.origin, validated.params.topic)
+        // Re-approval does not rotate the topic's encryption key. Previously
+        // accepted ciphertexts must remain consumed when this QR is scanned again.
+        initialSeq = validateStoredConnectionSequence(
+          await SecureStore.getItemAsync(lastSeqKey(validated.params.topic))
+        )
       } catch (err) {
         setErrorMsg(err instanceof Error ? err.message : 'Connection failed')
         setStatus('error')
@@ -670,7 +676,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         try {
           const payload = JSON.stringify({
             id: crypto.randomUUID(),
-            seq: 1,
+            seq: initialSeq + 1,
             method: 'pairing_approved',
             params: {
               mobileIdentityKey,
@@ -697,7 +703,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         }
       }
 
-      wireSocket(ws, wallet, meta, 0, myGeneration, () => {
+      wireSocket(ws, wallet, meta, initialSeq, myGeneration, () => {
         connectionStore.add({
           sessionId: validated.params.topic,
           origin: validated.external.origin,

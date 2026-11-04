@@ -16,9 +16,10 @@
  * wallet.decrypt is mocked (its job is not what's under test here), so the
  * envelope's ciphertext content is irrelevant, only its shape.
  */
+const mockGetItemAsync = jest.fn(async (..._args: unknown[]): Promise<string | null> => null)
 const mockSetItemAsync = jest.fn(async (..._args: unknown[]) => {})
 jest.mock('expo-secure-store', () => ({
-  getItemAsync: jest.fn(async () => null),
+  getItemAsync: (...args: unknown[]) => mockGetItemAsync(...args),
   setItemAsync: (...args: unknown[]) => mockSetItemAsync(...args),
   deleteItemAsync: jest.fn(async () => {})
 }))
@@ -40,6 +41,8 @@ const mockWebSocketConstructor = jest.fn(function (this: any, url: string) {
 beforeEach(() => {
   mockWebSockets.splice(0)
   mockWebSocketConstructor.mockClear()
+  mockGetItemAsync.mockReset()
+  mockGetItemAsync.mockResolvedValue(null)
   mockSetItemAsync.mockClear()
   mockSetItemAsync.mockImplementation(async () => {})
   ;(global as any).WebSocket = mockWebSocketConstructor
@@ -108,7 +111,7 @@ async function connectFixture(topic: string) {
     await result.current.connect(params as any, wallet as any)
   })
   const ws = mockWebSockets[0]
-  return { ws, wallet, decryptedPlaintext }
+  return { ws, wallet, decryptedPlaintext, result, params }
 }
 
 const rpcEnvelope = (topic: string) => JSON.stringify({ topic, ciphertext: 'AAAA' })
@@ -239,4 +242,36 @@ test('XR-021: two concurrent messages whose durable writes resolve out of order 
     await ws.onmessage({ data: rpcEnvelope(topic) })
   })
   expect(wallet.createAction).toHaveBeenCalledTimes(1)
+})
+
+test('re-pairing the same topic retains the durable replay floor', async () => {
+  const topic = 'repair-replay'
+  const { ws, wallet, decryptedPlaintext, result, params } = await connectFixture(topic)
+  decryptedPlaintext.current = JSON.stringify({ id: 'paid', seq: 1, method: 'createAction', params: {} })
+  await act(async () => {
+    await ws.onmessage({ data: rpcEnvelope(topic) })
+  })
+  expect(wallet.createAction).toHaveBeenCalledTimes(1)
+  mockGetItemAsync.mockImplementation(async key => (key === lastSeqKey(topic) ? '1' : null))
+  await act(async () => {
+    await result.current.connect(params as any, wallet as any)
+  })
+  await act(async () => {
+    await mockWebSockets[1].onmessage({ data: rpcEnvelope(topic) })
+  })
+  expect(wallet.createAction).toHaveBeenCalledTimes(1)
+  decryptedPlaintext.current = JSON.stringify({ id: 'new', seq: 2, method: 'createAction', params: {} })
+  await act(async () => {
+    await mockWebSockets[1].onmessage({ data: rpcEnvelope(topic) })
+  })
+  expect(wallet.createAction).toHaveBeenCalledTimes(2)
+})
+
+test('pairing fails closed when the durable replay floor cannot be read', async () => {
+  const { result, wallet, params } = await connectFixture('repair-unreadable')
+  mockGetItemAsync.mockRejectedValue(new Error('unavailable'))
+  await act(async () => {
+    await expect(result.current.connect(params as any, wallet as any)).rejects.toThrow('unavailable')
+  })
+  expect(mockWebSockets).toHaveLength(1)
 })
