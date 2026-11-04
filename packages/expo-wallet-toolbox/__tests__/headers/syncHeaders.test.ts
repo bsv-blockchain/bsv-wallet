@@ -127,7 +127,7 @@ describe('syncHeaders', () => {
   })
 
   it('propagates a validation failure rather than silently truncating', async () => {
-    const client = { getPresentHeight: async () => 2, getHeaders: async () => H2 }
+    const client = { getPresentHeight: async () => 2, getHeaders: async (height: number) => (height === 2 ? H1 : H2) }
     const s = await store()
     await expect(syncHeaders({ store: s, client, chunkSize: 1 })).rejects.toThrow(/previous hash/i)
   })
@@ -167,5 +167,63 @@ describe('syncHeaders', () => {
     const r = await syncHeaders({ store: s, client, chunkSize: 1 })
     expect(r.tipHeight).toBe(2)
     expect(s.count).toBe(2)
+  })
+
+  it.each(['', 'z'.repeat(160)])('rejects malformed ancestor responses during reconciliation', async ancestor => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    const client = {
+      getPresentHeight: async () => 2,
+      getHeaders: async (height: number) => (height === 2 ? H1 : ancestor)
+    }
+    await expect(syncHeaders({ store: s, client })).rejects.toThrow(/Reorg ancestor header unavailable/)
+    expect(s.tipHeight).toBe(1)
+  })
+
+  it('rejects a reconciliation with no authenticated common ancestor', async () => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    const client = { getPresentHeight: async () => 2, getHeaders: async (height: number) => (height === 2 ? H1 : H2) }
+    await expect(syncHeaders({ store: s, client })).rejects.toThrow(/No authenticated reorg ancestor/)
+    expect(s.tipHeight).toBe(1)
+  })
+
+  it.each(['', 'zz', '00'])('rejects missing or malformed replacement bytes (%s)', async replacement => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    let first = true
+    const client = {
+      getPresentHeight: async () => 2,
+      getHeaders: async (height: number) => {
+        if (height === 1) return H1
+        if (first) {
+          first = false
+          return H1
+        }
+        return replacement
+      }
+    }
+    await expect(syncHeaders({ store: s, client })).rejects.toThrow(
+      /Replacement header branch unavailable|Malformed replacement/
+    )
+    expect(s.tipHeight).toBe(1)
+  })
+
+  it('propagates a replacement validation error without discarding the current window', async () => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    const client = { getPresentHeight: async () => 2, getHeaders: async () => H1 }
+    await expect(syncHeaders({ store: s, client })).rejects.toThrow(/previous hash/)
+    expect(s.tipHeight).toBe(1)
+  })
+
+  it.each([2, 3])('stops reconciliation before its phase %i touches state', async stopCall => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    let calls = 0
+    const client = { getPresentHeight: async () => 2, getHeaders: async () => H1 }
+    const result = await syncHeaders({ store: s, client, shouldStop: () => ++calls >= stopCall })
+    expect(result.tipHeight).toBe(1)
+    expect(s.tipHeight).toBe(1)
   })
 })
