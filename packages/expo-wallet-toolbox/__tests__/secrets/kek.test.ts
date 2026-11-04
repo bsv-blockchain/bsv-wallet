@@ -355,3 +355,37 @@ describe('KEK lifecycle', () => {
     expect(localAuth.authenticateAsync).not.toHaveBeenCalled()
   })
 })
+
+
+it('requires an authenticated read of a newly created biometric upgrade item before unlocking', async () => {
+  secureStore.__reset()
+  localAuth.__reset()
+  __resetForTests()
+  ;(global as any).__DEV__ = true
+  localAuth.__setLevel(localAuth.SecurityLevel.NONE)
+  await provisionWithSecret()
+  __resetForTests()
+  ;(global as any).__DEV__ = false
+  localAuth.__setLevel(localAuth.SecurityLevel.BIOMETRIC_STRONG)
+  const originalRead = secureStore.getItemAsync.getMockImplementation()!
+  const originalWrite = secureStore.setItemAsync.getMockImplementation()!
+  let installed = false
+  secureStore.setItemAsync.mockImplementation(async (...args) => {
+    await originalWrite(...args)
+    if (args[0] === KEK_AUTH_KEY) installed = true
+  })
+  secureStore.getItemAsync.mockImplementation(async (...args) => {
+    if (args[0] === KEK_AUTH_KEY && installed) throw new Error('User canceled the operation.')
+    return originalRead(...args)
+  })
+  try {
+    expect((await unlockKek()).status).toBe('cancelled')
+    expect(isUnlocked()).toBe(false)
+    expect((await readSentinel())?.policy).toBe('biometric')
+    secureStore.getItemAsync.mockImplementation(originalRead)
+    expect((await unlockKek()).status).toBe('unlocked')
+  } finally {
+    secureStore.getItemAsync.mockImplementation(originalRead)
+    secureStore.setItemAsync.mockImplementation(originalWrite)
+  }
+})

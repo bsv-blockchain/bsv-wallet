@@ -314,6 +314,11 @@ export async function upgradeToBiometric(
     // claim THIS session's transition fully succeeded.
     const stalePlain = await SecureStore.getItemAsync(KEK_PLAIN_KEY, kekOptions(false)).catch(() => null)
     if (stalePlain !== null) return null
+    // Adding an ACL-protected item on iOS does not authenticate the user.
+    // Require a read through that ACL before the old plain KEK can become
+    // this session's unlocked value. A cancellation leaves it uncached.
+    const authenticated = await SecureStore.getItemAsync(KEK_AUTH_KEY, kekOptions(true))
+    if (authenticated !== Utils.toHex(pending.kek)) return null
     return { status: 'unlocked', kekId: pending.kekId, policy: 'biometric' }
   } catch {
     // Leave the install exactly as it was; the caller does not cache
