@@ -22,7 +22,7 @@ class BoundedRequestOptions : Record {
 }
 
 class BsvBoundedFetchModule : Module() {
-  private val requests = ConcurrentHashMap<String, HttpURLConnection>()
+  private val requests = ConcurrentHashMap<String, BoundedConnection>()
   private val workers = Executors.newCachedThreadPool()
 
   override fun definition() = ModuleDefinition {
@@ -47,15 +47,22 @@ class BsvBoundedFetchModule : Module() {
         // Explicit encoding disables Android's implicit decompression; count the
         // decoded stream below, including when the server ignores identity.
         connection.setRequestProperty("Accept-Encoding", "identity")
-        requests[options.id] = connection
+        val receiver = BoundedConnection(connection)
+        requests[options.id] = receiver
         workers.execute {
           try {
-            options.body?.let { encoded ->
+            receiver.checkActive()
+            val upload = options.body?.let { Base64.decode(it, Base64.DEFAULT) }
+            if (upload != null) {
               connection.doOutput = true
-              val upload = Base64.decode(encoded, Base64.DEFAULT)
               connection.setFixedLengthStreamingMode(upload.size)
+            }
+            receiver.connect()
+            if (upload != null) {
+              receiver.checkActive()
               connection.outputStream.use { it.write(upload) }
             }
+            receiver.checkActive()
             val status = connection.responseCode
             val declaredLength = connection.getHeaderField("Content-Length")?.toLongOrNull()
             if (declaredLength != null && declaredLength > options.maxBytes) {
@@ -72,6 +79,7 @@ class BsvBoundedFetchModule : Module() {
               stream.use { decoded ->
                 val chunk = ByteArray(8192)
                 while (true) {
+                  receiver.checkActive()
                   val count = decoded.read(chunk)
                   if (count < 0) break
                   // Reject BEFORE appending, with no native-to-JS chunk queue.
@@ -95,10 +103,10 @@ class BsvBoundedFetchModule : Module() {
       }
     }
 
-    AsyncFunction("cancel") { id: String -> requests.remove(id)?.disconnect(); Unit }
+    AsyncFunction("cancel") { id: String -> requests[id]?.cancel(); Unit }
 
     OnDestroy {
-      requests.values.forEach { it.disconnect() }
+      requests.values.forEach { it.cancel() }
       requests.clear()
       workers.shutdownNow()
     }
