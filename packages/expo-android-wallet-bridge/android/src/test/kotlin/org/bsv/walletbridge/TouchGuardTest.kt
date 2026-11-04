@@ -35,14 +35,45 @@ class TouchGuardTest {
   @Test fun `fallback keeps rejecting obscured gestures in the main window`() {
     val sheet = TouchGuard()
     val main = TouchGuard()
+    val outer = TouchGuard()
+    var owner = Role.SHEET
+    var handoffs = 0
     var approvals = 0
-    repeat(TouchGuard.DROP_LIMIT) { sheet.dispatch(TouchGuard.OBSCURED) { approvals++; false } }
+
+    // The sheet Activity owns its drop counter; the Window.Callback must not
+    // consume an event before that callback sees it. This models ACTION_DOWN.
+    fun dispatch(flags: Int): Boolean {
+      val activity = {
+        if (owner == Role.SHEET && sheet.shouldDrop(flags)) {
+          if (sheet.noteDrop()) {
+            handoffs++
+            owner = Role.MAIN
+          }
+          true
+        } else {
+          approvals++
+          false
+        }
+      }
+      return if (owner.needsApprovalWindowGuard()) {
+        (if (owner == Role.MAIN) main else outer).dispatch(flags, activity)
+      } else activity()
+    }
+
+    repeat(TouchGuard.DROP_LIMIT - 1) {
+      assertTrue(dispatch(TouchGuard.OBSCURED))
+      assertEquals(0, handoffs)
+    }
+    assertTrue(dispatch(TouchGuard.PARTIALLY_OBSCURED))
+    assertEquals(1, handoffs)
+    assertEquals(Role.MAIN, owner)
     repeat(20) {
-      assertTrue(main.dispatch(TouchGuard.OBSCURED) { approvals++; false })
-      assertTrue(main.dispatch(TouchGuard.PARTIALLY_OBSCURED) { approvals++; false })
+      assertTrue(dispatch(TouchGuard.OBSCURED))
+      assertTrue(dispatch(TouchGuard.PARTIALLY_OBSCURED))
     }
     assertEquals(0, approvals)
-    assertFalse(main.dispatch(0) { approvals++; false })
+    assertEquals(1, handoffs)
+    assertFalse(dispatch(0))
     assertEquals(1, approvals)
   }
 
