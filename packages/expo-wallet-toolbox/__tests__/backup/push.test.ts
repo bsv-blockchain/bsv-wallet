@@ -859,6 +859,27 @@ describe('pushOnce seals', () => {
     expect((await loadCursor('main', PSEUDONYM, DEVICE)).initialChunkCount).toBeUndefined()
   })
 
+  it.each([
+    { seq: 1, prevSha256: undefined },
+    { seq: 1, prevSha256: 'invalid' },
+    { seq: 0, initialChunkCount: 1, initialHeadSha256: undefined },
+    { seq: 0, initialChunkCount: 1, initialHeadSha256: 'invalid' }
+  ])('starts a fresh snapshot when a v2 cursor has lost its commitments (%j)', async fields => {
+    await saveCursor('main', PSEUDONYM, DEVICE, { ...freshCursor(), ...fields })
+    const client = fakeClient()
+    await pushOnce({
+      storage: fakeStorage(chunkWith({ provenTxs: 1 })) as any,
+      primaryKey: PRIMARY,
+      chain: 'main',
+      identityKey: IDENTITY,
+      client,
+      deviceId: DEVICE
+    })
+    const entry = await decodeEntry(deriveBackupWallet(PRIMARY, 'main'), client.append.mock.calls[0][4], 'main')
+    expect(entry.position).toMatchObject({ deviceId: DEVICE, generation: 2, seq: 1 })
+    expect(entry.position?.prevSha256).toBeUndefined()
+  })
+
   it('never seals an empty wallet that has pushed nothing at all', async () => {
     const client = fakeClient()
 

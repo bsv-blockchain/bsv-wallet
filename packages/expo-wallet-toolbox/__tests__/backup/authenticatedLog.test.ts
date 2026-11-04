@@ -3,6 +3,7 @@ import { decodeEntry, emptyChunk, encodeChunk } from '../../core/backup/codec'
 import { deriveBackupWallet } from '../../core/backup/derive'
 import { restoreFromBackup } from '../../core/backup/restore'
 import { RemoteSyncReader } from '../../core/backup/RemoteSyncReader'
+import { BACKUP_PROTOCOL, backupKeyId } from '../../core/backup/constants'
 
 const wallet = deriveBackupWallet(new PrivateKey(21).toArray('be', 32), 'main')
 const DEVICE = 'd'.repeat(32)
@@ -156,4 +157,64 @@ it('does not apply any recovery chunk when a later authenticated position is mov
     })
   ).rejects.toThrow(/authenticated backup position/)
   expect(storage.processSyncChunk).not.toHaveBeenCalled()
+})
+
+it.each([
+  { deviceId: '', generation: 1, seq: 1 },
+  { deviceId: DEVICE, generation: 0, seq: 1 },
+  { deviceId: DEVICE, generation: 1.5, seq: 1 },
+  { deviceId: DEVICE, generation: 1, seq: 0 },
+  { deviceId: DEVICE, generation: 1, seq: 1.5 },
+  { deviceId: DEVICE, generation: 1, seq: 1, prevSha256: '0'.repeat(64) },
+  { deviceId: DEVICE, generation: 1, seq: 2 },
+  { deviceId: DEVICE, generation: 1, seq: 2, prevSha256: 'invalid' }
+])('rejects malformed authenticated position %j', async position => {
+  const bytes = await encodeChunk(wallet, chunk('invalid'), 'main', undefined, undefined, position)
+  await expect(decodeEntry(wallet, bytes, 'main')).rejects.toThrow(/position is malformed/)
+})
+
+it('rejects a missing position in a versioned envelope', async () => {
+  const bytes = await encodeChunk(wallet, chunk('invalid'), 'main', undefined, undefined, {} as any)
+  await expect(decodeEntry(wallet, bytes, 'main')).rejects.toThrow(/position is malformed/)
+})
+
+it('rejects a generation that changes from authenticated entries to legacy entries', async () => {
+  const first = (await boundLog())[0]
+  const legacy = await encodeChunk(wallet, chunk('legacy'), 'main')
+  const mixed = reader([first, legacy])
+  expect(await mixed.verifiedComplete()).toBe(false)
+  await expect(mixed.getSyncChunk(args)).rejects.toThrow(/mixes legacy and authenticated positions/)
+})
+
+it('does not claim a complete initial snapshot until an authenticated seal exists', async () => {
+  const first = (await boundLog())[0]
+  const incomplete = reader([first])
+  expect(await incomplete.verifiedComplete()).toBe(false)
+  expect((await incomplete.getSyncChunk(args)).provenTxs?.[0].txid).toBe('0')
+})
+
+it.each([{ version: 3 }, { version: 2, position: null }])(
+  'rejects unsupported or incomplete versioned envelopes (%j)',
+  async fields => {
+    const { ciphertext } = await wallet.encrypt({
+      plaintext: Utils.toArray(
+        JSON.stringify({ chain: 'main', chunk: emptyChunk('a', 'b', 'user'), ...fields }),
+        'utf8'
+      ),
+      protocolID: BACKUP_PROTOCOL,
+      keyID: backupKeyId('main'),
+      counterparty: 'self'
+    })
+    await expect(decodeEntry(wallet, ciphertext, 'main')).rejects.toThrow(/version|position is malformed/)
+  }
+)
+
+it('handles an empty generation as unverified recovery without fetching blobs', async () => {
+  const client = backend([])
+  const blob = jest.spyOn(client, 'blob')
+  const empty = new RemoteSyncReader(client as any, wallet, 'main', DEVICE, 1, settings)
+  expect(empty.length).toBe(0)
+  expect(await empty.verifiedComplete()).toBe(false)
+  expect((await empty.getSyncChunk(args)).provenTxs).toEqual([])
+  expect(blob).not.toHaveBeenCalled()
 })
