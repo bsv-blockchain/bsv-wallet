@@ -40,6 +40,8 @@ import { fake as secureStore } from '../__mocks__/secureStoreFake'
 import { fake as localAuth } from '../__mocks__/localAuthFake'
 import { __resetForTests, readSentinel, unlockKek } from '../../core/services/secrets/kek'
 import { migrateLegacySecrets } from '../../core/services/secrets/migration'
+import { KEK_AUTH_KEY } from '../../core/services/secrets/policy'
+import { SENTINEL_KEY, envOptions } from '../../core/services/secrets/storage'
 import { getSecret, hasSecret } from '../../core/services/secrets/store'
 
 const ENV_SERVICE = 'bsvb.secrets.v1'
@@ -92,7 +94,7 @@ describe('legacy secret migration', () => {
 
     const ops = secureStore.__ops()
     const wroteBlob = ops.indexOf('set:envV1.mnemonic')
-    const readBack = ops.indexOf('get:envV1.mnemonic')
+    const readBack = ops.indexOf('get:envV1.mnemonic', wroteBlob + 1)
     const wroteSentinel = ops.lastIndexOf('set:secretsSentinelV1')
     const deletedLegacy = ops.indexOf('delete:mnemonic')
 
@@ -105,9 +107,19 @@ describe('legacy secret migration', () => {
   it('keeps the plaintext and writes no sentinel when verification fails', async () => {
     await seedLegacyInstall()
     // Corrupt only the verification read-back, as a storage-layer bug would.
-    secureStore.__overrideRead('envV1.mnemonic', JSON.stringify({ v: 1, kekId: 'x', salt: 'aa', c: 'bb' }))
-
-    const result = await migrateLegacySecrets()
+    const originalRead = secureStore.getItemAsync.getMockImplementation()!
+    secureStore.getItemAsync.mockImplementation(async (key, options) => {
+      if (key === 'envV1.mnemonic' && secureStore.__has(key, { service: ENV_SERVICE })) {
+        return JSON.stringify({ v: 1, kekId: 'x', salt: 'aa', c: 'bb' })
+      }
+      return originalRead(key, options)
+    })
+    let result
+    try {
+      result = await migrateLegacySecrets()
+    } finally {
+      secureStore.getItemAsync.mockImplementation(originalRead)
+    }
 
     expect(result).toMatchObject({ outcome: 'failed', stage: 'verify' })
     // The user still has a working wallet on the old scheme.
@@ -223,5 +235,43 @@ describe('legacy secret migration', () => {
     expect(await getSecret('mnemonic')).toBe(MNEMONIC)
     expect(await getSecret('recoveredKey')).toBe(WIF)
     expect(secureStore.__prompts()).toBe(1)
+  })
+})
+
+
+describe('migration refuses an existing envelope identity without its sentinel', () => {
+  beforeEach(async () => {
+    secureStore.__reset()
+    localAuth.__reset()
+    __resetForTests()
+    await AsyncStorage.clear()
+    ;(global as any).__DEV__ = false
+  })
+
+  it.each(['missing', 'missing-envelope', 'corrupt', 'unreadable'])('preserves the existing KEK and envelope for a %s sentinel', async kind => {
+    await seedLegacyInstall()
+    await migrateLegacySecrets()
+    const originalKey = secureStore.__get(KEK_AUTH_KEY, { service: 'bsvb.kek.v1', auth: true })
+    const originalBlob = secureStore.__get('envV1.mnemonic', { service: ENV_SERVICE })
+    __resetForTests()
+    if (kind === 'missing' || kind === 'missing-envelope') {
+      await secureStore.deleteItemAsync(SENTINEL_KEY, envOptions)
+      if (kind === 'missing-envelope') await secureStore.deleteItemAsync('envV1.mnemonic', envOptions)
+    }
+    else if (kind === 'corrupt') secureStore.__seed(SENTINEL_KEY, '{', { service: ENV_SERVICE })
+    else {
+      const originalRead = secureStore.getItemAsync.getMockImplementation()!
+      secureStore.getItemAsync.mockImplementationOnce(async () => { throw new Error('temporarily unavailable') })
+      // The one-shot failure must not replace the normal storage implementation.
+      expect(originalRead).toBeDefined()
+    }
+    secureStore.__seed('mnemonic', 'attacker-chosen wallet')
+    secureStore.deleteItemAsync.mockClear()
+    const result = await migrateLegacySecrets()
+    expect(result.outcome).toBe('failed')
+    expect(secureStore.__get(KEK_AUTH_KEY, { service: 'bsvb.kek.v1', auth: true })).toBe(originalKey)
+    expect(secureStore.__get('envV1.mnemonic', { service: ENV_SERVICE })).toBe(kind === 'missing-envelope' ? undefined : originalBlob)
+    expect(secureStore.deleteItemAsync).not.toHaveBeenCalledWith(KEK_AUTH_KEY, expect.anything())
+    expect(await getSecret('mnemonic')).toBeNull()
   })
 })
