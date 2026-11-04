@@ -10,13 +10,6 @@ import {
 } from '../../core/peerpay/outbox'
 import { ADMIN, sender, signedPayment } from '../__helpers__/signedPeerPay'
 
-jest.mock('react-native', () => ({
-  ...jest.requireActual('react-native'),
-  Text: 'Text',
-  View: 'View',
-  ActivityIndicator: 'ActivityIndicator',
-  StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 1 }
-}))
 jest.mock('../../ui/components/ui/PressableScale', () => ({ __esModule: true, default: 'Pressable' }))
 
 const colors = { textPrimary: '#000', textSecondary: '#333', accent: '#00f', separator: '#888' }
