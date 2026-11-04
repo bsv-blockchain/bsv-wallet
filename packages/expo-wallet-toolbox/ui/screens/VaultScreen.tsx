@@ -749,11 +749,21 @@ export function VaultScreen() {
         const currentMeta = metaRef.current
         if (!currentMeta) throw new VaultError('not-enrolled', 'Vault is not set up')
         const scopeToken = vaultStore.captureScopeToken()
-        await requireAuthenticatedMeta(pm as unknown as VaultWallet, adminOriginator, scopeToken, currentMeta)
+        const authenticatedMeta = await requireAuthenticatedMeta(
+          pm as unknown as VaultWallet,
+          adminOriginator,
+          scopeToken,
+          currentMeta
+        )
         const scope = vaultStore.getScope()
         if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
-        await vaultStore.renameKey(renaming.serial, next, scopeToken, nextMeta =>
-          computeVaultMetaAuthorityTag(pm as unknown as HmacCapableWallet, adminOriginator, nextMeta, scope)
+        await vaultStore.renameKey(
+          renaming.serial,
+          next,
+          scopeToken,
+          nextMeta =>
+            computeVaultMetaAuthorityTag(pm as unknown as HmacCapableWallet, adminOriginator, nextMeta, scope),
+          authenticatedMeta
         )
         await reload()
       } catch (e) {

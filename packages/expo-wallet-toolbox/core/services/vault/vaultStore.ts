@@ -234,6 +234,14 @@ export type VaultMetaTagger = (
   next: Pick<VaultMeta, 'vaultId' | 'revision' | 'createdAt' | 'keys' | 'pendingRemoval'>
 ) => Promise<string>
 
+/** Match the record actually read inside the mutation queue to the snapshot
+ * authenticated by its caller. Never re-tag a separately loaded key list. */
+function requireAuthenticatedSnapshot(meta: VaultMeta, expected?: VaultMeta): void {
+  if (expected && JSON.stringify(meta) !== JSON.stringify(expected)) {
+    throw new VaultError('template-invalid', 'Vault metadata changed after authentication; reload and retry')
+  }
+}
+
 /** XR-001: same contract as VaultMetaTagger, for one `ready` draft record. */
 export type VaultDraftTagger = (record: VaultKeyRecord) => Promise<string>
 
@@ -1061,11 +1069,17 @@ export const vaultStore = {
    * this with a `tagger` — see VaultKeyService.addVaultKey's
    * requireTaggedMeta call, which does exactly that.
    */
-  async addKey(k: VaultKeyRecord, scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
+  async addKey(
+    k: VaultKeyRecord,
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     if (!isVaultKeyRecord(k)) throw new VaultError('template-invalid', 'Invalid vault key record')
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta)
       if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal first')
       if (meta.keys.length >= MAX_ACTIVE_KEYS) {
         throw new VaultError('too-many-keys', `The vault already has ${MAX_ACTIVE_KEYS} keys`)
@@ -1083,10 +1097,16 @@ export const vaultStore = {
    * trustworthy by the caller (transfers.ts's beginVaultKeyRemoval gates its
    * whole flow on requireAuthenticatedMeta before reaching here) before a
    * `tagger` is supplied. */
-  async beginKeyRemoval(serial: string, scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
+  async beginKeyRemoval(
+    serial: string,
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta)
       if (meta.pendingRemoval) throw new VaultError('relock-required', 'Another key removal is already pending')
       if (meta.keys.length <= MIN_KEYS) {
         throw new VaultError('last-keys', `A vault needs at least ${MIN_KEYS} keys`)
@@ -1201,11 +1221,13 @@ export const vaultStore = {
     serial: string,
     nickname: string,
     scopeToken?: VaultScopeToken,
-    tagger?: VaultMetaTagger
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
   ): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta)
       if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal first')
       const clean = nickname.trim()
       if (clean.length < 1 || clean.length > 64) throw new VaultError('template-invalid', 'Invalid vault key nickname')

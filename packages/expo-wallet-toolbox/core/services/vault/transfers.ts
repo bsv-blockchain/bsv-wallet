@@ -3606,8 +3606,11 @@ export async function beginVaultKeyRemoval(
     if (!before.state.targetCommitted && heldDeposit) {
       throw new VaultError('action-pending', 'Resolve the held vault deposit before removing this key')
     }
-    const pending = await vaultStore.beginKeyRemoval(serial, scopeToken, next =>
-      computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+    const pending = await vaultStore.beginKeyRemoval(
+      serial,
+      scopeToken,
+      next => computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope),
+      meta
     )
     if (before.state.targetCommitted) return { complete: false, meta: pending }
 

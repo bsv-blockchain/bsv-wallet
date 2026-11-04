@@ -528,3 +528,35 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
     expect(await vaultStore.getEnrollmentDraftTag(key(1).serial, scopeToken)).toBeNull()
   })
 })
+
+describe('authenticated mutation snapshots', () => {
+  it.each(['rename', 'add', 'remove'] as const)(
+    'refuses to authenticate substituted keys during %s',
+    async operation => {
+      const original = { ...META, keys: [key(1), key(2), key(3)] }
+      await vaultStore.setMeta(original, undefined, async () => 'original-tag')
+      const authenticated = (await vaultStore.getMeta())!
+      const forged = { ...original, keys: [key(4), key(2), key(3)] }
+      await vaultStore.setMeta(forged)
+      const tagger = jest.fn(async () => 'laundered-tag')
+      const attempt =
+        operation === 'rename'
+          ? vaultStore.renameKey(key(2).serial, 'Renamed', undefined, tagger, authenticated)
+          : operation === 'add'
+            ? vaultStore.addKey(key(5), undefined, tagger, authenticated)
+            : vaultStore.beginKeyRemoval(key(3).serial, undefined, tagger, authenticated)
+      await expect(attempt).rejects.toMatchObject({ code: 'template-invalid' })
+      expect(tagger).not.toHaveBeenCalled()
+      expect(await vaultStore.getMeta()).toEqual(forged)
+      expect(await vaultStore.getMetaTag()).toBe('original-tag')
+    }
+  )
+
+  it('permits a rename based on the unchanged authenticated snapshot', async () => {
+    await vaultStore.setMeta(META)
+    const expected = (await vaultStore.getMeta())!
+    const renamed = await vaultStore.renameKey(key(1).serial, 'New name', undefined, async () => 'valid-tag', expected)
+    expect(renamed.keys[0].nickname).toBe('New name')
+    expect(await vaultStore.getMetaTag()).toBe('valid-tag')
+  })
+})
