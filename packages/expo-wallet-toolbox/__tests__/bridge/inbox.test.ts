@@ -244,6 +244,51 @@ describe('inbox processor', () => {
     warning.mockRestore()
   })
 
+  it('skips records withdrawn or accepted after a pending-list snapshot', async () => {
+    await stage(record(1))
+    await stage(record(2))
+    const inbox = processor()
+    await inbox.recover()
+    expect(await store.accept(ID(2))).toBe(true)
+    const originalList = store.list.bind(store)
+    jest.spyOn(store, 'list').mockImplementation(async state =>
+      state === 'pending' ? [ID(99), ID(2), ...(await originalList(state))] : originalList(state)
+    )
+    const read = jest.spyOn(store, 'read')
+    await inbox.processPending()
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(read).toHaveBeenCalledWith(ID(1))
+    expect(dispatched).toHaveLength(1)
+    expect(await store.stat(ID(2))).toMatchObject({ state: 'accepted' })
+  })
+
+  it('rescans when a nudge arrives while an empty pending snapshot is suspended', async () => {
+    const originalList = store.list.bind(store)
+    let release!: () => void
+    let captured!: () => void
+    const paused = new Promise<void>(resolve => { captured = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    let first = true
+    jest.spyOn(store, 'list').mockImplementation(async state => {
+      const ids = await originalList(state)
+      if (state === 'pending' && first) {
+        first = false
+        captured()
+        await gate
+      }
+      return ids
+    })
+    const inbox = processor()
+    const done = inbox.processPending()
+    await paused
+    await stage(record(1))
+    expect(inbox.processPending()).toBe(done)
+    release()
+    await done
+    expect(dispatched).toHaveLength(1)
+    expect(await result(1)).toMatchObject({ ok: true })
+  })
+
   it('checks the size before reading', async () => {
     await store.create(ID(1), new Uint8Array(5 * 1024 * 1024 + 1))
     const read = jest.spyOn(store, 'read')

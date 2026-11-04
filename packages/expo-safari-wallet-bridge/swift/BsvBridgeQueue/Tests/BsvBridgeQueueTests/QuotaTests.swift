@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import XCTest
 
 @testable import BsvBridgeQueue
@@ -124,5 +125,48 @@ final class QuotaTests: XCTestCase {
       XCTAssertEqual($0 as? StageError, .badDigest)
     }
     XCTAssertFalse(Posix.exists(h.store.stageDir(ID(2))))
+  }
+  func testUnsupportedLockFileFailsClosed() throws {
+    let h = try Harness()
+    let lock = h.root.appendingPathExtension("queue-lock")
+    XCTAssertEqual(mkfifo(lock.path, 0o600), 0)
+    defer { unlink(lock.path) }
+    XCTAssertThrowsError(try h.create(1, "request"))
+    XCTAssertFalse(Posix.exists(pendingFile(h, 1)))
+  }
+
+  func testUnwritableIdDirectoryCannotPublishARequest() throws {
+    let h = try Harness()
+    let ids = h.root.appendingPathComponent("ids")
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: ids.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: ids.path) }
+    XCTAssertThrowsError(try h.create(1, "request"))
+    XCTAssertNil(try h.store.stat(id: ID(1)))
+    XCTAssertFalse(Posix.exists(pendingFile(h, 1)))
+  }
+
+  func testUnwritableResultDirectoryKeepsRequestArguments() throws {
+    let h = try Harness()
+    XCTAssertTrue(try h.create(1, "arguments"))
+    let results = h.root.appendingPathComponent("results")
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: results.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: results.path) }
+    XCTAssertThrowsError(try h.result(1, "result"))
+    XCTAssertEqual(text(try h.store.read(id: ID(1))), "arguments")
+    XCTAssertEqual(try h.store.stat(id: ID(1))?.state, .pending)
+  }
+
+  func testTruncatedAcceptedPayloadCannotBeClaimed() throws {
+    let h = try Harness()
+    XCTAssertTrue(try h.create(1, "arguments"))
+    XCTAssertTrue(h.store.accept(id: ID(1)))
+    let accepted = h.root.appendingPathComponent("accepted/\(ID(1))")
+    let header = try XCTUnwrap(h.store.readHeaderPart(accepted))
+    let handle = try FileHandle(forWritingTo: accepted)
+    try handle.truncate(atOffset: UInt64(header.count))
+    try handle.close()
+    XCTAssertEqual(try h.claim(1, "arguments"), .notAccepted)
+    XCTAssertEqual(try h.store.stat(id: ID(1))?.state, .accepted)
+    XCTAssertFalse(Posix.exists(h.root.appendingPathComponent("claimed/\(ID(1))")))
   }
 }

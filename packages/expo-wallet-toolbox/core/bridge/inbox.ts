@@ -217,6 +217,7 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
   let recovered: Promise<void> | undefined
   let draining: Promise<void> | undefined
   let wakeDrain: (() => void) | undefined
+  let drainRequested = false
 
   // Every close of one of this transport's bindings goes to the events outbox, in close order
   // (6.7). The writes are chained, and `handle` waits for the chain before it admits anything, so
@@ -452,42 +453,50 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
     processPending() {
       // One budget across nudges; new arrivals can still join while an earlier approval waits.
       if (draining) {
+        drainRequested = true
         wakeDrain?.()
         return draining
       }
       draining = (async () => {
-        await this.recover()
-        const running = new Set<Promise<void>>()
-        let loadedBytes = 0
-        for (;;) {
-          const nudged = new Promise<void>(resolve => { wakeDrain = resolve })
-          for (const id of await store.list('pending')) {
-            const stat = await store.stat(id)
-            if (!stat || stat.state !== 'pending') continue
-            const size = Math.max(0, stat.size)
-            while (running.size > 0 && (running.size >= MAX_IN_FLIGHT_TOTAL || loadedBytes + size > MAX_IN_FLIGHT_BYTES)) {
-              await Promise.race(running)
+        try {
+          await this.recover()
+          const running = new Set<Promise<void>>()
+          let loadedBytes = 0
+          for (;;) {
+            drainRequested = false
+            const nudged = new Promise<void>(resolve => { wakeDrain = resolve })
+            for (const id of await store.list('pending')) {
+              const stat = await store.stat(id)
+              if (!stat || stat.state !== 'pending') continue
+              const size = Math.max(0, stat.size)
+              while (running.size > 0 && (running.size >= MAX_IN_FLIGHT_TOTAL || loadedBytes + size > MAX_IN_FLIGHT_BYTES)) {
+                await Promise.race(running)
+              }
+              const loaded = await load(id)
+              if (!loaded || !(await admissible(loaded.record)) || !(await store.accept(id))) continue
+              loadedBytes += loaded.size
+              const task = handle(id, loaded.record, loaded.bytes, loaded.size)
+                .catch(e => {
+                  console.warn('[bridge] inbox record failed', e)
+                })
+                .finally(() => {
+                  loadedBytes -= loaded.size
+                  running.delete(task)
+                })
+              running.add(task)
             }
-            const loaded = await load(id)
-            if (!loaded || !(await admissible(loaded.record)) || !(await store.accept(id))) continue
-            loadedBytes += loaded.size
-            const task = handle(id, loaded.record, loaded.bytes, loaded.size)
-              .catch(e => {
-                console.warn('[bridge] inbox record failed', e)
-              })
-              .finally(() => {
-                loadedBytes -= loaded.size
-                running.delete(task)
-              })
-            running.add(task)
+            if (running.size === 0) {
+              if (drainRequested) continue
+              break
+            }
+            await Promise.race([nudged, ...running])
           }
-          if (running.size === 0) break
-          await Promise.race([nudged, ...running])
+        } finally {
+          draining = undefined
+          wakeDrain = undefined
+          drainRequested = false
         }
-      })().finally(() => {
-        draining = undefined
-        wakeDrain = undefined
-      })
+      })()
       return draining
     }
   }
