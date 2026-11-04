@@ -23,6 +23,7 @@ jest.mock('@react-native-async-storage/async-storage', () => {
 jest.mock('expo-secure-store', () => {
   const store: Record<string, string> = {}
   return {
+    __esModule: true,
     WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wudo',
     getItemAsync: async (k: string) => store[k] ?? null,
     setItemAsync: async (k: string, v: string) => {
@@ -388,15 +389,20 @@ describe('vaultStore v6', () => {
     await vaultStore.setMeta(META)
     const realGet = SecureStore.getItemAsync.bind(SecureStore)
     let releaseRead!: (value: string | null) => void
+    let signalRead!: () => void
+    const readStarted = new Promise<void>(resolve => {
+      signalRead = resolve
+    })
     const getSpy = jest.spyOn(SecureStore, 'getItemAsync').mockImplementationOnce(
       () =>
         new Promise(resolve => {
           releaseRead = resolve
+          signalRead()
         })
     )
 
     const note = vaultStore.noteLastUsed(key(1).serial)
-    await Promise.resolve()
+    await readStarted
     const add = vaultStore.addKey(key(3))
     await Promise.resolve()
     // addKey is queued behind noteLastUsed, so it cannot read the old record.
@@ -415,16 +421,21 @@ describe('vaultStore v6', () => {
     await vaultStore.setMeta(META)
     const realGet = SecureStore.getItemAsync.bind(SecureStore)
     let releaseRead!: (value: string | null) => void
+    let signalRead!: () => void
+    const readStarted = new Promise<void>(resolve => {
+      signalRead = resolve
+    })
     const getSpy = jest.spyOn(SecureStore, 'getItemAsync').mockImplementationOnce(
       () =>
         new Promise(resolve => {
           releaseRead = resolve
+          signalRead()
         })
     )
 
     const lateAdd = vaultStore.addKey(key(3))
     const rejected = expect(lateAdd).rejects.toMatchObject({ code: 'scope-changed' })
-    await Promise.resolve()
+    await readStarted
 
     vaultStore.configureScope({ identityKey: ID_B, chain: 'test' })
     const walletB = { ...META, vaultId: '33'.repeat(32) }
@@ -457,7 +468,7 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
     expect(await vaultStore.getMetaTag()).toBeNull()
 
     const tagger = jest.fn(async () => 'tag-for-next')
-    const added = await vaultStore.addKey(key(3), undefined, tagger)
+    const added = await vaultStore.addKey(key(3), undefined, tagger, META)
     expect(tagger).toHaveBeenCalledWith(added)
     expect(await vaultStore.getMetaTag()).toBe('tag-for-next')
   })
@@ -480,7 +491,7 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
     const tagger = jest.fn(async () => {
       throw new Error('wallet refused')
     })
-    await expect(vaultStore.addKey(key(3), undefined, tagger)).rejects.toThrow('wallet refused')
+    await expect(vaultStore.addKey(key(3), undefined, tagger, before!)).rejects.toThrow('wallet refused')
     expect(await vaultStore.getMeta()).toEqual(before)
     expect(await vaultStore.getMetaTag()).toBeNull()
   })
