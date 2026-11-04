@@ -20,7 +20,6 @@ function mockAdapt(raw: DatabaseSync) {
   }
 }
 
-jest.mock('react-native', () => ({ Platform: { OS: 'ios' } }), { virtual: true })
 jest.mock(
   'expo-sqlite',
   () => ({
@@ -81,22 +80,18 @@ jest.mock(
   }),
   { virtual: true }
 )
-jest.mock(
-  '@bsv/expo-wallet-toolbox',
-  () => ({
-    i18n: { t: (key: string) => key },
-    parseDbFilename: () => ({ keySuffix: 'deadbeef', chain: 'test', timestamp: 2000 }),
-    getRegisteredDbs: async () => [],
-    registerDb: (...args: unknown[]) => mockRegister(...args),
-    prepareSqliteImageForDeserialize: (bytes: Uint8Array) => bytes,
-    PENDING_KEY: 'localpay_pending',
-    PENDING_SUMMARY_KEY: 'localpay_pending_summary',
-    createTables: (...args: unknown[]) =>
-      jest.requireActual('../../core/storage/schema/createTables').createTables(...args),
-    ENCRYPTED_DB_EXTENSION: '.db.enc'
-  }),
-  { virtual: true }
-)
+jest.mock('../../core/index', () => ({
+  i18n: { t: (key: string) => key },
+  parseDbFilename: () => ({ keySuffix: 'deadbeef', chain: 'test', timestamp: 2000 }),
+  getRegisteredDbs: async () => [],
+  registerDb: (...args: unknown[]) => mockRegister(...args),
+  prepareSqliteImageForDeserialize: (bytes: Uint8Array) => bytes,
+  PENDING_KEY: 'localpay_pending',
+  PENDING_SUMMARY_KEY: 'localpay_pending_summary',
+  createTables: (...args: unknown[]) =>
+    jest.requireActual('../../core/storage/schema/createTables').createTables(...args),
+  ENCRYPTED_DB_EXTENSION: '.db.enc'
+}))
 jest.mock('../../ui/components/ui/AlertCard', () => ({ showAlert: async () => 'import' }))
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: jest.fn() }))
 

@@ -45,7 +45,7 @@ const mockRecipient = {
 }
 const mockMandala = { available: false, balances: [], runtime: null, refresh: jest.fn() }
 
-jest.mock('@bsv/expo-wallet-toolbox', () => ({
+jest.mock('../../core/index', () => ({
   ...jest.requireActual('../../core/theme/tokens'),
   ...jest.requireActual('../../core/peerpay/outbox'),
   useTheme: () => ({ colors: jest.requireActual('../../core/theme/tokens').lightColors }),
