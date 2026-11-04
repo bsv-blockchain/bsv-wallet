@@ -5,6 +5,7 @@ import {
   bitsToTarget,
   targetToBits,
   headerWork,
+  parseHeader,
   nextWorkRequired,
   type WorkHeader
 } from '../../core/headers/headerConsensus'
@@ -113,4 +114,78 @@ it('enforces median time, future time and activated header versions before accep
   new DataView(obsolete.buffer).setUint32(0, 1, true)
   expect(() => chain.append(obsolete, 886148)).toThrow(/version/)
   expect(chain.tipHeight).toBe(anchor.height)
+})
+
+it('rejects unsupported networks and pre-DAA anchors before reading context', () => {
+  expect(() => HeaderConsensus.fromContext('unknown' as never, anchor, new Uint8Array())).toThrow(/Unsupported/)
+  for (const chain of ['main', 'test'] as const) {
+    expect(() => HeaderConsensus.fromContext(chain, { ...anchor, height: 1 }, new Uint8Array())).toThrow(/post-DAA/)
+  }
+})
+
+it('checks compact scalar boundaries and small-target sign carry without rounding', () => {
+  for (const bits of [-1, 1.5, NaN, 0x100000000, 0x01000001]) {
+    expect(() => bitsToTarget(bits)).toThrow(/target/)
+  }
+  expect(bitsToTarget(0x03012345)).toBe(0x12345n)
+  expect(bitsToTarget(0x02008000)).toBe(0x80n)
+  expect(targetToBits(0x80n)).toBe(0x02008000)
+  expect(targetToBits(1n)).toBe(0x01010000)
+  for (const target of [0n, -1n, 1n << 256n]) expect(() => targetToBits(target)).toThrow(/target/)
+})
+
+it('refuses missing, short, historical and non-increasing accumulated-work contexts', () => {
+  expect(() => nextWorkRequired('main', [], 0)).toThrow(/context/)
+  expect(() => nextWorkRequired('main', [{ height: 1, time: 1, bits: 0x1d00ffff, work: 1n }], 2)).toThrow(/Historical/)
+  expect(() => nextWorkRequired('main', [{ height: 504031, time: 1, bits: 0x1d00ffff, work: 1n }], 2)).toThrow(
+    /context/
+  )
+  const noWork = Array.from({ length: 147 }, (_, i) => ({
+    height: 504031 + i,
+    time: i * 600,
+    bits: 0x1d00ffff,
+    work: 1n
+  }))
+  expect(() => nextWorkRequired('main', noWork, 147 * 600)).toThrow(/work context/)
+})
+
+it('caps a very low-work DAA context at the network target limit', () => {
+  const history = Array.from({ length: 147 }, (_, i) => ({
+    height: 504031 + i,
+    time: i * 600,
+    bits: 0x1d00ffff,
+    work: BigInt(i + 1)
+  }))
+  expect(nextWorkRequired('main', history, 147 * 600)).toBe(0x1d00ffff)
+})
+
+it('requires valid ancestor linkage and the exact terminal checkpoint commitment', () => {
+  const context = fixture.slice(0, 147 * 80)
+  const reordered = context.slice()
+  reordered.set(context.slice(80, 160), 0)
+  reordered.set(context.slice(0, 80), 80)
+  expect(() => HeaderConsensus.fromContext('main', anchor, reordered)).toThrow(/linkage/)
+  expect(() => HeaderConsensus.fromContext('main', { ...anchor, hash: '00'.repeat(32) }, context)).toThrow(/commit/)
+})
+
+it('bounds forks to authenticated integral heights and preserves independent descendants', () => {
+  const chain = HeaderConsensus.fromContext('main', anchor, fixture.slice(0, 147 * 80))
+  for (const height of [anchor.height - 1, anchor.height + 1, anchor.height + 0.5]) {
+    expect(() => chain.forkAt(height)).toThrow(/outside authenticated history/)
+  }
+  const fork = chain.forkAt(anchor.height)
+  fork.append(fixture.slice(147 * 80, 148 * 80), anchor.height + 1)
+  expect(chain.tipHeight).toBe(anchor.height)
+  expect(fork.tipHeight).toBe(anchor.height + 1)
+  expect(fork.hashForHeight(anchor.height - 147)).toBeUndefined()
+})
+
+it('rejects non-sequential append heights before changing history', () => {
+  const chain = HeaderConsensus.fromContext('main', anchor, fixture.slice(0, 147 * 80))
+  expect(() => chain.append(fixture.slice(147 * 80, 148 * 80), anchor.height + 2)).toThrow(/Unexpected header height/)
+  expect(chain.tipHeight).toBe(anchor.height)
+})
+
+it.each([0, 79, 81])('rejects a serialized header of %i bytes', length => {
+  expect(() => parseHeader(new Uint8Array(length))).toThrow(/exactly 80 bytes/)
 })

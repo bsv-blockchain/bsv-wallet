@@ -2,6 +2,8 @@ import { Utils } from '@bsv/sdk'
 import { syncHeaders } from '../../core/headers/syncHeaders'
 import { HeaderStore } from '../../core/headers/headerStore'
 import { memoryHeaderFs } from '../../core/headers/fs'
+import fs from 'fs'
+import path from 'path'
 
 // Same two verified ttn headers as __tests__/headerStore.test.ts, one per line.
 const ANCHOR = { height: 0, hash: '000000000499eabba0a88f5b3747231c74b9191c1a4a04b2c2ea817976b7776d' }
@@ -13,6 +15,57 @@ const H2 = '000000204bd109783c507e98b9da565c304e1313b085a54e0d4618ccf1e3d8b00000
 const store = () => HeaderStore.open(memoryHeaderFs(), 'ttn', ANCHOR)
 
 describe('syncHeaders', () => {
+  it.each([0, -1, 1.5, 100001, NaN])('rejects invalid chunk size %s before consulting the source', async chunkSize => {
+    const getPresentHeight = jest.fn(async () => 0)
+    await expect(
+      syncHeaders({ store: await store(), client: { getPresentHeight, getHeaders: async () => '' }, chunkSize })
+    ).rejects.toThrow(/Invalid header chunk size/)
+    expect(getPresentHeight).not.toHaveBeenCalled()
+  })
+
+  it.each([-1, 0.5, NaN, 0x80000000])('rejects invalid present height %s without reading headers', async height => {
+    const getHeaders = jest.fn(async () => '')
+    await expect(
+      syncHeaders({ store: await store(), client: { getPresentHeight: async () => height, getHeaders } })
+    ).rejects.toThrow(/invalid present height/)
+    expect(getHeaders).not.toHaveBeenCalled()
+  })
+
+  it('initializes an authenticated mainnet bootstrap before using the store', async () => {
+    const anchor = { height: 886147, hash: '0000000000000000069794608511a422848e3d42efba5edd7bee4028ca8656f7' }
+    const context = fs.readFileSync(path.join(__dirname, 'fixtures/main-886001-886160.bin')).subarray(0, 147 * 80)
+    const s = await HeaderStore.open(memoryHeaderFs(), 'main', anchor)
+    const getHeaders = jest.fn(async () => context.toString('hex'))
+    expect(s.needsContext).toBe(true)
+    await expect(
+      syncHeaders({ store: s, client: { getPresentHeight: async () => anchor.height, getHeaders } })
+    ).resolves.toMatchObject({ added: 0, tipHeight: anchor.height })
+    expect(getHeaders).toHaveBeenCalledWith(886001, 147)
+    expect(s.needsContext).toBe(false)
+  })
+
+  it.each(['', 'z'.repeat(147 * 160)])('rejects absent or nonhex bootstrap data', async context => {
+    const anchor = { height: 886147, hash: '0000000000000000069794608511a422848e3d42efba5edd7bee4028ca8656f7' }
+    const s = await HeaderStore.open(memoryHeaderFs(), 'main', anchor)
+    await expect(
+      syncHeaders({
+        store: s,
+        client: { getPresentHeight: async () => anchor.height, getHeaders: async () => context }
+      })
+    ).rejects.toThrow(/bootstrap context unavailable or malformed/)
+    expect(s.needsContext).toBe(true)
+  })
+
+  it('requires the current tip bytes when the advertised chain height is unchanged', async () => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    await expect(
+      syncHeaders({ store: s, client: { getPresentHeight: async () => 1, getHeaders: async () => '' } })
+    ).rejects.toThrow(/Chain tip header unavailable/)
+    await expect(
+      syncHeaders({ store: s, client: { getPresentHeight: async () => 1, getHeaders: async () => H1 } })
+    ).resolves.toMatchObject({ added: 0, tipHeight: 1 })
+  })
   it('pulls chunks until it reaches the present height', async () => {
     const calls: [number, number][] = []
     const client = {
