@@ -51,8 +51,8 @@ export interface RestoreResult {
   deviceId: string
   generation: number
   /**
-   * True when the replayed generation's newest entry carries a seal proving, to this
-   * device, that its initial snapshot is fully present — see codec.ts's DecodedEntry and
+   * True when every v2 position and the newest seal's ordered snapshot head
+   * commitment verify — see codec.ts's DecodedEntry and
    * push.ts's pushOnce. False means either an explicit device/generation override was
    * chosen with no seal, or no candidate anywhere in the manifest was sealed and today's
    * newest-only fallback was used instead. See P1-backup-incomplete-generation.

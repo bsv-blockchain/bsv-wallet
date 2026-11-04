@@ -21,7 +21,7 @@ jest.mock('@react-native-async-storage/async-storage', () => {
 })
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { PrivateKey } from '@bsv/sdk'
+import { Hash, PrivateKey, Utils } from '@bsv/sdk'
 import { BackupHttpError, ERR_SEQ_CONFLICT } from '../../core/backup/client'
 import { decodeEntry, emptyChunk } from '../../core/backup/codec'
 import { GENERATION_CHUNK_THRESHOLD } from '../../core/backup/constants'
@@ -196,7 +196,7 @@ describe('pushOnce', () => {
 
     const cursor = await loadCursor('main', PSEUDONYM, DEVICE)
     expect(cursor.seq).toBe(1)
-    expect(cursor.prevSha256).toBe('newsha')
+    expect(cursor.prevSha256).toBe(Utils.toHex(Hash.sha256(client.append.mock.calls[0][4])))
     expect(cursor.offsets.provenTx).toBe(2)
     expect(cursor.offsets.output).toBe(3)
     expect(cursor.maxUpdatedAt).toBe('2026-08-01T00:00:00.000Z')
@@ -226,7 +226,7 @@ describe('pushOnce', () => {
     await saveCursor('main', PSEUDONYM, DEVICE, {
       ...freshCursor(),
       seq: 1,
-      prevSha256: 'oldsha',
+      prevSha256: 'a'.repeat(64),
       chunksInGeneration: 1
     })
     const client = fakeClient({ append: jest.fn().mockResolvedValue({ seq: 2, sha256: 'secondsha' }) })
@@ -240,8 +240,10 @@ describe('pushOnce', () => {
       deviceId: DEVICE
     })
 
-    expect(client.append).toHaveBeenCalledWith(DEVICE, 1, 2, 'oldsha', expect.any(Array))
-    expect((await loadCursor('main', PSEUDONYM, DEVICE)).prevSha256).toBe('secondsha')
+    expect(client.append).toHaveBeenCalledWith(DEVICE, 1, 2, 'a'.repeat(64), expect.any(Array))
+    expect((await loadCursor('main', PSEUDONYM, DEVICE)).prevSha256).toBe(
+      Utils.toHex(Hash.sha256(client.append.mock.calls[0][4]))
+    )
   })
 
   it('closes the window by advancing since and zeroing offsets', async () => {
@@ -255,6 +257,7 @@ describe('pushOnce', () => {
       offsets: { ...zeroOffsets(), provenTx: 5 },
       maxUpdatedAt: '2026-08-02T00:00:00.000Z',
       seq: 3,
+      prevSha256: 'a'.repeat(64),
       chunksInGeneration: 3
     })
 
@@ -409,19 +412,12 @@ describe('pushOnce', () => {
   })
 
   it('settles a cursor left parked on the boundary by an older build', async () => {
-    // Every wallet already in the field has a cursor sitting exactly ON its high-water
-    // mark, which is the state the old code kept re-reading from. No migration handles
-    // this: the next window re-reads the boundary once more, and the close after it moves
-    // past. So each wallet pays at most one final duplicate and then goes quiet.
-    //
-    // This cursor also happens to be exactly the back-fill shape pushOnce looks for (since
-    // already set, chunks already pushed in this generation, initialChunkCount never set)
-    // — an older build's cursor predates sealing entirely — so the very first pass
-    // back-fills initialChunkCount purely locally before reading anything.
+    // Legacy logs must start a full authenticated snapshot, then settle normally.
     const client = fakeClient()
     const storage = inclusiveSinceStorage(['2026-08-01T00:00:00.000Z'])
     await saveCursor('main', PSEUDONYM, DEVICE, {
       ...freshCursor(),
+      formatVersion: undefined,
       since: '2026-08-01T00:00:00.000Z',
       seq: 7,
       chunksInGeneration: 7
@@ -438,11 +434,9 @@ describe('pushOnce', () => {
       })
     }
 
-    // The back-fill costs no append at all — only the one final duplicate of the
-    // still-unpushed boundary record goes up, now carrying the back-filled seal.
     expect(client.append).toHaveBeenCalledTimes(1)
     expect((await loadCursor('main', PSEUDONYM, DEVICE)).since).toBe('2026-08-01T00:00:00.001Z')
-    expect((await loadCursor('main', PSEUDONYM, DEVICE)).initialChunkCount).toBe(7)
+    expect((await loadCursor('main', PSEUDONYM, DEVICE)).initialChunkCount).toBe(1)
   })
 
   it('rotates to a new generation past the threshold, at a window boundary', async () => {
@@ -450,6 +444,7 @@ describe('pushOnce', () => {
       ...freshCursor(),
       since: '2026-01-01T00:00:00.000Z',
       seq: GENERATION_CHUNK_THRESHOLD,
+      prevSha256: 'a'.repeat(64),
       chunksInGeneration: GENERATION_CHUNK_THRESHOLD
     })
 
@@ -478,6 +473,7 @@ describe('pushOnce', () => {
     await saveCursor('main', PSEUDONYM, DEVICE, {
       ...freshCursor(),
       seq: GENERATION_CHUNK_THRESHOLD,
+      prevSha256: 'a'.repeat(64),
       chunksInGeneration: GENERATION_CHUNK_THRESHOLD
     })
 
@@ -793,7 +789,11 @@ describe('pushOnce seals', () => {
       deviceId: DEVICE
     })
     expect(client.append).toHaveBeenCalledTimes(3)
-    expect(await decodedSeal(client.append.mock.calls[2][4])).toEqual({ generation: 1, initialChunkCount: 2 })
+    expect(await decodedSeal(client.append.mock.calls[2][4])).toEqual({
+      generation: 1,
+      initialChunkCount: 2,
+      initialHeadSha256: Utils.toHex(Hash.sha256(client.append.mock.calls[1][4]))
+    })
 
     // A SECOND window close in the same generation — pure delta continuation — must not
     // move initialChunkCount, and closing itself never appends anything.
@@ -819,18 +819,23 @@ describe('pushOnce seals', () => {
       deviceId: DEVICE
     })
     expect(client.append).toHaveBeenCalledTimes(4)
-    expect(await decodedSeal(client.append.mock.calls[3][4])).toEqual({ generation: 1, initialChunkCount: 2 })
+    expect(await decodedSeal(client.append.mock.calls[3][4])).toEqual({
+      generation: 1,
+      initialChunkCount: 2,
+      initialHeadSha256: Utils.toHex(Hash.sha256(client.append.mock.calls[1][4]))
+    })
 
     // Every append was a real chunk — no extra entry was ever appended for sealing.
     expect(client.append).toHaveBeenCalledTimes(4)
   })
 
-  it('back-fills initialChunkCount for a cursor whose window already closed under an older build, with no append at all', async () => {
+  it('rotates a legacy cursor into a new authenticated full snapshot', async () => {
     // Simulates a device that pushed three chunks and closed its window before sealing
     // existed: `since` and `chunksInGeneration` are set, but `initialChunkCount` has never
     // existed on this cursor.
     await saveCursor('main', PSEUDONYM, DEVICE, {
       ...freshCursor(),
+      formatVersion: undefined,
       since: '2026-08-01T00:00:00.001Z',
       seq: 3,
       chunksInGeneration: 3
@@ -846,12 +851,12 @@ describe('pushOnce seals', () => {
       deviceId: DEVICE
     })
 
-    // The back-fill itself costs no network round trip; this pass's one append is the real
-    // chunk it read, now carrying the back-filled seal.
     expect(r.pushed).toBe(1)
     expect(client.append).toHaveBeenCalledTimes(1)
-    expect(await decodedSeal(client.append.mock.calls[0][4])).toEqual({ generation: 1, initialChunkCount: 3 })
-    expect((await loadCursor('main', PSEUDONYM, DEVICE)).initialChunkCount).toBe(3)
+    expect(await decodedSeal(client.append.mock.calls[0][4])).toBeUndefined()
+    const entry = await decodeEntry(deriveBackupWallet(PRIMARY, 'main'), client.append.mock.calls[0][4], 'main')
+    expect(entry.position).toMatchObject({ deviceId: DEVICE, generation: 2, seq: 1 })
+    expect((await loadCursor('main', PSEUDONYM, DEVICE)).initialChunkCount).toBeUndefined()
   })
 
   it('never seals an empty wallet that has pushed nothing at all', async () => {

@@ -33,10 +33,11 @@ export class RemoteSyncReader {
   private entries: LogEntry[] | null = null
   private next = 0
   private prefetched: { seq: number; result: Promise<BlobResult> } | null = null
-  /** Decoded once, keyed by seq, so verifiedComplete's own look-ahead at the newest entry
-   * never re-fetches or re-decrypts it when replay later reaches that same entry. */
+  /** One decoded entry retained across authentication and replay, bounded independently of log size. */
   private decodedCache: { seq: number; decoded: DecodedEntry } | null = null
   private verifiedCompletePromise: Promise<boolean> | null = null
+  private authenticationPromise: Promise<boolean> | null = null
+  private authenticatedLog = false
   /** The most recent (i.e. furthest along in replay order) appData snapshot seen on any
    * entry so far — see the `appData` getter below. */
   private lastAppData: AppDataSnapshot | undefined
@@ -57,9 +58,8 @@ export class RemoteSyncReader {
   }
 
   /**
-   * Fetch and verify the index, once. Shared by getSyncChunk (which needs every entry to
-   * replay) and verifiedComplete (which only needs to know how many entries exist and what
-   * the last one is).
+   * Fetch and check server-index consistency, once. Authenticated membership is
+   * checked separately against the encrypted positions before replay.
    */
   private async ensureIndex(): Promise<LogEntry[]> {
     if (this.entries == null) {
@@ -101,15 +101,8 @@ export class RemoteSyncReader {
     } else {
       ciphertext = await this.client.blob(this.deviceId, this.generation, entry.seq)
     }
-    // The index is itself server-supplied, but it is fetched from a separate endpoint than
-    // the blob body — a malicious or compromised service can serve the wrong (though still
-    // authentic, same-wallet) ciphertext at a given sequence while its own index entry for
-    // that sequence still carries the digest/size of what that sequence actually holds.
-    // Decryption alone cannot catch this: the AEAD envelope authenticates only
-    // {chain, chunk, seal} (see codec.ts), never the position a chunk was appended at.
-    // Checking the downloaded bytes against the index's own claim for THIS entry, before
-    // ever decrypting them, rejects a substituted or reordered blob outright instead of
-    // silently replaying it mislabeled.
+    // These checks detect corrupted transport bytes. The encrypted v2 position
+    // below is the authority for log membership, not this server-owned index.
     if (ciphertext.length !== entry.size) {
       throw new BackupChainError(
         `backup blob at sequence ${entry.seq} is ${ciphertext.length} bytes but the index recorded ${entry.size}`
@@ -119,7 +112,18 @@ export class RemoteSyncReader {
     if (digest !== entry.sha256) {
       throw new BackupChainError(`backup blob at sequence ${entry.seq} does not match the index's recorded digest`)
     }
-    return await decodeEntry(this.wallet, Array.from(ciphertext), this.chain)
+    const decoded = await decodeEntry(this.wallet, Array.from(ciphertext), this.chain)
+    const position = decoded.position
+    if (
+      position &&
+      (position.deviceId !== this.deviceId ||
+        position.generation !== this.generation ||
+        position.seq !== entry.seq ||
+        position.prevSha256 !== (entry.prevSha256 ?? undefined))
+    ) {
+      throw new BackupChainError(`authenticated backup position does not match sequence ${entry.seq}`)
+    }
+    return decoded
   }
 
   /**
@@ -134,7 +138,7 @@ export class RemoteSyncReader {
    * rides alongside a chunk rather than replacing it, so nothing here needs to be swallowed.
    */
   async getSyncChunk(_args: RequestSyncChunkArgs): Promise<SyncChunk> {
-    await this.ensureIndex()
+    await this.authenticateLog()
     const entries = this.entries!
 
     if (this.next >= entries.length) {
@@ -149,7 +153,9 @@ export class RemoteSyncReader {
     // own log (unlike restoreOnImport's cross-device merge). An entry that predates this
     // feature, or one written while there was genuinely nothing app-owned to add, carries no
     // `appData` at all and must not erase a still-current snapshot from an earlier entry.
-    if (decoded.appData !== undefined) this.lastAppData = decoded.appData
+    // Legacy snapshots are reorderable by the service and must not overwrite
+    // live pending payments, outbox entries, contacts or issued dates.
+    if (this.authenticatedLog && decoded.appData !== undefined) this.lastAppData = decoded.appData
     // Advance only after successful download AND decryption. Retrying this
     // reader after either fails must retry the same entry rather than lose it.
     this.next++
@@ -192,21 +198,9 @@ export class RemoteSyncReader {
   }
 
   /**
-   * Whether this generation's log, as it stands right now, is provably complete — i.e. this
-   * device itself once confirmed the generation's initial snapshot was whole, independent of
-   * anything the server's index metadata alone reports (see codec.ts's DecodedEntry and
-   * push.ts's own seal docs).
-   *
-   * True only when the NEWEST entry carries a seal for THIS generation whose
-   * `initialChunkCount` is no greater than the number of entries in the log — i.e. every
-   * chunk of the initial snapshot the seal refers to is present. Cheap by design: only that
-   * one entry is decrypted here, never the whole log — replay (getSyncChunk) still decodes
-   * every entry as it goes and is what actually enforces the chain end to end.
-   *
-   * Because every chunk appended after the initial window closes carries the SAME seal (see
-   * push.ts's pushOnce), this stays true as further deltas land, rather than flipping back to
-   * false the moment a new chunk becomes the newest entry — a generation is not "un-verified"
-   * by continuing to receive backups.
+   * True only after all v2 positions and the ordered initial-snapshot head
+   * commitment verify. A complete authentic old log can still be replayed by a
+   * server: freshness requires an independent trusted head anchor.
    */
   async verifiedComplete(): Promise<boolean> {
     if (this.verifiedCompletePromise == null) {
@@ -216,23 +210,50 @@ export class RemoteSyncReader {
   }
 
   private async computeVerifiedComplete(): Promise<boolean> {
-    const entries = await this.ensureIndex()
-    if (entries.length === 0) return false
-
-    const last = entries[entries.length - 1]
-    let decoded: DecodedEntry
     try {
-      decoded = await this.fetchAndDecode(last)
+      if (!(await this.authenticateLog())) return false
+      return this.decodedCache?.decoded.seal != null
     } catch {
-      // A last entry that fails to download or decrypt cannot be trusted as sealed —
-      // treat the generation as unverified rather than throwing out of a check that
-      // pickTarget uses purely to rank candidates.
+      // Ranking may skip a corrupt candidate. Its cached authentication failure
+      // is still rethrown before replay if the legacy fallback selects it.
       return false
     }
-    this.decodedCache = { seq: last.seq, decoded }
-    const seal = decoded.seal
-    if (seal == null) return false
-    return seal.generation === this.generation && seal.initialChunkCount <= entries.length
+  }
+
+  private authenticateLog(): Promise<boolean> {
+    if (this.authenticationPromise == null) {
+      this.authenticationPromise = this.checkAuthenticatedLog().catch(error => {
+        // Transient download failures must remain retryable at the same position.
+        this.authenticationPromise = null
+        throw error
+      })
+    }
+    return this.authenticationPromise
+  }
+
+  private async checkAuthenticatedLog(): Promise<boolean> {
+    const entries = await this.ensureIndex()
+    if (entries.length === 0) return false
+    const first = entries[0]
+    const decoded = await this.fetchAndDecode(first)
+    this.decodedCache = { seq: first.seq, decoded }
+    // Keep legacy entity recovery available, explicitly unverified. Its count-
+    // only seals prove neither ordered membership nor snapshot completeness.
+    if (!decoded.position) return false
+
+    // Preflight every authenticated position before returning ANY recovery
+    // state. Keep only one decoded entry cached so large backups stay bounded.
+    for (const entry of entries) {
+      const current = await this.fetchAndDecode(entry)
+      if (!current.position) throw new BackupChainError('backup generation mixes legacy and authenticated positions')
+      if (entry.seq === entries.length) this.decodedCache = { seq: entry.seq, decoded: current }
+      const seal = current.seal
+      if (seal && entries[seal.initialChunkCount - 1]?.sha256 !== seal.initialHeadSha256) {
+        throw new BackupChainError('authenticated initial snapshot head does not match the backup log')
+      }
+    }
+    this.authenticatedLog = true
+    return true
   }
 
   /**

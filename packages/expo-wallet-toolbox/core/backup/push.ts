@@ -15,6 +15,7 @@
  * are `since`-based and replay is idempotent, so a torn read corrects itself on the next
  * pass.
  */
+import { Hash, Utils } from '@bsv/sdk'
 import type { StorageExpoSQLite } from '../storage/StorageExpoSQLite'
 import { captureAppDataSnapshot, isEmptyAppData } from './appData'
 import { captureContacts } from './contactsBackup'
@@ -98,6 +99,15 @@ export async function pushOnce(deps: PushDeps): Promise<PushResult> {
   const deviceId = deps.deviceId ?? (await getDeviceId())
 
   let cursor = await loadCursor(deps.chain, pseudonym, deviceId)
+  // Old ciphertext has no authenticated position. A new snapshot is required;
+  // claiming an existing unbound generation is now authenticated is unsafe.
+  if (
+    cursor.formatVersion !== 2 ||
+    (cursor.seq > 0 && !/^[0-9a-f]{64}$/.test(cursor.prevSha256 ?? '')) ||
+    (cursor.initialChunkCount != null && !/^[0-9a-f]{64}$/.test(cursor.initialHeadSha256 ?? ''))
+  ) {
+    cursor = rotate(cursor)
+  }
 
   // Clock-regression guard: `since` only ever advances forward via nextInstant, and the
   // column comparison is `>=`, so a record stamped BELOW a window this cursor already
@@ -116,16 +126,6 @@ export async function pushOnce(deps: PushDeps): Promise<PushResult> {
     ...cursor,
     maxObservedWallClock:
       cursor.maxObservedWallClock != null && cursor.maxObservedWallClock > nowIso ? cursor.maxObservedWallClock : nowIso
-  }
-
-  // Back-fill: this cursor's window closed at least once (since is set) with real chunks
-  // pushed (chunksInGeneration > 0), but under an older build that predates sealing —
-  // initialChunkCount was never set. Set it now, purely locally: the log through the
-  // current seq is already a coherent complete state, so nothing needs re-uploading. No
-  // network round trip and no new entry — the NEXT real chunk this device appends (whenever
-  // that is) carries the seal referencing this count, same as any other sealed generation.
-  if (cursor.since != null && cursor.initialChunkCount === undefined && cursor.chunksInGeneration > 0) {
-    cursor = { ...cursor, initialChunkCount: cursor.chunksInGeneration }
   }
 
   const chunk = await deps.storage.getSyncChunk({
@@ -164,7 +164,8 @@ export async function pushOnce(deps: PushDeps): Promise<PushResult> {
       // the seal always references the original initial snapshot, which is what lets
       // verifiedComplete stay true as further deltas land (see RemoteSyncReader).
       initialChunkCount:
-        cursor.initialChunkCount ?? (cursor.chunksInGeneration > 0 ? cursor.chunksInGeneration : undefined)
+        cursor.initialChunkCount ?? (cursor.chunksInGeneration > 0 ? cursor.chunksInGeneration : undefined),
+      initialHeadSha256: cursor.initialHeadSha256 ?? (cursor.chunksInGeneration > 0 ? cursor.prevSha256 : undefined)
     }
 
     const rotated = shouldRotate(advanced)
@@ -227,15 +228,24 @@ export async function pushOnce(deps: PushDeps): Promise<PushResult> {
   // module's own docstring on why a dedicated marker is unsafe for an old reader).
   const seal: BackupSeal | undefined =
     cursor.initialChunkCount != null
-      ? { generation: cursor.generation, initialChunkCount: cursor.initialChunkCount }
+      ? {
+          generation: cursor.generation,
+          initialChunkCount: cursor.initialChunkCount,
+          initialHeadSha256: cursor.initialHeadSha256
+        }
       : undefined
-  const ciphertext = await encodeChunk(wallet, chunk, deps.chain, seal, appDataToSend)
-
   const seq = cursor.seq + 1
+  const ciphertext = await encodeChunk(wallet, chunk, deps.chain, seal, appDataToSend, {
+    deviceId,
+    generation: cursor.generation,
+    seq,
+    prevSha256: cursor.prevSha256
+  })
   let sha: string
   try {
-    const r = await client.append(deviceId, cursor.generation, seq, cursor.prevSha256, ciphertext)
-    sha = r.sha256
+    await client.append(deviceId, cursor.generation, seq, cursor.prevSha256, ciphertext)
+    // The server's append response is not an authenticated commitment.
+    sha = Utils.toHex(Hash.sha256(ciphertext))
   } catch (e) {
     if (e instanceof BackupHttpError && e.code === ERR_SEQ_CONFLICT) {
       // The server and the cursor disagree about the head. Resynchronise from the server's
