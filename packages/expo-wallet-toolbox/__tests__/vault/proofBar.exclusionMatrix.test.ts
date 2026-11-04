@@ -493,6 +493,9 @@ describe('I2 (c): wrong PIN', () => {
 describe('I2 (d): an unenrolled key (outsider)', () => {
   it('I2: withdrawFromVault refuses an outsider serial before ever requesting a signer (positive control: a committed serial is accepted)', async () => {
     const { deviceA, mock, keys } = await setupVault('d1')
+    // Setup legitimately proves key possession before depositing new funds.
+    // Measure signer requests made by the outsider withdrawal itself.
+    ;(requestVaultSigner as jest.Mock).mockClear()
 
     await expect(
       withdrawFromVault(deviceA, ADMIN, 'all', 'outsider attempt', 'OUTSIDER-SERIAL-NEVER-ENROLLED')
