@@ -298,8 +298,8 @@ export class CeremonyController {
   /**
    * Report post-arm progress from the spend path.
    *
-   * Guarded on an armed session: a note with no signer armed (a deposit, which
-   * is hardware-free, or a caller that has already released) must not raise a
+   * Guarded on an armed session: a note with no signer armed (for example,
+   * after a deposit's possession proof has been released) must not raise a
    * sheet, and anything arriving mid-arm is ignored because the arming phases
    * own the display.
    *

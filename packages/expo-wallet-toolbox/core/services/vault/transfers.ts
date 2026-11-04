@@ -3,8 +3,9 @@
  * and the `admin vault` basket, over 1-of-N P-256 comb-verifier outputs
  * (r1comb.ts, spec §2).
  *
- * Deposit: NO hardware. A vault output has a wallet-derived HMAC salt and one
- * comb commitment for every enrolled key. The HMAC uses [2, "vault salt"],
+ * Deposit: proves one enrolled hardware key before creating new funds. Each
+ * output has a wallet-derived HMAC salt and one comb commitment per enrolled
+ * key. The HMAC uses [2, "vault salt"],
  * counterparty "self", the rolling key ID "1", "2", ... and the canonically
  * framed YubiKey serials in commitment order. The lock contains only salted
  * table commitments; versioned customInstructions retain the derivation ID,
@@ -71,6 +72,7 @@ import { VaultError } from './types'
 import { metaFromVerifiedOutputs, VAULT_MAX_KEYS, VAULT_MIN_KEYS } from './VaultKeyService'
 import { vaultStore, VaultKeyRecord, VaultMeta, type VaultScopeToken, type VaultStoreScope } from './vaultStore'
 import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
+import { requireVaultOutputKeyPossession } from './outputAuthority'
 import { forgetSerialsNoLongerEnrolledForIdentity } from './enrolledSerialRegistry'
 
 export const VAULT_BASKET = 'admin vault'
@@ -218,6 +220,8 @@ export type SpendingReferenceLookup = (outpoints: string[]) => Promise<{ referen
  * none of them still works.
  */
 export interface VaultTransferOptions {
+  /** Enrolled key to prove before creating a new vault output (deposit UI). */
+  outputKeySerial?: string
   /** Storage-backed reservation heal. See SpendingReferenceLookup. */
   findSpendingReferences?: SpendingReferenceLookup
   /**
@@ -2093,13 +2097,15 @@ async function newVaultOutput(
   satoshis: number,
   outputDescription: string,
   inventory: VaultSaltInventory,
-  chain: VaultScopeToken['chain']
+  scopeToken: VaultScopeToken,
+  chosenSerial?: string
 ): Promise<[vault: VaultOutputSpec, marker: VaultOutputSpec, descriptor: VaultOutputSpec]> {
   // Every output-creating path (deposit, re-lock, partial-withdrawal
   // remainder) comes through here. The key list may briefly hold one key more
   // than a lock commits (VAULT_MAX_ACTIVE_KEYS); never lock to it, and never
   // to fewer than VAULT_MIN_KEYS.
   requireLockableKeyCount(meta.keys.length)
+  const { chain } = scopeToken
   const pubkeys = meta.keys.map(k => k.pubkey)
   const keyIndex = inventory.maxKeyIndex + 1
   if (!Number.isSafeInteger(keyIndex)) {
@@ -2113,6 +2119,16 @@ async function newVaultOutput(
     meta.keys.map(key => key.serial)
   )
   const lockingScript = buildLock({ commitments: pubkeys.map(pk => commitment(pk, salt)), saltHex64: salt })
+  await requireVaultOutputKeyPossession(
+    meta,
+    scopeToken,
+    {
+      satoshis,
+      saltKeyId,
+      lockingScript: lockingScript.toHex()
+    },
+    chosenSerial
+  )
   const v7: VaultInstructionsV7 = {
     v: 7,
     type: 'R1C',
@@ -2336,8 +2352,8 @@ function validateDepositPlan(tx: Transaction, expected: VaultOutputPlan): void {
 /**
  * Move `satoshis` from the default basket into the vault (spec §4.1).
  *
- * No hardware: a deposit needs the key LIST, not a key. Every refusal is
- * checked BEFORE the one createAction below, cheapest first, and nothing is
+ * A fresh hardware proof confirms one key committed to the new output is
+ * still usable. Every refusal is checked BEFORE createAction, and nothing is
  * spent until it runs. A pre-creation refusal consumes no numeric salt ID.
  * Once createAction persists an output, pending and failed history retain its
  * ID so a later output cannot reuse it.
@@ -2391,7 +2407,8 @@ export async function depositToVault(
       satoshis,
       'Vault deposit',
       saltInventory,
-      scopeToken.chain
+      scopeToken,
+      opts?.outputKeySerial
     )
     let reference: string | undefined
     let heldTxid: string | undefined
@@ -3239,7 +3256,8 @@ export async function withdrawFromVault(
           remainder,
           'Vault change',
           sel.saltInventory,
-          scopeToken.chain
+          scopeToken,
+          chosenSerial
         ))
       )
     }
@@ -3376,7 +3394,8 @@ export async function relockVault(
           relocked,
           'Vault re-lock',
           sel.saltInventory,
-          scopeToken.chain
+          scopeToken,
+          chosenSerial
         ),
         labels: ['vault', 'vault-relock'],
         inputDescription: 'Vault re-lock',

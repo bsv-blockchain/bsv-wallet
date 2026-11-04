@@ -46,7 +46,7 @@ export function requestVaultSigner(reason: string, chosenSerial: string): Promis
  * the ceremony sheet can show activity through the seconds-long stretches
  * where the JS thread or the network is busy, and so the retention window
  * tracks a live operation instead of expiring underneath it. A no-op when
- * nothing is armed — which is what keeps the hardware-free deposit sheet-free. */
+ * nothing is armed, such as after a deposit's possession proof is released. */
 export function noteVaultProgress(p: VaultProgress): void {
   ceremony.noteProgress(p)
 }
