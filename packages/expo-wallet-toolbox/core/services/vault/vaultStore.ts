@@ -114,11 +114,7 @@ export interface VaultEnrollmentDraftEntry {
 }
 
 export type VaultEnrollmentQuarantineStage =
-  | 'pin-change-uncertain'
-  | 'pin-changed'
-  | 'puk-change-uncertain'
-  | 'puk-changed'
-  | 'generation-uncertain'
+  'pin-change-uncertain' | 'pin-changed' | 'puk-change-uncertain' | 'puk-changed' | 'generation-uncertain'
 
 /** An irreversible/ambiguous global PIV credential change occurred before a
  * public slot key existed. No credential is stored. Generic enrollment must
@@ -236,7 +232,10 @@ export type VaultMetaTagger = (
 
 /** Match the record actually read inside the mutation queue to the snapshot
  * authenticated by its caller. Never re-tag a separately loaded key list. */
-function requireAuthenticatedSnapshot(meta: VaultMeta, expected?: VaultMeta): void {
+function requireAuthenticatedSnapshot(meta: VaultMeta, expected?: VaultMeta, tagger?: VaultMetaTagger): void {
+  if (tagger && !expected) {
+    throw new VaultError('template-invalid', 'A tagged mutation requires an authenticated metadata snapshot')
+  }
   if (expected && JSON.stringify(meta) !== JSON.stringify(expected)) {
     throw new VaultError('template-invalid', 'Vault metadata changed after authentication; reload and retry')
   }
@@ -1079,7 +1078,7 @@ export const vaultStore = {
     if (!isVaultKeyRecord(k)) throw new VaultError('template-invalid', 'Invalid vault key record')
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
-      requireAuthenticatedSnapshot(meta, expectedMeta)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
       if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal first')
       if (meta.keys.length >= MAX_ACTIVE_KEYS) {
         throw new VaultError('too-many-keys', `The vault already has ${MAX_ACTIVE_KEYS} keys`)
@@ -1106,7 +1105,7 @@ export const vaultStore = {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
-      requireAuthenticatedSnapshot(meta, expectedMeta)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
       if (meta.pendingRemoval) throw new VaultError('relock-required', 'Another key removal is already pending')
       if (meta.keys.length <= MIN_KEYS) {
         throw new VaultError('last-keys', `A vault needs at least ${MIN_KEYS} keys`)
@@ -1137,10 +1136,15 @@ export const vaultStore = {
     })
   },
 
-  async markKeyRemovalBroadcast(scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
+  async markKeyRemovalBroadcast(
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
       const pending = meta.pendingRemoval
       if (!pending) throw new VaultError('not-enrolled', 'No key removal is pending')
       if (pending.state === 'broadcast') return meta
@@ -1156,10 +1160,15 @@ export const vaultStore = {
   /** Caller must establish from authenticated action history and two complete
    * output scans that no spendable lock still authorizes the removed key and
    * that no relevant action is pending before invoking. */
-  async finalizeProvenKeyRemoval(scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
+  async finalizeProvenKeyRemoval(
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
       const pending = meta.pendingRemoval
       if (!pending || pending.state !== 'broadcast') {
         throw new VaultError('template-invalid', 'No broadcast key removal is ready for proven finalization')
@@ -1178,10 +1187,15 @@ export const vaultStore = {
    * those scans and serializes them with deposits; this method only permits
    * the corresponding untouched, unbroadcast state transition.
    */
-  async finalizeEmptyKeyRemoval(scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
+  async finalizeEmptyKeyRemoval(
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
       const pending = meta.pendingRemoval
       if (!pending || pending.state !== 'prepared') {
         throw new VaultError('template-invalid', 'Empty-vault removal does not match the pending state')
@@ -1197,10 +1211,15 @@ export const vaultStore = {
    * Restore a prepared key only after the caller has proved no transaction was
    * broadcast (for example, its reserved action was successfully aborted).
    */
-  async cancelUnbroadcastKeyRemoval(scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<VaultMeta> {
+  async cancelUnbroadcastKeyRemoval(
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
       const pending = meta.pendingRemoval
       if (!pending || pending.state !== 'prepared') {
         throw new VaultError('relock-required', 'A broadcast or unknown removal cannot be cancelled')
@@ -1227,7 +1246,7 @@ export const vaultStore = {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await requireMeta(token)
-      requireAuthenticatedSnapshot(meta, expectedMeta)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
       if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal first')
       const clean = nickname.trim()
       if (clean.length < 1 || clean.length > 64) throw new VaultError('template-invalid', 'Invalid vault key nickname')

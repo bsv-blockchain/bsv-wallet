@@ -1064,10 +1064,7 @@ async function reconcileHeldVaultDeposits(
 }
 
 export type VaultDepositResolution =
-  | { kind: 'broadcast' }
-  | { kind: 'already-known' }
-  | { kind: 'nothing-held' }
-  | { kind: 'failed'; error: unknown }
+  { kind: 'broadcast' } | { kind: 'already-known' } | { kind: 'nothing-held' } | { kind: 'failed'; error: unknown }
 
 /**
  * XR-006 / INT-03: the identical crash window exists for a withdrawal or
@@ -3395,8 +3392,11 @@ export async function relockVault(
       assertVaultScope(scopeToken)
       const scope = vaultStore.getScope()
       if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
-      await vaultStore.markKeyRemovalBroadcast(scopeToken, next =>
-        computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+      const currentMeta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
+      await vaultStore.markKeyRemovalBroadcast(
+        scopeToken,
+        next => computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope),
+        currentMeta
       )
     }
     return result
@@ -3627,13 +3627,17 @@ export async function beginVaultKeyRemoval(
       scopeToken
     )
     if (after.state.targetCommitted) {
-      await vaultStore.cancelUnbroadcastKeyRemoval(scopeToken, next =>
-        computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+      await vaultStore.cancelUnbroadcastKeyRemoval(
+        scopeToken,
+        next => computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope),
+        pending
       )
       throw new VaultError('action-pending', 'A vault output appeared while removing the key')
     }
-    const finalMeta = await vaultStore.finalizeEmptyKeyRemoval(scopeToken, next =>
-      computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+    const finalMeta = await vaultStore.finalizeEmptyKeyRemoval(
+      scopeToken,
+      next => computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope),
+      pending
     )
     // XQ-014: `serial` is now fully removed from this chain — forget it
     // device-wide unless another chain of this same identity still holds it.
@@ -3857,8 +3861,7 @@ export async function finalizeVaultKeyRemoval(w: VaultWallet, adminOriginator: s
     }
 
     if (invalidCurrentRelock) return false
-    if (matchingRelock) await vaultStore.markKeyRemovalBroadcast(scopeToken, tagger)
-    meta = await requireMeta(scopeToken)
+    if (matchingRelock) meta = await vaultStore.markKeyRemovalBroadcast(scopeToken, tagger, meta)
     const pending = meta.pendingRemoval
     if (!pending) return true
     if (actionStateBlocks) return false
@@ -3878,7 +3881,7 @@ export async function finalizeVaultKeyRemoval(w: VaultWallet, adminOriginator: s
         'allow'
       )
       if (second.state.authorizesPendingKey) return false
-      await vaultStore.finalizeEmptyKeyRemoval(scopeToken, tagger)
+      await vaultStore.finalizeEmptyKeyRemoval(scopeToken, tagger, meta)
       // XQ-014: the tombstoned key is now fully removed from this chain.
       await forgetSerialsNoLongerEnrolledForIdentity([pending.key.serial], () =>
         vaultStore.enrolledSerialsAcrossChains(scopeToken)
@@ -3900,7 +3903,7 @@ export async function finalizeVaultKeyRemoval(w: VaultWallet, adminOriginator: s
       'allow'
     )
     if (second.state.authorizesPendingKey) return false
-    await vaultStore.finalizeProvenKeyRemoval(scopeToken, tagger)
+    await vaultStore.finalizeProvenKeyRemoval(scopeToken, tagger, meta)
     // XQ-014: the tombstoned key is now fully removed from this chain.
     await forgetSerialsNoLongerEnrolledForIdentity([pending.key.serial], () =>
       vaultStore.enrolledSerialsAcrossChains(scopeToken)

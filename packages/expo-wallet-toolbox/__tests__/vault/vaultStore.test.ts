@@ -530,6 +530,33 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
 })
 
 describe('authenticated mutation snapshots', () => {
+  it.each([
+    'markKeyRemovalBroadcast',
+    'finalizeProvenKeyRemoval',
+    'finalizeEmptyKeyRemoval',
+    'cancelUnbroadcastKeyRemoval'
+  ] as const)('rejects a changed authenticated snapshot during %s', async method => {
+    await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3)] })
+    await vaultStore.beginKeyRemoval(key(3).serial)
+    if (method === 'finalizeProvenKeyRemoval') await vaultStore.markKeyRemovalBroadcast()
+    const authenticated = (await vaultStore.getMeta())!
+    await vaultStore.setMeta({ ...authenticated, keys: [key(4), key(5)] })
+    const tagger = jest.fn(async () => 'must-not-tag-changed-record')
+    await expect((vaultStore[method] as any)(undefined, tagger, authenticated)).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
+    expect(tagger).not.toHaveBeenCalled()
+  })
+
+  it('does not permit a tagged mutation to omit its authenticated snapshot', async () => {
+    await vaultStore.setMeta(META)
+    const tagger = jest.fn(async () => 'must-not-tag-without-authentication')
+    await expect(vaultStore.renameKey(key(1).serial, 'New name', undefined, tagger)).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
+    expect(tagger).not.toHaveBeenCalled()
+  })
+
   it.each(['rename', 'add', 'remove'] as const)(
     'refuses to authenticate substituted keys during %s',
     async operation => {
