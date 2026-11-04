@@ -1,11 +1,8 @@
 /**
- * Seeds the header store with roots this wallet has already had validated.
- *
- * `proven_txs` rows are written only after `TaskCheckForProofs` has confirmed
- * the proof against chaintracks, so their `merkleRoot` values are not the
- * server's unverified word — they are our own past verifications. Copying them
- * costs no network and covers exactly the heights a counterparty's BEEF will
- * reference, because our outputs become their inputs.
+ * Legacy prewarm seam for proven-tx root hints. Stored transactions may have
+ * been verified by a build that trusted isolated provider headers, so their
+ * raw roots cannot authenticate network membership. Unknown roots remain
+ * unverified until checkpoint-linked header proofs are synchronized.
  */
 import type { HeaderStore } from './headerStore'
 

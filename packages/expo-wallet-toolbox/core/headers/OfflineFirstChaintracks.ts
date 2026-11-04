@@ -9,24 +9,14 @@
  * `Services.getChainTracker()`, which wraps whatever sits in
  * `options.chaintracks` (`services/Services.js:149-154`).
  *
- * On a miss it calls `findHeaderForHeight` rather than the remote's own
- * `isValidRootForHeight`, because we want the root itself to cache — a coin
- * whose ancestry we resolved once should verify offline forever after.
+ * Misses require a complete expected-difficulty/work-validated extension, or
+ * a historical hash-link proof ending at a trusted checkpoint. Authenticated
+ * roots remain available offline; isolated provider headers never suffice.
  */
+import type { Chain, ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
+import { HeaderStore } from './headerStore'
+import { syncHeaders } from './syncHeaders'
 import { Utils } from '@bsv/sdk'
-import { utils as chaintracksUtils, type Chain, type ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
-import type { HeaderStore } from './headerStore'
-
-const { blockHash, validateHeaderProofOfWork } = chaintracksUtils
-
-/** A merkle root as display-order hex, whether the source gave us a hex string
- * or raw bytes. The remote's `findHeaderForHeight` may return either; plain
- * `String(bytes)` yields "1,2,3,…" which never matches a real root — the source
- * of a chain-tracker that rejects valid proofs. Mirrors the toolbox's own
- * `asString(merkleRoot)`. */
-function rootHex(v: unknown): string {
-  return typeof v === 'string' ? v : Utils.toHex(Array.from(v as ArrayLike<number>))
-}
 
 /** Handed out when the remote cannot subscribe; never reaches the remote. */
 const INERT_SUBSCRIPTION_PREFIX = 'offline-first:inert:'
@@ -65,109 +55,53 @@ export class OfflineFirstChaintracks implements ChaintracksClientApi {
   }
 
   setStore(store: HeaderStore): void {
+    if (this.chain && store.chain !== this.chain) throw new Error('Header store belongs to a different network')
     this.store = store
   }
 
   async isValidRootForHeight(root: string, height: number): Promise<boolean> {
-    // Fast path: a local root that AGREES is trusted offline forever (validated
-    // window headers, or a previously-resolved root).
-    const local = this.store?.rootForHeight(height)
+    if (!Number.isSafeInteger(height) || height < 0 || !/^[0-9a-f]{64}$/.test(root)) return false
+    const store = this.store
+    const local = store?.rootForHeight(height)
     if (local === root) return true
-
-    // A DISAGREEMENT for a height the window has already PoW-validated (its
-    // body — everything except the last 6 heights) is refused outright: no
-    // remote lookup, no putExtraRoot. Either the window is right and the BEEF
-    // is lying, or the window is corrupt — deferring to an unauthenticated
-    // network answer and caching it over headers we linked ourselves is
-    // exactly the hole this closes (misc-p2-02; a MITM has the same power as a
-    // compromised chaintracks deployment absent TLS pinning, misc-p2-13).
-    // Everything else — the last-6 reorg tail, and any height the window does
-    // not cover at all — keeps the old behaviour below: a disagreement can be
-    // a stale/poisoned cache entry or a legitimate reorg, so it falls through
-    // to the authoritative network.
-    if (local !== undefined && this.store?.isWindowBody(height)) {
-      console.warn(
-        `[OfflineFirstChaintracks] REFUSED height ${height}: window-covered mismatch ` +
-          `(local=${local} wanted=${root}); not consulting the network.`
-      )
+    // Both checkpoint ancestors and the stable window body are authenticated.
+    // An isolated network answer cannot override either commitment.
+    if (local !== undefined && (height <= store!.anchor.height || store!.isWindowBody(height))) {
       this.lastMissHeight = height
       return false
     }
-
-    if (!(await this.online())) {
-      // Logged, because this branch is otherwise indistinguishable from a bad
-      // proof: it returns false without consulting anything, and the caller
-      // (`Beef.verify` -> the toolbox's validateAtomicBeef) reports that as
-      // "The tx parameter must be valid AtomicBEEF". A device whose NetInfo
-      // says not-connected therefore rejects every incoming payment with an
-      // error blaming the sender's transaction, silently and forever.
-      console.warn(
-        `[OfflineFirstChaintracks] REFUSED height ${height}: offline (getOnline() false), no lookup attempted. ` +
-          'BEEF verification will fail and be reported as an invalid transaction.'
-      )
+    if (!store || !(await this.online())) {
       this.lastMissHeight = height
       return false
     }
-
     try {
-      const header = await this.remote.findHeaderForHeight(height)
-      if (!header) {
-        console.warn(
-          `[OfflineFirstChaintracks] REFUSED height ${height}: the chaintracks service has no header ` +
-            'for it (behind the chain tip, or pruned).'
-        )
-        this.lastMissHeight = height
-        return false
+      if (height > store.anchor.height) {
+        // Forward misses and reorg-tail disagreements share the full expected-
+        // difficulty / accumulated-work synchronization path. A claimed height,
+        // standalone header hash or provider chainWork is never an authority.
+        await syncHeaders({ store, client: this.remote })
+      } else {
+        await store.withUpdateLock(async () => {
+          while (store.rootForHeight(height) === undefined && store.nextHistoricalHeight >= height) {
+            const end = store.nextHistoricalHeight
+            const from = Math.max(0, end - HeaderStore.HISTORICAL_PAGE_HEADERS + 1)
+            const count = end - from + 1
+            const hex = await this.remote.getHeaders(from, count)
+            if (hex.length !== count * 160 || !/^[0-9a-f]+$/i.test(hex)) {
+              throw new Error('Historical chain proof unavailable or malformed')
+            }
+            await store.addHistoricalPage(new Uint8Array(Utils.toArray(hex, 'hex')), from)
+          }
+        })
       }
-
-      // XR-068: outside the PoW-validated window body (a miss entirely, or the
-      // last-6 reorg tail) this response is otherwise a bare, unauthenticated
-      // claim from a single chaintracks call — exactly what a compromised or
-      // MITM'd deployment would need to make a forged BEEF root verify. Never
-      // trust the remote's self-reported `header.hash`: recompute it from the
-      // header's own fields (the same way HeaderStore.append does for window
-      // headers) and require it to satisfy its own declared difficulty. This
-      // does not establish chain-of-custody back to a trusted anchor — it
-      // only turns a zero-cost forgery into one that needs a real,
-      // difficulty-valid header.
-      let computedHash: string
-      try {
-        computedHash = blockHash(header)
-        validateHeaderProofOfWork({ ...header, hash: computedHash })
-      } catch (e: any) {
-        console.warn(
-          `[OfflineFirstChaintracks] REFUSED height ${height}: chaintracks-reported header failed ` +
-            `proof-of-work validation (${e?.message ?? e}).`
-        )
-        this.lastMissHeight = height
-        return false
-      }
-
-      const remoteRoot = rootHex(header.merkleRoot)
-      // Refresh the cache with the authoritative value (self-heals a poisoned
-      // extra entry from an earlier bad conversion).
-      await this.store?.putExtraRoot(height, remoteRoot)
-      if (local !== undefined && local !== remoteRoot) {
-        console.warn(
-          `[OfflineFirstChaintracks] local root disagreed with network at height ${height} (local=${local} network=${remoteRoot}); healed`
-        )
-      }
-      const agrees = remoteRoot === root
-      if (!agrees) {
-        // The comparison is ===, so a root that is "correct" to the eye still
-        // fails on hex case or byte order. Print both to make which one it is
-        // obvious from a device log.
-        console.warn(
-          `[OfflineFirstChaintracks] REFUSED height ${height}: root mismatch\n` +
-            `  wanted (from the BEEF's merkle path): ${root}\n` +
-            `  got    (from chaintracks)           : ${remoteRoot}`
-        )
-      }
+      const agrees = store.rootForHeight(height) === root
+      if (!agrees) this.lastMissHeight = height
       return agrees
-    } catch (e: any) {
-      // A verification path must never throw a network error at the caller:
-      // `Beef.verify` treats false as "not proven", which is the truth here.
-      console.warn('[OfflineFirstChaintracks] isValidRootForHeight lookup failed:', e?.message)
+    } catch (error) {
+      console.warn(
+        '[OfflineFirstChaintracks] anchored header verification failed:',
+        error instanceof Error ? error.message : String(error)
+      )
       this.lastMissHeight = height
       return false
     }

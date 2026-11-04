@@ -1,7 +1,6 @@
 import { OfflineFirstChaintracks } from '../../core/headers/OfflineFirstChaintracks'
 import { HeaderStore } from '../../core/headers/headerStore'
 import { memoryHeaderFs } from '../../core/headers/fs'
-import { Utils } from '@bsv/sdk'
 import { parseHeader } from '../../core/headers/headerConsensus'
 import { anchor as REGTEST_ANCHOR, branch, combine } from './fixtures/regtest'
 
@@ -51,26 +50,30 @@ function remote(overrides: Record<string, unknown> = {}) {
 }
 
 describe('OfflineFirstChaintracks', () => {
-  it('answers from the store without touching the network', async () => {
+  it('answers from a consensus-validated store without touching the network', async () => {
     const r = remote()
-    const ct = new OfflineFirstChaintracks(r, async () => true)
-    ct.setStore(await storeWithExtraRoot(5, ROOT))
-    expect(await ct.isValidRootForHeight(ROOT, 5)).toBe(true)
-    expect((r as never as { findHeaderForHeight: jest.Mock }).findHeaderForHeight).not.toHaveBeenCalled()
+    const ct = new OfflineFirstChaintracks(r, async () => true, 'regtest')
+    const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', REGTEST_ANCHOR)
+    const headers = branch(6, 'c')
+    await store.append(combine(headers), 1)
+    ct.setStore(store)
+    expect(await ct.isValidRootForHeight(parseHeader(headers[4]).merkleRoot, 5)).toBe(true)
+    expect((r as any).findHeaderForHeight).not.toHaveBeenCalled()
+    expect((r as any).getHeaders).not.toHaveBeenCalled()
   })
 
   it('consults the network when the local root disagrees, still rejecting a genuinely wrong root', async () => {
-    // Network is authoritative and returns ROOT for height 5.
+    // A network-only root is a hint until its chain proof validates.
     const r = remote()
     const ct = new OfflineFirstChaintracks(r, async () => true)
     ct.setStore(await storeWithExtraRoot(5, ROOT))
     // A local DISAGREEMENT is not trusted blindly (it may be a poisoned/stale
     // cache), so we ask the network — which also rejects 'cd…'.
     expect(await ct.isValidRootForHeight('cd'.repeat(32), 5)).toBe(false)
-    expect((r as never as { findHeaderForHeight: jest.Mock }).findHeaderForHeight).toHaveBeenCalled()
+    expect((r as never as { findHeaderForHeight: jest.Mock }).findHeaderForHeight).not.toHaveBeenCalled()
   })
 
-  it('heals a poisoned local root: confirms a valid root via the network and refreshes the cache', async () => {
+  it('does not heal a poisoned hint from a standalone provider header', async () => {
     // Regression for the chain-tracker bug: the store cached a WRONG root for a
     // height (e.g. from a bad String(bytes) conversion), which made valid proofs
     // for that height fail forever. Now the disagreement is re-checked online.
@@ -78,8 +81,8 @@ describe('OfflineFirstChaintracks', () => {
     const ct = new OfflineFirstChaintracks(r, async () => true)
     const store = await storeWithExtraRoot(5, 'ff'.repeat(32)) // poisoned entry
     ct.setStore(store)
-    expect(await ct.isValidRootForHeight(ROOT, 5)).toBe(true)
-    expect(store.rootForHeight(5)).toBe(ROOT) // cache healed to the authoritative value
+    expect(await ct.isValidRootForHeight(ROOT, 5)).toBe(false)
+    expect(store.rootForHeight(5)).toBeUndefined()
   })
 
   it('offline: a local disagreement stays rejected (cannot consult the network)', async () => {
@@ -90,13 +93,13 @@ describe('OfflineFirstChaintracks', () => {
     expect((r as never as { findHeaderForHeight: jest.Mock }).findHeaderForHeight).not.toHaveBeenCalled()
   })
 
-  it('falls back to the network on a miss while online and caches the root', async () => {
+  it('does not cache a standalone provider header on an online miss', async () => {
     const r = remote()
     const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', ANCHOR)
     const ct = new OfflineFirstChaintracks(r, async () => true)
     ct.setStore(store)
-    expect(await ct.isValidRootForHeight(ROOT, 5)).toBe(true)
-    expect(store.rootForHeight(5)).toBe(ROOT)
+    expect(await ct.isValidRootForHeight(ROOT, 5)).toBe(false)
+    expect(store.rootForHeight(5)).toBeUndefined()
   })
 
   it('refuses on a miss while offline and records the missed height', async () => {
@@ -221,15 +224,15 @@ describe('OfflineFirstChaintracks', () => {
       expect(store.rootForHeight(10)).toBe(rootFor(10))
     })
 
-    it('still consults the remote for a height outside the window entirely, and self-heals when the header is genuinely proof-of-work-valid', async () => {
+    it('requires an anchored proof outside the window even if an isolated header has valid PoW', async () => {
       const store = await seedWindow(10) // tipHeight=10
       const findHeaderForHeight = jest.fn().mockResolvedValue({ ...VALID_HEADER_2, height: 50 })
       const r = remote({ findHeaderForHeight })
       const ct = new OfflineFirstChaintracks(r, async () => true)
       ct.setStore(store)
-      expect(await ct.isValidRootForHeight(HEALED_ROOT, 50)).toBe(true)
-      expect(findHeaderForHeight).toHaveBeenCalled()
-      expect(store.rootForHeight(50)).toBe(HEALED_ROOT)
+      expect(await ct.isValidRootForHeight(HEALED_ROOT, 50)).toBe(false)
+      expect(findHeaderForHeight).not.toHaveBeenCalled()
+      expect(store.rootForHeight(50)).toBeUndefined()
     })
 
     // XR-068: the miss/tail fallback used to trust a bare, unauthenticated
@@ -245,7 +248,7 @@ describe('OfflineFirstChaintracks', () => {
       const ct = new OfflineFirstChaintracks(r, async () => true)
       ct.setStore(store)
       expect(await ct.isValidRootForHeight(forgedRoot, 50)).toBe(false)
-      expect(findHeaderForHeight).toHaveBeenCalled()
+      expect(findHeaderForHeight).not.toHaveBeenCalled()
       expect(store.rootForHeight(50)).toBeUndefined()
       expect(ct.lastMissHeight).toBe(50)
     })
@@ -264,17 +267,15 @@ describe('OfflineFirstChaintracks', () => {
       expect(store.rootForHeight(8)).toBe(rootFor(8)) // unchanged, not overwritten with the forgery
     })
 
-    it("keeps today's behaviour for the last-6 reorg tail: a genuinely valid header there still consults and heals via the remote", async () => {
+    it('does not replace a reorg-tail root from an isolated header with valid PoW', async () => {
       const store = await seedWindow(10) // tipHeight=10, tail=[5,10]
       const findHeaderForHeight = jest.fn().mockResolvedValue({ ...VALID_HEADER_2, height: 8 })
       const r = remote({ findHeaderForHeight })
       const ct = new OfflineFirstChaintracks(r, async () => true)
       ct.setStore(store)
-      // The window's own root for height 8 disagrees with HEALED_ROOT, but 8 is
-      // in the tail, so the old self-heal path still runs and agrees — now
-      // gated on the header actually satisfying its own proof-of-work.
-      expect(await ct.isValidRootForHeight(HEALED_ROOT, 8)).toBe(true)
-      expect(findHeaderForHeight).toHaveBeenCalled()
+      // Valid own-target PoW alone cannot replace the authenticated tail.
+      expect(await ct.isValidRootForHeight(HEALED_ROOT, 8)).toBe(false)
+      expect(findHeaderForHeight).not.toHaveBeenCalled()
     })
   })
 
