@@ -54,3 +54,16 @@ it('revalidates disk headers instead of trusting roots and work recorded by the 
   expect(reopened.rootForHeight(1)).toBeUndefined()
   expect(reopened.count).toBe(0)
 })
+
+it('continues staging bounded chunks until the competing branch has greater accumulated work', async () => {
+  const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', anchor)
+  await store.append(combine(branch(5, 'a')), 1)
+  const alternative = [genesis, ...branch(6, 'b')]
+  const source = {
+    getPresentHeight: async () => 6,
+    getHeaders: async (height: number, count: number) =>
+      Utils.toHex(Array.from(combine(alternative.slice(height, height + count))))
+  }
+  await expect(syncHeaders({ store, client: source, chunkSize: 2 })).resolves.toMatchObject({ tipHeight: 6 })
+  expect(store.tipHash).toBe(parseHeader(alternative[6]).hash)
+})
