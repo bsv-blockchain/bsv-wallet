@@ -37,8 +37,7 @@ test.each([
   'verifyHmac',
   'createSignature',
   'verifySignature',
-  'revealSpecificKeyLinkage',
-  'revealCounterpartyKeyLinkage'
+  'revealSpecificKeyLinkage'
 ] as const)('reserves database export keys from external %s calls', async method => {
   for (const protocolID of [
     [2, 'wallet db export'],
@@ -53,6 +52,33 @@ test.each([
     await (guarded[method] as any)(args, ADMIN)
     expect(calls).toEqual([{ method, args, originator: ADMIN }])
   }
+})
+
+test.each(['evil.com', undefined, 'ADMIN.COM'])('refuses protocol-free counterparty linkage from %s', async originator => {
+  const { wallet, calls } = fakeWallet()
+  const guarded = guardVaultAccess(wallet, ADMIN)
+  // The SDK contract has no protocolID: this reveals a root shared secret
+  // spanning namespaces, so a protocol-name check cannot authorize it.
+  const args: Parameters<WalletInterface['revealCounterpartyKeyLinkage']>[0] = {
+    counterparty: new PrivateKey(7).toPublicKey().toString(),
+    verifier: new PrivateKey(11).toPublicKey().toString()
+  }
+  await expect(guarded.revealCounterpartyKeyLinkage(args, originator)).rejects.toBeInstanceOf(VaultAccessDenied)
+  expect(calls).toEqual([])
+  await guarded.revealCounterpartyKeyLinkage(args, ADMIN)
+  expect(calls).toEqual([{ method: 'revealCounterpartyKeyLinkage', args, originator: ADMIN }])
+})
+
+test('preserves admin counterparty linkage and external nonreserved specific linkage on the SDK', async () => {
+  const cryptoWallet = new ProtoWallet(new PrivateKey(3)) as unknown as WalletInterface
+  const guarded = guardVaultAccess(cryptoWallet, ADMIN)
+  const args = {
+    counterparty: new PrivateKey(7).toPublicKey().toString(),
+    verifier: new PrivateKey(11).toPublicKey().toString()
+  }
+  await expect(guarded.revealCounterpartyKeyLinkage(args, ADMIN)).resolves.toMatchObject(args)
+  const specific = { ...args, protocolID: [2, 'external app'] as [2, string], keyID: '1' }
+  await expect(guarded.revealSpecificKeyLinkage(specific, 'evil.com')).resolves.toMatchObject(specific)
 })
 
 test('admin export wrapping still round-trips while external header decryption is refused', async () => {

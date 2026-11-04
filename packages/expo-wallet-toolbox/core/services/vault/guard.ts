@@ -711,6 +711,10 @@ export function guardVaultAccess<T extends WalletInterface>(
 
       return async (args: any, originator?: string) => {
         if (originator === adminOriginator) return await bound(args, originator)
+        // Counterparty linkage reveals a root shared secret without naming a
+        // protocol. It cannot honor namespace reservations, including the
+        // export self key when a caller chooses a related public key.
+        if (method === 'revealCounterpartyKeyLinkage') return deny(String(method), originator)
         if (
           PRIVILEGED_CAPABLE.has(method) &&
           (args?.privileged ||

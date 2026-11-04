@@ -342,12 +342,12 @@ test.each([
   'decrypt',
   'createHmac',
   'verifyHmac',
-  'revealCounterpartyKeyLinkage',
   'revealSpecificKeyLinkage'
 ] as const)(
   // BRC-29 is the standard BRC-100 payment protocol. External apps sign under
   // it, so the guard passes it through for any counterparty; the permissions
-  // manager's protocol prompt is what gates signing.
+  // manager's protocol prompt is what gates signing. Counterparty-wide linkage
+  // has no protocolID in its contract and remains admin-only.
   'passes external BRC-29 %s calls through to the wallet',
   async method => {
     const { wallet, calls } = fakeWallet()
