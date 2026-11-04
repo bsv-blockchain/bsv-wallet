@@ -252,6 +252,9 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
   // still reach handleRpc and dispatch privileged RPC after the app has
   // already moved on to a different (or no) session.
   const connectionGenerationRef = useRef(0)
+  // Keep sequence commits serialized across replacement sockets as well as
+  // concurrent messages. A closing session can still have a native write pending.
+  const sequenceCommitRef = useRef<Promise<boolean>>(Promise.resolve(true))
   // Snapshot of sessionMeta for use inside async WS callbacks
   const sessionMetaRef = useRef<SessionMeta | null>(null)
   useEffect(() => {
@@ -292,7 +295,6 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
   const supersedeExistingSocket = useCallback(() => {
     const topic = sessionMetaRef.current?.topic
     if (topic) {
-      void SecureStore.setItemAsync(lastSeqKey(topic), String(lastSeqRef.current))
       connectionStore.setStatus(topic, 'disconnected')
     }
     closeAndDetachSocket(wsRef.current)
@@ -430,14 +432,13 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     let inFlightBytes = 0
     // XR-021 review follow-up: MAX_IN_FLIGHT_RPC lets several messages
     // decrypt concurrently, so the sequence check-then-durable-write-then-
-    // advance below is chained through this promise — each message's commit
+    // advance below is chained through the provider-wide promise — each message's commit
     // only runs once the previous one has fully resolved (write landed, ref
     // advanced), and re-checks the watermark at that point. Without this,
     // two concurrent messages can both pass the check against the same stale
     // watermark and have their durable writes resolve out of order,
     // regressing the watermark and letting an already-executed higher-
     // sequence ciphertext be replayed immediately (no crash needed).
-    let seqCommitChain: Promise<boolean> = Promise.resolve(true)
 
     ws.onmessage = async event => {
       // XR-018: this socket may have already been superseded (a concurrent
@@ -504,18 +505,23 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         // the durable write itself fails, drop the message rather than
         // dispatching with no durable record of having accepted it.
         //
-        // Chained through seqCommitChain (review follow-up): re-checks the
+        // Chained through sequenceCommitRef (review follow-up): re-checks the
         // watermark once it's this message's turn, so a concurrent message
         // that already committed a higher sequence in the meantime causes
         // this one to be dropped instead of regressing the watermark.
-        const accepted = await (seqCommitChain = seqCommitChain.then(async () => {
-          if (sequence <= lastSeqRef.current) return false
+        const accepted = await (sequenceCommitRef.current = sequenceCommitRef.current.then(async () => {
+          if (!isCurrent()) return false
           try {
+            const stored = validateStoredConnectionSequence(await SecureStore.getItemAsync(lastSeqKey(meta.topic)))
+            if (!isCurrent() || sequence <= Math.max(lastSeqRef.current, stored)) {
+              return false
+            }
             await SecureStore.setItemAsync(lastSeqKey(meta.topic), String(sequence))
           } catch (err) {
             console.warn('[WalletConnection] dropping message: failed to persist sequence', err)
             return false
           }
+          if (!isCurrent()) return false
           lastSeqRef.current = sequence
           return true
         }))
@@ -583,11 +589,12 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
       if (!wasIntentional) {
         const topic = sessionMetaRef.current?.topic
         if (topic) {
-          void SecureStore.setItemAsync(lastSeqKey(topic), String(lastSeqRef.current))
           connectionStore.setStatus(topic, 'disconnected')
         }
       }
-      wsRef.current = null
+      // Remote close revokes handlers already awaiting decrypt or persistence,
+      // just as an explicit disconnect does.
+      closeAndDetachSocket(ws)
       lastSeqRef.current = 0
       if (navTimerRef.current) {
         clearTimeout(navTimerRef.current)
