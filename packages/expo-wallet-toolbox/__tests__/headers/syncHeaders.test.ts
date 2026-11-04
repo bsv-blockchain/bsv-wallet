@@ -92,6 +92,22 @@ describe('syncHeaders', () => {
     expect(r.added).toBe(0)
   })
 
+  it('rejects an inconsistent same-height source without replacing the validated tip', async () => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    let reads = 0
+    const client = {
+      getPresentHeight: async () => 1,
+      getHeaders: async () => (++reads === 1 ? H2 : H1)
+    }
+    await expect(syncHeaders({ store: s, client })).rejects.toThrow(
+      'Replacement header branch does not have greater accumulated work'
+    )
+    expect(s.tipHeight).toBe(1)
+    expect(s.hashForHeight(1)).toBeDefined()
+    expect(reads).toBe(2)
+  })
+
   it('stops without error when the service returns no headers', async () => {
     const client = { getPresentHeight: async () => 500, getHeaders: async () => '' }
     const s = await store()
