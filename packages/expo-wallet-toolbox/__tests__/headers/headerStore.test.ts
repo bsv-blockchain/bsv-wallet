@@ -18,6 +18,30 @@ const TTN_1_AND_2 = '000000206d77b7767981eac2b2044a1a1c19b9741c2347375b8fa8a0bbe
 const bytes = () => new Uint8Array(Utils.toArray(TTN_1_AND_2, 'hex'))
 
 describe('HeaderStore', () => {
+  it('requires authenticated bootstrap before indexing a non-genesis window', async () => {
+    const items = branch(2, 'c')
+    const anchor = { height: 1, hash: parseHeader(items[0]).hash }
+    const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', anchor)
+    await expect(store.append(items[1], 2)).rejects.toThrow(/bootstrap/)
+    await expect(store.replaceBranch(2, items[1])).rejects.toThrow(/context unavailable/)
+    expect(store.count).toBe(0)
+  })
+
+  it('discards persisted extensions when their authenticated bootstrap has disappeared', async () => {
+    const fs = memoryHeaderFs()
+    const items = branch(2, 'c')
+    const anchor = { height: 1, hash: parseHeader(items[0]).hash }
+    const store = await HeaderStore.open(fs, 'regtest', anchor)
+    await store.initializeContext(new Uint8Array([...utils.genesisBuffer('regtest'), ...items[0]]))
+    await store.append(items[1], 2)
+    await expect(store.initializeContext(new Uint8Array())).rejects.toThrow(/Cannot replace live/)
+    await fs.deleteFile('regtest-context.bin')
+    const reopened = await HeaderStore.open(fs, 'regtest', anchor)
+    expect(reopened.needsContext).toBe(true)
+    expect(reopened.count).toBe(0)
+    expect(reopened.rootForHeight(2)).toBeUndefined()
+  })
+
   it('starts empty at the anchor', async () => {
     const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', TTN_ANCHOR)
     expect(store.count).toBe(0)
