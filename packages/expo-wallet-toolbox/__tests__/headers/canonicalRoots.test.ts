@@ -185,3 +185,152 @@ it.each([false, true])('fails closed without an attached validated store (online
   expect(claimedHeight).not.toHaveBeenCalled()
   expect(remote.getPresentHeight).not.toHaveBeenCalled()
 })
+
+it.each([-1, 1.5, NaN])('refuses invalid root heights before consulting the source (%s)', async height => {
+  const remote = source()
+  const tracker = new OfflineFirstChaintracks(remote, async () => true, 'regtest')
+  expect(await tracker.isValidRootForHeight(root(1), height)).toBe(false)
+  expect(remote.getHeaders).not.toHaveBeenCalled()
+})
+
+it('records a missing height when no validated store is attached', async () => {
+  const remote = source()
+  const tracker = new OfflineFirstChaintracks(remote, async () => true, 'regtest')
+  expect(await tracker.isValidRootForHeight(root(1), 1)).toBe(false)
+  expect(tracker.peekLastMissHeight()).toBe(1)
+  expect(remote.getHeaders).not.toHaveBeenCalled()
+})
+
+it.each(['', 'z'.repeat(9 * 160)])('rejects incomplete or nonhex historical pages', async bytes => {
+  const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', { height: 8, hash: parseHeader(headers[7]).hash })
+  const remote = source()
+  remote.getHeaders.mockResolvedValue(bytes)
+  const tracker = new OfflineFirstChaintracks(remote, async () => true, 'regtest')
+  tracker.setStore(store)
+  expect(await tracker.isValidRootForHeight(root(2), 2)).toBe(false)
+  expect(store.rootForHeight(2)).toBeUndefined()
+  expect(tracker.peekLastMissHeight()).toBe(2)
+})
+
+it('preserves authenticated checkpoint roots when the requested root disagrees', async () => {
+  const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', anchor)
+  const remote = source()
+  const tracker = new OfflineFirstChaintracks(remote, async () => true, 'regtest')
+  tracker.setStore(store)
+  expect(await tracker.isValidRootForHeight('f'.repeat(64), 0)).toBe(false)
+  expect(remote.getHeaders).not.toHaveBeenCalled()
+})
+
+it('handles non-Error transport failures without accepting an unresolved root or height', async () => {
+  const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', anchor)
+  const remote = source()
+  remote.getPresentHeight.mockRejectedValue('unavailable')
+  const tracker = new OfflineFirstChaintracks(remote, async () => true, 'regtest')
+  tracker.setStore(store)
+  expect(await tracker.isValidRootForHeight(root(1), 1)).toBe(false)
+  expect(await tracker.currentHeight()).toBe(0)
+})
+
+it('rejects historical page dimensions and checkpoint mismatches before persistence', async () => {
+  const fs = memoryHeaderFs()
+  const historicalAnchor = { height: 8, hash: parseHeader(headers[7]).hash }
+  const store = await HeaderStore.open(fs, 'regtest', historicalAnchor)
+  await expect(store.addHistoricalPage(combine(all), 1)).rejects.toThrow(/wrong height or length/)
+  await expect(store.addHistoricalPage(combine(all).subarray(80), 0)).rejects.toThrow(/wrong height or length/)
+  const different = [genesis, ...branch(8, 'f')]
+  await expect(store.addHistoricalPage(combine(different), 0)).rejects.toThrow(/not committed/)
+  expect(await fs.readText('regtest-history.json')).toBeUndefined()
+})
+
+it.each([
+  '{',
+  JSON.stringify({ version: 1, chain: 'other', anchorHeight: 8, pages: 1 }),
+  JSON.stringify({ version: 1, chain: 'regtest', anchorHeight: 8, anchorHash: parseHeader(headers[7]).hash, pages: 2 })
+])('ignores malformed or mismatched historical index metadata', async index => {
+  const fs = memoryHeaderFs()
+  await fs.writeText('regtest-history.json', index)
+  const store = await HeaderStore.open(fs, 'regtest', { height: 8, hash: parseHeader(headers[7]).hash })
+  expect(store.rootForHeight(2)).toBeUndefined()
+  expect(store.nextHistoricalHeight).toBe(8)
+})
+
+it('does not restore historical roots when the index refers to an absent page', async () => {
+  const fs = memoryHeaderFs()
+  const historicalAnchor = { height: 8, hash: parseHeader(headers[7]).hash }
+  await fs.writeText(
+    'regtest-history.json',
+    JSON.stringify({
+      version: 1,
+      chain: 'regtest',
+      anchorHeight: 8,
+      anchorHash: historicalAnchor.hash,
+      pages: 1
+    })
+  )
+  const store = await HeaderStore.open(fs, 'regtest', historicalAnchor)
+  expect(store.rootForHeight(2)).toBeUndefined()
+  expect(store.nextHistoricalHeight).toBe(8)
+})
+
+it('refuses replacing live consensus context and operations without authenticated bootstrap', async () => {
+  const live = await HeaderStore.open(memoryHeaderFs(), 'regtest', anchor)
+  await live.append(combine(headers.slice(0, 1)), 1)
+  await expect(live.initializeContext(genesis)).rejects.toThrow(/Cannot replace live/)
+  const pending = await HeaderStore.open(memoryHeaderFs(), 'regtest', { height: 8, hash: parseHeader(headers[7]).hash })
+  expect(pending.chainWork).toBe(0n)
+  expect(pending.hashForHeight(9)).toBeUndefined()
+  await expect(pending.append(headers[0], 9)).rejects.toThrow(/bootstrap/)
+  await expect(pending.replaceBranch(9, headers[0])).rejects.toThrow(/context unavailable/)
+})
+
+it('validates replacement framing before touching a known good window', async () => {
+  const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', anchor)
+  for (const bytes of [new Uint8Array(), new Uint8Array(81)]) {
+    await expect(store.replaceBranch(1, bytes)).rejects.toThrow(/Invalid replacement header bytes/)
+  }
+  expect(store.tipHeight).toBe(0)
+})
+
+it('drops a persisted window whose non-genesis bootstrap context has disappeared', async () => {
+  const fs = memoryHeaderFs()
+  const checkpoint = { height: 1, hash: parseHeader(headers[0]).hash }
+  const store = await HeaderStore.open(fs, 'regtest', checkpoint)
+  await store.initializeContext(combine(all.slice(0, 2)))
+  await store.append(headers[1], 2)
+  await fs.deleteFile('regtest-context.bin')
+  const reopened = await HeaderStore.open(fs, 'regtest', checkpoint)
+  expect(reopened.needsContext).toBe(true)
+  expect(reopened.count).toBe(0)
+  expect(reopened.rootForHeight(2)).toBeUndefined()
+})
+
+it('drops a persisted window whose committed binary prefix is missing', async () => {
+  const fs = memoryHeaderFs()
+  const store = await HeaderStore.open(fs, 'regtest', anchor)
+  await store.append(headers[0], 1)
+  await fs.deleteFile('regtest.bin')
+  const reopened = await HeaderStore.open(fs, 'regtest', anchor)
+  expect(reopened.count).toBe(0)
+})
+
+it('ignores malformed window metadata rather than retaining stale roots', async () => {
+  const fs = memoryHeaderFs()
+  await fs.writeText('regtest.json', '{')
+  expect((await HeaderStore.open(fs, 'regtest', anchor)).count).toBe(0)
+})
+
+it('cannot serve an assumed genesis on an unsupported network', async () => {
+  const store = await HeaderStore.open(memoryHeaderFs(), 'unknown', anchor)
+  expect(store.rootForHeight(0)).toBeUndefined()
+  expect(store.needsContext).toBe(true)
+})
+
+it('refuses a winning replacement when its retained on-disk prefix is unavailable', async () => {
+  const fs = memoryHeaderFs()
+  const store = await HeaderStore.open(fs, 'regtest', anchor)
+  const extension = branch(9, 'c')
+  await store.append(combine(extension.slice(0, 8)), 1)
+  await fs.deleteFile('regtest.bin')
+  await expect(store.replaceBranch(7, combine(extension.slice(6)))).rejects.toThrow(/Stored header prefix unavailable/)
+  expect(store.tipHeight).toBe(8)
+})
