@@ -38,6 +38,7 @@ import {
   type WalletAction,
   type WalletInterface
 } from '@bsv/sdk'
+import { DB_EXPORT_PROTOCOL } from '../../storage/encryptedDbImage'
 import { ownOriginatorLabel } from '../../storage/methods/vaultGuardSql'
 import { bakedCommitments, R1C_LOCK_LEN, R1C_MAX_KEYS } from './r1comb'
 
@@ -197,6 +198,10 @@ const PENDING_ABORT_AUTHORITY_PROTOCOL_NAMES = new Set(['pending abort authority
  * stored permission policy (core/bridge/permissionPolicy.ts). Reserved for the same reason as
  * `connection authority`: a connected origin must not be able to mint or verify the tag. */
 const BRIDGE_SITE_AUTHORITY_PROTOCOL_NAMES = new Set(['bridge site authority'])
+
+/** Export headers wrap the database's AES key under this ordinary self key.
+ * Only the admin may use it, including imports of already-created exports. */
+const DB_EXPORT_PROTOCOL_NAMES = new Set([DB_EXPORT_PROTOCOL[1]])
 
 function matchesProtocolNamespace(args: unknown, names: Set<string>): boolean {
   if (args === null || typeof args !== 'object' || Array.isArray(args)) return false
@@ -713,6 +718,7 @@ export function guardVaultAccess<T extends WalletInterface>(
             requestsConnectionAuthorityProtocol(args) ||
             requestsPendingAbortAuthorityProtocol(args) ||
             requestsBridgeSiteAuthorityProtocol(args) ||
+            matchesProtocolNamespace(args, DB_EXPORT_PROTOCOL_NAMES) ||
             requestsAddressRailKey(args))
         ) {
           return deny(String(method), originator)
