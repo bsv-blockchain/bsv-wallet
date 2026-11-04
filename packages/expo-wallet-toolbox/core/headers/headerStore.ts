@@ -50,6 +50,8 @@ export class HeaderStore {
   private nextHistoryHash: string
   private pendingUpdate: Promise<void> = Promise.resolve()
   static readonly HISTORICAL_PAGE_HEADERS = 2000
+  private recoveryRequired = false
+  private reopenRequired = false
   private constructor(
     private readonly fs: HeaderFs,
     readonly chain: string,
@@ -82,11 +84,13 @@ export class HeaderStore {
     return this.consensus?.chainWork ?? 0n
   }
   hashForHeight(height: number): string | undefined {
+    if (this.reopenRequired) return undefined
     return height === this.anchor.height ? this.anchor.hash : this.consensus?.hashForHeight(height)
   }
 
   /** The bootstrap is peer-supplied bytes, authenticated by the pinned terminal hash. */
   async initializeContext(bytes: Uint8Array): Promise<void> {
+    await this.recoverReplacement()
     if (this.headerCount !== 0) throw new Error('Cannot replace live header consensus context')
     const consensus = HeaderConsensus.fromContext(this.chain as WalletChain, this.anchor, bytes)
     await this.fs.writeBytes(this.contextPath, bytes)
@@ -209,6 +213,7 @@ export class HeaderStore {
   }
 
   static async open(fs: HeaderFs, chain: string, anchor: HeaderCheckpoint): Promise<HeaderStore> {
+    await HeaderStore.recoverReplacement(fs, chain)
     const metaRaw = await fs.readText(`${chain}.json`)
     let meta: StoredMeta | undefined
     if (metaRaw) {
@@ -304,6 +309,7 @@ export class HeaderStore {
   }
 
   rootForHeight(height: number): string | undefined {
+    if (this.reopenRequired) return undefined
     if (!Number.isSafeInteger(height) || height < 0) return undefined
     // Genesis is an independent, shipped network commitment. It does not need
     // a download of the entire historical chain to establish membership.
@@ -350,6 +356,7 @@ export class HeaderStore {
    * its declared target.
    */
   async append(bytes: Uint8Array, firstHeight: number): Promise<number> {
+    await this.recoverReplacement()
     if (bytes.length === 0) return 0
     if (bytes.length % HEADER_BYTES !== 0) {
       throw new Error(`header chunk must be a multiple of 80 bytes, got ${bytes.length}`)
@@ -385,6 +392,7 @@ export class HeaderStore {
    * header can link. Rebuilds the on-disk `.bin` and the in-memory root index.
    */
   async truncateToCount(count: number): Promise<void> {
+    await this.recoverReplacement()
     if (count === this.headerCount) return
     if (count < 0 || count > this.headerCount) {
       throw new Error(`truncateToCount(${count}) out of range 0..${this.headerCount}`)
@@ -410,6 +418,7 @@ export class HeaderStore {
 
   /** Adopt a fully validated competing branch only when it has strictly more work. */
   async replaceBranch(firstHeight: number, bytes: Uint8Array): Promise<number> {
+    await this.recoverReplacement()
     if (!this.consensus) throw new Error('Header difficulty context unavailable')
     if (bytes.length === 0 || bytes.length % HEADER_BYTES !== 0) throw new Error('Invalid replacement header bytes')
     const forkHeight = firstHeight - 1
@@ -425,20 +434,91 @@ export class HeaderStore {
       throw new Error('Replacement header branch does not have greater accumulated work')
     const old = await this.fs.readBytes(this.binPath)
     const keep = (forkHeight - this.anchor.height) * HEADER_BYTES
-    if (keep > 0 && (!old || old.length < keep)) throw new Error('Stored header prefix unavailable')
+    if (this.headerCount > 0 && (!old || old.length < this.headerCount * HEADER_BYTES))
+      throw new Error('Stored header prefix unavailable')
     const combined = new Uint8Array(keep + bytes.length)
     if (keep > 0) combined.set(old!.subarray(0, keep))
     combined.set(bytes, keep)
     const roots = new Uint8Array((keep / HEADER_BYTES) * ROOT_BYTES + replacementRoots.length)
     roots.set(this.roots.subarray(0, (keep / HEADER_BYTES) * ROOT_BYTES))
     roots.set(replacementRoots, (keep / HEADER_BYTES) * ROOT_BYTES)
-    await this.fs.writeBytes(this.binPath, combined)
+    // Preserve the complete old pair before overwriting either live file. The
+    // marker is published last and removed only after both new files exist.
+    // An orphan snapshot is harmless and is reused by the next replacement.
+    const journalPath = `${this.chain}-replace.json`
+    await this.fs.writeBytes(
+      `${this.chain}-replace.bin`,
+      old?.subarray(0, this.headerCount * HEADER_BYTES) ?? new Uint8Array(0)
+    )
+    this.recoveryRequired = true
+    try {
+      await this.fs.writeText(journalPath, JSON.stringify(this.storedMeta()))
+      await this.fs.writeBytes(this.binPath, combined)
+      await this.fs.writeText(
+        this.metaPath,
+        JSON.stringify({
+          ...this.storedMeta(),
+          count: combined.length / HEADER_BYTES,
+          tipHash: candidate.tipHash
+        })
+      )
+      try {
+        await this.fs.deleteFile(journalPath)
+      } catch (error) {
+        // A filesystem may report failure after the commit delete completed.
+        let marker: string | undefined
+        try {
+          marker = await this.fs.readText(journalPath)
+        } catch {
+          // Neither branch can be published in memory while the commit result
+          // is unknown. A fresh open will recover or validate the disk pair.
+          this.reopenRequired = true
+          throw error
+        }
+        if (marker !== undefined) throw error
+      }
+    } catch (error) {
+      // Keep the in-memory old chain until commit. If rollback also fails,
+      // every later window mutation retries it before touching live files.
+      await this.recoverReplacement()
+      throw error
+    }
+    this.recoveryRequired = false
     this.roots = roots
     this.headerCount = combined.length / HEADER_BYTES
     this.consensus = candidate
     this.currentTipHash = candidate.tipHash
-    await this.writeMeta()
     return bytes.length / HEADER_BYTES
+  }
+
+  private async recoverReplacement(): Promise<void> {
+    if (this.reopenRequired) throw new Error('Header replacement commit uncertain; reopen store')
+    if (!this.recoveryRequired) return
+    await HeaderStore.recoverReplacement(this.fs, this.chain)
+    this.recoveryRequired = false
+  }
+
+  private static async recoverReplacement(fs: HeaderFs, chain: string): Promise<void> {
+    const journalPath = `${chain}-replace.json`
+    const raw = await fs.readText(journalPath)
+    if (raw === undefined) return
+    let meta: StoredMeta
+    try {
+      meta = JSON.parse(raw) as StoredMeta
+    } catch {
+      // Torn marker publication precedes all live-file writes. The previous
+      // pair is still intact; an empty marker is also an interrupted write.
+      await fs.deleteFile(journalPath)
+      return
+    }
+    const snapshot = await fs.readBytes(`${chain}-replace.bin`)
+    if (!snapshot || snapshot.length !== meta.count * HEADER_BYTES)
+      throw new Error('Header replacement undo snapshot unavailable')
+    await fs.writeBytes(`${chain}.bin`, snapshot)
+    await fs.writeText(`${chain}.json`, raw)
+    await fs.deleteFile(journalPath)
+    // open() subsequently applies checkpoint/context checks and validates all
+    // restored headers. Recovery metadata does not authenticate their roots.
   }
 
   /** Legacy API retained for callers; a raw root provides no chain-membership proof. */
@@ -475,6 +555,7 @@ export class HeaderStore {
    * start over from the checkpoint.
    */
   async reset(): Promise<void> {
+    await this.recoverReplacement()
     await this.fs.deleteFile(this.binPath)
     this.roots = new Uint8Array(0)
     this.headerCount = 0
@@ -484,14 +565,17 @@ export class HeaderStore {
   }
 
   private async writeMeta(): Promise<void> {
-    const meta: StoredMeta = {
+    await this.fs.writeText(this.metaPath, JSON.stringify(this.storedMeta()))
+  }
+
+  private storedMeta(): StoredMeta {
+    return {
       chain: this.chain,
       anchorHeight: this.anchor.height,
       anchorHash: this.anchor.hash,
       count: this.headerCount,
       tipHash: this.currentTipHash
     }
-    await this.fs.writeText(this.metaPath, JSON.stringify(meta))
   }
 }
 
