@@ -52,6 +52,8 @@ public final class BridgeStore {
   let layout: Layout
   let keys: KeyProvider
   private let lock = NSLock()
+  let quotaSerial = NSRecursiveLock()
+  var quotaDepth = 0
   private var cachedKey: SymmetricKey?
   private var isFinal = false
 
@@ -83,24 +85,29 @@ public final class BridgeStore {
   /// `reopen()` (the module's next `init`). Anything sealed under the old key is noise even if a file
   /// survives.
   public func reset() {
-    lock.lock()
-    isFinal = true
-    cachedKey = nil
-    lock.unlock()
-    keys.deleteKey()
-    onReset?()
-    try? FileManager.default.removeItem(at: layout.root)
+    let wipe: () -> Void = { [self] in
+      lock.lock()
+      isFinal = true
+      cachedKey = nil
+      lock.unlock()
+      keys.deleteKey()
+      onReset?()
+      try? FileManager.default.removeItem(at: layout.root)
+    }
+    do { try withQueueLock(wipe) } catch { wipe() }
   }
 
   /// The next `init` after a reset: lifts the finality and recreates the container. The key provider
   /// creates a fresh key on first use.
   public func reopen() throws {
-    lock.lock()
-    isFinal = false
-    cachedKey = nil
-    lock.unlock()
-    try layout.createDirectories()
-    layout.applyAttributesToTree()
+    return try withQueueLock {
+      lock.lock()
+      isFinal = false
+      cachedKey = nil
+      lock.unlock()
+      try layout.createDirectories()
+      layout.applyAttributesToTree()
+    }
   }
 
   // MARK: Key and file helpers
@@ -171,9 +178,9 @@ public final class BridgeStore {
     return try openHeader(s.sealedHeader, id: id, kind: kind)
   }
 
-  func writeTmp(_ data: Data) throws -> URL {
+  func writeTmp(_ data: Data, prefix: String = "") throws -> URL {
     try checkWritable()
-    let tmp = layout.tmpFile()
+    let tmp = layout.tmpFile(prefix: prefix)
     try Posix.writeExclusive(tmp, data)
     layout.applyAttributes(tmp)
     return tmp
@@ -187,32 +194,40 @@ public final class BridgeStore {
 
   /// Stages a record as `pending`. False when the id exists in any state, tombstones included.
   public func create(id: String, bytes: Data, nowMs: Int64) throws -> Bool {
-    try requireId(id)
-    var createdAt = nowMs
-    var notAfter = nowMs + bridgeValidityMs
-    if let obj = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any] {
-      if let c = (obj["createdAt"] as? NSNumber)?.int64Value, c >= 0 { createdAt = c }
-      if let n = (obj["notAfter"] as? NSNumber)?.int64Value, n >= 0 { notAfter = n }
+    return try withQueueLock {
+      try requireId(id)
+      try sweep(nowMs: nowMs)
+      if Posix.exists(layout.file(.ids, id)) { return false }
+      var createdAt = nowMs
+      var notAfter = nowMs + bridgeValidityMs
+      if let obj = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any] {
+        if let c = (obj["createdAt"] as? NSNumber)?.int64Value, c >= 0 { createdAt = c }
+        if let n = (obj["notAfter"] as? NSNumber)?.int64Value, n >= 0 { notAfter = n }
+      }
+      notAfter = min(notAfter, nowMs + bridgeValidityMs)
+      let header = Header(
+        v: 1, id: id, size: bytes.count, digest: sha256Hex(bytes), createdAt: createdAt, notAfter: notAfter,
+        claimBootId: nil)
+      let encoded = try encode(header, payload: bytes, kind: .record)
+      try requireQueueCapacity(.request, bytes: encoded.count, newId: id)
+      let record = try writeTmp(encoded, prefix: "request-")
+      defer { Posix.unlink(record) }
+      // The tombstone is a separate zero-byte file so it stays zero-byte when the record is deleted.
+      let marker = try writeTmp(Data())
+      // The tombstone's modification time is its creation time on the caller's clock (the link shares
+      // the inode), so `sweep` can age it without a payload or the key.
+      try? FileManager.default.setAttributes([.modificationDate: Date.fromMs(nowMs)], ofItemAtPath: marker.path)
+      defer { Posix.unlink(marker) }
+      if let err = Posix.link(marker, layout.file(.ids, id)) {
+        Posix.unlink(record)
+        if err == EEXIST { return false }
+        throw BridgeError.io("link \(err)")
+      }
+      try fault("linked")
+      if let err = Posix.rename(record, layout.file(.pending, id)) { throw BridgeError.io("rename \(err)") }
+      try fault("renamedPending")
+      return true
     }
-    let header = Header(
-      v: 1, id: id, size: bytes.count, digest: sha256Hex(bytes), createdAt: createdAt, notAfter: notAfter,
-      claimBootId: nil)
-    let record = try writeTmp(try encode(header, payload: bytes, kind: .record))
-    // The tombstone is a separate zero-byte file so it stays zero-byte when the record is deleted.
-    let marker = try writeTmp(Data())
-    // The tombstone's modification time is its creation time on the caller's clock (the link shares
-    // the inode), so `sweep` can age it without a payload or the key.
-    try? FileManager.default.setAttributes([.modificationDate: Date.fromMs(nowMs)], ofItemAtPath: marker.path)
-    defer { Posix.unlink(marker) }
-    if let err = Posix.link(marker, layout.file(.ids, id)) {
-      Posix.unlink(record)
-      if err == EEXIST { return false }
-      throw BridgeError.io("link \(err)")
-    }
-    try fault("linked")
-    if let err = Posix.rename(record, layout.file(.pending, id)) { throw BridgeError.io("rename \(err)") }
-    try fault("renamedPending")
-    return true
   }
 
   public func stat(id: String) throws -> StatResult? {
@@ -252,60 +267,79 @@ public final class BridgeStore {
 
   /// `pending -> withdrawn` (the extension's cancel; it loses to a prior accept).
   public func withdraw(id: String) -> Bool {
-    guard move(id, .pending, .withdrawn) else { return false }
-    // The withdrawn file keeps only its header. A crash before this leaves the arguments for `sweep`.
-    stripPayload(layout.file(.withdrawn, id))
-    return true
+    return (try? withQueueLock {
+      guard move(id, .pending, .withdrawn) else { return false }
+      // The withdrawn file keeps only its header. A crash before this leaves the arguments for `sweep`.
+      stripPayload(layout.file(.withdrawn, id))
+      return true
+    }) ?? false
   }
 
   private func move(_ id: String, _ from: Dir, _ to: Dir) -> Bool {
-    guard Layout.validId(id), (try? checkWritable()) != nil else { return false }
-    return Posix.rename(layout.file(from, id), layout.file(to, id)) == nil
+    return (try? withQueueLock {
+      guard Layout.validId(id), (try? checkWritable()) != nil else { return false }
+      return Posix.rename(layout.file(from, id), layout.file(to, id)) == nil
+    }) ?? false
   }
 
   /// Atomic `accepted -> claimed` for exactly one caller, and only if the bytes still hash to `digest`.
   public func claim(id: String, digest: String, bootId: String, nowMs: Int64) throws -> ClaimOutcome {
-    guard Layout.validId(id) else { return .notAccepted }
-    let from = layout.file(.accepted, id)
-    guard let file = try? Data(contentsOf: from), let s = split(file) else { return .notAccepted }
-    guard var header = try openHeader(s.sealedHeader, id: id, kind: .record), let sealed = s.sealedPayload else {
-      return .notAccepted
+    return try withQueueLock {
+      guard Layout.validId(id) else { return .notAccepted }
+      let from = layout.file(.accepted, id)
+      guard let file = try? Data(contentsOf: from), let s = split(file) else { return .notAccepted }
+      guard var header = try openHeader(s.sealedHeader, id: id, kind: .record), let sealed = s.sealedPayload else {
+        return .notAccepted
+      }
+      guard let plain = try? Sealing.open(sealed, key: try key(), kind: .record, id: id),
+        sha256Hex(plain) == header.digest, header.digest == digest
+      else { return .digestMismatch }
+      // Exactly one caller wins the rename; the others see ENOENT.
+      if Posix.rename(from, layout.file(.claimed, id)) != nil { return .notAccepted }
+      try fault("renamedClaimed")
+      header.claimBootId = bootId
+      let rewritten = try writeTmp(try encode(header, payload: nil, kind: .record))
+      if let err = Posix.rename(rewritten, layout.file(.claimed, id)) { throw BridgeError.io("rename \(err)") }
+      return .claimed
     }
-    guard let plain = try? Sealing.open(sealed, key: try key(), kind: .record, id: id),
-      sha256Hex(plain) == header.digest, header.digest == digest
-    else { return .digestMismatch }
-    // Exactly one caller wins the rename; the others see ENOENT.
-    if Posix.rename(from, layout.file(.claimed, id)) != nil { return .notAccepted }
-    try fault("renamedClaimed")
-    header.claimBootId = bootId
-    let rewritten = try writeTmp(try encode(header, payload: nil, kind: .record))
-    if let err = Posix.rename(rewritten, layout.file(.claimed, id)) { throw BridgeError.io("rename \(err)") }
-    return .claimed
   }
 
   /// Writes the result once, moves to `done` and deletes the arguments. False if one exists or the id
   /// is unknown. Allowed from `pending`, `accepted` or `claimed`.
   public func writeResult(id: String, bytes: Data, nowMs: Int64) throws -> Bool {
-    try requireId(id)
-    try checkWritable()
-    guard Posix.exists(layout.file(.ids, id)) else { return false }
-    let header = Header(
-      v: 1, id: id, size: bytes.count, digest: sha256Hex(bytes), createdAt: nowMs,
-      notAfter: nowMs + bridgeResultTtlMs, claimBootId: nil)
-    let tmp = try writeTmp(try encode(header, payload: bytes, kind: .result))
-    defer { Posix.unlink(tmp) }
-    if let err = Posix.link(tmp, layout.file(.results, id)) {
-      if err == EEXIST { return false }
-      throw BridgeError.io("link \(err)")
+    return try withQueueLock {
+      try requireId(id)
+      try checkWritable()
+      guard Posix.exists(layout.file(.ids, id)) else { return false }
+      if Posix.exists(layout.file(.results, id)) { return false }
+      let header = Header(
+        v: 1, id: id, size: bytes.count, digest: sha256Hex(bytes), createdAt: nowMs,
+        notAfter: nowMs + bridgeResultTtlMs, claimBootId: nil)
+      let encoded = try encode(header, payload: bytes, kind: .result)
+      try requireQueueCapacity(.result, bytes: encoded.count)
+      let tmp = try writeTmp(encoded, prefix: "result-")
+      defer { Posix.unlink(tmp) }
+      if let err = Posix.link(tmp, layout.file(.results, id)) {
+        if err == EEXIST { return false }
+        throw BridgeError.io("link \(err)")
+      }
+      try fault("resultLinked")
+      // Forward order covers a concurrent pending -> accepted -> claimed move.
+      for dir in [Dir.pending, .accepted, .claimed] { Posix.unlink(layout.file(dir, id)) }
+      return true
     }
-    try fault("resultLinked")
-    // Forward order covers a concurrent pending -> accepted -> claimed move.
-    for dir in [Dir.pending, .accepted, .claimed] { Posix.unlink(layout.file(dir, id)) }
-    return true
   }
 
   public func readResult(id: String, nowMs: Int64) throws -> ResultRead {
     guard Layout.validId(id) else { return .none }
+    if !Posix.exists(layout.file(.results, id)), try headerOf(.withdrawn, id) != nil {
+      // Native expiry/cancellation never accepted this call. A waiting page still needs a terminal
+      // answer, including when the retained-result pool is full; the authenticated header suffices.
+      let result: [String: Any] = ["v": 1, "id": id, "ok": false, "error": [
+        "domain": "brc185", "code": "CONNECTION_CLOSED", "message": "The request is no longer waiting", "delivery": "not-sent"
+      ]]
+      return .result(try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]))
+    }
     guard let file = try? Data(contentsOf: layout.file(.results, id)), let s = split(file) else { return .none }
     guard let header = try openHeader(s.sealedHeader, id: id, kind: .result) else { return .purged }
     guard let sealed = s.sealedPayload, nowMs - header.createdAt <= bridgeResultTtlMs else { return .purged }
@@ -323,14 +357,16 @@ public final class BridgeStore {
   /// Rewrites a sealed file as its header only, through `tmp` and an atomic replace.
   @discardableResult
   func stripPayload(_ url: URL) -> Bool {
-    guard let file = try? Data(contentsOf: url), let s = split(file), s.sealedPayload != nil,
-      let tmp = try? writeTmp(s.headerOnly)
-    else { return false }
-    if Posix.rename(tmp, url) != nil {
-      Posix.unlink(tmp)
-      return false
-    }
-    return true
+    return (try? withQueueLock {
+      guard let header = readHeaderPart(url), let size = try? diskBytes(url), size > header.count,
+        let tmp = try? writeTmp(header)
+      else { return false }
+      if Posix.rename(tmp, url) != nil {
+        Posix.unlink(tmp)
+        return false
+      }
+      return true
+    }) ?? false
   }
 
   /// Claimed files that still hold arguments (a crash between the claim rename and the rewrite) are

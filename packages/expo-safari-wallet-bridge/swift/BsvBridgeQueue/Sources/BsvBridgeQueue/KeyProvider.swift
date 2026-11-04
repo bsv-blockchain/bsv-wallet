@@ -6,6 +6,7 @@ public enum BridgeError: Error, Equatable {
   /// The sealing key cannot be read (not created yet, or the device has not been unlocked since boot).
   case keyMissing(Int32)
   case invalidId
+  case quotaExceeded
   /// `reset()` has run and no `init` has followed (Task 9).
   case resetFinal
   case io(String)

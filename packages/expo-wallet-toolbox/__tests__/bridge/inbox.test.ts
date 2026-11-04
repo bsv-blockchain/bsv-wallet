@@ -168,6 +168,82 @@ describe('inbox processor', () => {
     await done
   })
 
+  it('bounds materialized records before dispatcher admission while earlier work is parked', async () => {
+    for (let n = 1; n <= 20; n++) await stage(record(n, { epoch: `e-${n}`, origin: `https://app${n}.example` }))
+    const read = jest.spyOn(store, 'read')
+    let release!: () => void
+    const gate = new Promise<void>(resolve => (release = resolve))
+    dispatchImpl = async req => {
+      await gate
+      await req.beforeCall?.()
+      return OK
+    }
+    const inbox = processor()
+    const done = inbox.processPending()
+    expect(inbox.processPending()).toBe(done)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(read).toHaveBeenCalledTimes(16)
+    expect(dispatched).toHaveLength(16)
+    expect(await store.stat(ID(17))).toMatchObject({ state: 'pending' })
+    release()
+    await done
+    expect(dispatched).toHaveLength(20)
+  })
+
+  it('waits for byte capacity before reading the next pending payload', async () => {
+    for (let n = 1; n <= 3; n++) await stage(record(n, { origin: `https://app${n}.example` }))
+    const originalStat = store.stat.bind(store)
+    jest.spyOn(store, 'stat').mockImplementation(async id => {
+      const st = await originalStat(id)
+      return st ? { ...st, size: 3 * 1024 * 1024 } : undefined
+    })
+    const read = jest.spyOn(store, 'read')
+    let release!: () => void
+    const gate = new Promise<void>(resolve => (release = resolve))
+    dispatchImpl = async req => {
+      await gate
+      await req.beforeCall?.()
+      return OK
+    }
+    const done = processor().processPending()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(dispatched).toHaveLength(1)
+    release()
+    await done
+    expect(dispatched).toHaveLength(3)
+  })
+
+  it('admits a later nudge within the shared budget while an earlier request is parked', async () => {
+    await stage(record(1))
+    let release!: () => void
+    const gate = new Promise<void>(resolve => (release = resolve))
+    dispatchImpl = async req => {
+      if (req.epoch === 'epoch-1') await gate
+      await req.beforeCall?.()
+      return OK
+    }
+    const inbox = processor()
+    const done = inbox.processPending()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await stage(record(2, { origin: 'https://later.example' }))
+    expect(inbox.processPending()).toBe(done)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(dispatched).toHaveLength(2)
+    expect(await result(2)).toMatchObject({ ok: true })
+    release()
+    await done
+  })
+
+  it('releases materialization slots when a record handler throws', async () => {
+    await stage(record(1))
+    jest.spyOn(bindings, 'admitImplicit').mockImplementationOnce(() => { throw new Error('admission failed') })
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    await expect(processor().processPending()).resolves.toBeUndefined()
+    expect(warning).toHaveBeenCalledWith('[bridge] inbox record failed', expect.any(Error))
+    warning.mockRestore()
+  })
+
   it('checks the size before reading', async () => {
     await store.create(ID(1), new Uint8Array(5 * 1024 * 1024 + 1))
     const read = jest.spyOn(store, 'read')

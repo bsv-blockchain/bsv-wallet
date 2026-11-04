@@ -64,7 +64,7 @@ struct Layout {
 
   func dir(_ d: Dir) -> URL { root.appendingPathComponent(d.rawValue, isDirectory: true) }
   func file(_ d: Dir, _ id: String) -> URL { dir(d).appendingPathComponent(id, isDirectory: false) }
-  func tmpFile() -> URL { dir(.tmp).appendingPathComponent(UUID().uuidString, isDirectory: false) }
+  func tmpFile(prefix: String = "") -> URL { dir(.tmp).appendingPathComponent(prefix + UUID().uuidString, isDirectory: false) }
 
   /// Ids become file names: no separators, no dots, bounded length.
   static func validId(_ id: String) -> Bool {

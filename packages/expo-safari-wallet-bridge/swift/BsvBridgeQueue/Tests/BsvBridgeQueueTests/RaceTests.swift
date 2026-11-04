@@ -45,6 +45,26 @@
       XCTAssertNotNil(try h.store.read(id: ID(1)))
     }
 
+    func testConcurrentProcessesShareRequestAndUploadQuota() throws {
+      let (h, key) = try harness()
+      let operations = (0..<8).map { ($0 % 2 == 0 ? "quotaCreate" : "quotaReserve", ID($0 + 1), "") }
+      let out = try race(h, key: key, operations)
+      XCTAssertEqual(out.filter { $0 == "true" }.count, 4, "\(out)")
+      XCTAssertEqual(out.filter { $0.contains("quotaExceeded") }.count, 4, "\(out)")
+      let usage = try h.store.withQueueLock { try h.store.queueUsage(.request) }
+      XCTAssertLessThanOrEqual(usage.bytes, bridgeQueuePoolBytes)
+      XCTAssertEqual(usage.count, 4)
+    }
+
+    func testCrashedWriterReleasesLockAndOrphanPayloadIsReclaimed() throws {
+      let (h, key) = try harness()
+      _ = try race(h, key: key, [("quotaCrash", ID(1), "")])
+      XCTAssertTrue(h.rawFiles().contains { $0.path.contains("/tmp/request-") }, "\(h.rawFiles().map { $0.path })")
+      XCTAssertTrue(try h.store.create(id: ID(2), bytes: Data(repeating: 65, count: 4 * 1024 * 1024), nowMs: SystemClock().nowMs))
+      XCTAssertFalse(h.rawFiles().contains { $0.path.contains("/tmp/request-") })
+      XCTAssertFalse(try h.create(1, "replay"))
+    }
+
     func testRacingClaimOfOneRecordHasExactlyOneWinner() throws {
       let (h, key) = try harness()
       XCTAssertTrue(try h.create(1, "args"))

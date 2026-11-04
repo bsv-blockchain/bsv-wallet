@@ -25,6 +25,7 @@ interface Entry {
   state: InboxState
   size: number
   createdAt: number
+  recordCreatedAt: number
   sealedRecord?: Uint8Array
   sealedResult?: Uint8Array
   resultAt?: number
@@ -111,10 +112,16 @@ function open(
     async create(id, bytes) {
       sweep()
       if (shared.entries.has(id)) return false
+      let recordCreatedAt = now()
+      try {
+        const value = JSON.parse(Utils.toUTF8(Array.from(bytes)))?.createdAt
+        if (typeof value === 'number' && Number.isFinite(value)) recordCreatedAt = value
+      } catch { /* malformed records are refused by the processor */ }
       shared.entries.set(id, {
         state: 'pending',
         size: bytes.byteLength,
         createdAt: now(),
+        recordCreatedAt,
         sealedRecord: seal(bytes)
       })
       return true
@@ -204,7 +211,9 @@ function open(
 
     async list(state) {
       sweep()
-      return [...shared.entries].filter(([, e]) => e.state === state).map(([id]) => id)
+      const entries = [...shared.entries].filter(([, e]) => e.state === state)
+      if (state === 'pending') entries.sort((a, b) => a[1].recordCreatedAt - b[1].recordCreatedAt)
+      return entries.map(([id]) => id)
     },
 
     rawBytes() {

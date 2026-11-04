@@ -84,6 +84,7 @@ private func map(_ error: Error) -> [String: Any] {
   switch error {
   case let e as HandlerError: return failure(e.code, e.message)
   case BridgeError.keyMissing: return failure("KEY_MISSING", "The sealing key is not available")
+  case BridgeError.quotaExceeded: return failure("RESOURCE_LIMIT", "The native bridge queue is full")
   case BridgeError.invalidId: return failure("BAD_REQUEST", "invalid id")
   case BridgeError.resetFinal: return failure("UNAVAILABLE", "The bridge was reset")
   case BridgeError.io(let m): return failure("UNAVAILABLE", m)

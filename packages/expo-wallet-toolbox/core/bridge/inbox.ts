@@ -17,7 +17,13 @@ import type { Dispatcher, Outcome } from './dispatcher'
 import { connectionError, isConnectionError, type ConnectionError } from './protocol/connectionError'
 import { isUuidV4, type InboxCloseEvent, type InboxRecord, type InboxResult } from './protocol/envelopes'
 import { parseStrictJson } from './protocol/json'
-import { INBOX_CLOCK_SKEW_MS, INBOX_MAX_VALIDITY_MS, MAX_BRIDGE_REQUEST_BYTES } from './protocol/limits'
+import {
+  INBOX_CLOCK_SKEW_MS,
+  INBOX_MAX_VALIDITY_MS,
+  MAX_BRIDGE_REQUEST_BYTES,
+  MAX_IN_FLIGHT_BYTES,
+  MAX_IN_FLIGHT_TOTAL
+} from './protocol/limits'
 import type { Attestation } from './protocol/origin'
 import type { BridgeSnapshot } from './runtime'
 
@@ -69,6 +75,7 @@ export interface InboxStore {
    */
   readEventsAfter(seq: number): Promise<{ events: InboxCloseEvent[]; gap: boolean }>
   bootId(): string
+  /** Pending ids are oldest first by the record createdAt, stable for equal timestamps. */
   list(state: InboxState): Promise<string[]>
 }
 
@@ -156,7 +163,7 @@ export interface InboxProcessorDeps {
 export interface InboxProcessor {
   /**
    * Recovers after a restart (once), expires stale pending records, then accepts every pending
-   * record in `createdAt` order and starts it without waiting for the earlier ones. Resolves when
+   * record in `createdAt` order within the byte/count budget, starting independent work concurrently. Resolves when
    * everything it started has settled; a record parked behind a sheet keeps it open, so callers
    * that must not wait run `sweepExpired` on their timer instead.
    */
@@ -208,6 +215,8 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
       return (require('./runtime') as typeof import('./runtime')).onBindingClosed(fn)
     })
   let recovered: Promise<void> | undefined
+  let draining: Promise<void> | undefined
+  let wakeDrain: (() => void) | undefined
 
   // Every close of one of this transport's bindings goes to the events outbox, in close order
   // (6.7). The writes are chained, and `handle` waits for the chain before it admits anything, so
@@ -440,25 +449,46 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
       unsubscribeClosed()
     },
 
-    async processPending() {
-      await this.recover()
-      const ready: Array<{ id: string; record: InboxRecord; bytes: Uint8Array; size: number }> = []
-      for (const id of await store.list('pending')) {
-        const loaded = await load(id)
-        if (loaded && (await admissible(loaded.record))) ready.push({ id, ...loaded })
+    processPending() {
+      // One budget across nudges; new arrivals can still join while an earlier approval waits.
+      if (draining) {
+        wakeDrain?.()
+        return draining
       }
-      // Stable: records with equal timestamps keep the store's order.
-      ready.sort((a, b) => a.record.createdAt - b.record.createdAt)
-      const running: Promise<void>[] = []
-      for (const item of ready) {
-        if (!(await store.accept(item.id))) continue
-        running.push(
-          handle(item.id, item.record, item.bytes, item.size).catch(e => {
-            console.warn('[bridge] inbox record failed', e)
-          })
-        )
-      }
-      await Promise.all(running)
+      draining = (async () => {
+        await this.recover()
+        const running = new Set<Promise<void>>()
+        let loadedBytes = 0
+        for (;;) {
+          const nudged = new Promise<void>(resolve => { wakeDrain = resolve })
+          for (const id of await store.list('pending')) {
+            const stat = await store.stat(id)
+            if (!stat || stat.state !== 'pending') continue
+            const size = Math.max(0, stat.size)
+            while (running.size > 0 && (running.size >= MAX_IN_FLIGHT_TOTAL || loadedBytes + size > MAX_IN_FLIGHT_BYTES)) {
+              await Promise.race(running)
+            }
+            const loaded = await load(id)
+            if (!loaded || !(await admissible(loaded.record)) || !(await store.accept(id))) continue
+            loadedBytes += loaded.size
+            const task = handle(id, loaded.record, loaded.bytes, loaded.size)
+              .catch(e => {
+                console.warn('[bridge] inbox record failed', e)
+              })
+              .finally(() => {
+                loadedBytes -= loaded.size
+                running.delete(task)
+              })
+            running.add(task)
+          }
+          if (running.size === 0) break
+          await Promise.race([nudged, ...running])
+        }
+      })().finally(() => {
+        draining = undefined
+        wakeDrain = undefined
+      })
+      return draining
     }
   }
 }

@@ -3,6 +3,7 @@ import { bindingKey, loadBindings } from '../../extension/src/lib/bindings'
 import { loadUnresolved } from '../../extension/src/lib/limits'
 import { stageInvoke } from '../../extension/src/lib/stage'
 import {
+  closeEpoch,
   detectGoneTabs,
   flushDisconnects,
   loadClosing,
@@ -71,6 +72,16 @@ describe('tab lifecycle', () => {
     expect(await loadClosing(s.browser.session)).toEqual({})
     // Nothing waits on the closed epoch any more.
     expect(await loadUnresolved(s.browser.session)).toEqual({})
+  })
+
+  it('transfers closed accepted requests to retained native accounting when withdrawal loses', async () => {
+    const s = setup()
+    const a = await stageOne(s, 1)
+    s.appex.records.get(a.recordId)!.state = 'accepted'
+    expect(await closeEpoch(s.deps, key(a.binding), s.clock.t)).toBe(true)
+    expect(await loadUnresolved(s.browser.session)).toEqual({})
+    expect(s.appex.records.get(a.recordId)!.state).toBe('accepted')
+    expect(s.appex.requests).toContainEqual({ op: 'withdraw', id: a.recordId })
   })
 
   it('no handoff for disconnects', async () => {

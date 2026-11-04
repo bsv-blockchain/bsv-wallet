@@ -156,11 +156,14 @@ export async function closeEpoch(deps: ExtDeps, key: string, now: number): Promi
     delete cl[key]
     const st = await loadStagedEpochs(session)
     delete st[key]
-    // Calls still waiting on this epoch have no poller any more; they stop counting against the limits.
-    // Their records stay in the queue and resolve through the app's tombstone.
+    // Best-effort withdrawal removes abandoned pending payloads. Accepted/uncertain records
+    // remain charged to the native filesystem quota after the closed page loses its poller.
     const unresolved = await loadUnresolved(session)
-    for (const [id, e] of Object.entries(unresolved))
-      if (bindingKey(e.instanceId, e.epoch) === key) delete unresolved[id]
+    for (const [id, e] of Object.entries(unresolved)) {
+      if (bindingKey(e.instanceId, e.epoch) !== key) continue
+      try { await native.withdraw(id) } catch { /* native quota still covers retained payloads */ }
+      delete unresolved[id]
+    }
     await saveUnresolved(session, unresolved)
     await session.set({ [CLOSING_KEY]: cl, [STAGED_KEY]: st })
   })
