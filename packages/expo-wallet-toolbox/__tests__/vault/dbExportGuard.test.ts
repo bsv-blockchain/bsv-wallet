@@ -1,4 +1,4 @@
-import { PrivateKey, ProtoWallet } from '@bsv/sdk'
+import { PrivateKey, ProtoWallet, type WalletInterface } from '@bsv/sdk'
 import { guardVaultAccess, VaultAccessDenied } from '../../core/services/vault/guard'
 import { DB_EXPORT_KEY_ID, DB_EXPORT_PROTOCOL } from '../../core/storage/encryptedDbImage'
 
@@ -56,7 +56,10 @@ test.each([
 })
 
 test('admin export wrapping still round-trips while external header decryption is refused', async () => {
-  const guarded = guardVaultAccess(new ProtoWallet(PrivateKey.fromRandom()), ADMIN)
+  // This unit exercises only encrypt/decrypt on the real SDK implementation.
+  // ProtoWallet omits action/storage methods required by the full guard API.
+  const cryptoWallet = new ProtoWallet(PrivateKey.fromRandom()) as unknown as WalletInterface
+  const guarded = guardVaultAccess(cryptoWallet, ADMIN)
   const tuple = { protocolID: DB_EXPORT_PROTOCOL, keyID: DB_EXPORT_KEY_ID, counterparty: 'self' }
   const plaintext = [1, 2, 3, 4]
   const { ciphertext } = await guarded.encrypt({ ...tuple, plaintext }, ADMIN)
