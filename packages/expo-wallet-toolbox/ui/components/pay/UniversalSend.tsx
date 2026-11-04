@@ -34,6 +34,7 @@ import { showToast } from '../ui/Toast'
 import { ConsequenceNote, PayAmountField, PayCta, PayField } from './PayForm'
 import PaymentSuccessOverlay from './PaymentSuccessOverlay'
 import ResultBanner from './ResultBanner'
+import ImportedOutboxApproval from './ImportedOutboxApproval'
 import RecipientField, { type RecipientRow } from './RecipientField'
 import StepBar, { type PayStep } from './StepBar'
 import { useMessageBoxConfig } from './MessageBoxConfig'
@@ -71,7 +72,6 @@ import {
   sendToAddress,
   getOutboxEntries,
   pruneExpiredSent,
-  releaseImportedOutboxEntry,
   type OutboxEntry,
   type Session,
   haptics,
@@ -146,9 +146,18 @@ interface OutgoingSectionProps {
   readonly t: ReturnType<typeof import('react-i18next').useTranslation>['t']
   readonly onRetry: (entry: OutboxEntry) => void
   readonly onCancel: (entry: OutboxEntry) => void
+  readonly renderImportedApproval: (entry: OutboxEntry) => React.ReactNode
 }
 
-function OutgoingSection({ entries, retryingId, colors, t, onRetry, onCancel }: OutgoingSectionProps) {
+function OutgoingSection({
+  entries,
+  retryingId,
+  colors,
+  t,
+  onRetry,
+  onCancel,
+  renderImportedApproval
+}: OutgoingSectionProps) {
   if (entries.length === 0) return null
 
   return (
@@ -159,7 +168,11 @@ function OutgoingSection({ entries, retryingId, colors, t, onRetry, onCancel }: 
           const isLast = idx === entries.length - 1
           // Unsent rows: delivery and/or broadcast still outstanding.
           const accentColor = colors.warning
-          const truncated = `${entry.recipient.slice(0, 8)}…${entry.recipient.slice(-4)}`
+          // Imported amount/recipient fields are shown only by the validating approval component.
+          const truncated =
+            entry.status === 'import_hold'
+              ? t('review_imported_payment')
+              : `${entry.recipient.slice(0, 8)}…${entry.recipient.slice(-4)}`
           return (
             <View
               key={entry.id}
@@ -175,9 +188,11 @@ function OutgoingSection({ entries, retryingId, colors, t, onRetry, onCancel }: 
                   <Text style={[styles.outgoingRecipient, { color: colors.textPrimary }]} numberOfLines={1}>
                     {truncated}
                   </Text>
-                  <Text style={[styles.outgoingAmount, { color: accentColor }]}>
-                    <AmountDisplay>{entry.token.amount}</AmountDisplay>
-                  </Text>
+                  {entry.status !== 'import_hold' && (
+                    <Text style={[styles.outgoingAmount, { color: accentColor }]}>
+                      <AmountDisplay>{entry.token.amount}</AmountDisplay>
+                    </Text>
+                  )}
                 </View>
 
                 {/* Status / error text */}
@@ -192,33 +207,37 @@ function OutgoingSection({ entries, retryingId, colors, t, onRetry, onCancel }: 
                 </Text>
 
                 {/* Action buttons — full-width row, easy tap targets */}
-                <View style={[styles.outgoingButtons, { borderTopColor: colors.separator }]}>
-                  <PressableScale
-                    onPress={() => onCancel(entry)}
-                    disabled={isRetrying}
-                    haptic="tap"
-                    style={[styles.outgoingDismissButton, { borderRightColor: colors.separator }]}
-                  >
-                    <Text style={[styles.outgoingDismissText, { color: colors.textSecondary }]}>{t('cancel')}</Text>
-                  </PressableScale>
-                  <PressableScale
-                    onPress={() => onRetry(entry)}
-                    disabled={isRetrying}
-                    haptic="tap"
-                    style={styles.outgoingRetryButton}
-                  >
-                    {isRetrying ? (
-                      <View style={styles.outgoingRetryBusy}>
-                        <ActivityIndicator size="small" color={colors.accent} />
-                        <Text style={[styles.outgoingRetryText, { color: colors.accent }]}>{t('resending')}</Text>
-                      </View>
-                    ) : (
-                      <Text style={[styles.outgoingRetryText, { color: colors.accent }]}>
-                        {t(entry.status === 'import_hold' ? 'review_imported_payment' : 'retry')}
-                      </Text>
-                    )}
-                  </PressableScale>
-                </View>
+                {entry.status === 'import_hold' ? (
+                  renderImportedApproval(entry)
+                ) : (
+                  <View style={[styles.outgoingButtons, { borderTopColor: colors.separator }]}>
+                    <PressableScale
+                      onPress={() => onCancel(entry)}
+                      disabled={isRetrying}
+                      haptic="tap"
+                      style={[styles.outgoingDismissButton, { borderRightColor: colors.separator }]}
+                    >
+                      <Text style={[styles.outgoingDismissText, { color: colors.textSecondary }]}>{t('cancel')}</Text>
+                    </PressableScale>
+                    <PressableScale
+                      onPress={() => onRetry(entry)}
+                      disabled={isRetrying}
+                      haptic="tap"
+                      style={styles.outgoingRetryButton}
+                    >
+                      {isRetrying ? (
+                        <View style={styles.outgoingRetryBusy}>
+                          <ActivityIndicator size="small" color={colors.accent} />
+                          <Text style={[styles.outgoingRetryText, { color: colors.accent }]}>{t('resending')}</Text>
+                        </View>
+                      ) : (
+                        <Text style={[styles.outgoingRetryText, { color: colors.accent }]}>
+                          {t('retry')}
+                        </Text>
+                      )}
+                    </PressableScale>
+                  </View>
+                )}
               </View>
             </View>
           )
@@ -1137,8 +1156,19 @@ function UniversalSendInner(
     storage
   ])
 
+  const handleRetryError = useCallback(
+    async (e: any) => {
+      if (await handleWalletCheck(e)) return
+      const reason = isMessageBoxNetworkError(e) ? t('message_box_unreachable') : e?.message || t('unknown_error')
+      showToast(`${t('retry_failed')}: ${reason}`, { type: 'error' })
+    },
+    [t, handleWalletCheck]
+  )
+
   const handleRetry = useCallback(
     async (entry: OutboxEntry) => {
+      // Held rows can become actionable only through the validated inline approval.
+      if (entry.status !== 'unsent') return
       // `peerPayClient` is built from the CURRENT setting, so it wins: the
       // configured host may have changed since this entry was minted, and the
       // client re-resolves the recipient's advertised inbox on every send
@@ -1160,30 +1190,16 @@ function UniversalSendInner(
       }
       setRetryingId(entry.id)
       try {
-        if (entry.status === 'import_hold') {
-          const choice = await showAlert({
-            title: t('review_imported_payment'),
-            message: t('review_imported_payment_detail', { amount: entry.token.amount, recipient: entry.recipient }),
-            buttons: [
-              { text: t('cancel'), style: 'cancel', key: 'cancel' },
-              { text: t('send'), key: 'send' }
-            ]
-          })
-          if (choice !== 'send') return
-          entry = await releaseImportedOutboxEntry(storage, entry)
-        }
         await retryDelivery({ wallet: wallet as any, adminOriginator, client, storage, entry })
         setSent({ amount: entry.token.amount, recipientIdentityKey: entry.recipient })
       } catch (e: any) {
-        if (await handleWalletCheck(e)) return
-        const reason = isMessageBoxNetworkError(e) ? t('message_box_unreachable') : e?.message || t('unknown_error')
-        showToast(`${t('retry_failed')}: ${reason}`, { type: 'error' })
+        await handleRetryError(e)
       } finally {
         setRetryingId(null)
         await loadOutbox()
       }
     },
-    [peerPayClient, storage, loadOutbox, wallet, adminOriginator, t, handleWalletCheck]
+    [peerPayClient, storage, loadOutbox, wallet, adminOriginator, t, handleRetryError, selectedNetwork]
   )
 
   const handleCancel = useCallback(
@@ -1535,6 +1551,20 @@ function UniversalSendInner(
               t={t}
               onRetry={handleRetry}
               onCancel={handleCancel}
+              renderImportedApproval={entry => (
+                <ImportedOutboxApproval
+                  entry={entry}
+                  storage={storage}
+                  wallet={wallet}
+                  adminOriginator={adminOriginator}
+                  colors={colors}
+                  t={t}
+                  disabled={retryingId !== null}
+                  onApproved={handleRetry}
+                  onCancel={() => void handleCancel(entry)}
+                  onError={handleRetryError}
+                />
+              )}
             />
           )}
         </>
