@@ -541,6 +541,19 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
 })
 
 describe('authenticated mutation snapshots', () => {
+  it.each([1, 2])('returns the exact signed restoration snapshot at revision %s', async revision => {
+    const current = { ...META, lastUsedSerial: key(1).serial, lastUsedAt: 123 }
+    await vaultStore.setMeta(current)
+    const verified = { ...META, revision }
+    const tagger = jest.fn(async () => 'restored-tag')
+    const restored = await vaultStore.restoreVerifiedMeta(verified, undefined, tagger)
+    const stored = await vaultStore.getMeta()
+    expect(restored).toEqual(stored)
+    expect(tagger).toHaveBeenCalledWith(restored)
+    expect(restored).toMatchObject({ revision, lastUsedSerial: key(1).serial, lastUsedAt: 123 })
+    if (revision === 2) expect(restored?.recovery).toEqual({ required: true, adoptedSerials: [] })
+  })
+
   it.each([
     'markKeyRemovalBroadcast',
     'finalizeProvenKeyRemoval',

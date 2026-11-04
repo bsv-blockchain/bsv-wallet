@@ -1907,12 +1907,11 @@ export async function requireAuthenticatedMeta(
       'Local vault enrollment metadata disagrees with authenticated on-chain history; re-verify before continuing'
     )
   }
-  await vaultStore.restoreVerifiedMeta(recovered, scopeToken, next =>
+  // Return the exact snapshot signed inside the restoration queue. A fresh
+  // storage read here could have been replaced after that authentication.
+  return await vaultStore.restoreVerifiedMeta(recovered, scopeToken, next =>
     computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
   )
-  const reconciled = await vaultStore.getMeta(scopeToken)
-  if (!reconciled) throw new VaultError('not-enrolled', 'Vault is not set up')
-  return reconciled
 }
 
 /**

@@ -973,7 +973,11 @@ export const vaultStore = {
    * they are taken from `checked` directly, never from `current`. Either
    * way `current`'s own (possibly forged, possibly absent) tag never
    * "launders" into the fresh one. */
-  async restoreVerifiedMeta(meta: VaultMeta, scopeToken?: VaultScopeToken, tagger?: VaultMetaTagger): Promise<void> {
+  async restoreVerifiedMeta(
+    meta: VaultMeta,
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger
+  ): Promise<VaultMeta> {
     const token = scopeToken ?? captureScope(true)
     const checked = checkedMeta(meta)
     return enqueueMutation(async () => {
@@ -1006,7 +1010,7 @@ export const vaultStore = {
         if (pendingRemoval) restored.pendingRemoval = pendingRemoval
         else delete restored.pendingRemoval
         await writeMetaAndTag(token, restored, tagger)
-        return
+        return restored
       }
 
       const knownSerials = new Set([
@@ -1030,6 +1034,7 @@ export const vaultStore = {
         restored.lastUsedSerial = current.lastUsedSerial
       }
       await writeMetaAndTag(token, restored, tagger)
+      return restored
     })
   },
 
