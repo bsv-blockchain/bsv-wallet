@@ -1,5 +1,6 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
+import { Text, TouchableOpacity } from 'react-native'
 import { PairScreen } from '../../ui/screens/PairScreen'
 import { ConnectionsScreen } from '../../ui/screens/ConnectionsScreen'
 import { runSessionTeardown } from '../../core/context/sessionTeardown'
@@ -21,72 +22,56 @@ const mockParams = {
   expiry: String(Math.floor(Date.now() / 1000) + 3600)
 }
 
-jest.mock('react-native', () => ({
-  View: 'View',
-  Text: 'Text',
-  TouchableOpacity: 'TouchableOpacity',
-  SafeAreaView: 'SafeAreaView',
-  ActivityIndicator: 'ActivityIndicator',
-  ScrollView: 'ScrollView',
-  Modal: 'Modal',
-  StyleSheet: { create: (value: unknown) => value, hairlineWidth: 1 }
-}))
-jest.mock('mobx-react-lite', () => ({ observer: (component: unknown) => component }), { virtual: true })
-jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }), { virtual: true })
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }), { virtual: true })
-jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }), { virtual: true })
-jest.mock('expo-clipboard', () => ({ getStringAsync: () => mockClipboard() }), { virtual: true })
+jest.mock('mobx-react-lite', () => ({ observer: (component: unknown) => component }))
+jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }))
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }))
+jest.mock('expo-clipboard', () => ({ getStringAsync: () => mockClipboard() }))
 jest.mock('../../ui/components/ui/GroupedList', () => ({ GroupedSection: ({ children }: any) => children }))
 jest.mock('../../ui/components/ui/ListRow', () => ({ ListRow: ({ trailing }: any) => trailing }))
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: (...args: unknown[]) => mockToast(...args) }))
 jest.mock('../../ui/components/ui/AlertCard', () => ({ showAlert: (...args: unknown[]) => mockAlert(...args) }))
 jest.mock('../../ui/components/QRScanner', () => ({ __esModule: true, default: 'QRScanner' }))
 jest.mock('../../core/services/revokeConnection', () => ({ revokeConnection: jest.fn() }))
-jest.mock('expo-router', () => ({ router: { back: jest.fn() }, useLocalSearchParams: () => mockParams }), {
-  virtual: true
-})
-jest.mock(
-  '@bsv/expo-wallet-toolbox',
-  () => ({
-    useWallet: () => ({
-      managers: { permissionsManager: { createHmac: mockCreateHmac, verifyHmac: mockVerifyHmac } }
-    }),
-    useTheme: () => ({ colors: {} }),
-    spacing: {},
-    radii: {},
-    typography: {},
-    useWalletConnection: () => ({
-      status: 'idle',
-      sessionMeta: null,
-      connect: mockConnect,
-      reconnect: mockReconnect,
-      disconnect: jest.fn(),
-      startNavTimer: jest.fn(),
-      cancelNavTimer: jest.fn()
-    }),
-    guardVaultAccess: (wallet: unknown) => wallet,
-    capWalletArgs: (wallet: unknown) => wallet,
-    ADMIN_ORIGINATOR: 'admin',
-    parseExternalOrigin: (origin: string) => ({ origin, originator: new URL(origin).hostname }),
-    connectionStore: {
-      get connections() {
-        return jest.requireActual('../../core/stores/ConnectionStore').default.connections
-      },
-      remove: (topic: string) => jest.requireActual('../../core/stores/ConnectionStore').default.remove(topic),
-      stageAuthorityTag: (...args: unknown[]) => mockStageTag(...args),
-      discardStagedAuthorityTag: jest.fn()
-    },
-    DEFAULT_AUTO_APPROVE_THRESHOLD: 0,
-    AUTO_APPROVE_STORAGE_KEY: 'auto-approve',
-    AUTO_APPROVE_DAILY_CAP_SATS: 0
+jest.mock('expo-router', () => ({ router: { back: jest.fn() }, useLocalSearchParams: () => mockParams }))
+jest.mock('../../core/index', () => ({
+  useWallet: () => ({
+    managers: { permissionsManager: { createHmac: mockCreateHmac, verifyHmac: mockVerifyHmac } }
   }),
-  { virtual: true }
-)
+  useTheme: () => ({ colors: {} }),
+  spacing: {},
+  radii: {},
+  typography: {},
+  useWalletConnection: () => ({
+    status: 'idle',
+    sessionMeta: null,
+    connect: mockConnect,
+    reconnect: mockReconnect,
+    disconnect: jest.fn(),
+    startNavTimer: jest.fn(),
+    cancelNavTimer: jest.fn()
+  }),
+  guardVaultAccess: (wallet: unknown) => wallet,
+  capWalletArgs: (wallet: unknown) => wallet,
+  ADMIN_ORIGINATOR: 'admin',
+  parseExternalOrigin: (origin: string) => ({ origin, originator: new URL(origin).hostname }),
+  connectionStore: {
+    get connections() {
+      return jest.requireActual('../../core/stores/ConnectionStore').default.connections
+    },
+    remove: (topic: string) => jest.requireActual('../../core/stores/ConnectionStore').default.remove(topic),
+    stageAuthorityTag: (...args: unknown[]) => mockStageTag(...args),
+    discardStagedAuthorityTag: jest.fn()
+  },
+  DEFAULT_AUTO_APPROVE_THRESHOLD: 0,
+  AUTO_APPROVE_STORAGE_KEY: 'auto-approve',
+  AUTO_APPROVE_DAILY_CAP_SATS: 0
+}))
 
 function press(tree: ReturnType<typeof create>, label: string) {
   const button = tree.root
-    .findAllByType('TouchableOpacity' as any)
-    .find(node => node.findAllByType('Text' as any).some(text => text.props.children === label))
+    .findAllByType(TouchableOpacity)
+    .find(node => node.findAllByType(Text).some(text => text.props.children === label))
   expect(button).toBeDefined()
   button!.props.onPress()
 }
@@ -147,7 +132,7 @@ it.each(['scan', 'verify', 'confirm', 'clipboard'] as const)(
         if (step === 'clipboard') runSessionTeardown('logout')
         else {
           const trash = tree.root
-            .findAllByType('TouchableOpacity' as any)
+            .findAllByType(TouchableOpacity)
             .find(node => node.findAllByType('Ionicons' as any).some(icon => icon.props.name === 'trash-outline'))
           trash!.props.onPress()
         }
@@ -225,7 +210,7 @@ it.each(['delete', 'disconnect', 'unrelated'] as const)(
       await act(async () => {
         if (reason === 'delete') {
           const trash = tree.root
-            .findAllByType('TouchableOpacity' as any)
+            .findAllByType(TouchableOpacity)
             .find(node => node.findAllByType('Ionicons' as any).some(icon => icon.props.name === 'trash-outline'))
           trash!.props.onPress()
         } else if (reason === 'disconnect') connectionStore.setStatus(mockParams.topic, 'disconnected')
@@ -381,9 +366,7 @@ for (const stale of [false, true]) {
         }
         const reportsError = !stale && !hmacFails
         if (isPair) {
-          const error = tree.root
-            .findAllByType('Text' as any)
-            .filter(node => node.props.children === 'late wallet error')
+          const error = tree.root.findAllByType(Text).filter(node => node.props.children === 'late wallet error')
           expect(error).toHaveLength(reportsError ? 1 : 0)
         } else expect(mockToast).toHaveBeenCalledTimes(reportsError ? 1 : 0)
       } finally {
