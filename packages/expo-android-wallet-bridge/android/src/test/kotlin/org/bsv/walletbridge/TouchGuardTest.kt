@@ -32,4 +32,23 @@ class TouchGuardTest {
     assertFalse(g.noteDrop())
     assertTrue(g.noteDrop())
   }
+  @Test fun `fallback keeps rejecting obscured gestures in the main window`() {
+    val sheet = TouchGuard()
+    val main = TouchGuard()
+    var approvals = 0
+    repeat(TouchGuard.DROP_LIMIT) { sheet.dispatch(TouchGuard.OBSCURED) { approvals++; false } }
+    repeat(20) {
+      assertTrue(main.dispatch(TouchGuard.OBSCURED) { approvals++; false })
+      assertTrue(main.dispatch(TouchGuard.PARTIALLY_OBSCURED) { approvals++; false })
+    }
+    assertEquals(0, approvals)
+    assertFalse(main.dispatch(0) { approvals++; false })
+    assertEquals(1, approvals)
+  }
+
+  @Test fun `unobscured callbacks preserve their result`() {
+    val guard = TouchGuard()
+    assertTrue(guard.dispatch(0) { true })
+    assertFalse(guard.dispatch(0) { false })
+  }
 }
