@@ -63,7 +63,8 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   makePeerPayClient: () => mockClient,
   retryDelivery: (...args: unknown[]) => mockRetry(...args),
   cancelOutboxPayment: (...args: unknown[]) => mockCancel(...args),
-  isMessageBoxNetworkError: (error: Error) => error?.message === 'network failed',
+  isMessageBoxNetworkError: (error: Error | string) =>
+    (typeof error === 'string' ? error : error?.message) === 'network failed',
   listPendingResendRequests: async () => ({ pending: [] }),
   makeListPeerPayAction: () => jest.fn(),
   haptics: { confirm: jest.fn(), error: jest.fn() }
@@ -317,3 +318,15 @@ test('an in-flight ordinary retry displays its existing busy state', async () =>
     resolve()
   })
 })
+
+test.each(['network failed', 'previous delivery failed'])(
+  'ordinary stored delivery errors remain visible: %s',
+  async lastError => {
+    await mockStorage.setKeyValue(OUTBOX_KEY, JSON.stringify([{ ...held, status: 'unsent', lastError }]))
+    const screen = render(<UniversalSend onNearbySession={jest.fn()} />)
+    await waitFor(() =>
+      expect(screen.getByText(lastError === 'network failed' ? 'message_box_unreachable' : lastError)).toBeTruthy()
+    )
+    expect(mockRetry).not.toHaveBeenCalled()
+  }
+)
