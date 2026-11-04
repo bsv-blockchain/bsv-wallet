@@ -3,7 +3,7 @@
  *
  * Direction comes from the `direction` search param ('deposit' | 'withdraw').
  *
- * Deposit needs no hardware: the wallet builds an R1C output committed to every
+ * Deposit proves a live enrolled key, then builds an R1C output committed to every
  * enrolled key and broadcasts it (depositToVault). The screen shows the floor
  * and the fee inline, confirms the FIRST deposit into an empty vault, and
  * refuses while encrypted private backup is unavailable. The salt is
