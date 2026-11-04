@@ -25,7 +25,7 @@
 import type { BindValue } from '../storage/methods/offlineActions'
 import { PENDING_JOURNAL_KEY } from '../identity/handleRegistry/registration'
 import { PENDING_KEY } from '../localpay/pending'
-import { getOutboxEntriesStrict, unsentEntries } from '../peerpay/outbox'
+import { getOutboxEntriesStrict, unresolvedOutboxEntries } from '../peerpay/outbox'
 import { TERMINAL_TRANSFER_STATES } from '../mandala/types'
 
 /** Why a profile cannot be removed. One code per thing found, for the UI to explain. */
@@ -181,7 +181,7 @@ export async function assertProfileEmpty(
     return balances.some(b => !(b.units === 0n && b.offlineUnits === 0n))
   })
   await check('localpay-pending', () => receivedPaymentsWaiting(storage))
-  await check('peerpay-outbox', async () => unsentEntries(await getOutboxEntriesStrict(storage)).length > 0)
+  await check('peerpay-outbox', async () => unresolvedOutboxEntries(await getOutboxEntriesStrict(storage)).length > 0)
   // Any value at all, not one parsed: `clearJournal` leaves `''` behind, and
   // that is the only thing that means "nothing in flight".
   await check('handle-journal', async () => !!(await storage.getKeyValue(PENDING_JOURNAL_KEY)))

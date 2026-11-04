@@ -375,3 +375,9 @@ export async function pruneExpiredSent(storage: StorageLike, now: number = Date.
 export function unsentEntries(entries: OutboxEntry[]): OutboxEntry[] {
   return entries.filter(e => e.status === 'unsent')
 }
+
+/** Held or unrecognized history still needs retention, even though it cannot
+ * be automatically delivered. Only sent entries are terminal. */
+export function unresolvedOutboxEntries(entries: OutboxEntry[]): OutboxEntry[] {
+  return entries.filter(e => e.status !== 'sent')
+}
