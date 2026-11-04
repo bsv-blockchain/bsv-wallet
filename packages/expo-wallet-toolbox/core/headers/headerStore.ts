@@ -13,29 +13,17 @@
  * versus ~3.4 MB if they were kept as hex strings — so a lookup is an array
  * slice and a hex encode rather than file I/O.
  *
- * VALIDATION is a single pass per appended chunk: link each header to the
- * previous hash, hash it once, check that hash against the target its own bits
- * declare, and keep the root. Doing it here rather than calling the toolbox's
- * `validateBufferOfHeaders` avoids hashing every header twice, since that
- * helper checks linkage but not difficulty.
+ * VALIDATION checks checkpoint-authenticated difficulty history, network
+ * expected bits, proof of work, MTP, future time and version in one pass.
+ * Reorg candidates must exceed the existing locally computed accumulated work.
+ * The toolbox own-target-only helper is insufficient for consensus validation.
  */
 import { Utils } from '@bsv/sdk'
 import { utils as chaintracksUtils } from '@bsv/wallet-toolbox-mobile'
 import type { HeaderCheckpoint } from './checkpoints'
 import type { HeaderFs } from './fs'
-
-const { blockHash, deserializeBaseBlockHeader } = chaintracksUtils
-/**
- * The toolbox's proof-of-work check, given this store's chain. From
- * @bsv/wallet-toolbox 2.15.0 (bsv-blockchain/ts-stack#819) the chain selects
- * the proof-of-work limit — regtest's is far higher than mainnet's — and an
- * omitted chain keeps mainnet's. Older releases take one argument and ignore
- * the second, which changes nothing for the chains they support.
- */
-const validateHeaderProofOfWork = chaintracksUtils.validateHeaderProofOfWork as (
-  header: Parameters<typeof chaintracksUtils.validateHeaderProofOfWork>[0],
-  chain?: string
-) => true
+import { HeaderConsensus, parseHeader } from './headerConsensus'
+import type { WalletChain } from '../networks'
 
 const HEADER_BYTES = 80
 const ROOT_BYTES = 32
@@ -55,6 +43,7 @@ export class HeaderStore {
 
   private roots: Uint8Array
   private extra: Record<string, string>
+  private consensus: HeaderConsensus | undefined
   private constructor(
     private readonly fs: HeaderFs,
     readonly chain: string,
@@ -71,6 +60,33 @@ export class HeaderStore {
   private get binPath(): string {
     return `${this.chain}.bin`
   }
+  private get contextPath(): string {
+    return `${this.chain}-context.bin`
+  }
+  get needsContext(): boolean {
+    return this.consensus == null
+  }
+  get contextStartHeight(): number {
+    return HeaderConsensus.contextStart(this.anchor)
+  }
+  get contextCount(): number {
+    return this.anchor.height - this.contextStartHeight + 1
+  }
+  get chainWork(): bigint {
+    return this.consensus?.chainWork ?? 0n
+  }
+  hashForHeight(height: number): string | undefined {
+    return height === this.anchor.height ? this.anchor.hash : this.consensus?.hashForHeight(height)
+  }
+
+  /** The bootstrap is peer-supplied bytes, authenticated by the pinned terminal hash. */
+  async initializeContext(bytes: Uint8Array): Promise<void> {
+    if (this.headerCount !== 0) throw new Error('Cannot replace live header consensus context')
+    const consensus = HeaderConsensus.fromContext(this.chain as WalletChain, this.anchor, bytes)
+    await this.fs.writeBytes(this.contextPath, bytes)
+    this.consensus = consensus
+  }
+
   private get metaPath(): string {
     return `${this.chain}.json`
   }
@@ -117,6 +133,22 @@ export class HeaderStore {
     }
 
     const empty = new HeaderStore(fs, chain, anchor, 0, anchor.hash, new Uint8Array(0), extra)
+    let context = await fs.readBytes(`${chain}-context.bin`)
+    if (!context && anchor.height === 0) {
+      try {
+        context = new Uint8Array(chaintracksUtils.genesisBuffer(chain as never))
+      } catch {
+        /* Unsupported network fails closed. */
+      }
+    }
+    if (context) {
+      try {
+        empty.consensus = HeaderConsensus.fromContext(chain as WalletChain, anchor, context)
+      } catch {
+        // Old or corrupt context cannot make persisted roots authoritative.
+        await fs.deleteFile(`${chain}-context.bin`)
+      }
+    }
 
     // A shipped checkpoint that moved (app update) invalidates the window: its
     // first header no longer links to anything we trust. Start over rather than
@@ -126,6 +158,7 @@ export class HeaderStore {
       meta.chain !== chain ||
       meta.anchorHeight !== anchor.height ||
       meta.anchorHash !== anchor.hash ||
+      !Number.isSafeInteger(meta.count) ||
       meta.count <= 0
     ) {
       await empty.reset()
@@ -145,15 +178,39 @@ export class HeaderStore {
       await fs.writeBytes(`${chain}.bin`, bin)
     }
 
-    const roots = new Uint8Array(meta.count * ROOT_BYTES)
-    for (let i = 0; i < meta.count; i++) {
-      // Merkle root occupies bytes 36..68 of a header, little-endian on the
-      // wire and display order reversed.
-      const src = bin.subarray(i * HEADER_BYTES + 36, i * HEADER_BYTES + 68)
-      const display = src.slice().reverse()
-      roots.set(display, i * ROOT_BYTES)
+    if (!empty.consensus) {
+      await empty.reset()
+      return empty
     }
-    return new HeaderStore(fs, chain, anchor, meta.count, meta.tipHash, roots, extra)
+    const roots = new Uint8Array(meta.count * ROOT_BYTES)
+    try {
+      for (let i = 0; i < meta.count; i++) {
+        if (i > 0 && i % HeaderStore.DEFAULT_YIELD_EVERY === 0) await yieldToEventLoop()
+        const parsed = empty.consensus.append(
+          bin.subarray(i * HEADER_BYTES, (i + 1) * HEADER_BYTES),
+          anchor.height + i + 1
+        )
+        roots.set(new Uint8Array(Utils.toArray(parsed.merkleRoot, 'hex')), i * ROOT_BYTES)
+      }
+    } catch {
+      // Rebuild rather than trust windows accepted by the old own-target-only
+      // validator or inconsistent disk metadata. Offline verification fails closed.
+      empty.consensus = undefined
+      if (context) {
+        try {
+          empty.consensus = HeaderConsensus.fromContext(chain as WalletChain, anchor, context)
+        } catch {
+          /* Needs online bootstrap. */
+        }
+      }
+      await empty.reset()
+      return empty
+    }
+    empty.roots = roots
+    empty.headerCount = meta.count
+    empty.currentTipHash = empty.consensus.tipHash
+    await empty.writeMeta()
+    return empty
   }
 
   rootForHeight(height: number): string | undefined {
@@ -206,41 +263,24 @@ export class HeaderStore {
       throw new Error(`header chunk starts at height ${firstHeight}, expected ${this.tipHeight + 1}`)
     }
 
+    if (!this.consensus)
+      throw new Error('Header difficulty context unavailable; synchronize authenticated bootstrap first')
+    const candidate = this.consensus.forkAt(this.tipHeight)
     const added = bytes.length / HEADER_BYTES
     const newRoots = new Uint8Array(added * ROOT_BYTES)
-    let prev = this.currentTipHash
-
     for (let i = 0; i < added; i++) {
-      // Two SHA-256 passes and a difficulty check per header, on the JS thread.
-      // A 2,000-header chunk was ~2.8s of solid JS on a mid-range Android and a
-      // first-launch sync repeats that ~30 times; nothing else — a nearby
-      // payment's ack, a tap — could run. Hand the loop back periodically.
       if (i > 0 && i % this.yieldEvery === 0) await yieldToEventLoop()
-      const offset = i * HEADER_BYTES
-      const header = bytes.slice(offset, offset + HEADER_BYTES)
-      const parsed = deserializeBaseBlockHeader(bytes, offset)
-      if (parsed.previousHash !== prev) {
-        throw new Error(
-          `header at height ${firstHeight + i} names previous hash ${parsed.previousHash}, expected ${prev}`
-        )
-      }
-      const hash = blockHash(header)
-      // Throws on failure — a header that does not meet its own target is not a
-      // header, and accepting it would let anyone mint merkle roots. Takes the
-      // display-order hex hash blockHash returns, validates the compact target
-      // encoding, and honours the toolbox's consensus proof-of-work exceptions.
-      validateHeaderProofOfWork({ ...parsed, height: firstHeight + i, hash }, this.chain)
+      const parsed = candidate.append(bytes.subarray(i * HEADER_BYTES, (i + 1) * HEADER_BYTES), firstHeight + i)
       newRoots.set(new Uint8Array(Utils.toArray(parsed.merkleRoot, 'hex')), i * ROOT_BYTES)
-      prev = hash
     }
-
     await this.fs.appendBytes(this.binPath, bytes)
     const merged = new Uint8Array(this.roots.length + newRoots.length)
     merged.set(this.roots, 0)
     merged.set(newRoots, this.roots.length)
     this.roots = merged
     this.headerCount += added
-    this.currentTipHash = prev
+    this.currentTipHash = candidate.tipHash
+    this.consensus = candidate
     await this.writeMeta()
     return added
   }
@@ -268,8 +308,42 @@ export class HeaderStore {
     await this.fs.writeBytes(this.binPath, sliced)
     this.roots = new Uint8Array(this.roots.subarray(0, count * ROOT_BYTES))
     this.headerCount = count
-    this.currentTipHash = blockHash(sliced.subarray(keep - HEADER_BYTES, keep))
+    this.currentTipHash = parseHeader(sliced.subarray(keep - HEADER_BYTES, keep)).hash
+    this.consensus = this.consensus?.forkAt(this.anchor.height + count)
     await this.writeMeta()
+  }
+
+  /** Adopt a fully validated competing branch only when it has strictly more work. */
+  async replaceBranch(firstHeight: number, bytes: Uint8Array): Promise<number> {
+    if (!this.consensus) throw new Error('Header difficulty context unavailable')
+    if (bytes.length === 0 || bytes.length % HEADER_BYTES !== 0) throw new Error('Invalid replacement header bytes')
+    const forkHeight = firstHeight - 1
+    const candidate = this.consensus.forkAt(forkHeight)
+    const replacementRoots = new Uint8Array((bytes.length / HEADER_BYTES) * ROOT_BYTES)
+    for (let offset = 0; offset < bytes.length; offset += HEADER_BYTES) {
+      const i = offset / HEADER_BYTES
+      if (i > 0 && i % this.yieldEvery === 0) await yieldToEventLoop()
+      const parsed = candidate.append(bytes.subarray(offset, offset + HEADER_BYTES), firstHeight + i)
+      replacementRoots.set(new Uint8Array(Utils.toArray(parsed.merkleRoot, 'hex')), i * ROOT_BYTES)
+    }
+    if (candidate.chainWork <= this.consensus.chainWork)
+      throw new Error('Replacement header branch does not have greater accumulated work')
+    const old = await this.fs.readBytes(this.binPath)
+    const keep = (forkHeight - this.anchor.height) * HEADER_BYTES
+    if (keep > 0 && (!old || old.length < keep)) throw new Error('Stored header prefix unavailable')
+    const combined = new Uint8Array(keep + bytes.length)
+    if (keep > 0) combined.set(old!.subarray(0, keep))
+    combined.set(bytes, keep)
+    const roots = new Uint8Array((keep / HEADER_BYTES) * ROOT_BYTES + replacementRoots.length)
+    roots.set(this.roots.subarray(0, (keep / HEADER_BYTES) * ROOT_BYTES))
+    roots.set(replacementRoots, (keep / HEADER_BYTES) * ROOT_BYTES)
+    await this.fs.writeBytes(this.binPath, combined)
+    this.roots = roots
+    this.headerCount = combined.length / HEADER_BYTES
+    this.consensus = candidate
+    this.currentTipHash = candidate.tipHash
+    await this.writeMeta()
+    return bytes.length / HEADER_BYTES
   }
 
   async putExtraRoot(height: number, root: string): Promise<void> {
@@ -337,6 +411,7 @@ export class HeaderStore {
     this.roots = new Uint8Array(0)
     this.headerCount = 0
     this.currentTipHash = this.anchor.hash
+    this.consensus = this.consensus?.forkAt(this.anchor.height)
     await this.writeMeta()
   }
 
