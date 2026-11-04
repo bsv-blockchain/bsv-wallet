@@ -43,3 +43,20 @@ it('fails closed on native receiver errors instead of retrying with global fetch
   mockRequest.mockRejectedValue(new Error('ERR_RESPONSE_TOO_LARGE'))
   await expect(createBoundedNativeFetch(256)('https://example.test')).rejects.toThrow('ERR_RESPONSE_TOO_LARGE')
 })
+
+it('decodes JSON as UTF-8 even when the React Native Response treats buffer text as Latin-1', async () => {
+  const OriginalResponse = global.Response
+  // whatwg-fetch 3.6.20's readArrayBufferAsText maps bytes to codepoints.
+  global.Response = class extends OriginalResponse {
+    async text() { return String.fromCharCode(...new Uint8Array(await this.arrayBuffer())) }
+    async json() { return JSON.parse(await this.text()) }
+  }
+  const value = { name: 'Zoë 李', description: 'café' }
+  mockRequest.mockResolvedValue({ status: 200, headers: [], body: Buffer.from(JSON.stringify(value)).toString('base64') })
+  try {
+    const response = await createBoundedNativeFetch(256)('https://example.test')
+    expect(await response.json()).toEqual(value)
+    const binary = await createBoundedNativeFetch(256)('https://example.test')
+    expect(Array.from(new Uint8Array(await binary.arrayBuffer()))).toEqual(Array.from(Buffer.from(JSON.stringify(value))))
+  } finally { global.Response = OriginalResponse }
+})

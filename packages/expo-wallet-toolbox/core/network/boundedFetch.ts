@@ -74,10 +74,16 @@ export function createBoundedNativeFetch(maxBytes: number): typeof fetch {
       // The native receiver has already enforced the cap, before this decoding
       // or any JSON parsing. The Response readers cannot bypass that boundary.
       const responseBody = Uint8Array.from(atob(reply.body), value => value.charCodeAt(0))
-      return new Response([204, 205, 304].includes(reply.status) ? null : responseBody, {
+      const response = new Response([204, 205, 304].includes(reply.status) ? null : responseBody, {
         status: reply.status,
         headers: reply.headers
       })
+      // RN's whatwg-fetch buffer-to-text reader maps bytes as Latin-1. Decode
+      // explicitly, through the original byte reader so bodyUsed/one-shot reads
+      // still work and binary backup blobs remain byte-exact.
+      response.text = async () => new TextDecoder().decode(await response.arrayBuffer())
+      response.json = async () => JSON.parse(await response.text())
+      return response
     } finally {
       signal?.removeEventListener('abort', onAbort)
     }
