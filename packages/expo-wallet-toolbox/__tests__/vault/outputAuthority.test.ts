@@ -192,3 +192,56 @@ test.each(['', 'not-enrolled'])(
     expect(requestVaultSigner).not.toHaveBeenCalled()
   }
 )
+
+test('uses the last-used enrolled key when no explicit selection is supplied', async () => {
+  await requireVaultOutputKeyPossession(
+    { ...meta, lastUsedSerial: keys[1].serial },
+    vaultStore.captureScopeToken(),
+    output
+  )
+  expect(requestVaultSigner).toHaveBeenCalledWith('Verify vault key for new funds', keys[1].serial)
+})
+
+test('refuses an empty enrollment without requesting hardware', async () => {
+  await expect(
+    requireVaultOutputKeyPossession({ ...meta, keys: [] }, vaultStore.captureScopeToken(), output)
+  ).rejects.toMatchObject({ code: 'not-enrolled' })
+  expect(requestVaultSigner).not.toHaveBeenCalled()
+})
+
+test('rejects a signer for a different serial even when its public key matches', async () => {
+  const release = jest.fn()
+  const sign = jest.fn()
+  ;(requestVaultSigner as jest.Mock).mockResolvedValueOnce({
+    serial: 'other-hardware',
+    pubkey: keys[0].pubkey,
+    release,
+    sign
+  })
+  await expect(requireVaultOutputKeyPossession(meta, vaultStore.captureScopeToken(), output)).rejects.toMatchObject({
+    code: 'wrong-key'
+  })
+  expect(sign).not.toHaveBeenCalled()
+  expect(release).toHaveBeenCalledTimes(1)
+})
+
+test('rejects malformed signature bytes and releases the signer', async () => {
+  const release = jest.fn()
+  ;(requestVaultSigner as jest.Mock).mockResolvedValueOnce({
+    serial: keys[0].serial,
+    pubkey: keys[0].pubkey,
+    release,
+    sign: async () => [1, 2, 3]
+  })
+  await expect(requireVaultOutputKeyPossession(meta, vaultStore.captureScopeToken(), output)).rejects.toMatchObject({
+    code: 'wrong-key'
+  })
+  expect(release).toHaveBeenCalledTimes(1)
+})
+
+test('propagates a cancelled hardware acquisition without signing', async () => {
+  ;(requestVaultSigner as jest.Mock).mockRejectedValueOnce(new Error('hardware cancelled'))
+  await expect(requireVaultOutputKeyPossession(meta, vaultStore.captureScopeToken(), output)).rejects.toThrow(
+    'hardware cancelled'
+  )
+})
