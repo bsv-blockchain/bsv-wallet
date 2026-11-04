@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native'
 import { observer } from 'mobx-react-lite'
 import { WalletClient } from '@bsv/sdk'
-import * as SecureStore from 'expo-secure-store'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 import { GroupedSection } from '../components/ui/GroupedList'
@@ -367,7 +366,6 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
                         </TouchableOpacity>
                         <TouchableOpacity
                           onPress={() => {
-                            void SecureStore.deleteItemAsync(lastSeqKey(item.sessionId))
                             connectionStore.remove(item.sessionId)
                           }}
                           style={[styles.trailingAction, { marginLeft: spacing.md }]}
