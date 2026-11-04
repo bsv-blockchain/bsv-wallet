@@ -92,6 +92,15 @@ function pairingUri() {
   return `bsv-wallet://pair?${new URLSearchParams({ ...mockParams, sig: 'signature' })}`
 }
 
+async function scan(tree: ReturnType<typeof create>) {
+  await act(async () => press(tree, 'scan_qr_code'))
+  await act(async () => {
+    // Opening the modal must render before scanning. Do not await the pending
+    // authority operation: callers need to revoke it before it resolves.
+    void tree.root.findByType('QRScanner' as any).props.onScan(pairingUri())
+  })
+}
+
 function addStoredPairing() {
   connectionStore.add({
     sessionId: mockParams.topic,
@@ -123,10 +132,8 @@ it.each(['scan', 'verify', 'confirm', 'clipboard'] as const)(
       tree = create(<ConnectionsScreen />)
     })
     try {
-      await act(async () => {
-        if (step === 'scan') tree.root.findByType('QRScanner' as any).props.onScan(pairingUri())
-        else press(tree, step === 'clipboard' ? 'paste_uri' : 'reconnect')
-      })
+      if (step === 'scan') await scan(tree)
+      else await act(async () => press(tree, step === 'clipboard' ? 'paste_uri' : 'reconnect'))
       if (step === 'confirm') expect(mockAlert).toHaveBeenCalledTimes(1)
       await act(async () => {
         if (step === 'clipboard') runSessionTeardown('logout')
@@ -173,12 +180,8 @@ it('keeps only the newest screen approval when an older HMAC fails late', async 
     tree = create(<ConnectionsScreen />)
   })
   try {
-    await act(async () => {
-      void tree.root.findByType('QRScanner' as any).props.onScan(pairingUri())
-    })
-    await act(async () => {
-      void tree.root.findByType('QRScanner' as any).props.onScan(pairingUri())
-    })
+    await scan(tree)
+    await scan(tree)
     await act(async () => fail(new Error('late wallet error')))
     expect(mockStageTag).toHaveBeenCalledTimes(1)
     expect(mockConnect).toHaveBeenCalledTimes(1)
@@ -242,9 +245,7 @@ it('keeps known-topic approval valid when another topic is revoked', async () =>
     tree = create(<ConnectionsScreen />)
   })
   try {
-    await act(async () => {
-      void tree.root.findByType('QRScanner' as any).props.onScan(pairingUri())
-    })
+    await scan(tree)
     connectionStore.remove('another-topic')
     await act(async () => finish({ hmac: [1, 2, 3, 4] }))
     expect(mockStageTag).toHaveBeenCalledTimes(1)
@@ -269,9 +270,7 @@ it('does not resume an older clipboard gesture after a new scan approves', async
   })
   try {
     await act(async () => press(tree, 'paste_uri'))
-    await act(async () => {
-      void tree.root.findByType('QRScanner' as any).props.onScan(pairingUri())
-    })
+    await scan(tree)
     await act(async () => finish(pairingUri()))
     expect(mockCreateHmac).toHaveBeenCalledTimes(1)
     expect(mockStageTag).toHaveBeenCalledTimes(1)
@@ -351,11 +350,8 @@ for (const stale of [false, true]) {
         tree = create(isPair ? <PairScreen /> : <ConnectionsScreen />)
       })
       try {
-        await act(async () => {
-          if (isPair) press(tree, 'Approve')
-          else if (step === 'reconnect') press(tree, 'reconnect')
-          else void tree.root.findByType('QRScanner' as any).props.onScan(pairingUri())
-        })
+        if (step.startsWith('scan')) await scan(tree)
+        else await act(async () => press(tree, isPair ? 'Approve' : 'reconnect'))
         await act(async () => {
           if (stale) runSessionTeardown('logout')
           fail(new Error('late wallet error'))
