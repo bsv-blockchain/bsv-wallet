@@ -1,19 +1,8 @@
 import React from 'react'
-import { act, create, type ReactTestRenderer } from 'react-test-renderer'
+import { act, fireEvent, render } from '@testing-library/react-native'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-jest.mock('react-native', () => ({
-  ...jest.requireActual('react-native'),
-  View: 'View',
-  Text: 'Text',
-  ScrollView: 'ScrollView',
-  TextInput: 'TextInput',
-  TouchableOpacity: 'TouchableOpacity',
-  Modal: 'Modal',
-  ActivityIndicator: 'ActivityIndicator',
-  StyleSheet: { create: (value: unknown) => value, hairlineWidth: 1 }
-}))
 jest.mock('react-native-svg', () => ({ SvgUri: 'SvgUri' }), { virtual: true })
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0 }) }), { virtual: true })
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (value: string) => value }) }), { virtual: true })
@@ -21,18 +10,14 @@ jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }), { virtual: tru
 jest.mock('expo-router', () => ({ router: { back: jest.fn() } }), { virtual: true })
 jest.mock('expo-image', () => ({ Image: Object.assign(() => null, { prefetch: async () => true }) }), { virtual: true })
 jest.mock('../../ui/components/ui/AlertCard', () => ({ showAlert: jest.fn(async () => 'cancel') }))
-jest.mock(
-  '@bsv/expo-wallet-toolbox',
-  () => ({
-    haptics: { selection: jest.fn(), success: jest.fn() },
-    useTheme: () => ({ colors: {} }),
-    spacing: {},
-    radii: {},
-    typography: {},
-    useWallet: () => ({ settings: { trustSettings: { trustedCertifiers: [] } }, updateSettings: jest.fn() })
-  }),
-  { virtual: true }
-)
+jest.mock('../../core/index', () => ({
+  haptics: { selection: jest.fn(), success: jest.fn() },
+  useTheme: () => ({ colors: {} }),
+  spacing: {},
+  radii: {},
+  typography: {},
+  useWallet: () => ({ settings: { trustSettings: { trustedCertifiers: [] } }, updateSettings: jest.fn() })
+}))
 
 const mockRequest = jest.fn()
 jest.mock(
@@ -45,24 +30,20 @@ jest.mock(
 
 import { TrustScreen } from '../../ui/screens/TrustScreen'
 
-let screen: ReactTestRenderer
+let screen: ReturnType<typeof render>
 
 function button(text: string) {
-  return screen.root
-    .findAllByType('TouchableOpacity' as never)
-    .find(node => node.findAllByType('Text' as never).some(label => label.children.includes(text)))!
+  return screen.getByText(text)
 }
 
 beforeEach(async () => {
   mockRequest.mockReset()
+  screen = render(<TrustScreen />)
   await act(async () => {
-    screen = create(<TrustScreen />)
+    fireEvent.press(button('add_provider'))
   })
   await act(async () => {
-    button('add_provider').props.onPress()
-  })
-  await act(async () => {
-    screen.root.findByProps({ placeholder: 'trustedentity.com' }).props.onChangeText('provider.example')
+    fireEvent.changeText(screen.getByPlaceholderText('trustedentity.com'), 'provider.example')
   })
 })
 afterEach(async () => {
@@ -87,7 +68,7 @@ it('imports provider details through the native receive ceiling', async () => {
     ).toString('base64')
   })
   await act(async () => {
-    await button('get_provider_details').props.onPress()
+    fireEvent.press(button('get_provider_details'))
   })
   expect(mockRequest).toHaveBeenCalledTimes(1)
   expect(mockRequest.mock.calls[0][0]).toMatchObject({
@@ -95,7 +76,7 @@ it('imports provider details through the native receive ceiling', async () => {
     maxBytes: 64 * 1024,
     method: 'GET'
   })
-  expect(screen.root.findAllByType('Text' as never).some(node => node.children.includes('Provider Name'))).toBe(true)
+  expect(screen.getByText('Provider Name')).toBeTruthy()
 })
 
 it('shows native size-limit failure without using global buffering fetch', async () => {
@@ -107,16 +88,10 @@ it('shows native size-limit failure without using global buffering fetch', async
   Object.defineProperty(globalThis, 'fetch', { configurable: true, writable: true, value: unbounded })
   try {
     await act(async () => {
-      await button('get_provider_details').props.onPress()
+      fireEvent.press(button('get_provider_details'))
     })
     expect(unbounded).not.toHaveBeenCalled()
-    expect(
-      screen.root
-        .findAllByType('Text' as never)
-        .some(node =>
-          node.children.some(value => typeof value === 'string' && value.includes('Could not fetch the trust data'))
-        )
-    ).toBe(true)
+    expect(screen.getByText(/Could not fetch the trust data/)).toBeTruthy()
   } finally {
     Object.defineProperty(globalThis, 'fetch', original)
   }
