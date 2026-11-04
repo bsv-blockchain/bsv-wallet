@@ -32,6 +32,7 @@ import {
 } from '@bsv/backup-cache-client'
 import { MAX_RESTORE_RESPONSE_BYTES, type BackupChain } from './constants'
 import { deriveBackupWallet } from './derive'
+import { createBoundedNativeFetch } from '../network/boundedFetch'
 
 export { BackupHttpError, ERR_BLOB_TOO_LARGE, ERR_SEQ_CONFLICT }
 export type { DeviceSummary, Limits, LogEntry }
@@ -53,13 +54,13 @@ export class BackupClient extends BackupCacheClient {
    * @param primaryKey the wallet's m/0'/0' key, from which the pseudonym is derived.
    * @param chain the network this client serves. Each chain derives a different
    *   pseudonym, so each network's log lives in its own server account.
-   * @param fetchImpl injectable transport for tests; defaults to global fetch.
+   * @param fetchImpl trusted injectable transport for tests; production uses the native receive cap.
    */
   constructor(baseUrl: string, primaryKey: number[], chain: BackupChain, fetchImpl?: typeof fetch) {
     super({
       baseUrl,
       wallet: deriveBackupWallet(primaryKey, chain),
-      fetch: withBackupRequestTimeout(fetchImpl ?? ((input, init) => fetch(input, init)))
+      fetch: withBackupRequestTimeout(fetchImpl ?? createBoundedNativeFetch(MAX_RESTORE_RESPONSE_BYTES))
     })
   }
 
@@ -80,13 +81,9 @@ export class BackupClient extends BackupCacheClient {
 }
 
 /**
- * Bound the request and the body readers used by BackupCacheClient with one
- * deadline. React Native's XHR fetch resolves after the download, but its
- * Blob/FileReader conversion is still asynchronous; browser fetch can resolve
- * before any body bytes arrive. Neither phase may strand the monitor.
- *
- * Wrap the existing readers instead of rebuilding/cloning the Response: a
- * large backup still allocates only the buffer the package itself requests.
+ * Apply one deadline to transport and body decoding. The production transport
+ * bounds actual received bytes natively before this wrapper receives a Response;
+ * Content-Length here is only an advisory early rejection for injected transports.
  */
 export function withBackupRequestTimeout(transport: typeof fetch): typeof fetch {
   return async (input, init) => {
@@ -135,12 +132,6 @@ export function withBackupRequestTimeout(transport: typeof fetch): typeof fetch 
     }
 
     const response = await bounded(() => transport(input, { ...init, signal: controller.signal }))
-    // Refuse before EITHER reader is ever wrapped, let alone called: on this platform fetch
-    // has no incremental/streaming read mode (see this function's own docstring), so a
-    // declared-oversized body can only be bounded here, never partway through reading it.
-    // A response that omits Content-Length entirely passes through unchanged — a documented
-    // residual gap (see MAX_RESTORE_RESPONSE_BYTES), not a false rejection of ordinary
-    // traffic that happens not to declare a length.
     const declaredLength = Number(response.headers.get('content-length'))
     if (Number.isFinite(declaredLength) && declaredLength > MAX_RESTORE_RESPONSE_BYTES) {
       throw new BackupHttpError(

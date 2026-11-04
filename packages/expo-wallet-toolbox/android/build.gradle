@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'org.bsv'
+version = '0.0.0'
+
+android {
+  namespace 'org.bsv.boundedfetch'
+  defaultConfig {
+    versionCode 1
+    versionName '0.0.0'
+  }
+}
