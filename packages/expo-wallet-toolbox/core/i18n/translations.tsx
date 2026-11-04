@@ -684,6 +684,9 @@ const resources = {
       display_currency: 'Display Currency',
       no_pending_payments: 'No pending payments',
       outgoing_payments: 'Outgoing',
+      review_imported_payment: 'Review imported payment',
+      review_imported_payment_detail:
+        'This payment came from a backup and may have been canceled. Send {{amount}} satoshis to {{recipient}} now?',
       payment_not_delivered: 'Not delivered',
       payment_delivered: 'Delivered',
       retry: 'Retry',

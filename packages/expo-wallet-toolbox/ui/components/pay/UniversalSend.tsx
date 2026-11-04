@@ -71,7 +71,7 @@ import {
   sendToAddress,
   getOutboxEntries,
   pruneExpiredSent,
-  unsentEntries,
+  releaseImportedOutboxEntry,
   type OutboxEntry,
   type Session,
   haptics,
@@ -182,11 +182,13 @@ function OutgoingSection({ entries, retryingId, colors, t, onRetry, onCancel }: 
 
                 {/* Status / error text */}
                 <Text style={[styles.outgoingStatusText, { color: colors.textSecondary }]} numberOfLines={2}>
-                  {entry.lastError
-                    ? isMessageBoxNetworkError(entry.lastError)
-                      ? t('message_box_unreachable')
-                      : entry.lastError
-                    : t('payment_not_delivered')}
+                  {entry.status === 'import_hold'
+                    ? t('tx_status_import_hold')
+                    : entry.lastError
+                      ? isMessageBoxNetworkError(entry.lastError)
+                        ? t('message_box_unreachable')
+                        : entry.lastError
+                      : t('payment_not_delivered')}
                 </Text>
 
                 {/* Action buttons — full-width row, easy tap targets */}
@@ -211,7 +213,9 @@ function OutgoingSection({ entries, retryingId, colors, t, onRetry, onCancel }: 
                         <Text style={[styles.outgoingRetryText, { color: colors.accent }]}>{t('resending')}</Text>
                       </View>
                     ) : (
-                      <Text style={[styles.outgoingRetryText, { color: colors.accent }]}>{t('retry')}</Text>
+                      <Text style={[styles.outgoingRetryText, { color: colors.accent }]}>
+                        {t(entry.status === 'import_hold' ? 'review_imported_payment' : 'retry')}
+                      </Text>
                     )}
                   </PressableScale>
                 </View>
@@ -817,7 +821,9 @@ function UniversalSendInner(
   const loadOutbox = useCallback(async () => {
     if (!storage) return
     await pruneExpiredSent(storage)
-    setOutbox(unsentEntries(await getOutboxEntries(storage)))
+    setOutbox(
+      (await getOutboxEntries(storage)).filter(entry => entry.status === 'unsent' || entry.status === 'import_hold')
+    )
   }, [storage])
 
   useEffect(() => {
@@ -1154,6 +1160,18 @@ function UniversalSendInner(
       }
       setRetryingId(entry.id)
       try {
+        if (entry.status === 'import_hold') {
+          const choice = await showAlert({
+            title: t('review_imported_payment'),
+            message: t('review_imported_payment_detail', { amount: entry.token.amount, recipient: entry.recipient }),
+            buttons: [
+              { text: t('cancel'), style: 'cancel', key: 'cancel' },
+              { text: t('send'), key: 'send' }
+            ]
+          })
+          if (choice !== 'send') return
+          entry = await releaseImportedOutboxEntry(storage, entry)
+        }
         await retryDelivery({ wallet: wallet as any, adminOriginator, client, storage, entry })
         setSent({ amount: entry.token.amount, recipientIdentityKey: entry.recipient })
       } catch (e: any) {

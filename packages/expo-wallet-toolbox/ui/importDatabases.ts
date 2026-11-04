@@ -19,6 +19,7 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 import { showAlert } from './components/ui/AlertCard'
 import { showToast } from './components/ui/Toast'
+import { OUTBOX_KEY, quarantineImportedOutbox } from '../core/peerpay/outbox'
 
 /**
  * expo-file-system and expo-document-picker both ship untransformed ESM/raw-TS
@@ -557,6 +558,23 @@ export async function importWalletDatabase(
       // never delete or otherwise mutate the row, since it may already have
       // been broadcast (XR-085).
       await destDb.runAsync(`UPDATE offline_actions SET status = 'import_hold' WHERE status IN ('queued', 'posting')`)
+
+      // Preserve signed PeerPay history, but never restore old outgoing
+      // authority (including a snapshot taken before cancellation).
+      const importedDb = destDb
+      await quarantineImportedOutbox({
+        getKeyValue: async key => {
+          const row = await importedDb.getFirstAsync<{ value: string }>(
+            'SELECT value FROM key_value_store WHERE key = ?',
+            [key]
+          )
+          return row?.value
+        },
+        setKeyValue: async (key, value) => {
+          if (key !== OUTBOX_KEY) throw new Error('Unexpected import quarantine key')
+          await importedDb.runAsync('UPDATE key_value_store SET value = ? WHERE key = ?', [value, key])
+        }
+      })
     }
   } catch (e: any) {
     console.error('[importDatabases] Failed to place database:', e.message)

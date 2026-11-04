@@ -48,7 +48,7 @@ export interface OutboxEntry {
    * overlay lookup. Absent for entries minted from a bare key.
    */
   recipientHost?: string
-  status: 'unsent' | 'sent'
+  status: 'unsent' | 'sent' | 'import_hold'
   /** ISO 8601 timestamp of most recent delivery attempt */
   lastAttemptAt?: string
   /** Error message from the most recent failed delivery attempt */
@@ -151,6 +151,38 @@ export async function getOutboxEntries(storage: StorageLike): Promise<OutboxEntr
  */
 export async function getOutboxEntriesStrict(storage: Pick<StorageLike, 'getKeyValue'>): Promise<OutboxEntry[]> {
   return readEntries(storage)
+}
+
+/** Imported history is not current approval to deliver or broadcast a payment. */
+export async function quarantineImportedOutbox(storage: StorageLike): Promise<number> {
+  return withOutboxLock(storage, async () => {
+    const all = await readEntries(storage)
+    let count = 0
+    const held = all.map(entry => {
+      if (!entry || typeof entry !== 'object') throw new Error('Invalid imported outbox entry')
+      if (entry.status === 'sent' || entry.status === 'import_hold') return entry
+      count++
+      return { ...entry, status: 'import_hold' as const }
+    })
+    if (count) await writeEntries(storage, held)
+    return count
+  })
+}
+
+/** Called only after reviewing the displayed imported payment for a new send. */
+export async function releaseImportedOutboxEntry(storage: StorageLike, reviewed: OutboxEntry): Promise<OutboxEntry> {
+  return withOutboxLock(storage, async () => {
+    const all = await readEntries(storage)
+    const index = all.findIndex(entry => entry.id === reviewed.id)
+    const current = all[index]
+    if (!current || current.status !== 'import_hold' || JSON.stringify(current) !== JSON.stringify(reviewed)) {
+      throw new Error('Imported payment changed; review it again')
+    }
+    const approved = { ...current, status: 'unsent' as const }
+    all[index] = approved
+    await writeEntries(storage, all)
+    return approved
+  })
 }
 
 /**
@@ -264,7 +296,7 @@ export async function pruneExpiredSent(storage: StorageLike, now: number = Date.
   })
 }
 
-/** Entries that still need Retry/Cancel — everything not yet marked sent. */
+/** Only explicitly authorized unsent entries may enter automatic delivery. */
 export function unsentEntries(entries: OutboxEntry[]): OutboxEntry[] {
-  return entries.filter(e => e.status !== 'sent')
+  return entries.filter(e => e.status === 'unsent')
 }
