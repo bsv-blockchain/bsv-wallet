@@ -237,3 +237,21 @@ describe('encrypted RPC transport boundary', () => {
     expect(() => requireBoundedPlaintext(sparse)).toThrow(/limit/i)
   })
 })
+
+test('origin session discovery binds the backend key, topic and protocol', () => {
+  const expected = {
+    topic: 'approved-topic',
+    backendIdentityKey: VALID_KEY,
+    protocolID: '[0,"wallet pairing"]'
+  }
+  const valid = { relay: 'wss://relay.example', ...expected }
+  expect(parseRelayResponse(JSON.stringify(valid), expected)).toBe('wss://relay.example')
+  for (const replacement of [
+    { backendIdentityKey: `03${'11'.repeat(32)}` },
+    { topic: 'other-topic' },
+    { protocolID: '[1,"wallet pairing"]' }
+  ]) {
+    expect(() => parseRelayResponse(JSON.stringify({ ...valid, ...replacement }), expected)).toThrow(/session|match/i)
+  }
+  expect(() => parseRelayResponse('{"relay":"wss://relay.example"}', expected)).toThrow(/session|match/i)
+})

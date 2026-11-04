@@ -30,6 +30,7 @@ import { PrivateKey, ProtoWallet } from '@bsv/sdk'
 import { WalletConnectionProvider, useWalletConnection, lastSeqKey } from '../../core/context/WalletConnectionContext'
 import { buildPairingSignatureMessage } from '../../core/services/walletConnectionValidation'
 
+let mockOriginSession: Record<string, string> = {}
 const mockWebSockets: any[] = []
 const mockWebSocketConstructor = jest.fn(function (this: any, url: string) {
   this.url = url
@@ -47,7 +48,7 @@ beforeEach(() => {
   mockSetItemAsync.mockImplementation(async () => {})
   ;(global as any).WebSocket = mockWebSocketConstructor
   global.fetch = jest.fn(async () => {
-    const relayBody = JSON.stringify({ relay: 'wss://relay.example' })
+    const relayBody = JSON.stringify({ relay: 'wss://relay.example', ...mockOriginSession })
     return {
       ok: true,
       // XR-025: a real relay server declares Content-Length for a small,
@@ -76,6 +77,7 @@ async function signedPairingParams(topic: string) {
   })
   const sig = Buffer.from(signature).toString('base64url')
 
+  mockOriginSession = { topic, backendIdentityKey, protocolID }
   return { topic, backendIdentityKey, protocolID, origin, expiry, sig }
 }
 

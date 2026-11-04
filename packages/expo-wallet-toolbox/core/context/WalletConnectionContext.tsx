@@ -21,7 +21,8 @@ import {
   validatePairingTopic,
   validateStoredConnectionSequence,
   validateStoredConnectionFields,
-  type ConnectParams
+  type ConnectParams,
+  type OriginSessionTuple
 } from '../services/walletConnectionValidation'
 
 export type { ConnectParams } from '../services/walletConnectionValidation'
@@ -172,7 +173,7 @@ async function readBoundedRelayResponse(res: Response): Promise<string> {
   return text
 }
 
-export async function fetchRelay(origin: string, topic: string): Promise<string> {
+export async function fetchRelay(origin: string, topic: string, expected?: OriginSessionTuple): Promise<string> {
   const validatedTopic = validatePairingTopic(topic)
   const external = validateCanonicalExternalOrigin(origin)
   const controller = new AbortController()
@@ -184,7 +185,7 @@ export async function fetchRelay(origin: string, topic: string): Promise<string>
     })
     if (!res.ok) throw new Error(`Could not fetch session from origin: HTTP ${res.status}`)
     const raw = await readBoundedRelayResponse(res)
-    return parseRelayResponse(raw)
+    return parseRelayResponse(raw, expected)
   } finally {
     clearTimeout(timer)
   }
@@ -644,7 +645,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         if (!isCurrent()) return
 
         // Fetch relay URL from origin over HTTPS — TLS cert is the trust anchor
-        relay = await fetchRelay(validated.external.origin, validated.params.topic)
+        relay = await fetchRelay(validated.external.origin, validated.params.topic, validated.params)
         if (!isCurrent()) return
         // Re-approval does not rotate the topic's encryption key. Previously
         // accepted ciphertexts must remain consumed when this QR is scanned again.
@@ -752,7 +753,11 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         throw new Error('Stored connection belongs to a different wallet identity')
       }
       // Fetch relay URL from origin over HTTPS — relay may have moved since last connection
-      const relay = await fetchRelay(validated.external.origin, validated.topic)
+      const relay = await fetchRelay(validated.external.origin, validated.topic, {
+        topic: validated.topic,
+        backendIdentityKey: validated.backendIdentityKey,
+        protocolID: validated.protocolIDRaw
+      })
       if (!isCurrent()) return
 
       const protocolID = validated.protocolID

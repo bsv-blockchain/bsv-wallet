@@ -27,6 +27,7 @@ import connectionStore from '../../core/stores/ConnectionStore'
 import { runSessionTeardown } from '../../core/context/sessionTeardown'
 import { buildPairingSignatureMessage } from '../../core/services/walletConnectionValidation'
 
+let mockOriginSession: Record<string, string> = {}
 const mockWebSockets: any[] = []
 const mockWebSocketConstructor = jest.fn(function (this: any, url: string) {
   this.url = url
@@ -40,7 +41,7 @@ beforeEach(() => {
   mockWebSocketConstructor.mockClear()
   ;(global as any).WebSocket = mockWebSocketConstructor
   global.fetch = jest.fn(async () => {
-    const relayBody = JSON.stringify({ relay: 'wss://relay.example' })
+    const relayBody = JSON.stringify({ relay: 'wss://relay.example', ...mockOriginSession })
     return {
       ok: true,
       // XR-025: a real relay server declares Content-Length for a small,
@@ -75,6 +76,7 @@ async function signedPairingParams(topic = 'xr018-logout-topic') {
   })
   const sig = Buffer.from(signature).toString('base64url')
 
+  mockOriginSession = { topic, backendIdentityKey, protocolID }
   return { topic, backendIdentityKey, protocolID, origin, expiry, sig }
 }
 
@@ -156,7 +158,12 @@ for (const reason of ['disconnect', 'logout', 'profile'] as const) {
       if (reason === 'disconnect') result.current.disconnect()
       else runSessionTeardown(reason)
     })
-    const body = JSON.stringify({ relay: 'wss://relay.example' })
+    const body = JSON.stringify({
+      relay: 'wss://relay.example',
+      topic: params.topic,
+      backendIdentityKey: params.backendIdentityKey,
+      protocolID: params.protocolID
+    })
     release({ ok: true, headers: { get: () => String(body.length) }, text: async () => body })
     await act(async () => {
       await pending
@@ -198,7 +205,12 @@ test('deleting an inactive pairing revokes a reconnect still discovering its rel
   for (let i = 0; i < 20; i++) await Promise.resolve()
   expect(release).toBeDefined()
   connectionStore.remove(connection.sessionId)
-  const body = JSON.stringify({ relay: 'wss://relay.example' })
+  const body = JSON.stringify({
+    relay: 'wss://relay.example',
+    topic: connection.sessionId,
+    backendIdentityKey: connection.backendIdentityKey,
+    protocolID: connection.protocolID
+  })
   release({ ok: true, headers: { get: () => String(body.length) }, text: async () => body })
   await act(async () => {
     await pending
@@ -245,7 +257,12 @@ test('an older pending pairing cannot supersede a newer successful connection', 
   await act(async () => {
     await result.current.connect(paramsB as any, wallet as any)
   })
-  const body = JSON.stringify({ relay: 'wss://relay.example' })
+  const body = JSON.stringify({
+    relay: 'wss://relay.example',
+    topic: paramsA.topic,
+    backendIdentityKey: paramsA.backendIdentityKey,
+    protocolID: paramsA.protocolID
+  })
   release({ ok: true, headers: { get: () => String(body.length) }, text: async () => body })
   await act(async () => {
     await pending
