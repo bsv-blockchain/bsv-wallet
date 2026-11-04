@@ -5,14 +5,14 @@ export const genesis = new Uint8Array(utils.genesisBuffer('regtest'))
 export const genesisHeader = parseHeader(genesis)
 export const anchor = { height: 0, hash: genesisHeader.hash }
 
-export function branch(count: number, salt: string): Uint8Array[] {
+export function branch(count: number, salt: string, merkleRoots?: readonly string[]): Uint8Array[] {
   const result: Uint8Array[] = []
   let previous = genesisHeader
   for (let i = 0; i < count; i++) {
     const header = {
       version: 4,
       previousHash: previous.hash,
-      merkleRoot: (salt + String(i)).padEnd(64, '0'),
+      merkleRoot: merkleRoots?.[i] ?? (salt + String(i)).padEnd(64, '0'),
       time: genesisHeader.time + (i + 1) * 600,
       bits: 0x207fffff,
       nonce: 0
