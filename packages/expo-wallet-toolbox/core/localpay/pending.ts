@@ -67,14 +67,47 @@ const descriptionDecoder = new TextDecoder()
 /**
  * Truncates on the UTF-8 byte boundary, not the JS string index — slicing by
  * character count alone can still overshoot the byte ceiling for non-ASCII
- * text. A multi-byte character cut in half at the boundary decodes back as
- * U+FFFD under TextDecoder's default lenient mode rather than throwing, which
- * is fine here: this is a display fallback, not the payment amount.
+ * text. Drop an incomplete trailing scalar: decoding its partial bytes would
+ * insert U+FFFD, whose three bytes can exceed the original byte budget.
  */
 export function truncateUtf8Bytes(s: string, maxBytes: number): string {
   const bytes = descriptionEncoder.encode(s)
   if (bytes.length <= maxBytes) return s
-  return descriptionDecoder.decode(bytes.slice(0, maxBytes))
+  let end = Math.max(0, Math.floor(maxBytes))
+  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--
+  return descriptionDecoder.decode(bytes.subarray(0, end))
+}
+
+/** Repair only exhausted BSV entries affected by the old description truncation. */
+async function repairDescriptionFailures(storage: KVStorage): Promise<void> {
+  await withQueueLock(async () => {
+    let repaired = false
+    const next = (await readAll(storage)).map(p => {
+      if (
+        p.frame.kind !== 'bsv' ||
+        !isPendingExhausted(p) ||
+        !/description/i.test(p.failureReason ?? '') ||
+        !/2000|byte|length/i.test(p.failureReason ?? '')
+      )
+        return p
+      const note = p.frame.note?.trim()
+      if (!note) return p
+      const bytes = descriptionEncoder.encode(note.padEnd(5))
+      if (bytes.length <= MAX_INTERNALIZE_DESCRIPTION_BYTES) return p
+      const previous = descriptionDecoder.decode(bytes.subarray(0, MAX_INTERNALIZE_DESCRIPTION_BYTES))
+      if (descriptionEncoder.encode(previous).length <= MAX_INTERNALIZE_DESCRIPTION_BYTES) return p
+      repaired = true
+      return {
+        ...p,
+        frame: { ...p.frame, note: truncateUtf8Bytes(note, MAX_INTERNALIZE_DESCRIPTION_BYTES) },
+        status: 'pending' as const,
+        attempts: 0,
+        failureReason: undefined
+      }
+    })
+    // Persist the normalized note so this migration cannot reset retries again.
+    if (repaired) await writeAll(storage, next)
+  })
 }
 
 export interface PendingSummary {
@@ -595,6 +628,7 @@ export async function processPending(
    */
   acceptToken?: TokenAcceptHook
 ): Promise<{ id: string; success: boolean; error?: string }[]> {
+  await repairDescriptionFailures(storage)
   const results: { id: string; success: boolean; error?: string }[] = []
   for (const p of await getRetryable(storage)) {
     await updateStatus(storage, p.id, 'processing')
@@ -637,7 +671,13 @@ export async function processPending(
         // the ceiling and is journaled `refused`. A transport failure never
         // burns an attempt. Anything else follows the BSV rule (FIX I).
         const final = !isRetriableReceiptFailure(e)
-        await updateStatus(storage, p.id, 'failed', error, final ? 'exhaust' : isTransportReceiptFailure(e) ? 'free' : 'auto')
+        await updateStatus(
+          storage,
+          p.id,
+          'failed',
+          error,
+          final ? 'exhaust' : isTransportReceiptFailure(e) ? 'free' : 'auto'
+        )
         await reportReceipt(onTokenReceived, facts, { ok: false, code: receiptFailureCode(e), final })
       } else {
         await updateStatus(storage, p.id, 'failed', error)
