@@ -79,3 +79,19 @@ for invalid in [Data([0, 0, 0, 0]), Data([0, 0, 128, 1]), Data(repeating: 0, cou
   } catch { }
 }
 print("PASS: fresh CSPRNG challenges, UUID vector, decline escaping, immutable frame digest, invalid framing")
+
+let wireFrame = BleGattProfile.frameMessage(sealed: frame)
+precondition(wireFrame.count == frame.count + 1)
+precondition(wireFrame.first == BleGattProfile.typeFrame)
+precondition(Data(wireFrame.dropFirst()) == frame)
+let prefixedFrame = BleGattProfile.lengthPrefixed(wireFrame)
+let declaredFrameLength = prefixedFrame.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
+precondition(declaredFrameLength == wireFrame.count)
+var frameAssembler = BleGattProfile.Reassembler()
+var recoveredFrames: [Data] = []
+for part in BleGattProfile.chunks(prefixedFrame, size: 3) {
+  recoveredFrames += try frameAssembler.feed(part)
+}
+precondition(recoveredFrames == [wireFrame])
+precondition(Data(recoveredFrames[0].dropFirst()) == frame)
+print("PASS: FRAME type, declared length, chunked sealed-byte roundtrip")
