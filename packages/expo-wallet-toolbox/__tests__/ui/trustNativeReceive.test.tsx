@@ -4,6 +4,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 jest.mock('react-native', () => ({
+  ...jest.requireActual('react-native'),
   View: 'View',
   Text: 'Text',
   ScrollView: 'ScrollView',
@@ -99,7 +100,11 @@ it('imports provider details through the native receive ceiling', async () => {
 
 it('shows native size-limit failure without using global buffering fetch', async () => {
   mockRequest.mockRejectedValue(new Error('ERR_RESPONSE_TOO_LARGE'))
-  const unbounded = jest.spyOn(global, 'fetch')
+  // Expo installs fetch through a lazy native getter. Replace its descriptor
+  // without initializing an unrelated native fetch module in this unit test.
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'fetch')!
+  const unbounded = jest.fn()
+  Object.defineProperty(globalThis, 'fetch', { configurable: true, writable: true, value: unbounded })
   try {
     await act(async () => {
       await button('get_provider_details').props.onPress()
@@ -113,6 +118,6 @@ it('shows native size-limit failure without using global buffering fetch', async
         )
     ).toBe(true)
   } finally {
-    unbounded.mockRestore()
+    Object.defineProperty(globalThis, 'fetch', original)
   }
 })
