@@ -84,7 +84,11 @@ jest.mock('expo-secure-store', () => ({
   getItemAsync: (...args: unknown[]) => mockGetStoredSequence(...args),
   deleteItemAsync: (...args: unknown[]) => mockDeleteStoredSequence(...args)
 }))
-jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }))
+jest.mock('@expo/vector-icons', () => {
+  const React = require('react')
+  const { Text } = require('react-native')
+  return { Ionicons: ({ name }: { name: string }) => React.createElement(Text, { testID: name }) }
+})
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }))
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: (...args: unknown[]) => mockToast(...args) }))
@@ -382,3 +386,13 @@ it.each(['bsv-wallet', 'bsv-browser'])(
     expect(stageOrder).toBeLessThan(connectOrder)
   }
 )
+
+it('deleting an inactive pairing removes its connection without deleting the durable replay floor', async () => {
+  const entry = storedConnection({ status: 'disconnected' })
+  mockConnections.push(entry)
+  mockGetStoredSequence.mockResolvedValue('7')
+  const screen = render(<ConnectionsScreen />)
+  fireEvent.press(screen.getByTestId('trash-outline'))
+  expect(require('@bsv/expo-wallet-toolbox').connectionStore.remove).toHaveBeenCalledWith(entry.sessionId)
+  expect(mockDeleteStoredSequence).not.toHaveBeenCalled()
+})
