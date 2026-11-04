@@ -20,66 +20,53 @@ function mockAdapt(raw: DatabaseSync) {
   }
 }
 
-jest.mock(
-  'expo-sqlite',
-  () => ({
-    deserializeDatabaseAsync: async () => mockAdapt(mockSource),
-    openDatabaseAsync: async (name: string) => {
-      const { DatabaseSync: DB } = require('node:sqlite')
-      const raw = new DB(':memory:')
-      if (name !== ':memory:') mockDestination = raw
-      return mockAdapt(raw)
-    },
-    backupDatabaseAsync: async ({ sourceDatabase, destDatabase }: any) => {
-      mockBackup()
-      const src = sourceDatabase.__raw as DatabaseSync
-      const dest = destDatabase.__raw as DatabaseSync
-      const objects = src.prepare('SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL').all() as {
-        type: string
-        name: string
-        sql: string
-      }[]
-      for (const type of ['table', 'index', 'view', 'trigger']) {
-        for (const object of objects.filter(o => o.type === type && !o.name.startsWith('sqlite_')))
-          dest.exec(object.sql)
-      }
-      for (const object of objects.filter(o => o.type === 'table' && !o.name.startsWith('sqlite_'))) {
-        const rows = src.prepare(`SELECT * FROM "${object.name}"`).all()
-        for (const row of rows) {
-          const columns = Object.keys(row)
-          dest
-            .prepare(
-              `INSERT INTO "${object.name}" (${columns.map(c => `"${c}"`).join(',')}) VALUES (${columns.map(() => '?').join(',')})`
-            )
-            .run(...(columns.map(c => row[c]) as never[]))
-        }
+jest.mock('expo-sqlite', () => ({
+  deserializeDatabaseAsync: async () => mockAdapt(mockSource),
+  openDatabaseAsync: async (name: string) => {
+    const { DatabaseSync: DB } = require('node:sqlite')
+    const raw = new DB(':memory:')
+    if (name !== ':memory:') mockDestination = raw
+    return mockAdapt(raw)
+  },
+  backupDatabaseAsync: async ({ sourceDatabase, destDatabase }: any) => {
+    mockBackup()
+    const src = sourceDatabase.__raw as DatabaseSync
+    const dest = destDatabase.__raw as DatabaseSync
+    const objects = src.prepare('SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL').all() as {
+      type: string
+      name: string
+      sql: string
+    }[]
+    for (const type of ['table', 'index', 'view', 'trigger']) {
+      for (const object of objects.filter(o => o.type === type && !o.name.startsWith('sqlite_'))) dest.exec(object.sql)
+    }
+    for (const object of objects.filter(o => o.type === 'table' && !o.name.startsWith('sqlite_'))) {
+      const rows = src.prepare(`SELECT * FROM "${object.name}"`).all()
+      for (const row of rows) {
+        const columns = Object.keys(row)
+        dest
+          .prepare(
+            `INSERT INTO "${object.name}" (${columns.map(c => `"${c}"`).join(',')}) VALUES (${columns.map(() => '?').join(',')})`
+          )
+          .run(...(columns.map(c => row[c]) as never[]))
       }
     }
-  }),
-  { virtual: true }
-)
-jest.mock(
-  'expo-document-picker',
-  () => ({
-    getDocumentAsync: async () => ({
-      canceled: false,
-      assets: [{ name: 'wallet-deadbeef-testnet-2000.db', uri: 'file://picked.db', size: 4096 }]
-    })
-  }),
-  { virtual: true }
-)
-jest.mock(
-  'expo-file-system',
-  () => ({
-    File: class {
-      async bytes() {
-        return new Uint8Array([1])
-      }
-      delete() {}
+  }
+}))
+jest.mock('expo-document-picker', () => ({
+  getDocumentAsync: async () => ({
+    canceled: false,
+    assets: [{ name: 'wallet-deadbeef-testnet-2000.db', uri: 'file://picked.db', size: 4096 }]
+  })
+}))
+jest.mock('expo-file-system', () => ({
+  File: class {
+    async bytes() {
+      return new Uint8Array([1])
     }
-  }),
-  { virtual: true }
-)
+    delete() {}
+  }
+}))
 jest.mock('../../core/index', () => ({
   i18n: { t: (key: string) => key },
   parseDbFilename: () => ({ keySuffix: 'deadbeef', chain: 'test', timestamp: 2000 }),
