@@ -6,6 +6,52 @@ import { syncHeaders } from '../../core/headers/syncHeaders'
 
 import { genesis, anchor, branch, combine } from './fixtures/regtest'
 
+it('reports no work until a non-genesis checkpoint has authenticated bootstrap context', async () => {
+  const headers = branch(2, 'c')
+  const pending = await HeaderStore.open(memoryHeaderFs(), 'regtest', { height: 1, hash: parseHeader(headers[0]).hash })
+  expect(pending.chainWork).toBe(0n)
+})
+
+it('rejects empty and partial replacement headers before touching the current window', async () => {
+  const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', anchor)
+  for (const bytes of [new Uint8Array(), new Uint8Array(81)]) {
+    await expect(store.replaceBranch(1, bytes)).rejects.toThrow(/Invalid replacement header bytes/)
+  }
+  expect(store.tipHeight).toBe(0)
+})
+
+it('reopens and replaces authenticated windows longer than the validation yield interval', async () => {
+  const fs = memoryHeaderFs()
+  const store = await HeaderStore.open(fs, 'regtest', anchor)
+  await store.append(combine(branch(101, 'c')), 1)
+  const reopened = await HeaderStore.open(fs, 'regtest', anchor)
+  expect(reopened.count).toBe(101)
+  reopened.yieldEvery = 1
+  const replacement = branch(102, 'd')
+  await reopened.replaceBranch(1, combine(replacement))
+  expect(reopened.rootForHeight(102)).toBe(parseHeader(replacement[101]).merkleRoot)
+})
+
+it('refuses a replacement that needs a retained disk prefix which has disappeared', async () => {
+  const fs = memoryHeaderFs()
+  const store = await HeaderStore.open(fs, 'regtest', anchor)
+  const headers = branch(9, 'c')
+  await store.append(combine(headers.slice(0, 8)), 1)
+  await fs.deleteFile('regtest.bin')
+  await expect(store.replaceBranch(7, combine(headers.slice(6)))).rejects.toThrow(/Stored header prefix unavailable/)
+  expect(store.tipHeight).toBe(8)
+})
+
+it('discards corrupt persisted headers even when no separate bootstrap file exists', async () => {
+  const fs = memoryHeaderFs()
+  const store = await HeaderStore.open(fs, 'regtest', anchor)
+  await store.append(combine(branch(1, 'c')), 1)
+  await fs.writeBytes('regtest.bin', new Uint8Array(80))
+  const reopened = await HeaderStore.open(fs, 'regtest', anchor)
+  expect(reopened.count).toBe(0)
+  expect(reopened.rootForHeight(1)).toBeUndefined()
+})
+
 it('does not replace or persist a lower/equal-work branch, and adopts a greater-work branch', async () => {
   const fs = memoryHeaderFs()
   const store = await HeaderStore.open(fs, 'regtest', anchor)
