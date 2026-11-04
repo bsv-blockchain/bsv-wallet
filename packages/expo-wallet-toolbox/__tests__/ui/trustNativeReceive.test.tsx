@@ -3,12 +3,12 @@ import { act, fireEvent, render } from '@testing-library/react-native'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-jest.mock('react-native-svg', () => ({ SvgUri: 'SvgUri' }), { virtual: true })
-jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0 }) }), { virtual: true })
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (value: string) => value }) }), { virtual: true })
-jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }), { virtual: true })
-jest.mock('expo-router', () => ({ router: { back: jest.fn() } }), { virtual: true })
-jest.mock('expo-image', () => ({ Image: Object.assign(() => null, { prefetch: async () => true }) }), { virtual: true })
+jest.mock('react-native-svg', () => ({ SvgUri: 'SvgUri' }))
+jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0 }) }))
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (value: string) => value }) }))
+jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }))
+jest.mock('expo-router', () => ({ router: { back: jest.fn() } }))
+jest.mock('expo-image', () => ({ Image: Object.assign(() => null, { prefetch: async () => true }) }))
 jest.mock('../../ui/components/ui/AlertCard', () => ({ showAlert: jest.fn(async () => 'cancel') }))
 jest.mock('../../core/index', () => ({
   haptics: { selection: jest.fn(), success: jest.fn() },
