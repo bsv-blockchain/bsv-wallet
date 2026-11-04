@@ -15,7 +15,12 @@ import java.nio.charset.CodingErrorAction
  * measured with the injected [clock] and apply only while receiving; once [readRequest] returns they no longer exist.
  * Only verbs and framing are policed here; paths, per-path 405 and 404 belong to the router.
  */
-class HttpParser(private val limits: Limits = Limits.DEFAULT, private val clock: () -> Long) {
+class HttpParser(
+  private val limits: Limits = Limits.DEFAULT,
+  private val clock: () -> Long,
+  private val bodyBudget: ReceiveByteBudget? = null,
+  private val admitHead: (String, String, List<Pair<String, String>>, Long) -> ParseResult.Reject? = { _, _, _, _ -> null }
+) {
   data class Limits(
     val requestLineMax: Int = 2048,
     val maxHeaderLines: Int = 64,
@@ -128,30 +133,36 @@ class HttpParser(private val limits: Limits = Limits.DEFAULT, private val clock:
       fail(411, "length required")
     }
 
-    val body = ByteArray(contentLength.toInt())
-    val bodyStart = clock()
-    var got = 0
-    while (got < body.size) {
-      if (clock() - bodyStart > limits.bodyTimeoutMs) fail(408, "body timeout", true)
-      val n = input.read(body, got, body.size - got)
-      if (n < 0) fail(400, "body shorter than content-length")
-      got += n
-    }
-    if (input.available() > 0) fail(400, "pipelined bytes", true)
-
-    if (body.isNotEmpty()) {
-      try {
-        Charsets.UTF_8.newDecoder()
-          .onMalformedInput(CodingErrorAction.REPORT)
-          .onUnmappableCharacter(CodingErrorAction.REPORT)
-          .decode(ByteBuffer.wrap(body))
-      } catch (e: CharacterCodingException) {
-        fail(400, "body not utf-8")
-      }
-    }
-
     val headers = raw.filter { !dropped.contains(it.first) }
-    return ParseResult.Ok(method, target, headers, body)
+    admitHead(method, target, headers, contentLength)?.let { throw Stop(it) }
+    if (bodyBudget?.reserve(contentLength) == false) fail(503, "receive byte budget exhausted")
+    try {
+      val body = ByteArray(contentLength.toInt())
+      val bodyStart = clock()
+      var got = 0
+      while (got < body.size) {
+        if (clock() - bodyStart > limits.bodyTimeoutMs) fail(408, "body timeout", true)
+        val n = input.read(body, got, body.size - got)
+        if (n < 0) fail(400, "body shorter than content-length")
+        got += n
+      }
+      if (input.available() > 0) fail(400, "pipelined bytes", true)
+
+      if (body.isNotEmpty()) {
+        try {
+          Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(body))
+        } catch (e: CharacterCodingException) {
+          fail(400, "body not utf-8")
+        }
+      }
+
+      return ParseResult.Ok(method, target, headers, body)
+    } finally {
+      bodyBudget?.release(contentLength)
+    }
   }
 
   /**
