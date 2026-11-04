@@ -9,12 +9,16 @@ import {
   type OutboxEntry
 } from '../../core/peerpay/outbox'
 import { ADMIN, sender, signedPayment } from '../__helpers__/signedPeerPay'
+import { TaskDrainOutbox } from '../../core/monitor/TaskDrainOutbox'
 
 jest.mock('../../ui/components/ui/PressableScale', () => ({ __esModule: true, default: 'Pressable' }))
+// Keep the real scheduler; its toolbox base class has no role in these UI tests.
+jest.mock('@bsv/wallet-toolbox-mobile', () => ({ WalletMonitorTask: class {} }))
 
 const colors = { textPrimary: '#000', textSecondary: '#333', accent: '#00f', separator: '#888' }
 const t = (key: string, values?: Record<string, string | number>) => (values ? `${key}:${JSON.stringify(values)}` : key)
 const trees: ReactTestRenderer[] = []
+beforeEach(() => TaskDrainOutbox.resetForTests())
 afterEach(() => {
   act(() => trees.splice(0).forEach(tree => tree.unmount()))
 })
@@ -110,6 +114,7 @@ test('inconsistent imported amount is neither displayed nor approved', async () 
   expect(f.props.onApproved).not.toHaveBeenCalled()
   expect(JSON.stringify(f.tree.toJSON())).not.toContain(f.props.entry.recipient)
   expect((await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
+  expect(TaskDrainOutbox.hasPending).toBe(false)
 })
 
 test('a changed stored snapshot is refused when Send is pressed', async () => {
@@ -245,4 +250,51 @@ test('retiring authority while confirmed release is being revalidated prevents d
   })
   expect(f.props.onApproved).not.toHaveBeenCalled()
   expect(f.props.onError).not.toHaveBeenCalled()
+  expect((await getOutboxEntries(f.storage))[0].status).toBe('unsent')
+  expect(TaskDrainOutbox.hasPending).toBe(true)
+})
+
+async function idleDrain() {
+  TaskDrainOutbox.noteConnectivity(true)
+  const task = new TaskDrainOutbox({} as never, async () => ({ retried: 0, remaining: 0 }))
+  await task.runTask()
+  expect(task.trigger(Date.now()).run).toBe(false)
+  return task
+}
+
+test('re-arms an idle drain after an approved payment has a transient first-attempt failure', async () => {
+  const f = await fixture({ onApproved: jest.fn().mockRejectedValue(new Error('temporary delivery failure')) })
+  const task = await idleDrain()
+  await f.review()
+  expect(task.trigger(Date.now()).run).toBe(false)
+  expect((await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
+  await f.review()
+  expect(f.props.onApproved).toHaveBeenCalledTimes(1)
+  expect(f.props.onError).toHaveBeenCalledTimes(1)
+  expect((await getOutboxEntries(f.storage))[0].status).toBe('unsent')
+  expect(task.trigger(Date.now()).run).toBe(true)
+})
+
+test('waits for the immediate approved attempt to settle before waking the idle drain', async () => {
+  let finish!: () => void
+  const onApproved = jest.fn(
+    () =>
+      new Promise<void>(resolve => {
+        finish = resolve
+      })
+  )
+  const f = await fixture({ onApproved })
+  const task = await idleDrain()
+  await f.review()
+  await f.review()
+  expect(onApproved).toHaveBeenCalledTimes(1)
+  expect(task.trigger(Date.now()).run).toBe(false)
+  act(() => {
+    f.buttons()[1].props.onPress()
+  })
+  expect(onApproved).toHaveBeenCalledTimes(1)
+  await act(async () => {
+    finish()
+  })
+  expect(task.trigger(Date.now()).run).toBe(true)
 })

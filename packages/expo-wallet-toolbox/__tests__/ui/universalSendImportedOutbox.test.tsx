@@ -10,6 +10,9 @@ import {
   type OutboxEntry
 } from '../../core/peerpay/outbox'
 import { sender, signedPayment } from '../__helpers__/signedPeerPay'
+import { TaskDrainOutbox } from '../../core/monitor/TaskDrainOutbox'
+
+jest.mock('@bsv/wallet-toolbox-mobile', () => ({ WalletMonitorTask: class {} }))
 
 const mockToast = jest.fn()
 const mockRetry = jest.fn()
@@ -137,6 +140,7 @@ jest.mock('../../core/identity/handleRegistry/client', () => ({ createHandleRegi
 let held: OutboxEntry
 beforeEach(async () => {
   jest.clearAllMocks()
+  TaskDrainOutbox.resetForTests()
   mockOfferWalletCheck = false
   mockClient = {}
   mockWallet = { getPublicKey: jest.fn(sender.getPublicKey.bind(sender)) }
@@ -236,6 +240,7 @@ test.each([new Error('network failed'), new Error('delivery refused'), {}])(
     await send(screen)
     expect(mockRetry).toHaveBeenCalledTimes(1)
     expect(mockToast).toHaveBeenCalledWith(expect.stringMatching(/^retry_failed:/), { type: 'error' })
+    expect(TaskDrainOutbox.hasPending).toBe(true)
   }
 )
 
@@ -297,6 +302,7 @@ test('a missing delivery client prevents transmission after valid fresh approval
   await send(screen)
   expect(mockRetry).not.toHaveBeenCalled()
   expect(mockToast).toHaveBeenCalledWith('message_box_off_hint', { type: 'error' })
+  expect(TaskDrainOutbox.hasPending).toBe(true)
 })
 
 test('an in-flight ordinary retry displays its existing busy state', async () => {

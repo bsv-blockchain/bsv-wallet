@@ -4,6 +4,7 @@ import type { WalletInterface } from '@bsv/sdk'
 import type { ThemeColors } from '../../../core/theme/ThemeContext'
 import { hitTargets, spacing, typography } from '../../../core/theme/tokens'
 import { releaseImportedOutboxEntry, validateImportedOutboxEntry, type OutboxEntry } from '../../../core/peerpay/outbox'
+import { TaskDrainOutbox } from '../../../core/monitor/TaskDrainOutbox'
 import PressableScale from '../ui/PressableScale'
 
 interface Props {
@@ -61,9 +62,17 @@ export default function ImportedOutboxApproval({
         if (current()) setReviewed(checked)
       } else {
         const approved = await releaseImportedOutboxEntry(storage, reviewed, wallet, adminOriginator)
-        if (!current()) return
-        setReviewed(null)
-        await onApproved(approved)
+        try {
+          if (!current()) return
+          setReviewed(null)
+          await onApproved(approved)
+        } finally {
+          // A clean drain ignored this row while it was held. Wake it only
+          // after the immediate attempt settles, so this notification cannot
+          // start an overlapping attempt. Also covers a retired screen after
+          // release: the approved row is still durable pending work.
+          TaskDrainOutbox.noteEnqueued()
+        }
       }
     } catch (error) {
       if (current()) {
