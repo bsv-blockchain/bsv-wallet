@@ -1,6 +1,8 @@
 # Origin-authenticated paired sessions
 
-Before pairing or reconnecting, the wallet reads `GET https://<approved-origin>/api/session/<topic>` with redirects disabled. The HTTPS origin is the authority for the session, not the relay or the key signing the QR.
+Before pairing or reconnecting, the wallet reads `GET https://<approved-origin>/api/session/<topic>` and requests redirect rejection. The HTTPS origin is the authority for the session, not the relay or the key signing the QR.
+
+The endpoint must respond directly at that exact canonical URL. Before reading the response body, the wallet requires the final response URL to equal the requested URL and rejects a reported redirect. Missing URL metadata, a different origin, a different path, or an added query fails closed. Native XHR-based fetch implementations may follow redirects despite the requested policy; the final-URL check prevents accepting another endpoint's proof, but does not establish that no intermediate redirect occurred when the runtime does not report the redirect chain.
 
 The endpoint must return a bounded JSON object containing:
 

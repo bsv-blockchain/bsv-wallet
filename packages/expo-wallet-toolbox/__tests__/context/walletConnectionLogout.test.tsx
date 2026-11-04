@@ -40,10 +40,11 @@ beforeEach(() => {
   mockWebSockets.splice(0)
   mockWebSocketConstructor.mockClear()
   ;(global as any).WebSocket = mockWebSocketConstructor
-  global.fetch = jest.fn(async () => {
+  global.fetch = jest.fn(async (url: string) => {
     const relayBody = JSON.stringify({ relay: 'wss://relay.example', ...mockOriginSession })
     return {
       ok: true,
+      url,
       // XR-025: a real relay server declares Content-Length for a small,
       // deterministic JSON body -- the readBoundedRelayResponse fallback
       // now fails closed when it is absent and no stream reader exists.
@@ -164,7 +165,12 @@ for (const reason of ['disconnect', 'logout', 'profile'] as const) {
       backendIdentityKey: params.backendIdentityKey,
       protocolID: params.protocolID
     })
-    release({ ok: true, headers: { get: () => String(body.length) }, text: async () => body })
+    release({
+      ok: true,
+      url: `${params.origin}/api/session/${encodeURIComponent(params.topic)}`,
+      headers: { get: () => String(body.length) },
+      text: async () => body
+    })
     await act(async () => {
       await pending
     })
@@ -211,7 +217,12 @@ test('deleting an inactive pairing revokes a reconnect still discovering its rel
     backendIdentityKey: connection.backendIdentityKey,
     protocolID: connection.protocolID
   })
-  release({ ok: true, headers: { get: () => String(body.length) }, text: async () => body })
+  release({
+    ok: true,
+    url: `${connection.origin}/api/session/${encodeURIComponent(connection.sessionId)}`,
+    headers: { get: () => String(body.length) },
+    text: async () => body
+  })
   await act(async () => {
     await pending
   })
@@ -263,7 +274,12 @@ test('an older pending pairing cannot supersede a newer successful connection', 
     backendIdentityKey: paramsA.backendIdentityKey,
     protocolID: paramsA.protocolID
   })
-  release({ ok: true, headers: { get: () => String(body.length) }, text: async () => body })
+  release({
+    ok: true,
+    url: `${paramsA.origin}/api/session/${encodeURIComponent(paramsA.topic)}`,
+    headers: { get: () => String(body.length) },
+    text: async () => body
+  })
   await act(async () => {
     await pending
   })

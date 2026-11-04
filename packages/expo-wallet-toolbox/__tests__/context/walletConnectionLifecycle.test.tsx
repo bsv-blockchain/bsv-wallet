@@ -27,9 +27,9 @@ beforeEach(() => {
     this.close = jest.fn()
     sockets.push(this)
   })
-  global.fetch = jest.fn(async () => {
+  global.fetch = jest.fn(async (url: string) => {
     const body = JSON.stringify({ relay: 'wss://relay.example', ...originSession })
-    return { ok: true, headers: { get: () => String(body.length) }, text: async () => body }
+    return { ok: true, url, headers: { get: () => String(body.length) }, text: async () => body }
   }) as any
 })
 afterEach(() => unmounts.splice(0).forEach(unmount => unmount()))
