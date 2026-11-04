@@ -79,6 +79,10 @@ test('validates before displaying exact signed terms and releases only after the
   expect(JSON.stringify(f.tree.toJSON())).toContain(`\\"amount\\":17`)
   expect(JSON.stringify(f.tree.toJSON())).toContain(f.props.entry.recipient)
   expect(f.props.wallet!.getPublicKey).toHaveBeenCalledTimes(1)
+  expect(f.props.wallet!.getPublicKey).toHaveBeenLastCalledWith(
+    { protocolID: [2, '3241645161d8'], keyID: 'cHJlZml4 c3VmZml4', counterparty: f.props.entry.recipient },
+    ADMIN
+  )
   expect((await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
   expect(f.props.onApproved).not.toHaveBeenCalled()
   expect(f.tree.root.findAllByType('Modal' as never)).toEqual([])
@@ -147,10 +151,11 @@ test.each([{ disabled: true }, { wallet: null }, { storage: null }])(
 test('suppresses duplicate presses and hides terms while wallet derivation is pending', async () => {
   const f = await fixture()
   let release!: (value: { publicKey: string }) => void
-  const actual = await sender.getPublicKey(
-    { protocolID: [2, '3241645161d8'], keyID: 'cHJlZml4 c3VmZml4', counterparty: f.props.entry.recipient },
-    ADMIN
-  )
+  const actual = await sender.getPublicKey({
+    protocolID: [2, '3241645161d8'],
+    keyID: 'cHJlZml4 c3VmZml4',
+    counterparty: f.props.entry.recipient
+  })
   ;(f.props.wallet!.getPublicKey as jest.Mock).mockImplementationOnce(
     () =>
       new Promise(resolve => {
@@ -198,10 +203,11 @@ test('unmount while validating prevents stale display, approval and error callba
 test('changing wallet authority while validating discards the stale continuation', async () => {
   const f = await fixture()
   let release!: (value: { publicKey: string }) => void
-  const actual = await sender.getPublicKey(
-    { protocolID: [2, '3241645161d8'], keyID: 'cHJlZml4 c3VmZml4', counterparty: f.props.entry.recipient },
-    ADMIN
-  )
+  const actual = await sender.getPublicKey({
+    protocolID: [2, '3241645161d8'],
+    keyID: 'cHJlZml4 c3VmZml4',
+    counterparty: f.props.entry.recipient
+  })
   ;(f.props.wallet!.getPublicKey as jest.Mock).mockImplementationOnce(
     () =>
       new Promise(resolve => {
@@ -225,10 +231,11 @@ test('retiring authority while confirmed release is being revalidated prevents d
   const f = await fixture()
   await f.review()
   let release!: (value: { publicKey: string }) => void
-  const actual = await sender.getPublicKey(
-    { protocolID: [2, '3241645161d8'], keyID: 'cHJlZml4 c3VmZml4', counterparty: f.props.entry.recipient },
-    ADMIN
-  )
+  const actual = await sender.getPublicKey({
+    protocolID: [2, '3241645161d8'],
+    keyID: 'cHJlZml4 c3VmZml4',
+    counterparty: f.props.entry.recipient
+  })
   ;(f.props.wallet!.getPublicKey as jest.Mock).mockImplementationOnce(
     () =>
       new Promise(resolve => {

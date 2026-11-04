@@ -7,14 +7,11 @@ export const sender = new ProtoWallet(new PrivateKey(7))
 export async function signedPayment(outputIndex = 0, amount = 17): Promise<Parameters<typeof saveOutboxEntry>[1]> {
   const recipient = new PrivateKey(11).toPublicKey().toString()
   const customInstructions = { derivationPrefix: 'cHJlZml4', derivationSuffix: 'c3VmZml4' }
-  const { publicKey } = await sender.getPublicKey(
-    {
-      protocolID: [2, '3241645161d8'],
-      keyID: `${customInstructions.derivationPrefix} ${customInstructions.derivationSuffix}`,
-      counterparty: recipient
-    },
-    ADMIN
-  )
+  const { publicKey } = await sender.getPublicKey({
+    protocolID: [2, '3241645161d8'],
+    keyID: `${customInstructions.derivationPrefix} ${customInstructions.derivationSuffix}`,
+    counterparty: recipient
+  })
   const fundingKey = new PrivateKey(9)
   const source = new Transaction()
   source.addOutput({ lockingScript: new P2PKH().lock(fundingKey.toAddress()), satoshis: 100 })
