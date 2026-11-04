@@ -56,3 +56,26 @@ precondition(wrongFrame.verifyAck(differentChallenge.ackMessage(ackJson: decline
 precondition(BleGattProfile.acceptHelloA(psk: Data(repeating: 0, count: 32), instanceName: name, message: retry.helloA()) == nil)
 precondition(BleGattProfile.acceptHelloA(psk: psk, instanceName: name, message: Data([1]) + Data(repeating: 0, count: 32)) == nil)
 print("PASS: BLE replay, exact frame, both challenges, chunked decline, tampering, wrong secret, shared Kotlin/Swift vectors")
+
+// Exercise real challenge generation without a radio: repeating a QR must not repeat HELLO_A.
+let freshA = BleGattProfile.Payer(psk: psk, instanceName: name, sealed: frame)
+let freshB = BleGattProfile.Payer(psk: psk, instanceName: name, sealed: frame)
+precondition(freshA.helloA() != freshB.helloA())
+let freshPeer = BleGattProfile.acceptHelloA(psk: psk, instanceName: name, message: freshA.helloA())!
+precondition(freshA.verifyHelloB(freshPeer.helloB()))
+freshPeer.receivedFrame(frame)
+freshPeer.receivedFrame(Data("must not replace accepted frame".utf8))
+precondition(freshA.verifyAck(freshPeer.ackMessage(ackJson: Data("{\"ok\":true}".utf8))!) != nil)
+precondition(!BleGattProfile.constantTimeEquals(Data([1]), Data([1, 2])))
+precondition(BleGattProfile.serviceUuid(psk: psk, instanceName: name).uuidString.lowercased() == "7becac61-7070-45cf-95a5-314d9399c021")
+precondition(BleGattProfile.declineJson(reason: "") == "{\"ok\":false,\"error\":\"declined\"}")
+precondition(BleGattProfile.declineJson(reason: "a \"b\"\\\n") == "{\"ok\":false,\"error\":\"a \\\"b\\\"\\\\\\n\"}")
+precondition(BleGattProfile.chunks(Data([1, 2]), size: 0) == [Data([1]), Data([2])])
+for invalid in [Data([0, 0, 0, 0]), Data([0, 0, 128, 1]), Data(repeating: 0, count: BleGattProfile.maxReassemblyBytes + 1)] {
+  var malformed = BleGattProfile.Reassembler()
+  do {
+    _ = try malformed.feed(invalid)
+    preconditionFailure("invalid GATT framing accepted")
+  } catch { }
+}
+print("PASS: fresh CSPRNG challenges, UUID vector, decline escaping, immutable frame digest, invalid framing")
