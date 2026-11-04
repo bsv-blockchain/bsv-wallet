@@ -334,3 +334,24 @@ it('refuses a winning replacement when its retained on-disk prefix is unavailabl
   await expect(store.replaceBranch(7, combine(extension.slice(6)))).rejects.toThrow(/Stored header prefix unavailable/)
   expect(store.tipHeight).toBe(8)
 })
+
+it('indexes roots directly from authenticated bootstrap context and rejects invalid lookup heights', async () => {
+  const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', { height: 8, hash: parseHeader(headers[7]).hash })
+  await store.initializeContext(combine(all))
+  expect(store.rootForHeight(2)).toBe(root(2))
+  for (const height of [-1, 0.5, NaN]) expect(store.rootForHeight(height)).toBeUndefined()
+  expect(await store.append(new Uint8Array(), 9)).toBe(0)
+})
+
+it('yields while reopening and replacing longer authenticated windows', async () => {
+  const fs = memoryHeaderFs()
+  const store = await HeaderStore.open(fs, 'regtest', anchor)
+  const items = branch(101, 'c')
+  await store.append(combine(items), 1)
+  const reopened = await HeaderStore.open(fs, 'regtest', anchor)
+  expect(reopened.count).toBe(101)
+  reopened.yieldEvery = 1
+  const replacement = branch(102, 'd')
+  await reopened.replaceBranch(1, combine(replacement))
+  expect(reopened.rootForHeight(102)).toBe(parseHeader(replacement[101]).merkleRoot)
+})
