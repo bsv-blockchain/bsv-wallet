@@ -148,9 +148,9 @@ describe('OfflineFirstChaintracks', () => {
     expect(await ct.currentHeight()).toBe(0)
   })
 
-  it('reports the remote height while online', async () => {
+  it('refuses a provider-only verification height without a validated store', async () => {
     const ct = new OfflineFirstChaintracks(remote(), async () => true)
-    expect(await ct.currentHeight()).toBe(999)
+    await expect(ct.currentHeight()).rejects.toThrow(/validated header store/i)
   })
 
   it('delegates getChain to the remote client when no chain was given', async () => {

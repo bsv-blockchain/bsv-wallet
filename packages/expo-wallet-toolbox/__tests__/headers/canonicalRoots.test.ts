@@ -148,3 +148,40 @@ it('verifies the shipped network genesis without downloading historical ancestry
   expect(await tracker.isValidRootForHeight(root(0), 0)).toBe(true)
   expect(remote.getHeaders).not.toHaveBeenCalled()
 })
+
+it('reports the consensus-synchronized height consistently online and offline', async () => {
+  const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', anchor)
+  const remote = source()
+  const claimedHeight = jest.spyOn(remote, 'currentHeight').mockResolvedValue(999)
+  let online = true
+  const tracker = new OfflineFirstChaintracks(remote, async () => online, 'regtest')
+  tracker.setStore(store)
+  expect(await tracker.currentHeight()).toBe(headers.length)
+  expect(store.tipHeight).toBe(headers.length)
+  online = false
+  expect(await tracker.currentHeight()).toBe(headers.length)
+  expect(claimedHeight).not.toHaveBeenCalled()
+})
+
+it('retains the validated height when an online refresh has no headers or fails', async () => {
+  const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', anchor)
+  await store.append(combine(headers.slice(0, 5)), 1)
+  const remote = source()
+  const claimedHeight = jest.spyOn(remote, 'currentHeight').mockResolvedValue(999)
+  const tracker = new OfflineFirstChaintracks(remote, async () => true, 'regtest')
+  tracker.setStore(store)
+  remote.getHeaders.mockResolvedValue('')
+  expect(await tracker.currentHeight()).toBe(5)
+  remote.getHeaders.mockRejectedValue(new Error('refresh unavailable'))
+  expect(await tracker.currentHeight()).toBe(5)
+  expect(claimedHeight).not.toHaveBeenCalled()
+})
+
+it.each([false, true])('fails closed without an attached validated store (online=%s)', async online => {
+  const remote = source()
+  const claimedHeight = jest.spyOn(remote, 'currentHeight')
+  const tracker = new OfflineFirstChaintracks(remote, async () => online, 'regtest')
+  await expect(tracker.currentHeight()).rejects.toThrow(/validated header store/i)
+  expect(claimedHeight).not.toHaveBeenCalled()
+  expect(remote.getPresentHeight).not.toHaveBeenCalled()
+})

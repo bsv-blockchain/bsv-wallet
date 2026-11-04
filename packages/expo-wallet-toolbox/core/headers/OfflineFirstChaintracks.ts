@@ -107,9 +107,25 @@ export class OfflineFirstChaintracks implements ChaintracksClientApi {
     }
   }
 
+  /**
+   * Verification height is the locally validated chain tip. An online refresh
+   * can advance it only through consensus synchronization; a missing/failed
+   * refresh leaves a conservative, potentially stale validated height.
+   */
   async currentHeight(): Promise<number> {
-    if (await this.online()) return await this.remote.currentHeight()
-    return this.store?.tipHeight ?? 0
+    const store = this.store
+    if (!store) throw new Error('Validated header store unavailable for verification height')
+    if (await this.online()) {
+      try {
+        await syncHeaders({ store, client: this.remote })
+      } catch (error) {
+        console.warn(
+          '[OfflineFirstChaintracks] height refresh unavailable; retaining validated tip:',
+          error instanceof Error ? error.message : String(error)
+        )
+      }
+    }
+    return store.tipHeight
   }
 
   /**
