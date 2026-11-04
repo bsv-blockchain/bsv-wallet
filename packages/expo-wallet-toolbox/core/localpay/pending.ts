@@ -83,11 +83,12 @@ async function repairDescriptionFailures(storage: KVStorage): Promise<void> {
   await withQueueLock(async () => {
     let repaired = false
     const next = (await readAll(storage)).map(p => {
+      const reason = p.failureReason ?? ''
       if (
         p.frame.kind !== 'bsv' ||
         !isPendingExhausted(p) ||
-        !/description/i.test(p.failureReason ?? '') ||
-        !/2000|byte|length/i.test(p.failureReason ?? '')
+        !/description/i.test(reason) ||
+        !/2000|byte|length/i.test(reason)
       )
         return p
       const note = p.frame.note?.trim()
@@ -671,13 +672,7 @@ export async function processPending(
         // the ceiling and is journaled `refused`. A transport failure never
         // burns an attempt. Anything else follows the BSV rule (FIX I).
         const final = !isRetriableReceiptFailure(e)
-        await updateStatus(
-          storage,
-          p.id,
-          'failed',
-          error,
-          final ? 'exhaust' : isTransportReceiptFailure(e) ? 'free' : 'auto'
-        )
+        await updateStatus(storage, p.id, 'failed', error, final ? 'exhaust' : isTransportReceiptFailure(e) ? 'free' : 'auto')
         await reportReceipt(onTokenReceived, facts, { ok: false, code: receiptFailureCode(e), final })
       } else {
         await updateStatus(storage, p.id, 'failed', error)

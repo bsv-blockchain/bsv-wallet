@@ -94,4 +94,37 @@ describe('received BSV descriptions at a UTF-8 boundary', () => {
     expect(encoder.encode(wallet.internalizeAction.mock.calls[0][0].description).length).toBeLessThanOrEqual(2000)
     expect(await getPending(storage)).toEqual([expect.objectContaining({ id: invalid.id, attempts: 3 })])
   })
+
+  it.each([
+    [undefined, 'description exceeds 2000 bytes'],
+    ['   ', 'description exceeds 2000 bytes'],
+    ['short', 'description exceeds 2000 bytes'],
+    ['a'.repeat(2001), 'description exceeds 2000 bytes'],
+    ['a'.repeat(1996) + '💰more', 'description exceeds 2000 bytes'],
+    ['a'.repeat(1999) + '€', 'description unavailable'],
+    ['a'.repeat(1999) + '€', undefined]
+  ])('does not reset exhausted entries outside the incomplete-scalar failure (%p, %p)', async (note, reason) => {
+    const values = new Map<string, string>()
+    const storage = {
+      getKeyValue: async (key: string) => values.get(key),
+      setKeyValue: async (key: string, value: string) => {
+        values.set(key, value)
+      }
+    }
+    const entry = await savePending(storage, {
+      version: 7,
+      kind: 'bsv',
+      senderIdentityKey: '02'.padEnd(66, 'c'),
+      outputIndex: 0,
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      transaction: new Uint8Array([9, 9, 9]),
+      note
+    } as PaymentFrame)
+    await updateStatus(storage, entry.id, 'failed', reason, 'exhaust')
+    const wallet = { internalizeAction: jest.fn() }
+    expect(await processPending(wallet as never, storage, 'admin.com')).toEqual([])
+    expect(wallet.internalizeAction).not.toHaveBeenCalled()
+    expect(await getPending(storage)).toEqual([expect.objectContaining({ id: entry.id, attempts: 3 })])
+  })
 })
