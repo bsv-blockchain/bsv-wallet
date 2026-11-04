@@ -40,6 +40,14 @@ final class MessageHandlerTests: XCTestCase {
     XCTAssertNil(try h.store.stat(id: ID(99)))
   }
 
+  func testAcknowledgingAResultNudgesBackpressuredPendingWork() throws {
+    XCTAssertTrue(try h.create(1, "request"))
+    XCTAssertTrue(try h.result(1, "result"))
+    XCTAssertEqual(send(["op": "ack", "ids": [ID(1)]])["ok"] as? Bool, true)
+    XCTAssertEqual(nudges, 1)
+    XCTAssertEqual(try h.readResult(1), .purged)
+  }
+
   // MARK: identity and sign
 
   func testIdentityIsStableAcrossHandlerInstancesAndContextSeparated() {

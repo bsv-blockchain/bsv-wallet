@@ -7,6 +7,40 @@ import XCTest
 final class QuotaTests: XCTestCase {
   private let mib = 1024 * 1024
 
+  func testFullResultPoolBackpressuresAcceptanceUntilAcknowledgement() throws {
+    let h = try Harness()
+    for n in 1...bridgeQueuePoolRecords {
+      XCTAssertTrue(try h.create(n, "request"))
+      XCTAssertTrue(try h.result(n, "result"))
+    }
+    XCTAssertTrue(try h.create(99, "waiting"))
+    XCTAssertFalse(h.store.accept(id: ID(99)))
+    XCTAssertEqual(try h.store.stat(id: ID(99))?.state, .pending)
+    h.store.ack(id: ID(1))
+    XCTAssertTrue(h.store.accept(id: ID(99)))
+  }
+
+  func testAnIndividuallyOversizedResultIsNotReportedAsTemporaryQuotaPressure() throws {
+    let h = try Harness()
+    XCTAssertTrue(try h.create(1, "request"))
+    XCTAssertThrowsError(try h.store.writeResult(id: ID(1), bytes: Data(repeating: 65, count: bridgeQueuePoolBytes), nowMs: h.t)) {
+      XCTAssertEqual(String(describing: $0), "resultTooLarge")
+    }
+  }
+
+  func testCompletedResultRetryReclaimsExpiredCapacityWithoutAHostSweep() throws {
+    let h = try Harness()
+    for n in 1...bridgeQueuePoolRecords {
+      XCTAssertTrue(try h.create(n, "request"))
+      XCTAssertTrue(try h.result(n, "old result"))
+    }
+    XCTAssertTrue(try h.create(99, "waiting"))
+    XCTAssertThrowsError(try h.result(99, "exact outcome"))
+    h.advance(bridgeResultTtlMs + 1)
+    XCTAssertTrue(try h.result(99, "exact outcome"))
+    XCTAssertEqual(try h.readResult(99), .result(utf8("exact outcome")))
+  }
+
   func testRetainedPayloadsStayChargedAcrossStoresAndFailedWithdrawal() throws {
     let h = try Harness()
     let bytes = Data(repeating: 65, count: mib)

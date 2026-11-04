@@ -7,6 +7,8 @@ public enum BridgeError: Error, Equatable {
   case keyMissing(Int32)
   case invalidId
   case quotaExceeded
+  /// The result cannot fit even in an empty pool; waiting for reclamation cannot help.
+  case resultTooLarge
   /// `reset()` has run and no `init` has followed (Task 9).
   case resetFinal
   case io(String)

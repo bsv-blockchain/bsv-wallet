@@ -213,6 +213,7 @@ private func dispatch(_ op: String, _ r: [String: Any], _ env: BridgeEnv) throws
   case "ack":
     guard let ids = r["ids"] as? [String] else { throw HandlerError.bad("ids must be a list of strings") }
     ids.forEach { store.ack(id: $0) }
+    if !ids.isEmpty { env.nudge() }
     return [:]
 
   default:  // nudge

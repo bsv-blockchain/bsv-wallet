@@ -260,7 +260,14 @@ public final class BridgeStore {
   }
 
   /// `pending -> accepted`. False when the record is not pending.
-  public func accept(id: String) -> Bool { move(id, .pending, .accepted) }
+  public func accept(id: String) -> Bool {
+    (try? withQueueLock {
+      // Leave work pending while previous responses wait for pickup. Already accepted work may
+      // still finish concurrently; its exact response is retried by the processor if necessary.
+      try requireQueueCapacity(.result, bytes: 0)
+      return move(id, .pending, .accepted)
+    }) ?? false
+  }
 
   /// `accepted -> pending`: crash recovery for a record that was never dispatched.
   public func release(id: String) -> Bool { move(id, .accepted, .pending) }
@@ -310,12 +317,15 @@ public final class BridgeStore {
     return try withQueueLock {
       try requireId(id)
       try checkWritable()
+      // Retry can run during startup recovery, before the host's periodic sweep is running.
+      try sweep(nowMs: nowMs)
       guard Posix.exists(layout.file(.ids, id)) else { return false }
       if Posix.exists(layout.file(.results, id)) { return false }
       let header = Header(
         v: 1, id: id, size: bytes.count, digest: sha256Hex(bytes), createdAt: nowMs,
         notAfter: nowMs + bridgeResultTtlMs, claimBootId: nil)
       let encoded = try encode(header, payload: bytes, kind: .result)
+      guard encoded.count <= bridgeQueuePoolBytes else { throw BridgeError.resultTooLarge }
       try requireQueueCapacity(.result, bytes: encoded.count)
       let tmp = try writeTmp(encoded, prefix: "result-")
       defer { Posix.unlink(tmp) }

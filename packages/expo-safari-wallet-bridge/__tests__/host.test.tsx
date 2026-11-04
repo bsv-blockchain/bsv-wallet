@@ -350,11 +350,14 @@ describe('SafariBridgeHost', () => {
       mount()
       for (let i = 0; i < 6; i++) await act(async () => void (await jest.advanceTimersByTimeAsync(60)))
       const base = processors[0].sweepExpired.mock.calls.length
+      const drained = processors[0].processPending.mock.calls.length
       await act(async () => void (await jest.advanceTimersByTimeAsync(60_000)))
       expect(processors[0].sweepExpired.mock.calls.length).toBe(base + 1)
+      expect(processors[0].processPending.mock.calls.length).toBe(drained + 1)
       act(() => appStateHandlers.forEach(h => h('background')))
       await act(async () => void (await jest.advanceTimersByTimeAsync(120_000)))
       expect(processors[0].sweepExpired.mock.calls.length).toBe(base + 1)
+      expect(processors[0].processPending.mock.calls.length).toBe(drained + 1)
     } finally {
       jest.useRealTimers()
     }

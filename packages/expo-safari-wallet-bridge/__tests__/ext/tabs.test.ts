@@ -23,6 +23,29 @@ const key = (b: { instanceId: string; epoch: string }) => bindingKey(b.instanceI
 const records = (s: Setup) => [...s.appex.records.values()].map(r => JSON.parse(Buffer.from(r.bytes).toString('utf8')))
 
 describe('tab lifecycle', () => {
+  it('withdraws pending calls before a disconnect needs space in a full native queue', async () => {
+    const s = setup()
+    const epochs = []
+    for (let n = 1; n <= 4; n++) epochs.push(await bind(s, n))
+    for (const b of epochs) {
+      for (let n = 1; n <= 4; n++) {
+        expect(await stageInvoke(s.deps, {
+          ...b, invokeId: uuid(600 + n), method: 'getHeight', params: {}
+        })).toMatchObject({ kind: 'staged' })
+      }
+    }
+    const stage = s.deps.native.stage.bind(s.deps.native)
+    jest.spyOn(s.deps.native, 'stage').mockImplementation(async (id, bytes) => {
+      const pending = [...s.appex.records.values()].filter(r => r.state === 'pending').length
+      if (pending >= 16) throw { domain: 'brc185', code: 'RESOURCE_LIMIT', delivery: 'not-sent' }
+      return stage(id, bytes)
+    })
+    expect(await closeEpoch(s.deps, key(epochs[0]!.binding), s.clock.t)).toBe(true)
+    expect([...s.appex.records.values()].filter(r => r.state === 'withdrawn')).toHaveLength(4)
+    expect([...s.appex.records.values()].filter(r => r.state === 'pending')).toHaveLength(13)
+    expect(Object.values(await loadUnresolved(s.browser.session))).toHaveLength(12)
+  })
+
   it('tab close, frame unload, bfcache re-register within 5 s writes no disconnect', async () => {
     const s = setup()
     const a = await stageOne(s, 1)

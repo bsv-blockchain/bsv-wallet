@@ -119,6 +119,108 @@ beforeEach(async () => {
 })
 
 describe('inbox processor', () => {
+  it('keeps only one wallet outcome waiting for native result capacity', async () => {
+    jest.useFakeTimers()
+    let full = true
+    const write = store.writeResult.bind(store)
+    jest.spyOn(store, 'writeResult').mockImplementation(async (id, bytes) => {
+      if (full) throw { code: 'ERR_RESOURCE_LIMIT' }
+      return write(id, bytes)
+    })
+    let calls = 0
+    dispatchImpl = async req => {
+      await req.beforeCall?.()
+      calls++
+      return OK
+    }
+    for (let n = 1; n <= 3; n++) await stage(record(n, { origin: `https://app${n}.example` }))
+    const inbox = processor()
+    const done = inbox.processPending()
+    await jest.advanceTimersByTimeAsync(0)
+    expect(dispatched).toHaveLength(3)
+    expect(calls).toBe(1)
+    full = false
+    await jest.advanceTimersByTimeAsync(1000)
+    await done
+    expect(calls).toBe(3)
+    for (let n = 1; n <= 3; n++) expect(await result(n)).toMatchObject({ ok: true })
+    inbox.dispose()
+    jest.useRealTimers()
+  })
+
+  it('retains an exact completed outcome until result quota is reclaimed in the same boot', async () => {
+    jest.useFakeTimers()
+    const write = store.writeResult.bind(store)
+    let full = true
+    const attempts = jest.spyOn(store, 'writeResult').mockImplementation(async (id, bytes) => {
+      if (full) throw { code: 'ERR_RESOURCE_LIMIT' }
+      return write(id, bytes)
+    })
+    await stage(record(1))
+    const inbox = processor()
+    const done = inbox.processPending()
+    await jest.advanceTimersByTimeAsync(0)
+    expect(dispatched).toHaveLength(1)
+    expect(await store.stat(ID(1))).toMatchObject({ state: 'claimed' })
+    expect(attempts).toHaveBeenCalledTimes(1)
+    await jest.advanceTimersByTimeAsync(999)
+    expect(attempts).toHaveBeenCalledTimes(1)
+    full = false
+    await jest.advanceTimersByTimeAsync(1)
+    await done
+    expect(dispatched).toHaveLength(1)
+    expect(await result(1)).toMatchObject({ ok: true, result: { height: 1 } })
+    inbox.dispose()
+    jest.useRealTimers()
+  })
+
+  it('cancels quota retries on disposal without redispatching a claimed operation', async () => {
+    jest.useFakeTimers()
+    const attempts = jest.spyOn(store, 'writeResult').mockRejectedValue({ code: 'ERR_RESOURCE_LIMIT' })
+    await stage(record(1))
+    await stage(record(2, { origin: 'https://other.example' }))
+    let calls = 0
+    dispatchImpl = async req => {
+      await req.beforeCall?.()
+      calls++
+      return OK
+    }
+    const inbox = processor()
+    const done = inbox.processPending()
+    await jest.advanceTimersByTimeAsync(0)
+    inbox.dispose()
+    await done
+    await jest.advanceTimersByTimeAsync(5000)
+    expect(attempts).toHaveBeenCalledTimes(1)
+    expect(dispatched).toHaveLength(2)
+    expect(calls).toBe(1)
+    expect(await store.stat(ID(1))).toMatchObject({ state: 'claimed' })
+    expect(await store.stat(ID(2))).toMatchObject({ state: 'accepted' })
+    expect(jest.getTimerCount()).toBe(0)
+    jest.useRealTimers()
+  })
+
+  it('does not retry unrelated result-write failures', async () => {
+    const attempts = jest.spyOn(store, 'writeResult').mockRejectedValue({ code: 'ERR_RESET' })
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    await stage(record(1))
+    await processor().processPending()
+    expect(attempts).toHaveBeenCalledTimes(1)
+    expect(dispatched).toHaveLength(1)
+    warning.mockRestore()
+  })
+
+  it('finishes an individually oversized result with explicit unknown delivery', async () => {
+    const write = store.writeResult.bind(store)
+    jest.spyOn(store, 'writeResult')
+      .mockRejectedValueOnce({ code: 'ERR_RESULT_TOO_LARGE' })
+      .mockImplementation(write)
+    await stage(record(1))
+    await processor().processPending()
+    expect(await result(1)).toMatchObject({ ok: false, error: { code: 'RESOURCE_LIMIT', delivery: 'unknown' } })
+    expect(dispatched).toHaveLength(1)
+  })
+
   it('runs a record through accept, claim and dispatch, and stores the result', async () => {
     await stage(record(1))
     await processor().processPending()

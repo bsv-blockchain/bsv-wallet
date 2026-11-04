@@ -127,6 +127,12 @@ export async function closeEpoch(deps: ExtDeps, key: string, now: number): Promi
   const { session, native } = deps
   const binding = (await loadBindings(session))[key]
   const staged = (await loadStagedEpochs(session))[key] === true
+  // Cancellation must free pending capacity before the disconnect itself needs a queue slot.
+  // Keep the tracking entries until the close is durable; a failed stage can then be retried.
+  for (const [id, entry] of Object.entries(await loadUnresolved(session))) {
+    if (bindingKey(entry.instanceId, entry.epoch) !== key) continue
+    try { await native.withdraw(id) } catch { /* retained payloads remain charged natively */ }
+  }
   if (binding && staged) {
     const record: InboxRecord = {
       v: 1,
@@ -156,12 +162,10 @@ export async function closeEpoch(deps: ExtDeps, key: string, now: number): Promi
     delete cl[key]
     const st = await loadStagedEpochs(session)
     delete st[key]
-    // Best-effort withdrawal removes abandoned pending payloads. Accepted/uncertain records
-    // remain charged to the native filesystem quota after the closed page loses its poller.
+    // Accepted/uncertain records remain charged to the native filesystem quota after closure.
     const unresolved = await loadUnresolved(session)
     for (const [id, e] of Object.entries(unresolved)) {
       if (bindingKey(e.instanceId, e.epoch) !== key) continue
-      try { await native.withdraw(id) } catch { /* native quota still covers retained payloads */ }
       delete unresolved[id]
     }
     await saveUnresolved(session, unresolved)
