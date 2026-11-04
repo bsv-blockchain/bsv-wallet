@@ -22,11 +22,9 @@ export function usePairingAttempt() {
 
   const begin = useCallback((topic?: string) => {
     const attempt = ++generation.current
-    const revocation = topic === undefined ? undefined : connectionStore.revocationVersion(topic)
+    const revocation = connectionStore.revocationVersion(topic)
     return () =>
-      mounted.current &&
-      generation.current === attempt &&
-      (topic === undefined || connectionStore.revocationVersion(topic) === revocation)
+      mounted.current && generation.current === attempt && connectionStore.revocationVersion(topic) === revocation
   }, [])
 
   return { begin, cancel }
