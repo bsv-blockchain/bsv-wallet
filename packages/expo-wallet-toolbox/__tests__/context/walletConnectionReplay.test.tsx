@@ -275,3 +275,55 @@ test('pairing fails closed when the durable replay floor cannot be read', async 
   })
   expect(mockWebSockets).toHaveLength(1)
 })
+
+test('re-pairing preserves requests accepted while the replacement identity lookup is pending', async () => {
+  const topic = 'repair-live-floor'
+  const { ws, wallet, decryptedPlaintext, result, params } = await connectFixture(topic)
+  const originalOnMessage = ws.onmessage
+  const stored = new Map<string, string>()
+  mockGetItemAsync.mockImplementation(async key => stored.get(key as string) ?? null)
+  mockSetItemAsync.mockImplementation(async (key, value) => {
+    stored.set(key as string, value as string)
+  })
+
+  decryptedPlaintext.current = JSON.stringify({ id: 'first', seq: 1, method: 'createAction', params: {} })
+  await act(async () => {
+    await ws.onmessage({ data: rpcEnvelope(topic) })
+  })
+  expect(wallet.createAction).toHaveBeenCalledTimes(1)
+
+  const identity = await wallet.getPublicKey()
+  let identityStarted!: () => void
+  const started = new Promise<void>(resolve => {
+    identityStarted = resolve
+  })
+  let finishIdentity!: () => void
+  const pendingIdentity = new Promise<void>(resolve => {
+    finishIdentity = resolve
+  })
+  wallet.getPublicKey.mockImplementationOnce(async () => {
+    identityStarted()
+    await pendingIdentity
+    return identity
+  })
+  let pairing!: Promise<void>
+  await act(async () => {
+    pairing = result.current.connect(params as any, wallet as any)
+    await started
+  })
+
+  decryptedPlaintext.current = JSON.stringify({ id: 'during-pairing', seq: 2, method: 'createAction', params: {} })
+  await act(async () => {
+    // Keeping the handler also permits a handoff that invalidates the old
+    // socket earlier: seq=2 must execute once across the two deliveries.
+    await originalOnMessage({ data: rpcEnvelope(topic) })
+  })
+
+  await act(async () => {
+    finishIdentity()
+    await pairing
+    await mockWebSockets[1].onmessage({ data: rpcEnvelope(topic) })
+  })
+  expect(wallet.createAction).toHaveBeenCalledTimes(2)
+  expect(stored.get(lastSeqKey(topic))).toBe('2')
+})

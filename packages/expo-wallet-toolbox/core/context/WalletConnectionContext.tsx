@@ -648,6 +648,13 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
       const identityResult = await wallet.getPublicKey({ identityKey: true })
       const mobileIdentityKey = validateBackendIdentityKey(identityResult.publicKey)
 
+      // The current socket can accept requests while the stored floor and
+      // identity are being read. Preserve its newer floor when re-pairing the
+      // same topic, with no await between this snapshot and replacing it.
+      if (sessionMetaRef.current?.topic === validated.params.topic) {
+        initialSeq = Math.max(initialSeq, lastSeqRef.current)
+      }
+
       // XR-018: tear down any live socket for a DIFFERENT prior session before
       // wiring this one — see supersedeExistingSocket for why. myGeneration is
       // allocated right after, so this connection's onopen AND wireSocket's
