@@ -203,6 +203,99 @@ it('keeps only the newest screen approval when an older HMAC fails late', async 
   }
 })
 
+it.each(['delete', 'disconnect', 'unrelated'] as const)(
+  'cancels unknown-topic clipboard approval on %s revocation',
+  async reason => {
+    let finish!: (uri: string) => void
+    mockClipboard.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finish = resolve
+        })
+    )
+    mockCreateHmac.mockResolvedValueOnce({ hmac: [1, 2, 3, 4] })
+    addStoredPairing()
+    let tree!: ReturnType<typeof create>
+    await act(async () => {
+      tree = create(<ConnectionsScreen />)
+    })
+    try {
+      await act(async () => press(tree, 'paste_uri'))
+      expect(finish).toBeDefined()
+      await act(async () => {
+        if (reason === 'delete') {
+          const trash = tree.root
+            .findAllByType('TouchableOpacity' as any)
+            .find(node => node.findAllByType('Ionicons' as any).some(icon => icon.props.name === 'trash-outline'))
+          trash!.props.onPress()
+        } else if (reason === 'disconnect') connectionStore.setStatus(mockParams.topic, 'disconnected')
+        else connectionStore.remove('another-topic')
+      })
+      await act(async () => finish(pairingUri()))
+      expect(mockCreateHmac).not.toHaveBeenCalled()
+      expect(mockStageTag).not.toHaveBeenCalled()
+      expect(mockConnect).not.toHaveBeenCalled()
+      expect(mockReconnect).not.toHaveBeenCalled()
+      expect(mockAlert).not.toHaveBeenCalled()
+      expect(mockToast).not.toHaveBeenCalled()
+    } finally {
+      await act(async () => tree.unmount())
+    }
+  }
+)
+
+it('keeps known-topic approval valid when another topic is revoked', async () => {
+  let finish!: (value: { hmac: number[] }) => void
+  mockCreateHmac.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve
+      })
+  )
+  let tree!: ReturnType<typeof create>
+  await act(async () => {
+    tree = create(<ConnectionsScreen />)
+  })
+  try {
+    await act(async () => {
+      void tree.root.findByType('QRScanner' as any).props.onScan(pairingUri())
+    })
+    connectionStore.remove('another-topic')
+    await act(async () => finish({ hmac: [1, 2, 3, 4] }))
+    expect(mockStageTag).toHaveBeenCalledTimes(1)
+    expect(mockConnect).toHaveBeenCalledTimes(1)
+  } finally {
+    await act(async () => tree.unmount())
+  }
+})
+
+it('does not resume an older clipboard gesture after a new scan approves', async () => {
+  let finish!: (uri: string) => void
+  mockClipboard.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve
+      })
+  )
+  mockCreateHmac.mockResolvedValue({ hmac: [1, 2, 3, 4] })
+  let tree!: ReturnType<typeof create>
+  await act(async () => {
+    tree = create(<ConnectionsScreen />)
+  })
+  try {
+    await act(async () => press(tree, 'paste_uri'))
+    await act(async () => {
+      void tree.root.findByType('QRScanner' as any).props.onScan(pairingUri())
+    })
+    await act(async () => finish(pairingUri()))
+    expect(mockCreateHmac).toHaveBeenCalledTimes(1)
+    expect(mockStageTag).toHaveBeenCalledTimes(1)
+    expect(mockConnect).toHaveBeenCalledTimes(1)
+  } finally {
+    await act(async () => tree.unmount())
+  }
+})
+
 it.each(['reject', 'logout', 'profile', 'unmount'] as const)(
   'does not resume approval after %s while the authority HMAC is pending',
   async reason => {
