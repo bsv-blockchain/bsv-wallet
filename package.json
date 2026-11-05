@@ -35,12 +35,12 @@
     "e2e:android": "bash e2e/scripts/run-android.sh",
     "e2e:ios": "bash e2e/scripts/run-ios.sh",
     "e2e:mock": "node e2e/mock/server.mjs",
-    "test:unit": "jest --watchman=false --testPathIgnorePatterns=/__tests__/ui/ --testPathIgnorePatterns=/__tests__/journeys/ --testPathIgnorePatterns=/e2e/",
+    "test:unit": "jest --watchman=false --testPathIgnorePatterns=/__tests__/ui/ --testPathIgnorePatterns=/__tests__/journeys/ --testPathIgnorePatterns='<rootDir>/e2e/'",
     "test:ui": "jest --watchman=false --testPathPattern=packages/expo-wallet-toolbox/__tests__/ui",
     "test:integration": "jest --watchman=false --testPathPattern=packages/expo-wallet-toolbox/__tests__/journeys|packages/expo-wallet-toolbox/__tests__/bridge/integration.test",
     "test:e2e": "jest --config jest.e2e.config.cjs --runInBand --watchman=false",
-    "test:coverage": "jest --ci --coverage --watchman=false --maxWorkers=2 --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns=/e2e/ --testPathIgnorePatterns=walletConnectionMemoryBudget.test",
-    "test:ci": "jest --ci --coverage --watchman=false --maxWorkers=2 --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns=/e2e/ --testPathIgnorePatterns=walletConnectionMemoryBudget.test",
+    "test:coverage": "jest --ci --coverage --watchman=false --maxWorkers=2 --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns='<rootDir>/e2e/' --testPathIgnorePatterns=walletConnectionMemoryBudget.test",
+    "test:ci": "jest --ci --coverage --watchman=false --maxWorkers=2 --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns='<rootDir>/e2e/' --testPathIgnorePatterns=walletConnectionMemoryBudget.test",
     "test:memory-budget": "jest --ci --watchman=false --runInBand packages/expo-wallet-toolbox/__tests__/context/walletConnectionMemoryBudget.test.tsx"
   },
   "dependencies": {
