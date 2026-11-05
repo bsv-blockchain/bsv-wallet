@@ -3,8 +3,9 @@
  * and the `admin vault` basket, over 1-of-N P-256 comb-verifier outputs
  * (r1comb.ts, spec §2).
  *
- * Deposit: NO hardware. A vault output has a wallet-derived HMAC salt and one
- * comb commitment for every enrolled key. The HMAC uses [2, "vault salt"],
+ * Deposit: proves one enrolled hardware key before creating new funds. Each
+ * output has a wallet-derived HMAC salt and one comb commitment per enrolled
+ * key. The HMAC uses [2, "vault salt"],
  * counterparty "self", the rolling key ID "1", "2", ... and the canonically
  * framed YubiKey serials in commitment order. The lock contains only salted
  * table commitments; versioned customInstructions retain the derivation ID,
@@ -71,6 +72,7 @@ import { VaultError } from './types'
 import { metaFromVerifiedOutputs, VAULT_MAX_KEYS, VAULT_MIN_KEYS } from './VaultKeyService'
 import { vaultStore, VaultKeyRecord, VaultMeta, type VaultScopeToken, type VaultStoreScope } from './vaultStore'
 import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
+import { requireVaultOutputKeyPossession } from './outputAuthority'
 import { forgetSerialsNoLongerEnrolledForIdentity } from './enrolledSerialRegistry'
 
 export const VAULT_BASKET = 'admin vault'
@@ -218,6 +220,8 @@ export type SpendingReferenceLookup = (outpoints: string[]) => Promise<{ referen
  * none of them still works.
  */
 export interface VaultTransferOptions {
+  /** Enrolled key to prove before creating a new vault output (deposit UI). */
+  outputKeySerial?: string
   /** Storage-backed reservation heal. See SpendingReferenceLookup. */
   findSpendingReferences?: SpendingReferenceLookup
   /**
@@ -1064,10 +1068,7 @@ async function reconcileHeldVaultDeposits(
 }
 
 export type VaultDepositResolution =
-  | { kind: 'broadcast' }
-  | { kind: 'already-known' }
-  | { kind: 'nothing-held' }
-  | { kind: 'failed'; error: unknown }
+  { kind: 'broadcast' } | { kind: 'already-known' } | { kind: 'nothing-held' } | { kind: 'failed'; error: unknown }
 
 /**
  * XR-006 / INT-03: the identical crash window exists for a withdrawal or
@@ -1910,12 +1911,11 @@ export async function requireAuthenticatedMeta(
       'Local vault enrollment metadata disagrees with authenticated on-chain history; re-verify before continuing'
     )
   }
-  await vaultStore.restoreVerifiedMeta(recovered, scopeToken, next =>
+  // Return the exact snapshot signed inside the restoration queue. A fresh
+  // storage read here could have been replaced after that authentication.
+  return await vaultStore.restoreVerifiedMeta(recovered, scopeToken, next =>
     computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
   )
-  const reconciled = await vaultStore.getMeta(scopeToken)
-  if (!reconciled) throw new VaultError('not-enrolled', 'Vault is not set up')
-  return reconciled
 }
 
 /**
@@ -2093,13 +2093,15 @@ async function newVaultOutput(
   satoshis: number,
   outputDescription: string,
   inventory: VaultSaltInventory,
-  chain: VaultScopeToken['chain']
+  scopeToken: VaultScopeToken,
+  chosenSerial?: string
 ): Promise<[vault: VaultOutputSpec, marker: VaultOutputSpec, descriptor: VaultOutputSpec]> {
   // Every output-creating path (deposit, re-lock, partial-withdrawal
   // remainder) comes through here. The key list may briefly hold one key more
   // than a lock commits (VAULT_MAX_ACTIVE_KEYS); never lock to it, and never
   // to fewer than VAULT_MIN_KEYS.
   requireLockableKeyCount(meta.keys.length)
+  const { chain } = scopeToken
   const pubkeys = meta.keys.map(k => k.pubkey)
   const keyIndex = inventory.maxKeyIndex + 1
   if (!Number.isSafeInteger(keyIndex)) {
@@ -2113,6 +2115,16 @@ async function newVaultOutput(
     meta.keys.map(key => key.serial)
   )
   const lockingScript = buildLock({ commitments: pubkeys.map(pk => commitment(pk, salt)), saltHex64: salt })
+  await requireVaultOutputKeyPossession(
+    meta,
+    scopeToken,
+    {
+      satoshis,
+      saltKeyId,
+      lockingScript: lockingScript.toHex()
+    },
+    chosenSerial
+  )
   const v7: VaultInstructionsV7 = {
     v: 7,
     type: 'R1C',
@@ -2336,8 +2348,8 @@ function validateDepositPlan(tx: Transaction, expected: VaultOutputPlan): void {
 /**
  * Move `satoshis` from the default basket into the vault (spec §4.1).
  *
- * No hardware: a deposit needs the key LIST, not a key. Every refusal is
- * checked BEFORE the one createAction below, cheapest first, and nothing is
+ * A fresh hardware proof confirms one key committed to the new output is
+ * still usable. Every refusal is checked BEFORE createAction, and nothing is
  * spent until it runs. A pre-creation refusal consumes no numeric salt ID.
  * Once createAction persists an output, pending and failed history retain its
  * ID so a later output cannot reuse it.
@@ -2391,7 +2403,8 @@ export async function depositToVault(
       satoshis,
       'Vault deposit',
       saltInventory,
-      scopeToken.chain
+      scopeToken,
+      opts?.outputKeySerial
     )
     let reference: string | undefined
     let heldTxid: string | undefined
@@ -3239,7 +3252,8 @@ export async function withdrawFromVault(
           remainder,
           'Vault change',
           sel.saltInventory,
-          scopeToken.chain
+          scopeToken,
+          chosenSerial
         ))
       )
     }
@@ -3376,7 +3390,8 @@ export async function relockVault(
           relocked,
           'Vault re-lock',
           sel.saltInventory,
-          scopeToken.chain
+          scopeToken,
+          chosenSerial
         ),
         labels: ['vault', 'vault-relock'],
         inputDescription: 'Vault re-lock',
@@ -3395,8 +3410,11 @@ export async function relockVault(
       assertVaultScope(scopeToken)
       const scope = vaultStore.getScope()
       if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
-      await vaultStore.markKeyRemovalBroadcast(scopeToken, next =>
-        computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+      const currentMeta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
+      await vaultStore.markKeyRemovalBroadcast(
+        scopeToken,
+        next => computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope),
+        currentMeta
       )
     }
     return result
@@ -3606,8 +3624,11 @@ export async function beginVaultKeyRemoval(
     if (!before.state.targetCommitted && heldDeposit) {
       throw new VaultError('action-pending', 'Resolve the held vault deposit before removing this key')
     }
-    const pending = await vaultStore.beginKeyRemoval(serial, scopeToken, next =>
-      computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+    const pending = await vaultStore.beginKeyRemoval(
+      serial,
+      scopeToken,
+      next => computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope),
+      meta
     )
     if (before.state.targetCommitted) return { complete: false, meta: pending }
 
@@ -3624,13 +3645,17 @@ export async function beginVaultKeyRemoval(
       scopeToken
     )
     if (after.state.targetCommitted) {
-      await vaultStore.cancelUnbroadcastKeyRemoval(scopeToken, next =>
-        computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+      await vaultStore.cancelUnbroadcastKeyRemoval(
+        scopeToken,
+        next => computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope),
+        pending
       )
       throw new VaultError('action-pending', 'A vault output appeared while removing the key')
     }
-    const finalMeta = await vaultStore.finalizeEmptyKeyRemoval(scopeToken, next =>
-      computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope)
+    const finalMeta = await vaultStore.finalizeEmptyKeyRemoval(
+      scopeToken,
+      next => computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope),
+      pending
     )
     // XQ-014: `serial` is now fully removed from this chain — forget it
     // device-wide unless another chain of this same identity still holds it.
@@ -3854,8 +3879,7 @@ export async function finalizeVaultKeyRemoval(w: VaultWallet, adminOriginator: s
     }
 
     if (invalidCurrentRelock) return false
-    if (matchingRelock) await vaultStore.markKeyRemovalBroadcast(scopeToken, tagger)
-    meta = await requireMeta(scopeToken)
+    if (matchingRelock) meta = await vaultStore.markKeyRemovalBroadcast(scopeToken, tagger, meta)
     const pending = meta.pendingRemoval
     if (!pending) return true
     if (actionStateBlocks) return false
@@ -3875,7 +3899,7 @@ export async function finalizeVaultKeyRemoval(w: VaultWallet, adminOriginator: s
         'allow'
       )
       if (second.state.authorizesPendingKey) return false
-      await vaultStore.finalizeEmptyKeyRemoval(scopeToken, tagger)
+      await vaultStore.finalizeEmptyKeyRemoval(scopeToken, tagger, meta)
       // XQ-014: the tombstoned key is now fully removed from this chain.
       await forgetSerialsNoLongerEnrolledForIdentity([pending.key.serial], () =>
         vaultStore.enrolledSerialsAcrossChains(scopeToken)
@@ -3897,7 +3921,7 @@ export async function finalizeVaultKeyRemoval(w: VaultWallet, adminOriginator: s
       'allow'
     )
     if (second.state.authorizesPendingKey) return false
-    await vaultStore.finalizeProvenKeyRemoval(scopeToken, tagger)
+    await vaultStore.finalizeProvenKeyRemoval(scopeToken, tagger, meta)
     // XQ-014: the tombstoned key is now fully removed from this chain.
     await forgetSerialsNoLongerEnrolledForIdentity([pending.key.serial], () =>
       vaultStore.enrolledSerialsAcrossChains(scopeToken)

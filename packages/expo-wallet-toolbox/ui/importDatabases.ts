@@ -19,6 +19,7 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 import { showAlert } from './components/ui/AlertCard'
 import { showToast } from './components/ui/Toast'
+import { OUTBOX_KEY, quarantineImportedOutbox } from '../core/peerpay/outbox'
 
 /**
  * expo-file-system and expo-document-picker both ship untransformed ESM/raw-TS
@@ -259,14 +260,21 @@ async function isSchemaTrusted(sourceDb: SQLite.SQLiteDatabase): Promise<boolean
   try {
     refDb = await SQLite.openDatabaseAsync(':memory:')
     await createTables(refDb)
-    const allowedRows = (await refDb.getAllAsync(
-      `SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`
-    )) as Array<{ type: string; name: string; sql: string | null }>
+    const allowedRows = (await refDb.getAllAsync(`SELECT type, name, sql FROM sqlite_master`)) as Array<{
+      type: string
+      name: string
+      sql: string | null
+    }>
     const allowed = new Map(allowedRows.map(r => [r.name, { type: r.type, sql: r.sql }]))
 
-    const objects = (await sourceDb.getAllAsync(
-      `SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`
-    )) as Array<{ type: string; name: string; sql: string | null }>
+    // Inspect every object. LIKE's '_' wildcard also hides legal attacker
+    // names such as sqliteXbackdoor; genuine internal objects must match the
+    // canonical reference rather than being exempted by a name prefix.
+    const objects = (await sourceDb.getAllAsync(`SELECT type, name, sql FROM sqlite_master`)) as Array<{
+      type: string
+      name: string
+      sql: string | null
+    }>
     for (const obj of objects) {
       if (obj.type === 'trigger' || obj.type === 'view') return false
       if (obj.sql && /^\s*create\s+virtual\s+table/i.test(obj.sql)) return false
@@ -557,6 +565,23 @@ export async function importWalletDatabase(
       // never delete or otherwise mutate the row, since it may already have
       // been broadcast (XR-085).
       await destDb.runAsync(`UPDATE offline_actions SET status = 'import_hold' WHERE status IN ('queued', 'posting')`)
+
+      // Preserve signed PeerPay history, but never restore old outgoing
+      // authority (including a snapshot taken before cancellation).
+      const importedDb = destDb
+      await quarantineImportedOutbox({
+        getKeyValue: async key => {
+          const row = await importedDb.getFirstAsync<{ value: string }>(
+            'SELECT value FROM key_value_store WHERE key = ?',
+            [key]
+          )
+          return row?.value
+        },
+        setKeyValue: async (key, value) => {
+          if (key !== OUTBOX_KEY) throw new Error('Unexpected import quarantine key')
+          await importedDb.runAsync('UPDATE key_value_store SET value = ? WHERE key = ?', [value, key])
+        }
+      })
     }
   } catch (e: any) {
     console.error('[importDatabases] Failed to place database:', e.message)

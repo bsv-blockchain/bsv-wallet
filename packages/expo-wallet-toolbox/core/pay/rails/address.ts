@@ -18,15 +18,15 @@ import {
   Transaction,
   Utils,
   type InternalizeActionArgs,
-  type InternalizeOutput,
-  type WalletProtocol
+  type InternalizeOutput
 } from '@bsv/sdk'
 import type { AppChain } from '../../config'
 import { NETWORKS } from '../../networks'
 import { abbreviateKey, addressLabel, FROM_ADDRESS_LABEL_PREFIX, TO_ADDRESS_LABEL_PREFIX } from '../counterparty'
 import { addressNetwork, isValidBsvAddress } from './index'
 
-export const BRC29_PROTOCOL_ID: WalletProtocol = [2, '3241645161d8']
+import { BRC29_PROTOCOL_ID } from '../../peerpay/brc29'
+export { BRC29_PROTOCOL_ID } from '../../peerpay/brc29'
 
 /** Whether the address rail can carry a particular payment, and why not when it cannot. */
 export type AddressRailAvailability = { kind: 'available' } | { kind: 'unavailable'; reason: string }

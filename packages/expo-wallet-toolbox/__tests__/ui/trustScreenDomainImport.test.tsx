@@ -10,6 +10,10 @@
 import React from 'react'
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native'
 
+jest.mock('../../core/network/boundedFetch', () => ({
+  createBoundedNativeFetch: jest.fn(() => (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
+}))
+
 jest.mock('expo-haptics', () => ({
   selectionAsync: jest.fn(() => Promise.resolve()),
   impactAsync: jest.fn(() => Promise.resolve()),
@@ -55,6 +59,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => ({
   })
 }))
 
+import { createBoundedNativeFetch } from '../../core/network/boundedFetch'
 import { TrustScreen } from '../../ui/screens/TrustScreen'
 
 const draw = () => render(<TrustScreen />)
@@ -91,6 +96,7 @@ it('still fetches an ordinary bare domain over https', async () => {
   fireEvent.press(screen.getByText('get_provider_details'))
 
   await waitFor(() => expect(global.fetch).toHaveBeenCalled())
+  expect(createBoundedNativeFetch).toHaveBeenCalledWith(64 * 1024)
   const [url, init] = (global.fetch as jest.Mock).mock.calls[0]
   expect(String(url)).toBe('https://trustedentity.com/manifest.json')
   expect(init?.redirect).toBe('error')

@@ -267,12 +267,24 @@ describe('restoreOnImport', () => {
   describe('verified-first target selection', () => {
     it('prefers an older sealed generation over a newer, still-open one', async () => {
       const w = deriveBackupWallet(PRIMARY, 'main')
+      const first = await encodeChunk(w, chunkWithTx('g1-a'), 'main', undefined, undefined, {
+        deviceId: OLD_DEVICE,
+        generation: 1,
+        seq: 1
+      })
       const logs = {
         // Generation 1: sealed — the second (newest) real chunk carries this device's own
-        // seal, proving the two-chunk initial snapshot is fully present.
+        // seal, committing to the completed first-chunk snapshot.
         [`${OLD_DEVICE}/1`]: [
-          await encodeChunk(w, chunkWithTx('g1-a'), 'main'),
-          await encodeChunk(w, chunkWithTx('g1-b'), 'main', { generation: 1, initialChunkCount: 2 })
+          first,
+          await encodeChunk(
+            w,
+            chunkWithTx('g1-b'),
+            'main',
+            { generation: 1, initialChunkCount: 1, initialHeadSha256: sha256Hex(first) },
+            undefined,
+            { deviceId: OLD_DEVICE, generation: 1, seq: 2, prevSha256: sha256Hex(first) }
+          )
         ],
         // Generation 2: newer (rotated later) but its initial window has not closed yet —
         // no seal at all, exactly the mid-rotation case P1 is about.
@@ -392,7 +404,14 @@ describe('XR-011: restoreOnImport replays appData', () => {
     // key_value_store['localpay_pending'], entirely outside every pushed/replayed SyncChunk.
     const w = deriveBackupWallet(PRIMARY, 'main')
     const pending = '[{"id":"p1","status":"pending","frame":{}}]'
-    const chunk = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, { localpayPending: pending })
+    const chunk = await encodeChunk(
+      w,
+      chunkWithTx('aaa'),
+      'main',
+      undefined,
+      { localpayPending: pending },
+      { deviceId: OLD_DEVICE, generation: 1, seq: 1 }
+    )
     const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
       [`${OLD_DEVICE}/1`]: [chunk]
     })
@@ -407,7 +426,14 @@ describe('XR-011: restoreOnImport replays appData', () => {
   it('restores the peerpay_outbox delivery checkpoint (XR-012)', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
     const outbox = '[{"id":"o1","status":"unsent","delivered":true}]'
-    const chunk = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, { peerpayOutbox: outbox })
+    const chunk = await encodeChunk(
+      w,
+      chunkWithTx('aaa'),
+      'main',
+      undefined,
+      { peerpayOutbox: outbox },
+      { deviceId: OLD_DEVICE, generation: 1, seq: 1 }
+    )
     const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
       [`${OLD_DEVICE}/1`]: [chunk]
     })
@@ -420,9 +446,16 @@ describe('XR-011: restoreOnImport replays appData', () => {
 
   it('restores the durable issued-receive-date history (XR-055)', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const chunk = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, {
-      receiveIssuedDates: ['2026-06-01', '2026-08-15']
-    })
+    const chunk = await encodeChunk(
+      w,
+      chunkWithTx('aaa'),
+      'main',
+      undefined,
+      {
+        receiveIssuedDates: ['2026-06-01', '2026-08-15']
+      },
+      { deviceId: OLD_DEVICE, generation: 1, seq: 1 }
+    )
     const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
       [`${OLD_DEVICE}/1`]: [chunk]
     })
@@ -452,10 +485,24 @@ describe('XR-011: restoreOnImport replays appData', () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
     const logs = {
       [`${OLD_DEVICE}/1`]: [
-        await encodeChunk(w, chunkWithTx('old'), 'main', undefined, { localpayPending: '[{"id":"p-old"}]' })
+        await encodeChunk(
+          w,
+          chunkWithTx('old'),
+          'main',
+          undefined,
+          { localpayPending: '[{"id":"p-old"}]' },
+          { deviceId: OLD_DEVICE, generation: 1, seq: 1 }
+        )
       ],
       [`${NEW_DEVICE}/1`]: [
-        await encodeChunk(w, chunkWithTx('new'), 'main', undefined, { localpayPending: '[{"id":"p-new"}]' })
+        await encodeChunk(
+          w,
+          chunkWithTx('new'),
+          'main',
+          undefined,
+          { localpayPending: '[{"id":"p-new"}]' },
+          { deviceId: NEW_DEVICE, generation: 1, seq: 1 }
+        )
       ]
     }
     const client = fakeClient(
@@ -481,11 +528,18 @@ describe('XR-011: restoreOnImport replays appData', () => {
     // abortAction anywhere on it — so a passing restore here is a structural guarantee, not
     // just a behavioural one: there is nothing else on this double for a regression to call.
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const chunk = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, {
-      localpayPending: '[{"id":"p1"}]',
-      peerpayOutbox: '[{"id":"o1","delivered":true}]',
-      receiveIssuedDates: ['2026-08-01']
-    })
+    const chunk = await encodeChunk(
+      w,
+      chunkWithTx('aaa'),
+      'main',
+      undefined,
+      {
+        localpayPending: '[{"id":"p1"}]',
+        peerpayOutbox: '[{"id":"o1","delivered":true}]',
+        receiveIssuedDates: ['2026-08-01']
+      },
+      { deviceId: OLD_DEVICE, generation: 1, seq: 1 }
+    )
     const client = fakeClient([summary({ deviceId: OLD_DEVICE, generation: 1 })], {
       [`${OLD_DEVICE}/1`]: [chunk]
     })

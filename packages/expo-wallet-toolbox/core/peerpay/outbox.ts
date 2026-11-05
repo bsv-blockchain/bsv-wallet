@@ -14,6 +14,9 @@
  * SENT_RETENTION_MS then pruned. Retry is manual — the UI lists unsent only.
  */
 
+import { P2PKH, PublicKey, Transaction, type WalletInterface } from '@bsv/sdk'
+import { BRC29_PROTOCOL_ID } from './brc29'
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface OutboxEntry {
@@ -48,7 +51,7 @@ export interface OutboxEntry {
    * overlay lookup. Absent for entries minted from a bare key.
    */
   recipientHost?: string
-  status: 'unsent' | 'sent'
+  status: 'unsent' | 'sent' | 'import_hold'
   /** ISO 8601 timestamp of most recent delivery attempt */
   lastAttemptAt?: string
   /** Error message from the most recent failed delivery attempt */
@@ -151,6 +154,110 @@ export async function getOutboxEntries(storage: StorageLike): Promise<OutboxEntr
  */
 export async function getOutboxEntriesStrict(storage: Pick<StorageLike, 'getKeyValue'>): Promise<OutboxEntry[]> {
   return readEntries(storage)
+}
+
+/** Imported history is not current approval to deliver or broadcast a payment. */
+export async function quarantineImportedOutbox(storage: StorageLike): Promise<number> {
+  return withOutboxLock(storage, async () => {
+    const all = await readEntries(storage)
+    let count = 0
+    const held = all.map(entry => {
+      if (!entry || typeof entry !== 'object') throw new Error('Invalid imported outbox entry')
+      if (entry.status === 'sent' || entry.status === 'import_hold') return entry
+      count++
+      return { ...entry, status: 'import_hold' as const }
+    })
+    if (count) await writeEntries(storage, held)
+    return count
+  })
+}
+
+/** Verify an imported snapshot before its amount or recipient is offered for
+ * approval. Only public-key derivation is needed; no payment is signed or sent. */
+export async function validateImportedOutboxEntry(
+  entry: OutboxEntry,
+  wallet: Pick<WalletInterface, 'getPublicKey'>,
+  adminOriginator: string
+): Promise<OutboxEntry> {
+  // Separate the checked snapshot from the caller's mutable imported object
+  // before awaiting wallet derivation. Release still checks exact stored equality.
+  const reviewed = JSON.parse(JSON.stringify(entry)) as OutboxEntry
+  if (reviewed.status !== 'import_hold') throw new Error('Imported payment is not held for review')
+  const token = reviewed.token
+  if (
+    !token ||
+    !Array.isArray(token.transaction) ||
+    !token.transaction.length ||
+    !token.transaction.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255)
+  ) {
+    throw new Error('Imported payment has an invalid signed transaction')
+  }
+  const tx = Transaction.fromAtomicBEEF(token.transaction)
+  if (
+    reviewed.txid !== undefined &&
+    (typeof reviewed.txid !== 'string' ||
+      !/^[0-9a-f]{64}$/i.test(reviewed.txid) ||
+      tx.id('hex').toLowerCase() !== reviewed.txid.toLowerCase())
+  ) {
+    throw new Error('Imported payment transaction ID does not match its signed transaction')
+  }
+  const outputIndex = token.outputIndex === undefined ? 0 : token.outputIndex
+  if (!Number.isSafeInteger(outputIndex) || outputIndex < 0 || outputIndex >= tx.outputs.length) {
+    throw new Error('Imported payment has an invalid signed output index')
+  }
+  const output = tx.outputs[outputIndex]
+  if (!Number.isSafeInteger(output.satoshis) || output.satoshis! <= 0 || token.amount !== output.satoshis) {
+    throw new Error('Imported payment amount does not match its signed output')
+  }
+  const { derivationPrefix, derivationSuffix } = token.customInstructions ?? {}
+  if (
+    typeof derivationPrefix !== 'string' ||
+    !derivationPrefix ||
+    typeof derivationSuffix !== 'string' ||
+    !derivationSuffix ||
+    typeof reviewed.recipient !== 'string' ||
+    !/^(02|03)[0-9a-f]{64}$/i.test(reviewed.recipient)
+  ) {
+    throw new Error('Imported payment has invalid recipient derivation data')
+  }
+  // Exactly the BRC-29 derivation used by mintPeerPayToken, under the current
+  // admin wallet. A different recipient or prefix/suffix produces a different lock.
+  PublicKey.fromString(reviewed.recipient)
+  const { publicKey } = await wallet.getPublicKey(
+    {
+      protocolID: BRC29_PROTOCOL_ID,
+      keyID: `${derivationPrefix} ${derivationSuffix}`,
+      counterparty: reviewed.recipient
+    },
+    adminOriginator
+  )
+  const expected = new P2PKH().lock(PublicKey.fromString(publicKey).toAddress()).toHex()
+  if (output.lockingScript.toHex() !== expected) {
+    throw new Error('Imported payment recipient does not match its signed output')
+  }
+  return reviewed
+}
+
+/** Called only after reviewing the displayed imported payment for a new send. */
+export async function releaseImportedOutboxEntry(
+  storage: StorageLike,
+  reviewed: OutboxEntry,
+  wallet: Pick<WalletInterface, 'getPublicKey'>,
+  adminOriginator: string
+): Promise<OutboxEntry> {
+  return withOutboxLock(storage, async () => {
+    const all = await readEntries(storage)
+    const index = all.findIndex(entry => entry.id === reviewed.id)
+    const current = all[index]
+    if (!current || current.status !== 'import_hold' || JSON.stringify(current) !== JSON.stringify(reviewed)) {
+      throw new Error('Imported payment changed; review it again')
+    }
+    const validated = await validateImportedOutboxEntry(current, wallet, adminOriginator)
+    const approved = { ...validated, status: 'unsent' as const }
+    all[index] = approved
+    await writeEntries(storage, all)
+    return approved
+  })
 }
 
 /**
@@ -264,7 +371,13 @@ export async function pruneExpiredSent(storage: StorageLike, now: number = Date.
   })
 }
 
-/** Entries that still need Retry/Cancel — everything not yet marked sent. */
+/** Only explicitly authorized unsent entries may enter automatic delivery. */
 export function unsentEntries(entries: OutboxEntry[]): OutboxEntry[] {
+  return entries.filter(e => e.status === 'unsent')
+}
+
+/** Held or unrecognized history still needs retention, even though it cannot
+ * be automatically delivered. Only sent entries are terminal. */
+export function unresolvedOutboxEntries(entries: OutboxEntry[]): OutboxEntry[] {
   return entries.filter(e => e.status !== 'sent')
 }

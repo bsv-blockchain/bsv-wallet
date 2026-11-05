@@ -17,9 +17,9 @@ import { OfflineFirstChaintracks } from '../../core/headers/OfflineFirstChaintra
 import { HeaderStore } from '../../core/headers/headerStore'
 import { memoryHeaderFs } from '../../core/headers/fs'
 import { installOfflineChainTracker } from '../../core/services/walletServiceConfig'
+import { anchor, branch, combine } from '../headers/fixtures/regtest'
 
-const ANCHOR = { height: 0, hash: '00'.repeat(32) }
-const ANCESTOR_HEIGHT = 5000
+const ANCESTOR_HEIGHT = 1
 
 const payeeKey = PrivateKey.fromRandom().toPublicKey()
 const payerKey = PrivateKey.fromRandom()
@@ -77,9 +77,11 @@ const toPayee = () => new P2PKH().lock(payeeKey.toAddress())
 
 /** The payee as NearbyFlow composes it: keys from the wallet, services (and so
  * the chain tracker) from storage, with the offline tracker installed. */
-async function offlinePayee(cachedRoots: { height: number; root: string }[]) {
-  const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', ANCHOR)
-  for (const { height, root } of cachedRoots) await store.putExtraRoot(height, root)
+async function offlinePayee(cachedRoot?: string) {
+  const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', anchor)
+  if (cachedRoot !== undefined) {
+    await store.append(combine(branch(1, 'a', [cachedRoot])), ANCESTOR_HEIGHT)
+  }
   const remote = {
     findHeaderForHeight: jest.fn(async () => {
       throw new Error('an offline payee must not reach the network')
@@ -88,7 +90,7 @@ async function offlinePayee(cachedRoots: { height: number; root: string }[]) {
       throw new Error('an offline payee must not reach the network')
     })
   }
-  const tracker = new OfflineFirstChaintracks(remote as never, async () => false)
+  const tracker = new OfflineFirstChaintracks(remote as never, async () => false, 'regtest')
   tracker.setStore(store)
   const services = {} as Services
   installOfflineChainTracker(services, tracker)
@@ -103,7 +105,7 @@ describe('verifyFramePayment — payee offline', () => {
   it('accepts a payment whose mined ancestor root is already in the local header store', async () => {
     const ancestor = minedAncestor(10_000)
     const tx = await spend(ancestor, [{ satoshis: 9_000, script: toPayee() }])
-    const { deps, remote } = await offlinePayee([{ height: ANCESTOR_HEIGHT, root: rootOf(ancestor) }])
+    const { deps, remote } = await offlinePayee(rootOf(ancestor))
 
     await expect(verifyFramePayment(deps, frameOf(tx), 'admin.test')).resolves.toEqual({
       kind: 'bsv',
@@ -116,7 +118,7 @@ describe('verifyFramePayment — payee offline', () => {
     const ancestor = minedAncestor(10_000)
     const parent = await spend(ancestor, [{ satoshis: 9_500, script: new P2PKH().lock(payerKey.toAddress()) }])
     const tx = await spend(parent, [{ satoshis: 9_000, script: toPayee() }])
-    const { deps } = await offlinePayee([{ height: ANCESTOR_HEIGHT, root: rootOf(ancestor) }])
+    const { deps } = await offlinePayee(rootOf(ancestor))
 
     await expect(verifyFramePayment(deps, frameOf(tx), 'admin.test')).resolves.toEqual({
       kind: 'bsv',
@@ -127,7 +129,7 @@ describe('verifyFramePayment — payee offline', () => {
   it('refuses as root_unverified when the ancestor height is not in the local header store', async () => {
     const ancestor = minedAncestor(10_000)
     const tx = await spend(ancestor, [{ satoshis: 9_000, script: toPayee() }])
-    const { deps, tracker, remote } = await offlinePayee([])
+    const { deps, tracker, remote } = await offlinePayee()
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
     const err = await verifyFramePayment(deps, frameOf(tx), 'admin.test').catch(e => e)
@@ -143,7 +145,7 @@ describe('verifyFramePayment — payee offline', () => {
     const ancestor = minedAncestor(10_000)
     const tx = await spend(ancestor, [{ satoshis: 9_000, script: toPayee() }])
     const wrongRoot = Utils.toHex(Hash.sha256(Utils.toArray('not the block', 'utf8')))
-    const { deps } = await offlinePayee([{ height: ANCESTOR_HEIGHT, root: wrongRoot }])
+    const { deps } = await offlinePayee(wrongRoot)
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
     const err = await verifyFramePayment(deps, frameOf(tx), 'admin.test').catch(e => e)

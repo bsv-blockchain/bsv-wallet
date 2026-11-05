@@ -11,6 +11,7 @@
  */
 import { Utils } from '@bsv/sdk'
 import type { HeaderStore } from './headerStore'
+import { parseHeader } from './headerConsensus'
 
 export interface HeaderSource {
   getHeaders(height: number, count: number): Promise<string>
@@ -41,10 +42,35 @@ export async function syncHeaders(args: {
   onProgress?: (tipHeight: number, presentHeight: number) => void
   shouldStop?: () => boolean
 }): Promise<SyncHeadersResult> {
+  return args.store.withUpdateLock(() => syncHeadersUnlocked(args))
+}
+
+async function syncHeadersUnlocked(args: Parameters<typeof syncHeaders>[0]): Promise<SyncHeadersResult> {
   const { store, client, chunkSize = 2000, onProgress, shouldStop } = args
+  if (!Number.isSafeInteger(chunkSize) || chunkSize < 1 || chunkSize > 100000)
+    throw new Error('Invalid header chunk size')
   const presentHeight = await client.getPresentHeight()
   let added = 0
-  let rewinds = 0
+  if (!Number.isSafeInteger(presentHeight) || presentHeight < store.anchor.height || presentHeight > 0x7fffffff) {
+    throw new Error('Chain source returned an invalid present height')
+  }
+  if (store.needsContext) {
+    const hex = await client.getHeaders(store.contextStartHeight, store.contextCount)
+    if (hex.length !== store.contextCount * HEADER_BYTES * 2 || !/^[0-9a-f]+$/i.test(hex)) {
+      throw new Error('Header bootstrap context unavailable or malformed')
+    }
+    await store.initializeContext(new Uint8Array(Utils.toArray(hex, 'hex')))
+  }
+  // A same-height or shorter competing chain can still have more work. Do not
+  // use advertised height as a substitute for comparing locally computed work.
+  if (store.count > 0 && presentHeight <= store.tipHeight) {
+    const at = Math.min(presentHeight, store.tipHeight)
+    const hex = await client.getHeaders(at, 1)
+    if (hex.length !== HEADER_BYTES * 2) throw new Error('Chain tip header unavailable')
+    if (parseHeader(new Uint8Array(Utils.toArray(hex, 'hex'))).hash !== store.hashForHeight(at)) {
+      added += await reconcileBranch(store, client, presentHeight, chunkSize, shouldStop)
+    }
+  }
 
   while (store.tipHeight < presentHeight) {
     if (shouldStop?.()) break
@@ -66,19 +92,63 @@ export async function syncHeaders(args: {
       added += await store.append(bytes, from)
       onProgress?.(store.tipHeight, presentHeight)
     } catch (err) {
-      // First-header previous-hash miss is a tip reorg: drop the orphan and
-      // refetch. A later header in the chunk, or any other validation failure,
-      // still propagates — a silent truncated window would look complete.
-      if (!isFirstHeaderPrevHashError(err, from)) throw err
-      if (store.count > 0 && rewinds < REWIND_CAP) {
-        await store.truncateToCount(store.count - 1)
-        rewinds++
-        continue
-      }
-      await store.reset()
-      throw err
+      if (!isFirstHeaderPrevHashError(err, from) || store.count === 0) throw err
+      added += await reconcileBranch(store, client, presentHeight, chunkSize, shouldStop)
+      onProgress?.(store.tipHeight, presentHeight)
     }
   }
 
   return { added, tipHeight: store.tipHeight, presentHeight }
+}
+
+/** Find a locally authenticated ancestor, stage/validate, then compare work. */
+async function reconcileBranch(
+  store: HeaderStore,
+  client: HeaderSource,
+  presentHeight: number,
+  chunkSize: number,
+  shouldStop?: () => boolean
+): Promise<number> {
+  let ancestor: number | undefined
+  for (
+    let height = Math.min(store.tipHeight, presentHeight);
+    height >= store.anchor.height && height >= store.tipHeight - REWIND_CAP;
+    height--
+  ) {
+    if (shouldStop?.()) return 0
+    const hex = await client.getHeaders(height, 1)
+    if (hex.length !== HEADER_BYTES * 2 || !/^[0-9a-f]+$/i.test(hex))
+      throw new Error('Reorg ancestor header unavailable')
+    const header = parseHeader(new Uint8Array(Utils.toArray(hex, 'hex')))
+    if (header.hash === store.hashForHeight(height)) {
+      ancestor = height
+      break
+    }
+  }
+  if (ancestor === undefined) throw new Error('No authenticated reorg ancestor within rewind limit')
+  let staged = new Uint8Array(0)
+  for (let from = ancestor + 1; from <= presentHeight;) {
+    if (shouldStop?.()) return 0
+    const want = Math.min(chunkSize, presentHeight - from + 1)
+    const hex = await client.getHeaders(from, want)
+    if (!hex || !/^[0-9a-f]+$/i.test(hex)) throw new Error('Replacement header branch unavailable')
+    const bytes = new Uint8Array(Utils.toArray(hex.slice(0, want * HEADER_BYTES * 2), 'hex'))
+    if (bytes.length === 0 || bytes.length % HEADER_BYTES !== 0) throw new Error('Malformed replacement header branch')
+    const merged = new Uint8Array(staged.length + bytes.length)
+    merged.set(staged)
+    merged.set(bytes, staged.length)
+    staged = merged
+    from += bytes.length / HEADER_BYTES
+    try {
+      return await store.replaceBranch(ancestor + 1, staged)
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.startsWith('Replacement header branch does not have greater accumulated work')
+      )
+        throw error
+      if (from > presentHeight) throw error
+    }
+  }
+  throw new Error('Replacement header branch does not have greater accumulated work')
 }

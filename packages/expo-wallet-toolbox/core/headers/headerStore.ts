@@ -7,35 +7,24 @@
  * payments follows from being able to answer that with no network.
  *
  * SHAPE: `<chain>.bin` holds contiguous 80-byte headers starting at
- * `anchor.height + 1`; `<chain>.json` holds the metadata; `<chain>-extra.json`
- * holds roots resolved below the window while online. On open, one pass over
+ * `anchor.height + 1`; `<chain>.json` holds metadata. Historical roots are
+ * derived from bounded raw-header pages linked backwards to the checkpoint.
+ * Legacy extra-root files carry no membership proof and are never trusted. On open, one pass over
  * the .bin builds a packed Uint8Array of 32-byte roots — ~1.7 MB for a year,
  * versus ~3.4 MB if they were kept as hex strings — so a lookup is an array
  * slice and a hex encode rather than file I/O.
  *
- * VALIDATION is a single pass per appended chunk: link each header to the
- * previous hash, hash it once, check that hash against the target its own bits
- * declare, and keep the root. Doing it here rather than calling the toolbox's
- * `validateBufferOfHeaders` avoids hashing every header twice, since that
- * helper checks linkage but not difficulty.
+ * VALIDATION checks checkpoint-authenticated difficulty history, network
+ * expected bits, proof of work, MTP, future time and version in one pass.
+ * Reorg candidates must exceed the existing locally computed accumulated work.
+ * The toolbox own-target-only helper is insufficient for consensus validation.
  */
 import { Utils } from '@bsv/sdk'
 import { utils as chaintracksUtils } from '@bsv/wallet-toolbox-mobile'
 import type { HeaderCheckpoint } from './checkpoints'
 import type { HeaderFs } from './fs'
-
-const { blockHash, deserializeBaseBlockHeader } = chaintracksUtils
-/**
- * The toolbox's proof-of-work check, given this store's chain. From
- * @bsv/wallet-toolbox 2.15.0 (bsv-blockchain/ts-stack#819) the chain selects
- * the proof-of-work limit — regtest's is far higher than mainnet's — and an
- * omitted chain keeps mainnet's. Older releases take one argument and ignore
- * the second, which changes nothing for the chains they support.
- */
-const validateHeaderProofOfWork = chaintracksUtils.validateHeaderProofOfWork as (
-  header: Parameters<typeof chaintracksUtils.validateHeaderProofOfWork>[0],
-  chain?: string
-) => true
+import { HeaderConsensus, parseHeader } from './headerConsensus'
+import type { WalletChain } from '../networks'
 
 const HEADER_BYTES = 80
 const ROOT_BYTES = 32
@@ -54,28 +43,157 @@ export class HeaderStore {
   yieldEvery = HeaderStore.DEFAULT_YIELD_EVERY
 
   private roots: Uint8Array
-  private extra: Record<string, string>
+  private consensus: HeaderConsensus | undefined
+  private contextBytes: Uint8Array | undefined
+  private history: { firstHeight: number; roots: Uint8Array }[] = []
+  private nextHistoryHeight: number
+  private nextHistoryHash: string
+  private pendingUpdate: Promise<void> = Promise.resolve()
+  static readonly HISTORICAL_PAGE_HEADERS = 2000
+  private recoveryRequired = false
+  private reopenRequired = false
   private constructor(
     private readonly fs: HeaderFs,
     readonly chain: string,
     readonly anchor: HeaderCheckpoint,
     private headerCount: number,
     private currentTipHash: string,
-    roots: Uint8Array,
-    extra: Record<string, string>
+    roots: Uint8Array
   ) {
     this.roots = roots
-    this.extra = extra
+    this.nextHistoryHeight = anchor.height
+    this.nextHistoryHash = anchor.hash
   }
 
   private get binPath(): string {
     return `${this.chain}.bin`
   }
+  private get contextPath(): string {
+    return `${this.chain}-context.bin`
+  }
+  get needsContext(): boolean {
+    return this.consensus == null
+  }
+  get contextStartHeight(): number {
+    return HeaderConsensus.contextStart(this.anchor)
+  }
+  get contextCount(): number {
+    return this.anchor.height - this.contextStartHeight + 1
+  }
+  get chainWork(): bigint {
+    return this.consensus?.chainWork ?? 0n
+  }
+  hashForHeight(height: number): string | undefined {
+    if (this.reopenRequired) return undefined
+    return height === this.anchor.height ? this.anchor.hash : this.consensus?.hashForHeight(height)
+  }
+
+  /** The bootstrap is peer-supplied bytes, authenticated by the pinned terminal hash. */
+  async initializeContext(bytes: Uint8Array): Promise<void> {
+    await this.recoverReplacement()
+    if (this.headerCount !== 0) throw new Error('Cannot replace live header consensus context')
+    const consensus = HeaderConsensus.fromContext(this.chain as WalletChain, this.anchor, bytes)
+    await this.fs.writeBytes(this.contextPath, bytes)
+    this.consensus = consensus
+    this.contextBytes = bytes.slice()
+  }
+
   private get metaPath(): string {
     return `${this.chain}.json`
   }
-  private get extraPath(): string {
-    return `${this.chain}-extra.json`
+  private get historyIndexPath(): string {
+    return `${this.chain}-history.json`
+  }
+  private historyPagePath(first: number, last: number): string {
+    return `${this.chain}-history-${first}-${last}.bin`
+  }
+  get nextHistoricalHeight(): number {
+    return this.nextHistoryHeight
+  }
+
+  /** Serialize background sync and proof-triggered updates against the same store. */
+  withUpdateLock<T>(operation: () => Promise<T>): Promise<T> {
+    const pending = this.pendingUpdate.then(operation)
+    this.pendingUpdate = pending.then(
+      () => undefined,
+      () => undefined
+    )
+    return pending
+  }
+
+  private async verifyHistoryPage(bytes: Uint8Array, firstHeight: number) {
+    const count = Math.min(HeaderStore.HISTORICAL_PAGE_HEADERS, this.nextHistoryHeight + 1)
+    if (firstHeight !== this.nextHistoryHeight - count + 1 || bytes.length !== count * HEADER_BYTES) {
+      throw new Error('Historical header page has the wrong height or length')
+    }
+    const roots = new Uint8Array(count * ROOT_BYTES)
+    let previous: ReturnType<typeof parseHeader> | undefined
+    let firstPreviousHash = ''
+    for (let i = 0; i < count; i++) {
+      if (i > 0 && i % this.yieldEvery === 0) await yieldToEventLoop()
+      const header = parseHeader(bytes.subarray(i * HEADER_BYTES, (i + 1) * HEADER_BYTES))
+      if (previous && header.previousHash !== previous.hash) throw new Error('Historical header page linkage failed')
+      if (i === 0) firstPreviousHash = header.previousHash
+      roots.set(new Uint8Array(Utils.toArray(header.merkleRoot, 'hex')), i * ROOT_BYTES)
+      previous = header
+    }
+    if (previous?.hash !== this.nextHistoryHash)
+      throw new Error('Historical header page is not committed to the authenticated chain')
+    return { segment: { firstHeight, roots }, nextHeight: firstHeight - 1, nextHash: firstPreviousHash }
+  }
+
+  /**
+   * Historical headers need no guessed old difficulty rules: their complete
+   * hash linkage ends at the explicitly trusted checkpoint. Only fixed-size
+   * pages cross this boundary, and raw bytes are reauthenticated on reopen.
+   */
+  async addHistoricalPage(bytes: Uint8Array, firstHeight: number): Promise<void> {
+    const page = await this.verifyHistoryPage(bytes, firstHeight)
+    await this.fs.writeBytes(this.historyPagePath(firstHeight, this.nextHistoryHeight), bytes)
+    await this.fs.writeText(
+      this.historyIndexPath,
+      JSON.stringify({
+        version: 1,
+        chain: this.chain,
+        anchorHeight: this.anchor.height,
+        anchorHash: this.anchor.hash,
+        pages: this.history.length + 1
+      })
+    )
+    this.history.push(page.segment)
+    this.nextHistoryHeight = page.nextHeight
+    this.nextHistoryHash = page.nextHash
+  }
+
+  private async loadHistory(): Promise<void> {
+    const raw = await this.fs.readText(this.historyIndexPath)
+    if (!raw) return
+    try {
+      const index = JSON.parse(raw)
+      if (
+        index.version !== 1 ||
+        index.chain !== this.chain ||
+        index.anchorHeight !== this.anchor.height ||
+        index.anchorHash !== this.anchor.hash ||
+        !Number.isSafeInteger(index.pages) ||
+        index.pages < 0 ||
+        index.pages > Math.ceil((this.anchor.height + 1) / HeaderStore.HISTORICAL_PAGE_HEADERS)
+      )
+        return
+      for (let i = 0; i < index.pages; i++) {
+        const count = Math.min(HeaderStore.HISTORICAL_PAGE_HEADERS, this.nextHistoryHeight + 1)
+        const first = this.nextHistoryHeight - count + 1
+        const bytes = await this.fs.readBytes(this.historyPagePath(first, this.nextHistoryHeight))
+        if (!bytes) break
+        const page = await this.verifyHistoryPage(bytes, first)
+        this.history.push(page.segment)
+        this.nextHistoryHeight = page.nextHeight
+        this.nextHistoryHash = page.nextHash
+        await yieldToEventLoop()
+      }
+    } catch {
+      /* A corrupt page and all ancestors below it remain unverified. */
+    }
   }
 
   /** First height held by the window. */
@@ -95,17 +213,7 @@ export class HeaderStore {
   }
 
   static async open(fs: HeaderFs, chain: string, anchor: HeaderCheckpoint): Promise<HeaderStore> {
-    const extraRaw = await fs.readText(`${chain}-extra.json`)
-    let extra: Record<string, string> = {}
-    if (extraRaw) {
-      try {
-        const parsed = JSON.parse(extraRaw) as unknown
-        if (parsed && typeof parsed === 'object') extra = parsed as Record<string, string>
-      } catch {
-        // A corrupt cache of roots is a cache miss, never a load failure.
-      }
-    }
-
+    await HeaderStore.recoverReplacement(fs, chain)
     const metaRaw = await fs.readText(`${chain}.json`)
     let meta: StoredMeta | undefined
     if (metaRaw) {
@@ -116,7 +224,26 @@ export class HeaderStore {
       }
     }
 
-    const empty = new HeaderStore(fs, chain, anchor, 0, anchor.hash, new Uint8Array(0), extra)
+    const empty = new HeaderStore(fs, chain, anchor, 0, anchor.hash, new Uint8Array(0))
+    let context = await fs.readBytes(`${chain}-context.bin`)
+    if (!context && anchor.height === 0) {
+      try {
+        context = new Uint8Array(chaintracksUtils.genesisBuffer(chain as never))
+      } catch {
+        /* Unsupported network fails closed. */
+      }
+    }
+    if (context) {
+      try {
+        empty.consensus = HeaderConsensus.fromContext(chain as WalletChain, anchor, context)
+        empty.contextBytes = context.slice()
+      } catch {
+        // Old or corrupt context cannot make persisted roots authoritative.
+        await fs.deleteFile(`${chain}-context.bin`)
+      }
+    }
+
+    await empty.loadHistory()
 
     // A shipped checkpoint that moved (app update) invalidates the window: its
     // first header no longer links to anything we trust. Start over rather than
@@ -126,6 +253,7 @@ export class HeaderStore {
       meta.chain !== chain ||
       meta.anchorHeight !== anchor.height ||
       meta.anchorHash !== anchor.hash ||
+      !Number.isSafeInteger(meta.count) ||
       meta.count <= 0
     ) {
       await empty.reset()
@@ -145,36 +273,66 @@ export class HeaderStore {
       await fs.writeBytes(`${chain}.bin`, bin)
     }
 
-    const roots = new Uint8Array(meta.count * ROOT_BYTES)
-    for (let i = 0; i < meta.count; i++) {
-      // Merkle root occupies bytes 36..68 of a header, little-endian on the
-      // wire and display order reversed.
-      const src = bin.subarray(i * HEADER_BYTES + 36, i * HEADER_BYTES + 68)
-      const display = src.slice().reverse()
-      roots.set(display, i * ROOT_BYTES)
+    if (!empty.consensus) {
+      await empty.reset()
+      return empty
     }
-    return new HeaderStore(fs, chain, anchor, meta.count, meta.tipHash, roots, extra)
+    const roots = new Uint8Array(meta.count * ROOT_BYTES)
+    try {
+      for (let i = 0; i < meta.count; i++) {
+        if (i > 0 && i % HeaderStore.DEFAULT_YIELD_EVERY === 0) await yieldToEventLoop()
+        const parsed = empty.consensus.append(
+          bin.subarray(i * HEADER_BYTES, (i + 1) * HEADER_BYTES),
+          anchor.height + i + 1
+        )
+        roots.set(new Uint8Array(Utils.toArray(parsed.merkleRoot, 'hex')), i * ROOT_BYTES)
+      }
+    } catch {
+      // Rebuild rather than trust windows accepted by the old own-target-only
+      // validator or inconsistent disk metadata. Offline verification fails closed.
+      empty.consensus = undefined
+      if (context) {
+        try {
+          empty.consensus = HeaderConsensus.fromContext(chain as WalletChain, anchor, context)
+        } catch {
+          /* Needs online bootstrap. */
+        }
+      }
+      await empty.reset()
+      return empty
+    }
+    empty.roots = roots
+    empty.headerCount = meta.count
+    empty.currentTipHash = empty.consensus.tipHash
+    await empty.writeMeta()
+    return empty
   }
 
   rootForHeight(height: number): string | undefined {
+    if (this.reopenRequired) return undefined
+    if (!Number.isSafeInteger(height) || height < 0) return undefined
+    // Genesis is an independent, shipped network commitment. It does not need
+    // a download of the entire historical chain to establish membership.
+    if (height === 0) {
+      try {
+        return parseHeader(new Uint8Array(chaintracksUtils.genesisBuffer(this.chain as never))).merkleRoot
+      } catch {
+        return undefined
+      }
+    }
     const index = height - this.baseHeight
-    const inWindow = index >= 0 && index < this.headerCount
-    // The window's own PoW-linked root is authoritative for its validated BODY
-    // (every height except the last 6, which can still legitimately reorg): an
-    // extra entry there is ignored outright, never consulted, because letting
-    // it win is exactly how an unauthenticated remote answer could overwrite a
-    // root this device already validated for itself off linked headers — see
-    // misc-p2-02 / OfflineFirstChaintracks.isValidRootForHeight.
-    if (inWindow && !this.inReorgWindow(height)) {
+    if (index >= 0 && index < this.headerCount) {
       return Utils.toHex(Array.from(this.roots.subarray(index * ROOT_BYTES, (index + 1) * ROOT_BYTES)))
     }
-    // Outside the body — either the last-6 reorg tail, or a height the window
-    // does not cover at all — a heal written to extra is the value to consult;
-    // falling through to the window covers the tail case where no heal exists.
-    const extra = this.extra[String(height)]
-    if (extra !== undefined) return extra
-    if (inWindow) {
-      return Utils.toHex(Array.from(this.roots.subarray(index * ROOT_BYTES, (index + 1) * ROOT_BYTES)))
+    const contextIndex = height - this.contextStartHeight
+    if (this.contextBytes && contextIndex >= 0 && height <= this.anchor.height) {
+      const at = contextIndex * HEADER_BYTES + 36
+      return Utils.toHex(Array.from(this.contextBytes.slice(at, at + ROOT_BYTES).reverse()))
+    }
+    for (const segment of this.history) {
+      const at = (height - segment.firstHeight) * ROOT_BYTES
+      if (at >= 0 && at < segment.roots.length)
+        return Utils.toHex(Array.from(segment.roots.subarray(at, at + ROOT_BYTES)))
     }
     return undefined
   }
@@ -198,6 +356,7 @@ export class HeaderStore {
    * its declared target.
    */
   async append(bytes: Uint8Array, firstHeight: number): Promise<number> {
+    await this.recoverReplacement()
     if (bytes.length === 0) return 0
     if (bytes.length % HEADER_BYTES !== 0) {
       throw new Error(`header chunk must be a multiple of 80 bytes, got ${bytes.length}`)
@@ -206,41 +365,24 @@ export class HeaderStore {
       throw new Error(`header chunk starts at height ${firstHeight}, expected ${this.tipHeight + 1}`)
     }
 
+    if (!this.consensus)
+      throw new Error('Header difficulty context unavailable; synchronize authenticated bootstrap first')
+    const candidate = this.consensus.forkAt(this.tipHeight)
     const added = bytes.length / HEADER_BYTES
     const newRoots = new Uint8Array(added * ROOT_BYTES)
-    let prev = this.currentTipHash
-
     for (let i = 0; i < added; i++) {
-      // Two SHA-256 passes and a difficulty check per header, on the JS thread.
-      // A 2,000-header chunk was ~2.8s of solid JS on a mid-range Android and a
-      // first-launch sync repeats that ~30 times; nothing else — a nearby
-      // payment's ack, a tap — could run. Hand the loop back periodically.
       if (i > 0 && i % this.yieldEvery === 0) await yieldToEventLoop()
-      const offset = i * HEADER_BYTES
-      const header = bytes.slice(offset, offset + HEADER_BYTES)
-      const parsed = deserializeBaseBlockHeader(bytes, offset)
-      if (parsed.previousHash !== prev) {
-        throw new Error(
-          `header at height ${firstHeight + i} names previous hash ${parsed.previousHash}, expected ${prev}`
-        )
-      }
-      const hash = blockHash(header)
-      // Throws on failure — a header that does not meet its own target is not a
-      // header, and accepting it would let anyone mint merkle roots. Takes the
-      // display-order hex hash blockHash returns, validates the compact target
-      // encoding, and honours the toolbox's consensus proof-of-work exceptions.
-      validateHeaderProofOfWork({ ...parsed, height: firstHeight + i, hash }, this.chain)
+      const parsed = candidate.append(bytes.subarray(i * HEADER_BYTES, (i + 1) * HEADER_BYTES), firstHeight + i)
       newRoots.set(new Uint8Array(Utils.toArray(parsed.merkleRoot, 'hex')), i * ROOT_BYTES)
-      prev = hash
     }
-
     await this.fs.appendBytes(this.binPath, bytes)
     const merged = new Uint8Array(this.roots.length + newRoots.length)
     merged.set(this.roots, 0)
     merged.set(newRoots, this.roots.length)
     this.roots = merged
     this.headerCount += added
-    this.currentTipHash = prev
+    this.currentTipHash = candidate.tipHash
+    this.consensus = candidate
     await this.writeMeta()
     return added
   }
@@ -250,6 +392,7 @@ export class HeaderStore {
    * header can link. Rebuilds the on-disk `.bin` and the in-memory root index.
    */
   async truncateToCount(count: number): Promise<void> {
+    await this.recoverReplacement()
     if (count === this.headerCount) return
     if (count < 0 || count > this.headerCount) {
       throw new Error(`truncateToCount(${count}) out of range 0..${this.headerCount}`)
@@ -268,42 +411,122 @@ export class HeaderStore {
     await this.fs.writeBytes(this.binPath, sliced)
     this.roots = new Uint8Array(this.roots.subarray(0, count * ROOT_BYTES))
     this.headerCount = count
-    this.currentTipHash = blockHash(sliced.subarray(keep - HEADER_BYTES, keep))
+    this.currentTipHash = parseHeader(sliced.subarray(keep - HEADER_BYTES, keep)).hash
+    this.consensus = this.consensus?.forkAt(this.anchor.height + count)
     await this.writeMeta()
   }
 
-  async putExtraRoot(height: number, root: string): Promise<void> {
-    if (this.inReorgWindow(height)) return
-    if (this.extra[String(height)] === root) return
-    this.extra = { ...this.extra, [String(height)]: root }
-    await this.fs.writeText(this.extraPath, JSON.stringify(this.extra))
+  /** Adopt a fully validated competing branch only when it has strictly more work. */
+  async replaceBranch(firstHeight: number, bytes: Uint8Array): Promise<number> {
+    await this.recoverReplacement()
+    if (!this.consensus) throw new Error('Header difficulty context unavailable')
+    if (bytes.length === 0 || bytes.length % HEADER_BYTES !== 0) throw new Error('Invalid replacement header bytes')
+    const forkHeight = firstHeight - 1
+    const candidate = this.consensus.forkAt(forkHeight)
+    const replacementRoots = new Uint8Array((bytes.length / HEADER_BYTES) * ROOT_BYTES)
+    for (let offset = 0; offset < bytes.length; offset += HEADER_BYTES) {
+      const i = offset / HEADER_BYTES
+      if (i > 0 && i % this.yieldEvery === 0) await yieldToEventLoop()
+      const parsed = candidate.append(bytes.subarray(offset, offset + HEADER_BYTES), firstHeight + i)
+      replacementRoots.set(new Uint8Array(Utils.toArray(parsed.merkleRoot, 'hex')), i * ROOT_BYTES)
+    }
+    if (candidate.chainWork <= this.consensus.chainWork)
+      throw new Error('Replacement header branch does not have greater accumulated work')
+    const old = await this.fs.readBytes(this.binPath)
+    const keep = (forkHeight - this.anchor.height) * HEADER_BYTES
+    if (this.headerCount > 0 && (!old || old.length < this.headerCount * HEADER_BYTES))
+      throw new Error('Stored header prefix unavailable')
+    const combined = new Uint8Array(keep + bytes.length)
+    if (keep > 0) combined.set(old!.subarray(0, keep))
+    combined.set(bytes, keep)
+    const roots = new Uint8Array((keep / HEADER_BYTES) * ROOT_BYTES + replacementRoots.length)
+    roots.set(this.roots.subarray(0, (keep / HEADER_BYTES) * ROOT_BYTES))
+    roots.set(replacementRoots, (keep / HEADER_BYTES) * ROOT_BYTES)
+    // Preserve the complete old pair before overwriting either live file. The
+    // marker is published last and removed only after both new files exist.
+    // An orphan snapshot is harmless and is reused by the next replacement.
+    const journalPath = `${this.chain}-replace.json`
+    await this.fs.writeBytes(
+      `${this.chain}-replace.bin`,
+      old?.subarray(0, this.headerCount * HEADER_BYTES) ?? new Uint8Array(0)
+    )
+    this.recoveryRequired = true
+    try {
+      await this.fs.writeText(journalPath, JSON.stringify(this.storedMeta()))
+      await this.fs.writeBytes(this.binPath, combined)
+      await this.fs.writeText(
+        this.metaPath,
+        JSON.stringify({
+          ...this.storedMeta(),
+          count: combined.length / HEADER_BYTES,
+          tipHash: candidate.tipHash
+        })
+      )
+      try {
+        await this.fs.deleteFile(journalPath)
+      } catch (error) {
+        // A filesystem may report failure after the commit delete completed.
+        let marker: string | undefined
+        try {
+          marker = await this.fs.readText(journalPath)
+        } catch {
+          // Neither branch can be published in memory while the commit result
+          // is unknown. A fresh open will recover or validate the disk pair.
+          this.reopenRequired = true
+          throw error
+        }
+        if (marker !== undefined) throw error
+      }
+    } catch (error) {
+      // Keep the in-memory old chain until commit. If rollback also fails,
+      // every later window mutation retries it before touching live files.
+      await this.recoverReplacement()
+      throw error
+    }
+    this.recoveryRequired = false
+    this.roots = roots
+    this.headerCount = combined.length / HEADER_BYTES
+    this.consensus = candidate
+    this.currentTipHash = candidate.tipHash
+    return bytes.length / HEADER_BYTES
   }
 
-  /**
-   * Batch form of `putExtraRoot`. Merges every entry into the in-memory
-   * `extra` map and writes the JSON file once, rather than once per entry —
-   * `putExtraRoot` re-serializes and rewrites the whole file on every call,
-   * so seeding it row-by-row from a proven_txs table is O(n) file writes for
-   * n rows. Callers that resolve one miss at a time (OfflineFirstChaintracks)
-   * should keep using `putExtraRoot`; callers seeding many roots at once
-   * (prewarmOwnRoots) should use this instead. Returns how many entries were
-   * newly added (i.e. not already present in the store with the same root).
-   */
-  async putExtraRoots(entries: { height: number; root: string }[]): Promise<number> {
-    if (entries.length === 0) return 0
-    const merged = { ...this.extra }
-    let added = 0
-    for (const { height, root } of entries) {
-      if (this.inReorgWindow(height)) continue
-      const key = String(height)
-      if (merged[key] === root) continue
-      merged[key] = root
-      added++
+  private async recoverReplacement(): Promise<void> {
+    if (this.reopenRequired) throw new Error('Header replacement commit uncertain; reopen store')
+    if (!this.recoveryRequired) return
+    await HeaderStore.recoverReplacement(this.fs, this.chain)
+    this.recoveryRequired = false
+  }
+
+  private static async recoverReplacement(fs: HeaderFs, chain: string): Promise<void> {
+    const journalPath = `${chain}-replace.json`
+    const raw = await fs.readText(journalPath)
+    if (raw === undefined) return
+    let meta: StoredMeta
+    try {
+      meta = JSON.parse(raw) as StoredMeta
+    } catch {
+      // Torn marker publication precedes all live-file writes. The previous
+      // pair is still intact; an empty marker is also an interrupted write.
+      await fs.deleteFile(journalPath)
+      return
     }
-    if (added === 0) return 0
-    this.extra = merged
-    await this.fs.writeText(this.extraPath, JSON.stringify(this.extra))
-    return added
+    const snapshot = await fs.readBytes(`${chain}-replace.bin`)
+    if (!snapshot || snapshot.length !== meta.count * HEADER_BYTES)
+      throw new Error('Header replacement undo snapshot unavailable')
+    await fs.writeBytes(`${chain}.bin`, snapshot)
+    await fs.writeText(`${chain}.json`, raw)
+    await fs.deleteFile(journalPath)
+    // open() subsequently applies checkpoint/context checks and validates all
+    // restored headers. Recovery metadata does not authenticate their roots.
+  }
+
+  /** Legacy API retained for callers; a raw root provides no chain-membership proof. */
+  async putExtraRoot(_height: number, _root: string): Promise<void> {}
+
+  /** Proven-tx/prewarm rows are hints, never an authority for canonical membership. */
+  async putExtraRoots(_entries: { height: number; root: string }[]): Promise<number> {
+    return 0
   }
 
   /**
@@ -325,35 +548,34 @@ export class HeaderStore {
    * unavailable header store as "no offline verification this launch" and tries
    * again on the next one, which self-heals; serving wrong roots would not.
    *
-   * `<chain>-extra.json` is deliberately kept: those entries are height ->
-   * merkle root facts, true whichever checkpoint the window happens to be
-   * anchored to, and re-earning them costs a full prewarm over `proven_txs`.
+   * Historical pages remain valid only for this exact pinned checkpoint;
+   * open reauthenticates them and ignores pages for a different anchor.
    *
    * Public so a sync that cannot rewind onto the remote chain (cap 144) can
    * start over from the checkpoint.
    */
   async reset(): Promise<void> {
+    await this.recoverReplacement()
     await this.fs.deleteFile(this.binPath)
     this.roots = new Uint8Array(0)
     this.headerCount = 0
     this.currentTipHash = this.anchor.hash
+    this.consensus = this.consensus?.forkAt(this.anchor.height)
     await this.writeMeta()
   }
 
-  /** Last 6 stored heights can reorg; an extra root there would hide the window. */
-  private inReorgWindow(height: number): boolean {
-    return height <= this.tipHeight && height > this.tipHeight - 6
+  private async writeMeta(): Promise<void> {
+    await this.fs.writeText(this.metaPath, JSON.stringify(this.storedMeta()))
   }
 
-  private async writeMeta(): Promise<void> {
-    const meta: StoredMeta = {
+  private storedMeta(): StoredMeta {
+    return {
       chain: this.chain,
       anchorHeight: this.anchor.height,
       anchorHash: this.anchor.hash,
       count: this.headerCount,
       tipHash: this.currentTipHash
     }
-    await this.fs.writeText(this.metaPath, JSON.stringify(meta))
   }
 }
 
