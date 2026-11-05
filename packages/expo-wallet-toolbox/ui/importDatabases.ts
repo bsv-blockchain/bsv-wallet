@@ -259,14 +259,21 @@ async function isSchemaTrusted(sourceDb: SQLite.SQLiteDatabase): Promise<boolean
   try {
     refDb = await SQLite.openDatabaseAsync(':memory:')
     await createTables(refDb)
-    const allowedRows = (await refDb.getAllAsync(
-      `SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`
-    )) as Array<{ type: string; name: string; sql: string | null }>
+    const allowedRows = (await refDb.getAllAsync(`SELECT type, name, sql FROM sqlite_master`)) as Array<{
+      type: string
+      name: string
+      sql: string | null
+    }>
     const allowed = new Map(allowedRows.map(r => [r.name, { type: r.type, sql: r.sql }]))
 
-    const objects = (await sourceDb.getAllAsync(
-      `SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`
-    )) as Array<{ type: string; name: string; sql: string | null }>
+    // Inspect every object. LIKE's '_' wildcard also hides legal attacker
+    // names such as sqliteXbackdoor; genuine internal objects must match the
+    // canonical reference rather than being exempted by a name prefix.
+    const objects = (await sourceDb.getAllAsync(`SELECT type, name, sql FROM sqlite_master`)) as Array<{
+      type: string
+      name: string
+      sql: string | null
+    }>
     for (const obj of objects) {
       if (obj.type === 'trigger' || obj.type === 'view') return false
       if (obj.sql && /^\s*create\s+virtual\s+table/i.test(obj.sql)) return false
