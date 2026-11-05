@@ -2,12 +2,13 @@ package com.margelo.nitro.localpaytransport
 
 import java.nio.ByteBuffer
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.UUID
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Wire constants and pure helpers for the `bsvpay-ble/1` GATT profile
+ * Wire constants and pure helpers for the `bsvpay-ble/2` GATT profile
  * (design §2 profile, §3 messages and framing).
  *
  * Byte-for-byte identical to ios/BleGattProfile.swift. A change here without
@@ -78,44 +79,55 @@ object BleGattProfile {
     return UUID(bb.long, bb.long)
   }
 
-  /** HMAC-SHA256(psk, utf8(instanceName) ‖ [type]) — the HELLO proof each way (§3 table). */
-  fun proof(psk: ByteArray, instanceName: String, type: Byte): ByteArray =
-    hmac(psk, instanceName.toByteArray(UTF8), byteArrayOf(type))
-
-  /** HMAC-SHA256(psk, utf8(instanceName) ‖ [0x04] ‖ ackJson) — what makes a forged ack impossible without the PSK (§3). */
-  fun ackMac(psk: ByteArray, instanceName: String, ackJson: ByteArray): ByteArray =
-    hmac(psk, instanceName.toByteArray(UTF8), byteArrayOf(TYPE_ACK), ackJson)
-
   fun constantTimeEquals(a: ByteArray, b: ByteArray): Boolean = MessageDigest.isEqual(a, b)
 
-  // ── messages (type byte ‖ body) ──
+  private fun nonce(): ByteArray = ByteArray(32).also { SecureRandom().nextBytes(it) }
+  private fun exchangeMac(psk: ByteArray, name: String, type: Byte, vararg parts: ByteArray): ByteArray =
+    hmac(psk, "bsvpay-ble/2\u0000".toByteArray(UTF8), name.toByteArray(UTF8), byteArrayOf(0, type), *parts)
 
-  fun helloA(psk: ByteArray, instanceName: String): ByteArray =
-    byteArrayOf(TYPE_HELLO_A) + proof(psk, instanceName, TYPE_HELLO_A)
+  /** Each attempt has two independent fresh challenges, even when the QR PSK is reused. */
+  class Payer(private val psk: ByteArray, private val name: String, sealed: ByteArray, private val challenge: ByteArray = nonce()) {
+    private val digest = MessageDigest.getInstance("SHA-256").digest(sealed)
+    private var peerChallenge: ByteArray? = null
+    private var acknowledged = false
+    init { require(challenge.size == 32) }
+    fun helloA(): ByteArray = byteArrayOf(TYPE_HELLO_A) + challenge + exchangeMac(psk, name, TYPE_HELLO_A, challenge)
+    fun verifyHelloB(message: ByteArray): Boolean {
+      if (peerChallenge != null || message.size != 65 || message[0] != TYPE_HELLO_B) return false
+      val other = message.copyOfRange(1, 33)
+      if (!constantTimeEquals(message.copyOfRange(33, 65), exchangeMac(psk, name, TYPE_HELLO_B, challenge, other))) return false
+      peerChallenge = other
+      return true
+    }
+    fun verifyAck(message: ByteArray): ByteArray? {
+      val other = peerChallenge ?: return null
+      if (acknowledged || message.size <= 1 + MAC_BYTES || message.size > 1 + 4096 + MAC_BYTES || message[0] != TYPE_ACK) return null
+      val json = message.copyOfRange(1, message.size - MAC_BYTES)
+      val mac = message.copyOfRange(message.size - MAC_BYTES, message.size)
+      if (!constantTimeEquals(mac, exchangeMac(psk, name, TYPE_ACK, challenge, other, digest, json))) return null
+      acknowledged = true
+      return json
+    }
+  }
 
-  fun helloB(psk: ByteArray, instanceName: String): ByteArray =
-    byteArrayOf(TYPE_HELLO_B) + proof(psk, instanceName, TYPE_HELLO_B)
+  class Peer internal constructor(private val psk: ByteArray, private val name: String, private val challenge: ByteArray, private val other: ByteArray) {
+    private var digest: ByteArray? = null
+    fun helloB(): ByteArray = byteArrayOf(TYPE_HELLO_B) + other + exchangeMac(psk, name, TYPE_HELLO_B, challenge, other)
+    fun receivedFrame(sealed: ByteArray) { if (digest == null) digest = MessageDigest.getInstance("SHA-256").digest(sealed) }
+    fun ackMessage(json: ByteArray): ByteArray? {
+      val frameDigest = digest ?: return null
+      return byteArrayOf(TYPE_ACK) + json + exchangeMac(psk, name, TYPE_ACK, challenge, other, frameDigest, json)
+    }
+  }
+
+  fun acceptHelloA(psk: ByteArray, name: String, message: ByteArray, responderChallenge: ByteArray = nonce()): Peer? {
+    if (message.size != 65 || message[0] != TYPE_HELLO_A || responderChallenge.size != 32) return null
+    val challenge = message.copyOfRange(1, 33)
+    if (!constantTimeEquals(message.copyOfRange(33, 65), exchangeMac(psk, name, TYPE_HELLO_A, challenge))) return null
+    return Peer(psk, name, challenge, responderChallenge)
+  }
 
   fun frameMessage(sealed: ByteArray): ByteArray = byteArrayOf(TYPE_FRAME) + sealed
-
-  fun ackMessage(psk: ByteArray, instanceName: String, ackJson: ByteArray): ByteArray =
-    byteArrayOf(TYPE_ACK) + ackJson + ackMac(psk, instanceName, ackJson)
-
-  /**
-   * Payer side: checks the type byte, splits off the trailing 32-byte MAC,
-   * verifies it in constant time and returns the bare ackJson (which JS's
-   * parseAck expects), or null when anything is off.
-   */
-  fun verifyAck(psk: ByteArray, instanceName: String, message: ByteArray): ByteArray? {
-    if (message.isEmpty() || message[0] != TYPE_ACK) return null
-    // Strictly greater: a 33-byte ACK is a MAC over an EMPTY ackJson, which the
-    // Swift twin also rejects (`body.count > macLength`) and which JS's
-    // parseAck could not parse anyway.
-    if (message.size <= 1 + MAC_BYTES) return null
-    val json = message.copyOfRange(1, message.size - MAC_BYTES)
-    val mac = message.copyOfRange(message.size - MAC_BYTES, message.size)
-    return if (constantTimeEquals(mac, ackMac(psk, instanceName, json))) json else null
-  }
 
   /**
    * Byte-identical to the AWDL/Nearby acks: {"ok":true} or

@@ -82,15 +82,9 @@ export const MIN_PUSH_INTERVAL_MS = 60_000
 export const MAX_BLOB_BYTES = 1 << 20
 
 /**
- * Hard ceiling on a single restore-side HTTP response body, enforced against the
- * Content-Length header before any transport call materializes it.
- *
- * Independent of the server's own advertised cap (`client.limits().maxBlobBytes`, up to
- * 200 MiB) — this exists so a malicious or compromised backup host cannot exhaust mobile
- * memory merely by declaring (and then sending) an oversized body. React Native's fetch has
- * no incremental/streaming read mode (see client.ts's withBackupRequestTimeout), so the
- * only point at which an oversized body can be bounded at all is before it is ever
- * requested to be read — hence the check runs on the header, not the bytes.
+ * Hard ceiling on decoded bytes in any backup HTTP response, enforced inside
+ * the native receiver before accumulation, base64 conversion or JSON parsing.
+ * The server's advertised blob cap does not override this device memory bound.
  */
 export const MAX_RESTORE_RESPONSE_BYTES = 64 * 1024 * 1024
 

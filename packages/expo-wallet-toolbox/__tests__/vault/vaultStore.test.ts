@@ -23,6 +23,7 @@ jest.mock('@react-native-async-storage/async-storage', () => {
 jest.mock('expo-secure-store', () => {
   const store: Record<string, string> = {}
   return {
+    __esModule: true,
     WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'wudo',
     getItemAsync: async (k: string) => store[k] ?? null,
     setItemAsync: async (k: string, v: string) => {
@@ -388,15 +389,20 @@ describe('vaultStore v6', () => {
     await vaultStore.setMeta(META)
     const realGet = SecureStore.getItemAsync.bind(SecureStore)
     let releaseRead!: (value: string | null) => void
+    let signalRead!: () => void
+    const readStarted = new Promise<void>(resolve => {
+      signalRead = resolve
+    })
     const getSpy = jest.spyOn(SecureStore, 'getItemAsync').mockImplementationOnce(
       () =>
         new Promise(resolve => {
           releaseRead = resolve
+          signalRead()
         })
     )
 
     const note = vaultStore.noteLastUsed(key(1).serial)
-    await Promise.resolve()
+    await readStarted
     const add = vaultStore.addKey(key(3))
     await Promise.resolve()
     // addKey is queued behind noteLastUsed, so it cannot read the old record.
@@ -415,16 +421,21 @@ describe('vaultStore v6', () => {
     await vaultStore.setMeta(META)
     const realGet = SecureStore.getItemAsync.bind(SecureStore)
     let releaseRead!: (value: string | null) => void
+    let signalRead!: () => void
+    const readStarted = new Promise<void>(resolve => {
+      signalRead = resolve
+    })
     const getSpy = jest.spyOn(SecureStore, 'getItemAsync').mockImplementationOnce(
       () =>
         new Promise(resolve => {
           releaseRead = resolve
+          signalRead()
         })
     )
 
     const lateAdd = vaultStore.addKey(key(3))
     const rejected = expect(lateAdd).rejects.toMatchObject({ code: 'scope-changed' })
-    await Promise.resolve()
+    await readStarted
 
     vaultStore.configureScope({ identityKey: ID_B, chain: 'test' })
     const walletB = { ...META, vaultId: '33'.repeat(32) }
@@ -457,7 +468,7 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
     expect(await vaultStore.getMetaTag()).toBeNull()
 
     const tagger = jest.fn(async () => 'tag-for-next')
-    const added = await vaultStore.addKey(key(3), undefined, tagger)
+    const added = await vaultStore.addKey(key(3), undefined, tagger, META)
     expect(tagger).toHaveBeenCalledWith(added)
     expect(await vaultStore.getMetaTag()).toBe('tag-for-next')
   })
@@ -480,7 +491,7 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
     const tagger = jest.fn(async () => {
       throw new Error('wallet refused')
     })
-    await expect(vaultStore.addKey(key(3), undefined, tagger)).rejects.toThrow('wallet refused')
+    await expect(vaultStore.addKey(key(3), undefined, tagger, before!)).rejects.toThrow('wallet refused')
     expect(await vaultStore.getMeta()).toEqual(before)
     expect(await vaultStore.getMetaTag()).toBeNull()
   })
@@ -526,5 +537,77 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
     )
     await vaultStore.clearEnrollmentDrafts(scopeToken)
     expect(await vaultStore.getEnrollmentDraftTag(key(1).serial, scopeToken)).toBeNull()
+  })
+})
+
+describe('authenticated mutation snapshots', () => {
+  it.each([1, 2])('returns the exact signed restoration snapshot at revision %s', async revision => {
+    const current = { ...META, lastUsedSerial: key(1).serial, lastUsedAt: 123 }
+    await vaultStore.setMeta(current)
+    const verified = { ...META, revision }
+    const tagger = jest.fn(async () => 'restored-tag')
+    const restored = await vaultStore.restoreVerifiedMeta(verified, undefined, tagger)
+    const stored = await vaultStore.getMeta()
+    expect(restored).toEqual(stored)
+    expect(tagger).toHaveBeenCalledWith(restored)
+    expect(restored).toMatchObject({ revision, lastUsedSerial: key(1).serial, lastUsedAt: 123 })
+    if (revision === 2) expect(restored?.recovery).toEqual({ required: true, adoptedSerials: [] })
+  })
+
+  it.each([
+    'markKeyRemovalBroadcast',
+    'finalizeProvenKeyRemoval',
+    'finalizeEmptyKeyRemoval',
+    'cancelUnbroadcastKeyRemoval'
+  ] as const)('rejects a changed authenticated snapshot during %s', async method => {
+    await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3)] })
+    await vaultStore.beginKeyRemoval(key(3).serial)
+    if (method === 'finalizeProvenKeyRemoval') await vaultStore.markKeyRemovalBroadcast()
+    const authenticated = (await vaultStore.getMeta())!
+    await vaultStore.setMeta({ ...authenticated, keys: [key(4), key(5)] })
+    const tagger = jest.fn(async () => 'must-not-tag-changed-record')
+    await expect((vaultStore[method] as any)(undefined, tagger, authenticated)).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
+    expect(tagger).not.toHaveBeenCalled()
+  })
+
+  it('does not permit a tagged mutation to omit its authenticated snapshot', async () => {
+    await vaultStore.setMeta(META)
+    const tagger = jest.fn(async () => 'must-not-tag-without-authentication')
+    await expect(vaultStore.renameKey(key(1).serial, 'New name', undefined, tagger)).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
+    expect(tagger).not.toHaveBeenCalled()
+  })
+
+  it.each(['rename', 'add', 'remove'] as const)(
+    'refuses to authenticate substituted keys during %s',
+    async operation => {
+      const original = { ...META, keys: [key(1), key(2), key(3)] }
+      await vaultStore.setMeta(original, undefined, async () => 'original-tag')
+      const authenticated = (await vaultStore.getMeta())!
+      const forged = { ...original, keys: [key(4), key(2), key(3)] }
+      await vaultStore.setMeta(forged)
+      const tagger = jest.fn(async () => 'laundered-tag')
+      const attempt =
+        operation === 'rename'
+          ? vaultStore.renameKey(key(2).serial, 'Renamed', undefined, tagger, authenticated)
+          : operation === 'add'
+            ? vaultStore.addKey(key(5), undefined, tagger, authenticated)
+            : vaultStore.beginKeyRemoval(key(3).serial, undefined, tagger, authenticated)
+      await expect(attempt).rejects.toMatchObject({ code: 'template-invalid' })
+      expect(tagger).not.toHaveBeenCalled()
+      expect(await vaultStore.getMeta()).toEqual(forged)
+      expect(await vaultStore.getMetaTag()).toBe('original-tag')
+    }
+  )
+
+  it('permits a rename based on the unchanged authenticated snapshot', async () => {
+    await vaultStore.setMeta(META)
+    const expected = (await vaultStore.getMeta())!
+    const renamed = await vaultStore.renameKey(key(1).serial, 'New name', undefined, async () => 'valid-tag', expected)
+    expect(renamed.keys[0].nickname).toBe('New name')
+    expect(await vaultStore.getMetaTag()).toBe('valid-tag')
   })
 })

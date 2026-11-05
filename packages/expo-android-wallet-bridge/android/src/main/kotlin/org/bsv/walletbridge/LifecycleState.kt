@@ -2,6 +2,10 @@ package org.bsv.walletbridge
 
 enum class Role { MAIN, SHEET, OTHER }
 
+// The sheet filters in its Activity callback and must see drops to trigger its
+// fallback counter. Only MainActivity needs the extra Window.Callback filter.
+internal fun Role.needsApprovalWindowGuard(): Boolean = this == Role.MAIN
+
 data class HostLifecycle(
   val registered: Boolean,
   val mainAlive: Boolean,

@@ -32,6 +32,11 @@ class LoopbackServer(
   private val writeStallMs: Long = 30_000,
   private val maxConnections: Int = 32
 ) {
+  companion object {
+    // Process-wide, including overlapping server generations during stop/restart.
+    private val receiveBudget = ReceiveByteBudget(HttpParser.Limits.DEFAULT.maxBodyBytes)
+  }
+
   interface Listener {
     fun onRequest(r: RequestEvent)
 
@@ -182,7 +187,15 @@ class LoopbackServer(
     try {
       s.tcpNoDelay = true
       s.soTimeout = 10_000
-      val parser = HttpParser(clock = { System.nanoTime() / 1_000_000 })
+      val parser = HttpParser(
+        clock = { System.nanoTime() / 1_000_000 },
+        bodyBudget = receiveBudget,
+        admitHead = { _, _, headers, _ ->
+          val host = headers.firstOrNull { it.first == "host" }?.second
+          if (HostCheck.allowed(host, owner.port, true, owner.v6 != null)) null
+          else HttpParser.ParseResult.Reject(403, "host")
+        }
+      )
       when (val r = parser.readRequest(s.getInputStream())) {
         is HttpParser.ParseResult.Reject -> {
           if (!r.closeSilently && c.claimed.compareAndSet(false, true)) {
@@ -192,15 +205,6 @@ class LoopbackServer(
           release(c)
         }
         is HttpParser.ParseResult.Ok -> {
-          val host = r.headers.firstOrNull { it.first == "host" }?.second
-          if (!HostCheck.allowed(host, owner.port, true, owner.v6 != null)) {
-            if (c.claimed.compareAndSet(false, true)) {
-              conns.remove(c.id)
-              writeWithStallGuard(s, HttpWriter.response(403, baseHeaders, ByteArray(0)))
-            }
-            release(c)
-            return
-          }
           // Handed off: no receive timeout applies any more, and a held response has no deadline.
           s.soTimeout = 0
           c.held = true

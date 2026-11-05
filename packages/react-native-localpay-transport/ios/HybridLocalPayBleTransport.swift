@@ -139,6 +139,7 @@ private final class InboundCentral {
   enum Stage { case awaitingHello, bound }
   let central: CBCentral
   var stage: Stage = .awaitingHello
+  var exchange: BleGattProfile.Peer?
   /// Subscribed to the ACK characteristic. Without this HELLO_B/ACK have no
   /// route back, so HELLO_A from an unsubscribed central is refused.
   var subscribed = false
@@ -179,6 +180,7 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
   let onFrame: (String) -> Void
   let onError: (String) -> Void
 
+  var exchange: BleGattProfile.Peer?
   private var stage: Stage = .scanning
   private(set) var isScanning = false
   private(set) var peripheral: CBPeripheral?
@@ -242,6 +244,7 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
     if let p = peripheral, let cm = engine?.centralManager, p.state != .disconnected { cm.cancelPeripheralConnection(p) }
     peripheral?.delegate = nil
     peripheral = nil; frameChar = nil
+    exchange = nil
     reassembler = BleGattProfile.Reassembler()
     writeChunks = []
     stage = .scanning
@@ -389,11 +392,11 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
     let body = Data(message.dropFirst())
     switch (type, stage) {
     case (BleGattProfile.typeHelloA, .awaitingHelloA):
-      let expected = BleGattProfile.proof(psk: psk, instanceName: instanceName, type: BleGattProfile.typeHelloA)
-      guard BleGattProfile.constantTimeEquals(body, expected) else { return rescan("HELLO_A proof failed") }
+      guard let peer = BleGattProfile.acceptHelloA(psk: psk, instanceName: instanceName, message: message) else { return rescan("HELLO_A proof failed") }
+      exchange = peer
       os_log("payee(scan): hello verified ms=%ld", log: bleLog, type: .default, elapsedMs())
       stage = .writingHelloB
-      write(BleGattProfile.helloB(psk: psk, instanceName: instanceName), on: p) { [weak self] ok in
+      write(peer.helloB(), on: p) { [weak self] ok in
         guard let self else { return }
         guard self.stage == .writingHelloB else { return }
         if ok { self.stage = .awaitingFrame } else { self.rescan("HELLO_B write failed") }
@@ -406,6 +409,7 @@ private final class InboundScan: NSObject, CBPeripheralDelegate {
       }
       idleReaper?.cancel(); idleReaper = nil
       stage = .holding
+      exchange?.receivedFrame(body)
       os_log("payee(scan): frame accepted bytes=%ld id=%{public}@", log: bleLog, type: .default, body.count, p.identifier.uuidString)
       onFrame(body.base64EncodedString())
     default:
@@ -461,6 +465,7 @@ private final class PayerAdvertise {
   let instanceName: String
   let psk: Data
   let sealed: Data
+  let exchange: BleGattProfile.Payer
   let serviceUuid: CBUUID
   let promise: Promise<String>
   var service: CBMutableService?
@@ -482,6 +487,7 @@ private final class PayerAdvertise {
     self.instanceName = instanceName
     self.psk = psk
     self.sealed = sealed
+    self.exchange = BleGattProfile.Payer(psk: psk, instanceName: instanceName, sealed: sealed)
     self.serviceUuid = BleGattProfile.serviceUuid(psk: psk, instanceName: instanceName)
     self.promise = promise
   }
@@ -800,7 +806,11 @@ final class BleEngine: NSObject {
       if let scan = session.scanPendingAck {
         session.scanPendingAck = nil
         let json = accepted ? BleGattProfile.okJson : BleGattProfile.declineJson(reason: reason)
-        let message = BleGattProfile.ackMessage(psk: session.psk, instanceName: session.instanceName, ackJson: Data(json.utf8))
+        guard let message = scan.exchange?.ackMessage(ackJson: Data(json.utf8)) else {
+          promise.reject(withError: BleGattProfile.error("missing authenticated frame", code: 22))
+          self.resetListening()
+          return
+        }
         session.closing = true
         scan.writeAck(message) { [weak self] ok in
           guard let self else { return }
@@ -830,9 +840,11 @@ final class BleEngine: NSObject {
         self.forget(other, in: session)
       }
       let json = accepted ? BleGattProfile.okJson : BleGattProfile.declineJson(reason: reason)
-      let message = BleGattProfile.ackMessage(
-        psk: session.psk, instanceName: session.instanceName, ackJson: Data(json.utf8)
-      )
+      guard let message = target.exchange?.ackMessage(ackJson: Data(json.utf8)) else {
+        promise.reject(withError: BleGattProfile.error("missing authenticated frame", code: 22))
+        self.resetListening()
+        return
+      }
       session.ackPromise = promise
       session.ackTarget = target
       session.closing = true
@@ -963,17 +975,17 @@ final class BleEngine: NSObject {
         refuse(entry, in: session, reason: "already accepted")
         return
       }
-      let expected = BleGattProfile.proof(psk: session.psk, instanceName: session.instanceName, type: BleGattProfile.typeHelloA)
-      guard entry.subscribed, BleGattProfile.constantTimeEquals(body, expected) else {
+      guard entry.subscribed, let peer = BleGattProfile.acceptHelloA(psk: session.psk, instanceName: session.instanceName, message: message) else {
         // Wrong PSK, or no route back for HELLO_B: forget it, keep advertising.
         os_log("hello rejected id=%{public}@", log: bleLog, type: .default, id)
         forget(entry, in: session)
         return
       }
       entry.stage = .bound
+      entry.exchange = peer
       os_log("hello verified id=%{public}@", log: bleLog, type: .default, id)
       enqueueIndication(
-        BleGattProfile.helloB(psk: session.psk, instanceName: session.instanceName),
+        peer.helloB(),
         to: entry.central, completion: nil
       )
 
@@ -984,6 +996,7 @@ final class BleEngine: NSObject {
         refuse(entry, in: session, reason: session.hasAccepted ? "already accepted" : "empty frame")
         return
       }
+      entry.exchange?.receivedFrame(body)
       session.hasAccepted = true
       entry.idleReaper?.cancel()
       entry.idleReaper = nil
@@ -1245,11 +1258,9 @@ final class BleEngine: NSObject {
     dispatchPrecondition(condition: .onQueue(queue))
     guard !payer.settled, !message.isEmpty, let ack = payer.ackChar else { return }
     let type = message[message.startIndex]
-    let body = Data(message.dropFirst())
     let fromCandidate = payer.candidate?.identifier == central.identifier
     if type == BleGattProfile.typeHelloB, payer.bound == nil, fromCandidate {
-      let expected = BleGattProfile.proof(psk: payer.psk, instanceName: payer.instanceName, type: BleGattProfile.typeHelloB)
-      guard BleGattProfile.constantTimeEquals(body, expected) else {
+      guard payer.exchange.verifyHelloB(message) else {
         os_log("payer(adv): HELLO_B proof failed id=%{public}@", log: bleLog, type: .default, central.identifier.uuidString)
         payer.candidate = nil
         if let deadline = payer.connectDeadline {
@@ -1275,10 +1286,7 @@ final class BleEngine: NSObject {
       return
     }
     if type == BleGattProfile.typeAck, payer.bound?.identifier == central.identifier, payer.frameOnWire || payer.frameIndicationStarted {
-      guard body.count > BleGattProfile.macLength else { return settlePayer(payer, .failure(BleGattProfile.error("peer failed the session proof", code: 22))) }
-      let json = Data(body.prefix(body.count - BleGattProfile.macLength))
-      let mac = Data(body.suffix(BleGattProfile.macLength))
-      guard BleGattProfile.constantTimeEquals(mac, BleGattProfile.ackMac(psk: payer.psk, instanceName: payer.instanceName, ackJson: json)) else {
+      guard let json = payer.exchange.verifyAck(message) else {
         return settlePayer(payer, .failure(BleGattProfile.error("peer failed the session proof", code: 22)))
       }
       os_log("payer(adv): ack verified bytes=%ld ms=%ld", log: bleLog, type: .default, json.count, payer.elapsedMs())
@@ -1375,7 +1383,7 @@ extension BleEngine: CBPeripheralManagerDelegate {
       payer.candidate = central
       payer.connectTimeout?.cancel()
       os_log("payer(adv): central subscribed id=%{public}@ maxUpdate=%ld ms=%ld; indicating HELLO_A", log: bleLog, type: .default, central.identifier.uuidString, central.maximumUpdateValueLength, payer.elapsedMs())
-      enqueuePayerIndication(BleGattProfile.helloA(psk: payer.psk, instanceName: payer.instanceName), to: central, ack: ack, completion: nil)
+      enqueuePayerIndication(payer.exchange.helloA(), to: central, ack: ack, completion: nil)
       return
     }
     guard let session = listening, characteristic.uuid == BleGattProfile.ackCharUuid, !session.closing else { return }
@@ -1543,6 +1551,7 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
   private let instanceName: String
   private let psk: Data
   private let sealed: Data
+  private let exchange: BleGattProfile.Payer
   private let serviceUuid: CBUUID
   private let promise: Promise<String>
 
@@ -1569,6 +1578,7 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
     self.instanceName = instanceName
     self.psk = psk
     self.sealed = sealed
+    self.exchange = BleGattProfile.Payer(psk: psk, instanceName: instanceName, sealed: sealed)
     self.serviceUuid = BleGattProfile.serviceUuid(psk: psk, instanceName: instanceName)
     self.promise = promise
     super.init()
@@ -1741,7 +1751,7 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
     // HELLO_A, chunked like everything else and written WITH response so the
     // peripheral's reply to the last chunk doubles as delivery confirmation --
     // hence `writeChunkSize`, which respects the with-response ceiling too.
-    let framed = BleGattProfile.lengthPrefixed(BleGattProfile.helloA(psk: psk, instanceName: instanceName))
+    let framed = BleGattProfile.lengthPrefixed(exchange.helloA())
     helloChunks = BleGattProfile.chunks(framed, size: Self.writeChunkSize(for: p))
     stage = .sendingHello
     writeNextHelloChunk(p, frame)
@@ -1798,8 +1808,7 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
 
     switch (type, stage) {
     case (BleGattProfile.typeHelloB, .awaitingHelloB), (BleGattProfile.typeHelloB, .sendingHello):
-      let expected = BleGattProfile.proof(psk: psk, instanceName: instanceName, type: BleGattProfile.typeHelloB)
-      guard BleGattProfile.constantTimeEquals(body, expected) else {
+      guard exchange.verifyHelloB(message) else {
         return settle(.failure(BleGattProfile.error("peer failed the session proof", code: 22)))
       }
       os_log("hello verified ms=%ld", log: bleLog, type: .default, elapsedMs(since: startedAt))
@@ -1822,13 +1831,7 @@ private final class OutboundSend: NSObject, CBPeripheralDelegate {
     // its MAC proves only that the peer holds the PSK, not that it received
     // anything.
     case (BleGattProfile.typeAck, .awaitingAck), (BleGattProfile.typeAck, .writingFrame):
-      guard body.count > BleGattProfile.macLength else {
-        return settle(.failure(BleGattProfile.error("peer failed the session proof", code: 22)))
-      }
-      let json = Data(body.prefix(body.count - BleGattProfile.macLength))
-      let mac = Data(body.suffix(BleGattProfile.macLength))
-      let expected = BleGattProfile.ackMac(psk: psk, instanceName: instanceName, ackJson: json)
-      guard BleGattProfile.constantTimeEquals(mac, expected) else {
+      guard let json = exchange.verifyAck(message) else {
         return settle(.failure(BleGattProfile.error("peer failed the session proof", code: 22)))
       }
       os_log("ack verified bytes=%ld ms=%ld", log: bleLog, type: .default, json.count, elapsedMs(since: startedAt))

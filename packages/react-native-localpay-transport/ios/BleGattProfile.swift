@@ -2,7 +2,7 @@ import CoreBluetooth
 import CryptoKit
 import Foundation
 
-/// The `bsvpay-ble/1` GATT profile: constants, key derivation, message
+/// The `bsvpay-ble/2` GATT profile: constants, key derivation, message
 /// construction and stream framing shared by the peripheral (payee) and
 /// central (payer) roles in HybridLocalPayBleTransport.swift.
 ///
@@ -97,24 +97,6 @@ enum BleGattProfile {
     return CBUUID(nsuuid: uuid)
   }
 
-  /// HMAC-SHA256(psk, utf8(instanceName) ‖ [type]) — the HELLO_A / HELLO_B body.
-  static func proof(psk: Data, instanceName: String, type: UInt8) -> Data {
-    var message = Data(instanceName.utf8)
-    message.append(type)
-    return hmac(key: psk, message: message)
-  }
-
-  /// HMAC-SHA256(psk, utf8(instanceName) ‖ [0x04] ‖ ackJson) — appended to the ACK.
-  static func ackMac(psk: Data, instanceName: String, ackJson: Data) -> Data {
-    var message = Data(instanceName.utf8)
-    message.append(typeAck)
-    message.append(ackJson)
-    return hmac(key: psk, message: message)
-  }
-
-  /// Constant-time equality: no early exit on the first differing byte, so a
-  /// remote peer cannot learn how many leading bytes of its forged proof were
-  /// right from the response latency.
   static func constantTimeEquals(_ a: Data, _ b: Data) -> Bool {
     guard a.count == b.count else { return false }
     var acc: UInt8 = 0
@@ -122,32 +104,83 @@ enum BleGattProfile {
     return acc == 0
   }
 
-  // MARK: - Messages
-
-  static func helloA(psk: Data, instanceName: String) -> Data {
-    var m = Data([typeHelloA])
-    m.append(proof(psk: psk, instanceName: instanceName, type: typeHelloA))
-    return m
+  private static func nonce() -> Data {
+    SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
   }
 
-  static func helloB(psk: Data, instanceName: String) -> Data {
-    var m = Data([typeHelloB])
-    m.append(proof(psk: psk, instanceName: instanceName, type: typeHelloB))
-    return m
+  private static func exchangeMac(psk: Data, name: String, type: UInt8, parts: Data...) -> Data {
+    var message = Data("bsvpay-ble/2\0".utf8)
+    message.append(Data(name.utf8))
+    message.append(contentsOf: [0, type])
+    for part in parts { message.append(part) }
+    return hmac(key: psk, message: message)
   }
 
-  static func frameMessage(sealed: Data) -> Data {
-    var m = Data([typeFrame])
-    m.append(sealed)
-    return m
+  final class Payer {
+    private let psk: Data
+    private let name: String
+    private let challenge: Data
+    private let digest: Data
+    private var peerChallenge: Data?
+    private var acknowledged = false
+
+    init(psk: Data, instanceName: String, sealed: Data, challenge: Data = BleGattProfile.nonce()) {
+      precondition(challenge.count == 32)
+      self.psk = psk
+      self.name = instanceName
+      self.challenge = challenge
+      self.digest = Data(SHA256.hash(data: sealed))
+    }
+    func helloA() -> Data {
+      Data([typeHelloA]) + challenge + exchangeMac(psk: psk, name: name, type: typeHelloA, parts: challenge)
+    }
+    func verifyHelloB(_ message: Data) -> Bool {
+      guard peerChallenge == nil, message.count == 65, message.first == typeHelloB else { return false }
+      let other = message.subdata(in: 1..<33)
+      guard constantTimeEquals(message.subdata(in: 33..<65), exchangeMac(psk: psk, name: name, type: typeHelloB, parts: challenge, other)) else { return false }
+      peerChallenge = other
+      return true
+    }
+    func verifyAck(_ message: Data) -> Data? {
+      guard let other = peerChallenge, !acknowledged, message.count > 1 + macLength,
+            message.count <= 1 + 4096 + macLength, message.first == typeAck else { return nil }
+      let json = message.subdata(in: 1..<(message.count - macLength))
+      guard constantTimeEquals(Data(message.suffix(macLength)), exchangeMac(psk: psk, name: name, type: typeAck, parts: challenge, other, digest, json)) else { return nil }
+      acknowledged = true
+      return json
+    }
   }
 
-  static func ackMessage(psk: Data, instanceName: String, ackJson: Data) -> Data {
-    var m = Data([typeAck])
-    m.append(ackJson)
-    m.append(ackMac(psk: psk, instanceName: instanceName, ackJson: ackJson))
-    return m
+  final class Peer {
+    private let psk: Data
+    private let name: String
+    private let challenge: Data
+    private let other: Data
+    private var digest: Data?
+    fileprivate init(psk: Data, name: String, challenge: Data, other: Data) {
+      self.psk = psk
+      self.name = name
+      self.challenge = challenge
+      self.other = other
+    }
+    func helloB() -> Data {
+      Data([typeHelloB]) + other + exchangeMac(psk: psk, name: name, type: typeHelloB, parts: challenge, other)
+    }
+    func receivedFrame(_ sealed: Data) { if digest == nil { digest = Data(SHA256.hash(data: sealed)) } }
+    func ackMessage(ackJson: Data) -> Data? {
+      guard let digest else { return nil }
+      return Data([typeAck]) + ackJson + exchangeMac(psk: psk, name: name, type: typeAck, parts: challenge, other, digest, ackJson)
+    }
   }
+
+  static func acceptHelloA(psk: Data, instanceName: String, message: Data, responderChallenge: Data = nonce()) -> Peer? {
+    guard message.count == 65, message.first == typeHelloA, responderChallenge.count == 32 else { return nil }
+    let challenge = message.subdata(in: 1..<33)
+    guard constantTimeEquals(message.subdata(in: 33..<65), exchangeMac(psk: psk, name: instanceName, type: typeHelloA, parts: challenge)) else { return nil }
+    return Peer(psk: psk, name: instanceName, challenge: challenge, other: responderChallenge)
+  }
+
+  static func frameMessage(sealed: Data) -> Data { Data([typeFrame]) + sealed }
 
   static let okJson = "{\"ok\":true}"
 

@@ -21,9 +21,6 @@ import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
 import com.margelo.nitro.NitroModules
 import com.margelo.nitro.core.Promise
-import java.security.MessageDigest
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 /**
  * LocalPayTransport over Google Nearby Connections.
@@ -80,16 +77,6 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
 
   // ── crypto ──
 
-  private fun hmac(psk: ByteArray, instanceName: String, role: Byte): ByteArray {
-    val mac = Mac.getInstance("HmacSHA256")
-    mac.init(SecretKeySpec(psk, "HmacSHA256"))
-    mac.update(instanceName.toByteArray(Charsets.UTF_8))
-    mac.update(role)
-    return mac.doFinal()
-  }
-
-  private fun constantTimeEquals(a: ByteArray, b: ByteArray): Boolean = MessageDigest.isEqual(a, b)
-
   // ── payee (listener) state ──
 
   private var listening = false
@@ -99,6 +86,8 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
   private var listenOnError: ((String) -> Unit)? = null
   /** Endpoint whose HELLO verified. Only its FRAME is deliverable. */
   private var boundEndpoint: String? = null
+  private var peerExchange: NearbyExchange.Peer? = null
+  private var pendingFrame: ByteArray? = null
   /** Endpoint holding an undelivered ack — the payer confirmFrame answers. */
   private var pendingAckEndpoint: String? = null
   /**
@@ -198,6 +187,8 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
     val reaper = Runnable {
       ackReaper = null
       pendingAckEndpoint = null
+      pendingFrame = null
+      peerExchange = null
       client()?.disconnectFromEndpoint(endpointId)
       listenOnError?.invoke("payee never confirmed the payment; connection released")
     }
@@ -218,19 +209,25 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
       val name = listenName ?: return
       when (bytes[0]) {
         TYPE_HELLO_A -> {
-          val proof = bytes.copyOfRange(1, bytes.size)
-          if (!constantTimeEquals(proof, hmac(psk, name, ROLE_A))) {
+          // Do not allow a repeated HELLO to replace the exchange behind a pending ACK.
+          val exchange = if (boundEndpoint == null && !hasAccepted)
+            NearbyExchange.accept(psk, name, bytes) else null
+          if (exchange == null) {
             cancelIdleReaper(endpointId)
             client()?.disconnectFromEndpoint(endpointId)
             return
           }
           boundEndpoint = endpointId
-          val reply = byteArrayOf(TYPE_HELLO_B) + hmac(psk, name, ROLE_B)
+          peerExchange = exchange
+          val reply = exchange.hello()
           client()?.sendPayload(endpointId, Payload.fromBytes(reply))
             ?.addOnFailureListener { e ->
               cancelIdleReaper(endpointId)
               client()?.disconnectFromEndpoint(endpointId)
-              if (boundEndpoint == endpointId) boundEndpoint = null
+              if (boundEndpoint == endpointId) {
+                boundEndpoint = null
+                peerExchange = null
+              }
               listenOnError?.invoke("failed to reply to peer: ${e.message}")
             }
         }
@@ -265,6 +262,7 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
           client()?.stopAdvertising()
           armAckReaper(endpointId)
           val frame = bytes.copyOfRange(1, bytes.size)
+          pendingFrame = frame
           listenOnFrame?.invoke(Base64.encodeToString(frame, Base64.NO_WRAP))
         }
         else -> {
@@ -297,6 +295,7 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
       cancelIdleReaper(endpointId)
       if (endpointId == boundEndpoint && pendingAckEndpoint == null && !hasAccepted) {
         boundEndpoint = null
+        peerExchange = null
       }
     }
   }
@@ -331,6 +330,8 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
       stale.forEach { c.disconnectFromEndpoint(it) }
       hasAccepted = false
       boundEndpoint = null
+      peerExchange = null
+      pendingFrame = null
       pendingAckEndpoint = null
 
       listening = true
@@ -370,6 +371,8 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
       listening = false
       hasAccepted = false
       boundEndpoint = null
+      peerExchange = null
+      pendingFrame = null
       pendingAckEndpoint = null
       listenPsk = null
       listenName = null
@@ -402,7 +405,16 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
       boundEndpoint = null
       val json = if (accepted) "{\"ok\":true}"
       else "{\"ok\":false,\"error\":${jsonString(reason)}}"
-      val payload = byteArrayOf(TYPE_ACK) + json.toByteArray(Charsets.UTF_8)
+      val exchange = peerExchange
+      val frame = pendingFrame
+      peerExchange = null
+      pendingFrame = null
+      if (exchange == null || frame == null) {
+        c.disconnectFromEndpoint(endpoint)
+        promise.reject(Error("missing authenticated exchange"))
+        return@post
+      }
+      val payload = exchange.ack(frame, json.toByteArray(Charsets.UTF_8))
       c.sendPayload(endpoint, Payload.fromBytes(payload))
         .addOnSuccessListener {
           c.disconnectFromEndpoint(endpoint)
@@ -444,6 +456,10 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
         return@post
       }
 
+      val exchange = NearbyExchange.Payer(psk, instanceName, frame)
+      var framePayloadId: Long? = null
+      var deferredAck: ByteArray? = null
+      var frameTransferred = false
       var settled = false
       var ready = false
       // The endpoint we've committed to — set the instant requestConnection
@@ -477,16 +493,21 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
             c.disconnectFromEndpoint(endpointId)
             return
           }
+          if (endpointId != dialedEndpoint) {
+            c.disconnectFromEndpoint(endpointId)
+            return
+          }
           val bytes = payload.asBytes() ?: return
           if (bytes.isEmpty()) return
           when (bytes[0]) {
             TYPE_HELLO_B -> {
-              val proof = bytes.copyOfRange(1, bytes.size)
-              if (!constantTimeEquals(proof, hmac(psk, instanceName, ROLE_B))) {
+              if (!exchange.verifyHello(bytes)) {
                 settle { promise.reject(Error("peer failed the session proof")) }
                 return
               }
-              c.sendPayload(endpointId, Payload.fromBytes(byteArrayOf(TYPE_FRAME) + frame))
+              val outbound = Payload.fromBytes(byteArrayOf(TYPE_FRAME) + frame)
+              framePayloadId = outbound.id
+              c.sendPayload(endpointId, outbound)
                 .addOnFailureListener { e ->
                   // Fail fast into the reject path rather than waiting out
                   // the whole-send timeout, so the QR fallback kicks in
@@ -495,26 +516,43 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
                 }
             }
             TYPE_ACK -> {
-              val ack = bytes.copyOfRange(1, bytes.size)
-              if (ack.size > MAX_ACK_BYTES_PAYLOAD) {
-                // XR-090: an ack is `{ok, error?}` — nowhere near this size
-                // legitimately. Refused here rather than Base64-encoded and
-                // handed to JS's own parseAck, which enforces the same
-                // ceiling but only after this native hop already paid for it.
+              if (bytes.size > 1 + 32 + MAX_ACK_BYTES_PAYLOAD) {
                 settle { promise.reject(Error("ack payload too large")) }
                 return
               }
-              settle { promise.resolve(Base64.encodeToString(ack, Base64.NO_WRAP)) }
+              // Nearby can deliver the peer's ACK before our transfer-success callback.
+              // Retain one bounded ACK, then verify it only after local FRAME completion.
+              if (!frameTransferred && framePayloadId != null && deferredAck == null) {
+                deferredAck = bytes
+                return
+              }
+              val ack = exchange.receiveAck(bytes)
+              if (ack == null) settle { promise.reject(Error("invalid or out-of-order ack")) }
+              else settle { promise.resolve(Base64.encodeToString(ack, Base64.NO_WRAP)) }
             }
             else -> settle { promise.reject(Error("unexpected payload from peer")) }
           }
         }
-        override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {}
+        override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {
+          if (settled || endpointId != dialedEndpoint || update.payloadId != framePayloadId) return
+          if (update.status == PayloadTransferUpdate.Status.SUCCESS) {
+            frameTransferred = true
+            exchange.frameTransferred()
+            deferredAck?.let { message ->
+              deferredAck = null
+              val ack = exchange.receiveAck(message)
+              if (ack == null) settle { promise.reject(Error("invalid ack")) }
+              else settle { promise.resolve(Base64.encodeToString(ack, Base64.NO_WRAP)) }
+            }
+          } else if (update.status == PayloadTransferUpdate.Status.FAILURE || update.status == PayloadTransferUpdate.Status.CANCELED) {
+            settle { promise.reject(Error("frame transfer failed")) }
+          }
+        }
       }
 
       val lifecycle = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
-          if (settled) {
+          if (settled || endpointId != dialedEndpoint) {
             c.disconnectFromEndpoint(endpointId)
             return
           }
@@ -522,6 +560,10 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
         }
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
           if (settled) {
+            c.disconnectFromEndpoint(endpointId)
+            return
+          }
+          if (endpointId != dialedEndpoint) {
             c.disconnectFromEndpoint(endpointId)
             return
           }
@@ -537,13 +579,13 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
           c.stopDiscovery()
           c.sendPayload(
             endpointId,
-            Payload.fromBytes(byteArrayOf(TYPE_HELLO_A) + hmac(psk, instanceName, ROLE_A))
+            Payload.fromBytes(exchange.hello())
           ).addOnFailureListener { e ->
             settle { promise.reject(Error("failed to send HELLO_A: ${e.message}")) }
           }
         }
         override fun onDisconnected(endpointId: String) {
-          settle { promise.reject(Error("peer disconnected before acking")) }
+          if (endpointId == dialedEndpoint) settle { promise.reject(Error("peer disconnected before acking")) }
         }
       }
 
@@ -586,8 +628,6 @@ class HybridLocalPayTransport : HybridLocalPayTransportSpec() {
     private const val TYPE_HELLO_B: Byte = 0x02
     private const val TYPE_FRAME: Byte = 0x03
     private const val TYPE_ACK: Byte = 0x04
-    private const val ROLE_A: Byte = 0x01
-    private const val ROLE_B: Byte = 0x02
     private const val MAX_BYTES_PAYLOAD = 32768
     // XR-090: an ack is `{ok, error?}` — a short machine code at most, never
     // anything close to a frame's size. Generous headroom over any real

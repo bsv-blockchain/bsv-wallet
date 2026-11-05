@@ -26,7 +26,10 @@
     "core",
     "ui",
     "assets",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "android",
+    "ios",
+    "expo-module.config.json"
   ],
   "peerDependencies": {
     "@bsv/air-gap": "^0.1.3",
@@ -82,7 +85,8 @@
     "react-native-secp-native": "*",
     "react-native-sse": "^1.2.1",
     "react-native-svg": "^15.15.3",
-    "react-native-yubikey": "*"
+    "react-native-yubikey": "*",
+    "expo-modules-core": "~57.0.0"
   },
   "peerDependenciesMeta": {
     "@bsv/webrtpay": {

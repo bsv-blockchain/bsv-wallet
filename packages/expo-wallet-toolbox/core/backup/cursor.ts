@@ -51,6 +51,10 @@ export const ENTITY_TO_CHUNK_ARRAY: Record<EntityName, string> = {
 }
 
 export interface PushCursor {
+  /** Undefined on legacy logs, which must rotate before writing authenticated positions. */
+  formatVersion?: 2
+  /** Authenticated initial snapshot commitment, fixed when the first window closes. */
+  initialHeadSha256?: string
   /** ISO timestamp; only records updated at or after this are considered. */
   since?: string
   /** Per-entity consumed counts within the current `since` window. */
@@ -88,6 +92,8 @@ export interface PushCursor {
 
 export function freshCursor(generation = 1): PushCursor {
   return {
+    formatVersion: 2,
+    initialHeadSha256: undefined,
     since: undefined,
     offsets: zeroOffsets(),
     maxUpdatedAt: undefined,
@@ -119,6 +125,8 @@ export async function loadCursor(chain: BackupChain, pseudonym: string, deviceId
   try {
     const parsed = JSON.parse(raw) as Partial<PushCursor>
     return {
+      formatVersion: parsed.formatVersion,
+      initialHeadSha256: parsed.initialHeadSha256,
       since: parsed.since,
       // Merge over a zeroed base so a cursor written by an older build, before a new
       // entity existed, does not produce an undefined offset.

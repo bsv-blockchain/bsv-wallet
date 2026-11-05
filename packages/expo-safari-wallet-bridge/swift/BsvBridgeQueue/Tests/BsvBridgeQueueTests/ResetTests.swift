@@ -3,6 +3,19 @@ import XCTest
 @testable import BsvBridgeQueue
 
 final class ResetTests: XCTestCase {
+  func testResetStillDeletesSecretsIfTheQueueLockCannotBeOpened() throws {
+    let keys = StaysMissingKeyProvider()
+    let h = try Harness(keys: keys)
+    XCTAssertTrue(try h.create(1, "secret"))
+    let lock = h.root.appendingPathExtension("queue-lock")
+    try FileManager.default.removeItem(at: lock)
+    try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: lock) }
+    h.store.reset()
+    XCTAssertThrowsError(try keys.sealingKey())
+    XCTAssertFalse(FileManager.default.fileExists(atPath: h.root.path))
+  }
+
   func testResetRemovesEverythingAndLaterWritesThrowResetFinal() throws {
     let keys = ResettableKeyProvider()
     let h = try Harness(keys: keys)

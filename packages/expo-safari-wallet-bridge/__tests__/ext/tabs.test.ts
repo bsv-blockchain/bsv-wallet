@@ -3,6 +3,7 @@ import { bindingKey, loadBindings } from '../../extension/src/lib/bindings'
 import { loadUnresolved } from '../../extension/src/lib/limits'
 import { stageInvoke } from '../../extension/src/lib/stage'
 import {
+  closeEpoch,
   detectGoneTabs,
   flushDisconnects,
   loadClosing,
@@ -22,6 +23,29 @@ const key = (b: { instanceId: string; epoch: string }) => bindingKey(b.instanceI
 const records = (s: Setup) => [...s.appex.records.values()].map(r => JSON.parse(Buffer.from(r.bytes).toString('utf8')))
 
 describe('tab lifecycle', () => {
+  it('withdraws pending calls before a disconnect needs space in a full native queue', async () => {
+    const s = setup()
+    const epochs = []
+    for (let n = 1; n <= 4; n++) epochs.push(await bind(s, n))
+    for (const b of epochs) {
+      for (let n = 1; n <= 4; n++) {
+        expect(await stageInvoke(s.deps, {
+          ...b, invokeId: uuid(600 + n), method: 'getHeight', params: {}
+        })).toMatchObject({ kind: 'staged' })
+      }
+    }
+    const stage = s.deps.native.stage.bind(s.deps.native)
+    jest.spyOn(s.deps.native, 'stage').mockImplementation(async (id, bytes) => {
+      const pending = [...s.appex.records.values()].filter(r => r.state === 'pending').length
+      if (pending >= 16) throw { domain: 'brc185', code: 'RESOURCE_LIMIT', delivery: 'not-sent' }
+      return stage(id, bytes)
+    })
+    expect(await closeEpoch(s.deps, key(epochs[0]!.binding), s.clock.t)).toBe(true)
+    expect([...s.appex.records.values()].filter(r => r.state === 'withdrawn')).toHaveLength(4)
+    expect([...s.appex.records.values()].filter(r => r.state === 'pending')).toHaveLength(13)
+    expect(Object.values(await loadUnresolved(s.browser.session))).toHaveLength(12)
+  })
+
   it('tab close, frame unload, bfcache re-register within 5 s writes no disconnect', async () => {
     const s = setup()
     const a = await stageOne(s, 1)
@@ -71,6 +95,16 @@ describe('tab lifecycle', () => {
     expect(await loadClosing(s.browser.session)).toEqual({})
     // Nothing waits on the closed epoch any more.
     expect(await loadUnresolved(s.browser.session)).toEqual({})
+  })
+
+  it('transfers closed accepted requests to retained native accounting when withdrawal loses', async () => {
+    const s = setup()
+    const a = await stageOne(s, 1)
+    s.appex.records.get(a.recordId)!.state = 'accepted'
+    expect(await closeEpoch(s.deps, key(a.binding), s.clock.t)).toBe(true)
+    expect(await loadUnresolved(s.browser.session)).toEqual({})
+    expect(s.appex.records.get(a.recordId)!.state).toBe('accepted')
+    expect(s.appex.requests).toContainEqual({ op: 'withdraw', id: a.recordId })
   })
 
   it('no handoff for disconnects', async () => {

@@ -202,7 +202,15 @@ describe('deposit', () => {
       )
     ).toBeTruthy()
     expect(screen.getByText('vault_deposit_sub')).toBeTruthy()
-    expect(screen.queryByText('vault_choose_key')).toBeNull()
+    expect(screen.getByText('vault_choose_key')).toBeTruthy()
+  })
+
+  test('the deposit proves the key selected by the user', async () => {
+    mockBalance = 500_000
+    const screen = await renderTransfer('deposit')
+    fireEvent.press(screen.getByText('Desk · …0001'))
+    await typeAndRun(screen, '150000', 'vault_deposit_cta')
+    expect(mockDeposit.mock.calls[0][3]).toMatchObject({ outputKeySerial: META.keys[0].serial })
   })
 
   test('the CTA is inert below the floor', async () => {
@@ -229,6 +237,7 @@ describe('deposit', () => {
       150000
     ])
     expect(mockDeposit.mock.calls[0]).toHaveLength(4)
+    expect(mockDeposit.mock.calls[0][3]).toMatchObject({ outputKeySerial: META.lastUsedSerial })
     expect(mockShowToast).toHaveBeenCalledWith('vault_deposit_done', { type: 'success' })
     expect(mockRefresh).toHaveBeenCalled()
     expect(mockRouter.back).toHaveBeenCalled()
