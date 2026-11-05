@@ -144,6 +144,7 @@ import {
   previewVaultWithdrawal,
   recoverVaultMetaFromOutputs,
   relockVault,
+  requireAuthenticatedMeta,
   resolveHeldVaultDeposit,
   withdrawFromVault
 } from '../../core/services/vault/transfers'
@@ -2072,6 +2073,29 @@ describe('depositToVault', () => {
 // reproduce, so requireAuthenticatedMeta refuses to build a new output from
 // it, regardless of how the local revision compares to any on-chain output.
 describe('XR-002: forged local vault metadata never redirects a new output', () => {
+  it('keeps the authenticated recovery snapshot when storage changes after restoration', async () => {
+    await seedVault([vaultFixture(500_000, [PUB_A, PUB_B])])
+    const original = { v: 6 as const, vaultId: VAULT_ID, revision: 1, createdAt: 1, keys: [KEY_A, KEY_B] }
+    // Leave the revision-2 fixture tag stale to exercise chain authentication.
+    await vaultStore.setMeta(original)
+    const forged = { ...original, keys: [KEY_A, KEY_C] }
+    const restore = vaultStore.restoreVerifiedMeta.bind(vaultStore)
+    jest.spyOn(vaultStore, 'restoreVerifiedMeta').mockImplementation(async (...args) => {
+      const authenticated = await restore(...args)
+      await vaultStore.setMeta(forged)
+      return authenticated
+    })
+    const token = vaultStore.captureScopeToken()
+    const authenticated = await requireAuthenticatedMeta(wallet, ADMIN, token, original)
+    expect(authenticated).toEqual(original)
+    expect(await vaultStore.getMeta()).toEqual(forged)
+    const tagger = jest.fn(tagFor)
+    await expect(vaultStore.renameKey(KEY_A.serial, 'Renamed', token, tagger, authenticated)).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
+    expect(tagger).not.toHaveBeenCalled()
+  })
+
   const attackerKey = (): VaultKeyRecord => ({
     serial: 'ATTACKER-1',
     slot: 0x82,

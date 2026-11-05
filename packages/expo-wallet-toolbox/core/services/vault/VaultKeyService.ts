@@ -1180,8 +1180,11 @@ export async function addVaultKey(
   await requireReadyEnrollmentDrafts([record], token, authority)
   const scope = vaultStore.getScope()
   if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
-  const meta = await vaultStore.addKey(record, token, next =>
-    computeVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, next, scope)
+  const meta = await vaultStore.addKey(
+    record,
+    token,
+    next => computeVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, next, scope),
+    existing
   )
   // XQ-014: record the newly committed serial device-wide.
   await enrolledSerialRegistry.record(record.serial)
