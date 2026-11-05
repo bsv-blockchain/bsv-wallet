@@ -122,9 +122,9 @@ final class ContractTests: XCTestCase {
   // Beyond the ported contract.
 
   func testPendingIsListedOldestFirstByCreatedAtFromTheRecord() throws {
-    _ = try h.store.create(id: ID(3), bytes: utf8(#"{"createdAt":300}"#), nowMs: h.t)
-    _ = try h.store.create(id: ID(1), bytes: utf8(#"{"createdAt":100}"#), nowMs: h.t)
-    _ = try h.store.create(id: ID(2), bytes: utf8(#"{"createdAt":200}"#), nowMs: h.t)
+    _ = try h.store.create(id: ID(3), bytes: utf8("{\"createdAt\":\(h.t - 700)}"), nowMs: h.t)
+    _ = try h.store.create(id: ID(1), bytes: utf8("{\"createdAt\":\(h.t - 900)}"), nowMs: h.t)
+    _ = try h.store.create(id: ID(2), bytes: utf8("{\"createdAt\":\(h.t - 800)}"), nowMs: h.t)
     XCTAssertEqual(try h.store.list(.pending, nowMs: h.t), [ID(1), ID(2), ID(3)])
   }
 

@@ -39,8 +39,9 @@ export interface RestoreDeps {
   onProgress?: (chunks: number, total: number) => void
   /**
    * Called whenever the restore finishes a step that is not a chunk: ranking a candidate
-   * generation, and each page of the post-replay proof reconciliation. Carries nothing; it
-   * only says the restore is still working, so a caller waiting on it can tell a slow
+   * generation, authenticating each entry, and each page of the post-replay proof
+   * reconciliation. Carries nothing; it only says the restore is still working,
+   * so a caller waiting on it can tell a slow
    * restore from a stuck one.
    */
   onActivity?: () => void
@@ -51,8 +52,8 @@ export interface RestoreResult {
   deviceId: string
   generation: number
   /**
-   * True when the replayed generation's newest entry carries a seal proving, to this
-   * device, that its initial snapshot is fully present — see codec.ts's DecodedEntry and
+   * True when every v2 position and the newest seal's ordered snapshot head
+   * commitment verify — see codec.ts's DecodedEntry and
    * push.ts's pushOnce. False means either an explicit device/generation override was
    * chosen with no seal, or no candidate anywhere in the manifest was sealed and today's
    * newest-only fallback was used instead. See P1-backup-incomplete-generation.
@@ -260,7 +261,7 @@ export async function pickTarget(
   }
 
   const readerFor = (d: DeviceSummary): RemoteSyncReader =>
-    new RemoteSyncReader(client, wallet, chain, d.deviceId, d.generation, settings, d.headSeq)
+    new RemoteSyncReader(client, wallet, chain, d.deviceId, d.generation, settings, d.headSeq, onActivity)
 
   if (generation != null) {
     const exact = candidates.find(d => d.generation === generation)

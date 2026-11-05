@@ -32,4 +32,54 @@ class TouchGuardTest {
     assertFalse(g.noteDrop())
     assertTrue(g.noteDrop())
   }
+  @Test fun `fallback keeps rejecting obscured gestures in the main window`() {
+    val sheet = TouchGuard()
+    val main = TouchGuard()
+    val outer = TouchGuard()
+    var owner = Role.SHEET
+    var handoffs = 0
+    var approvals = 0
+
+    // The sheet Activity owns its drop counter; the Window.Callback must not
+    // consume an event before that callback sees it. This models ACTION_DOWN.
+    fun dispatch(flags: Int): Boolean {
+      val activity = {
+        if (owner == Role.SHEET && sheet.shouldDrop(flags)) {
+          if (sheet.noteDrop()) {
+            handoffs++
+            owner = Role.MAIN
+          }
+          true
+        } else {
+          approvals++
+          false
+        }
+      }
+      return if (owner.needsApprovalWindowGuard()) {
+        (if (owner == Role.MAIN) main else outer).dispatch(flags, activity)
+      } else activity()
+    }
+
+    repeat(TouchGuard.DROP_LIMIT - 1) {
+      assertTrue(dispatch(TouchGuard.OBSCURED))
+      assertEquals(0, handoffs)
+    }
+    assertTrue(dispatch(TouchGuard.PARTIALLY_OBSCURED))
+    assertEquals(1, handoffs)
+    assertEquals(Role.MAIN, owner)
+    repeat(20) {
+      assertTrue(dispatch(TouchGuard.OBSCURED))
+      assertTrue(dispatch(TouchGuard.PARTIALLY_OBSCURED))
+    }
+    assertEquals(0, approvals)
+    assertEquals(1, handoffs)
+    assertFalse(dispatch(0))
+    assertEquals(1, approvals)
+  }
+
+  @Test fun `unobscured callbacks preserve their result`() {
+    val guard = TouchGuard()
+    assertTrue(guard.dispatch(0) { true })
+    assertFalse(guard.dispatch(0) { false })
+  }
 }

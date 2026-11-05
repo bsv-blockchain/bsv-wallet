@@ -1,7 +1,7 @@
 import { Beef } from '@bsv/sdk'
 import { PUBKEY_LABEL } from '../pay/counterparty'
 import { ackControlMessages, isDuplicateMessageError, listControlMessages, parseControlMessage } from './control'
-import { getOutboxEntries, type OutboxEntry } from './outbox'
+import { getOutboxEntries, getOutboxEntriesStrict, type OutboxEntry } from './outbox'
 import { instructionsFromOutput, rebuildPeerPayToken } from './rebuildToken'
 
 /** The message box outbound payments are delivered into. Same name as handle.ts. */
@@ -206,6 +206,10 @@ function recipientFromLabels(labels: string[] | undefined): string | undefined {
 
 function outboxTxid(entry: OutboxEntry): string | undefined {
   if (typeof entry.txid === 'string' && entry.txid.length > 0) return entry.txid
+  return outboxTokenTxid(entry)
+}
+
+function outboxTokenTxid(entry: OutboxEntry): string | undefined {
   try {
     const txid = Beef.fromBinary(Array.from(entry.token.transaction)).atomicTxid
     return typeof txid === 'string' && txid.length > 0 ? txid : undefined
@@ -398,7 +402,16 @@ async function rebuildAndDeliver(args: {
   /** Unwraps metadata the permissions manager encrypted on its way to storage. */
   decryptMetadata?: (value: string) => Promise<string>
 }): Promise<ResendOutcome> {
-  const entries = await getOutboxEntries(args.storage)
+  // An unreadable queue cannot establish that this transaction is not held.
+  const entries = await getOutboxEntriesStrict(args.storage)
+  // Resending hands the signed payment to its recipient just like a retry.
+  // A held import must pass the reviewed release flow first; neither another
+  // history row for this txid nor the action-metadata fallback may bypass it.
+  if (
+    entries.some(e => e.status === 'import_hold' && (outboxTxid(e) === args.txid || outboxTokenTxid(e) === args.txid))
+  ) {
+    throw new Error('Imported payment requires review before resending')
+  }
   const entry = entries.find(e => outboxTxid(e) === args.txid)
   const listed = entry ? undefined : await args.listPeerPayAction(args.txid)
   const action = entry ? actionFromOutbox(entry, args.txid) : listed

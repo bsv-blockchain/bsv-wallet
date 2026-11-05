@@ -826,9 +826,24 @@ describe('enrolled', () => {
     fireEvent.changeText(field, 'Office safe')
     await act(async () => fireEvent.press(screen.getByText('vault_rename_save')))
     await settle()
-    expect(mockRenameKey).toHaveBeenCalledWith('12340002', 'Office safe', expect.anything(), expect.any(Function))
+    expect(mockRenameKey).toHaveBeenCalledWith(
+      '12340002',
+      'Office safe',
+      expect.anything(),
+      expect.any(Function),
+      META2
+    )
     // XR-002: the current meta was re-verified before renameKey ever ran.
     expect(mockRequireAuthenticatedMeta).toHaveBeenCalled()
+    const tagger = mockRenameKey.mock.calls[0][3]
+    const next = { ...META2, revision: META2.revision + 1 }
+    await expect(tagger(next)).resolves.toBe('mock-meta-tag')
+    expect(mockComputeVaultMetaAuthorityTag).toHaveBeenCalledWith(
+      mockWallet.managers.permissionsManager,
+      mockWallet.adminOriginator,
+      next,
+      { identityKey: 'scope', chain: 'test' }
+    )
   })
 
   test('re-lock defaults to the last-used key, loops while capped, then reports the unreachable keys', async () => {

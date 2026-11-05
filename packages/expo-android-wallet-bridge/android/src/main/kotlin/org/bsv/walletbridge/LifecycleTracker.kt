@@ -35,6 +35,7 @@ class LifecycleTracker(private val state: LifecycleState, private val onChange: 
    * usually after `MainActivity` resumed). A no-op once an observed event has registered the state.
    */
   fun catchUp(current: Activity?) {
+    if (current != null && roleOf(current).needsApprovalWindowGuard()) ApprovalWindowGuard.install(current)
     val alive = current != null && roleOf(current) == Role.MAIN && !current.isFinishing && !current.isDestroyed
     val resumed =
       alive && ((current as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true)
@@ -50,11 +51,13 @@ class LifecycleTracker(private val state: LifecycleState, private val onChange: 
   }
 
   override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+    if (roleOf(activity).needsApprovalWindowGuard()) ApprovalWindowGuard.install(activity)
     state.onCreated(roleOf(activity))
     publish()
   }
 
   override fun onActivityResumed(activity: Activity) {
+    if (roleOf(activity).needsApprovalWindowGuard()) ApprovalWindowGuard.install(activity)
     state.onResumed(roleOf(activity))
     publish()
   }

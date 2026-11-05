@@ -9,6 +9,7 @@ repositories { mavenCentral() }
 // (check-pure.sh enforces it). Later tasks append their pure files here and in check-pure.sh's list.
 ext.pureFiles = [
   'org/bsv/walletbridge/HttpParser.kt',
+  'org/bsv/walletbridge/ReceiveByteBudget.kt',
   'org/bsv/walletbridge/HttpWriter.kt',
   'org/bsv/walletbridge/HostCheck.kt',
   'org/bsv/walletbridge/PortAllocator.kt',

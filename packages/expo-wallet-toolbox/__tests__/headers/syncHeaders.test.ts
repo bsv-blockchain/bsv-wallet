@@ -2,6 +2,8 @@ import { Utils } from '@bsv/sdk'
 import { syncHeaders } from '../../core/headers/syncHeaders'
 import { HeaderStore } from '../../core/headers/headerStore'
 import { memoryHeaderFs } from '../../core/headers/fs'
+import fs from 'fs'
+import path from 'path'
 
 // Same two verified ttn headers as __tests__/headerStore.test.ts, one per line.
 const ANCHOR = { height: 0, hash: '000000000499eabba0a88f5b3747231c74b9191c1a4a04b2c2ea817976b7776d' }
@@ -13,6 +15,57 @@ const H2 = '000000204bd109783c507e98b9da565c304e1313b085a54e0d4618ccf1e3d8b00000
 const store = () => HeaderStore.open(memoryHeaderFs(), 'ttn', ANCHOR)
 
 describe('syncHeaders', () => {
+  it.each([0, -1, 1.5, 100001, NaN])('rejects invalid chunk size %s before consulting the source', async chunkSize => {
+    const getPresentHeight = jest.fn(async () => 0)
+    await expect(
+      syncHeaders({ store: await store(), client: { getPresentHeight, getHeaders: async () => '' }, chunkSize })
+    ).rejects.toThrow(/Invalid header chunk size/)
+    expect(getPresentHeight).not.toHaveBeenCalled()
+  })
+
+  it.each([-1, 0.5, NaN, 0x80000000])('rejects invalid present height %s without reading headers', async height => {
+    const getHeaders = jest.fn(async () => '')
+    await expect(
+      syncHeaders({ store: await store(), client: { getPresentHeight: async () => height, getHeaders } })
+    ).rejects.toThrow(/invalid present height/)
+    expect(getHeaders).not.toHaveBeenCalled()
+  })
+
+  it('initializes an authenticated mainnet bootstrap before using the store', async () => {
+    const anchor = { height: 886147, hash: '0000000000000000069794608511a422848e3d42efba5edd7bee4028ca8656f7' }
+    const context = fs.readFileSync(path.join(__dirname, 'fixtures/main-886001-886160.bin')).subarray(0, 147 * 80)
+    const s = await HeaderStore.open(memoryHeaderFs(), 'main', anchor)
+    const getHeaders = jest.fn(async () => context.toString('hex'))
+    expect(s.needsContext).toBe(true)
+    await expect(
+      syncHeaders({ store: s, client: { getPresentHeight: async () => anchor.height, getHeaders } })
+    ).resolves.toMatchObject({ added: 0, tipHeight: anchor.height })
+    expect(getHeaders).toHaveBeenCalledWith(886001, 147)
+    expect(s.needsContext).toBe(false)
+  })
+
+  it.each(['', 'z'.repeat(147 * 160)])('rejects absent or nonhex bootstrap data', async context => {
+    const anchor = { height: 886147, hash: '0000000000000000069794608511a422848e3d42efba5edd7bee4028ca8656f7' }
+    const s = await HeaderStore.open(memoryHeaderFs(), 'main', anchor)
+    await expect(
+      syncHeaders({
+        store: s,
+        client: { getPresentHeight: async () => anchor.height, getHeaders: async () => context }
+      })
+    ).rejects.toThrow(/bootstrap context unavailable or malformed/)
+    expect(s.needsContext).toBe(true)
+  })
+
+  it('requires the current tip bytes when the advertised chain height is unchanged', async () => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    await expect(
+      syncHeaders({ store: s, client: { getPresentHeight: async () => 1, getHeaders: async () => '' } })
+    ).rejects.toThrow(/Chain tip header unavailable/)
+    await expect(
+      syncHeaders({ store: s, client: { getPresentHeight: async () => 1, getHeaders: async () => H1 } })
+    ).resolves.toMatchObject({ added: 0, tipHeight: 1 })
+  })
   it('pulls chunks until it reaches the present height', async () => {
     const calls: [number, number][] = []
     const client = {
@@ -37,6 +90,22 @@ describe('syncHeaders', () => {
     const s = await store()
     const r = await syncHeaders({ store: s, client })
     expect(r.added).toBe(0)
+  })
+
+  it('rejects an inconsistent same-height source without replacing the validated tip', async () => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    let reads = 0
+    const client = {
+      getPresentHeight: async () => 1,
+      getHeaders: async () => (++reads === 1 ? H2 : H1)
+    }
+    await expect(syncHeaders({ store: s, client })).rejects.toThrow(
+      'Replacement header branch does not have greater accumulated work'
+    )
+    expect(s.tipHeight).toBe(1)
+    expect(s.hashForHeight(1)).toBeDefined()
+    expect(reads).toBe(2)
   })
 
   it('stops without error when the service returns no headers', async () => {
@@ -74,7 +143,7 @@ describe('syncHeaders', () => {
   })
 
   it('propagates a validation failure rather than silently truncating', async () => {
-    const client = { getPresentHeight: async () => 2, getHeaders: async () => H2 }
+    const client = { getPresentHeight: async () => 2, getHeaders: async (height: number) => (height === 2 ? H1 : H2) }
     const s = await store()
     await expect(syncHeaders({ store: s, client, chunkSize: 1 })).rejects.toThrow(/previous hash/i)
   })
@@ -114,5 +183,63 @@ describe('syncHeaders', () => {
     const r = await syncHeaders({ store: s, client, chunkSize: 1 })
     expect(r.tipHeight).toBe(2)
     expect(s.count).toBe(2)
+  })
+
+  it.each(['', 'z'.repeat(160)])('rejects malformed ancestor responses during reconciliation', async ancestor => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    const client = {
+      getPresentHeight: async () => 2,
+      getHeaders: async (height: number) => (height === 2 ? H1 : ancestor)
+    }
+    await expect(syncHeaders({ store: s, client })).rejects.toThrow(/Reorg ancestor header unavailable/)
+    expect(s.tipHeight).toBe(1)
+  })
+
+  it('rejects a reconciliation with no authenticated common ancestor', async () => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    const client = { getPresentHeight: async () => 2, getHeaders: async (height: number) => (height === 2 ? H1 : H2) }
+    await expect(syncHeaders({ store: s, client })).rejects.toThrow(/No authenticated reorg ancestor/)
+    expect(s.tipHeight).toBe(1)
+  })
+
+  it.each(['', 'zz', '00'])('rejects missing or malformed replacement bytes (%s)', async replacement => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    let first = true
+    const client = {
+      getPresentHeight: async () => 2,
+      getHeaders: async (height: number) => {
+        if (height === 1) return H1
+        if (first) {
+          first = false
+          return H1
+        }
+        return replacement
+      }
+    }
+    await expect(syncHeaders({ store: s, client })).rejects.toThrow(
+      /Replacement header branch unavailable|Malformed replacement/
+    )
+    expect(s.tipHeight).toBe(1)
+  })
+
+  it('propagates a replacement validation error without discarding the current window', async () => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    const client = { getPresentHeight: async () => 2, getHeaders: async () => H1 }
+    await expect(syncHeaders({ store: s, client })).rejects.toThrow(/previous hash/)
+    expect(s.tipHeight).toBe(1)
+  })
+
+  it.each([2, 3])('stops reconciliation before its phase %i touches state', async stopCall => {
+    const s = await store()
+    await s.append(new Uint8Array(Utils.toArray(H1, 'hex')), 1)
+    let calls = 0
+    const client = { getPresentHeight: async () => 2, getHeaders: async () => H1 }
+    const result = await syncHeaders({ store: s, client, shouldStop: () => ++calls >= stopCall })
+    expect(result.tipHeight).toBe(1)
+    expect(s.tipHeight).toBe(1)
   })
 })

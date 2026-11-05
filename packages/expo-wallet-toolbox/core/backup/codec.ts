@@ -140,16 +140,23 @@ function unpackBytes(value: unknown, key?: string): unknown {
 }
 
 /**
- * A seal's own payload: the generation it vouches for, and how many chunks made up that
- * generation's initial snapshot — the count the reader needs to see before it can call the
- * generation whole. Carried as an extra field on an ORDINARY chunk envelope (see
- * encodeChunk), never as a separate log entry: an old build's decodeChunk ignores a field it
- * has never heard of, so a chunk carrying a seal is byte-for-byte a chunk to any reader that
- * predates sealing.
+ * The initial snapshot's ordered ciphertext head and count. V2 readers verify
+ * both against a fully position-authenticated generation. Legacy count-only
+ * seals remain decodable but cannot establish completeness.
  */
 export interface BackupSeal {
   generation: number
   initialChunkCount: number
+  /** V2: digest of the final ciphertext in the ordered initial snapshot. */
+  initialHeadSha256?: string
+}
+
+/** Position authenticated inside the encrypted v2 envelope, never by the server index. */
+export interface BackupLogPosition {
+  deviceId: string
+  generation: number
+  seq: number
+  prevSha256?: string
 }
 
 /**
@@ -181,10 +188,19 @@ export interface AppDataSnapshot {
  * has ever appended — this type exists mainly so RemoteSyncReader can read `seal`/`appData`
  * off an entry without re-decoding it a second time.
  */
-export type DecodedEntry = { kind: 'chunk'; chunk: SyncChunk; seal?: BackupSeal; appData?: AppDataSnapshot }
+export type DecodedEntry = {
+  kind: 'chunk'
+  chunk: SyncChunk
+  seal?: BackupSeal
+  appData?: AppDataSnapshot
+  position?: BackupLogPosition
+}
 
 /**
- * Serialise and encrypt a sync chunk, optionally sealing a generation in the same envelope.
+ * Serialise and encrypt a sync chunk. Production writers supply `position`,
+ * selecting v2 and binding the device, generation, sequence and predecessor
+ * digest inside the AEAD envelope. Omitting it retains legacy codec support;
+ * legacy entries can recover entities but cannot authenticate recovery snapshots.
  *
  * `counterparty: 'self'` is the entire zero-knowledge property. With 'self' the symmetric
  * key comes from the wallet's own key material and nobody else can derive it; naming the
@@ -214,9 +230,13 @@ export async function encodeChunk(
   chunk: SyncChunk,
   chain: BackupChain,
   seal?: BackupSeal,
-  appData?: AppDataSnapshot
+  appData?: AppDataSnapshot,
+  position?: BackupLogPosition
 ): Promise<number[]> {
-  const json = stringifyJsonRpc({ chain, chunk: packBytes(chunk), seal, appData }, true)
+  const json = stringifyJsonRpc(
+    { version: position ? 2 : undefined, chain, chunk: packBytes(chunk), seal, appData, position },
+    true
+  )
   const { ciphertext } = await wallet.encrypt({
     plaintext: Utils.toArray(json, 'utf8'),
     protocolID: BACKUP_PROTOCOL,
@@ -248,6 +268,8 @@ export async function decodeEntry(
     counterparty: 'self'
   })
   const envelope = parseJsonRpc(Utils.toUTF8(plaintext), true) as {
+    version?: unknown
+    position?: unknown
     chain?: unknown
     chunk?: unknown
     seal?: unknown
@@ -258,16 +280,59 @@ export async function decodeEntry(
       `backup blob is labeled for chain '${String(envelope?.chain)}' but '${chain}' was expected — refusing to restore across networks`
     )
   }
+  if (envelope.version !== undefined && envelope.version !== 2) throw new Error('unsupported backup envelope version')
+  const position = envelope.version === 2 ? decodePosition(envelope.position) : undefined
   let seal: BackupSeal | undefined
   if (envelope.seal != null) {
-    const s = envelope.seal as { generation?: unknown; initialChunkCount?: unknown }
+    const s = envelope.seal as { generation?: unknown; initialChunkCount?: unknown; initialHeadSha256?: unknown }
     if (typeof s.generation !== 'number' || typeof s.initialChunkCount !== 'number') {
       throw new Error('backup seal is malformed')
     }
-    seal = { generation: s.generation, initialChunkCount: s.initialChunkCount }
+    if (
+      position &&
+      (!Number.isSafeInteger(s.initialChunkCount) ||
+        s.initialChunkCount < 1 ||
+        !isDigest(s.initialHeadSha256) ||
+        s.generation !== position.generation ||
+        s.initialChunkCount >= position.seq)
+    ) {
+      throw new Error('authenticated backup seal is malformed')
+    }
+    seal = {
+      generation: s.generation,
+      initialChunkCount: s.initialChunkCount,
+      ...(position ? { initialHeadSha256: s.initialHeadSha256 as string } : {})
+    }
   }
   const appData = decodeAppData(envelope.appData)
-  return { kind: 'chunk', chunk: unpackBytes(envelope.chunk) as SyncChunk, seal, appData }
+  return {
+    kind: 'chunk',
+    chunk: unpackBytes(envelope.chunk) as SyncChunk,
+    seal,
+    appData,
+    ...(position ? { position } : {})
+  }
+}
+
+function isDigest(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
+}
+
+function decodePosition(raw: unknown): BackupLogPosition {
+  const p = raw as Partial<BackupLogPosition> | null
+  if (
+    !p ||
+    typeof p.deviceId !== 'string' ||
+    !/^[0-9a-f]{32}$/.test(p.deviceId) ||
+    !Number.isSafeInteger(p.generation) ||
+    p.generation! < 1 ||
+    !Number.isSafeInteger(p.seq) ||
+    p.seq! < 1 ||
+    (p.seq === 1 ? p.prevSha256 !== undefined : !isDigest(p.prevSha256))
+  ) {
+    throw new Error('authenticated backup position is malformed')
+  }
+  return { deviceId: p.deviceId, generation: p.generation!, seq: p.seq!, prevSha256: p.prevSha256 }
 }
 
 /** Validates a decrypted envelope's `appData` field. Throws rather than silently dropping a

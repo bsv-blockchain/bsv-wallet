@@ -14,6 +14,7 @@
 import { BRFC_LOOKUP, BRFC_REVERSE_LOOKUP, looksLikeDomain } from './rules'
 import { isPublicHttpsUrl } from '../../net/publicDestination'
 import { trimTrailingSlashes } from '../../net/trimTrailingSlashes'
+import { createBoundedNativeFetch } from '../../network/boundedFetch'
 
 /** The domain this build's own handles live under, and the host serving it. */
 export interface RegistryPin {
@@ -52,16 +53,10 @@ const NOERROR = 0
 const NXDOMAIN = 3
 
 /**
- * Reads a body no bigger than `maxBytes`, in whatever way the runtime allows.
- * A declared `Content-Length` over the cap is refused before anything is
- * read; otherwise, when the runtime exposes the body as a stream, chunks are
- * counted as they arrive and the read is aborted the instant the running
- * total crosses the cap — an untrusted host cannot make this allocate more
- * than the cap regardless of what it claims or how it paces the bytes
- * (XR-077 / SEC2-027). `fallback` (the original, unbounded `response.json`)
- * is used only when the runtime gives no stream to count from at all, which
- * this feature's own test doubles do — a floor, not a firewall, on a runtime
- * where nothing better is available.
+ * Decode a response already receive-bounded by the production native transport.
+ * The streaming check also bounds trusted injected test transports. On native
+ * Response implementations without a WHATWG stream, the original JSON reader
+ * is safe because accumulation was capped before the Response was returned.
  */
 async function readBoundedJson(res: Response, fallback: () => Promise<unknown>, url: string): Promise<unknown> {
   const declared = res.headers?.get?.('content-length')
@@ -209,11 +204,12 @@ function templateOf(value: unknown, placeholder: string): string | null {
 
 export function createRegistryResolver(args: {
   pinned?: RegistryPin
+  /** Trusted test transport; production must retain the native byte ceiling. */
   fetchImpl?: typeof fetch
   now?: () => number
   dohEndpoints?: readonly string[]
 }): RegistryResolver {
-  const fetchImpl = args.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
+  const fetchImpl = args.fetchImpl ?? createBoundedNativeFetch(REGISTRY_MAX_BODY_BYTES)
   const now = args.now ?? (() => Date.now())
   const dohEndpoints = args.dohEndpoints ?? DOH_ENDPOINTS
   const pinnedDomain = args.pinned?.domain.trim().toLowerCase() ?? ''

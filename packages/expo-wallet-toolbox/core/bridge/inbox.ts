@@ -17,7 +17,13 @@ import type { Dispatcher, Outcome } from './dispatcher'
 import { connectionError, isConnectionError, type ConnectionError } from './protocol/connectionError'
 import { isUuidV4, type InboxCloseEvent, type InboxRecord, type InboxResult } from './protocol/envelopes'
 import { parseStrictJson } from './protocol/json'
-import { INBOX_CLOCK_SKEW_MS, INBOX_MAX_VALIDITY_MS, MAX_BRIDGE_REQUEST_BYTES } from './protocol/limits'
+import {
+  INBOX_CLOCK_SKEW_MS,
+  INBOX_MAX_VALIDITY_MS,
+  MAX_BRIDGE_REQUEST_BYTES,
+  MAX_IN_FLIGHT_BYTES,
+  MAX_IN_FLIGHT_TOTAL
+} from './protocol/limits'
 import type { Attestation } from './protocol/origin'
 import type { BridgeSnapshot } from './runtime'
 
@@ -69,6 +75,7 @@ export interface InboxStore {
    */
   readEventsAfter(seq: number): Promise<{ events: InboxCloseEvent[]; gap: boolean }>
   bootId(): string
+  /** Pending ids are oldest first by the record createdAt, stable for equal timestamps. */
   list(state: InboxState): Promise<string[]>
 }
 
@@ -156,7 +163,7 @@ export interface InboxProcessorDeps {
 export interface InboxProcessor {
   /**
    * Recovers after a restart (once), expires stale pending records, then accepts every pending
-   * record in `createdAt` order and starts it without waiting for the earlier ones. Resolves when
+   * record in `createdAt` order within the byte/count budget, starting independent work concurrently. Resolves when
    * everything it started has settled; a record parked behind a sheet keeps it open, so callers
    * that must not wait run `sweepExpired` on their timer instead.
    */
@@ -208,6 +215,21 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
       return (require('./runtime') as typeof import('./runtime')).onBindingClosed(fn)
     })
   let recovered: Promise<void> | undefined
+  let draining: Promise<void> | undefined
+  let wakeDrain: (() => void) | undefined
+  let drainRequested = false
+  let disposed = false
+  const resultRetries = new Set<() => void>()
+  const finishing = new Map<string, Promise<void>>()
+  let executionTurn: Promise<void> = Promise.resolve()
+
+  async function reserveExecution(): Promise<() => void> {
+    const previous = executionTurn
+    let release!: () => void
+    executionTurn = new Promise<void>(resolve => { release = resolve })
+    await previous
+    return release
+  }
 
   // Every close of one of this transport's bindings goes to the events outbox, in close order
   // (6.7). The writes are chained, and `handle` waits for the chain before it admits anything, so
@@ -247,12 +269,45 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
     }
   }
 
-  async function finish(id: string, bytes: Uint8Array) {
-    try {
-      await store.writeResult(id, bytes)
-    } catch (e) {
-      console.warn('[bridge] inbox result write failed', e)
-    }
+  function finish(id: string, bytes: Uint8Array): Promise<void> {
+    const existing = finishing.get(id)
+    if (existing) return existing
+    const task = (async () => {
+      let oversized = false
+      while (!disposed) {
+        try {
+          await store.writeResult(id, bytes)
+          return
+        } catch (e) {
+          const code = isObj(e) ? e.code : undefined
+          if (code === 'ERR_RESULT_TOO_LARGE' && !oversized) {
+            oversized = true
+            bytes = errorResult(id, connectionError('RESOURCE_LIMIT', 'Response too large', 'unknown'))
+            continue
+          }
+          if (code !== 'ERR_RESOURCE_LIMIT') {
+            console.warn('[bridge] inbox result write failed', e)
+            return
+          }
+          // Keep the exact outcome and its drain slot until storage is reclaimed. Native
+          // Wallet execution stays serialized through finish, retaining at most one 5 MiB
+          // response plus small probe/admission errors. JS objects add representation overhead.
+          // Duplicate expiry sweeps share this task; no claimed call is dispatched again.
+          await new Promise<void>(resolve => {
+            const done = () => {
+              clearTimeout(timer)
+              resultRetries.delete(done)
+              resolve()
+            }
+            const timer = setTimeout(done, 1000)
+            resultRetries.add(done)
+            if (disposed) done()
+          })
+        }
+      }
+    })().finally(() => finishing.delete(id))
+    finishing.set(id, task)
+    return task
   }
 
   async function recoverOnce() {
@@ -323,6 +378,7 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
     // Closes that happened while this record waited are in the outbox before it is admitted.
     await eventWrites
     if (snap !== undefined) snap = await readySnapshot()
+    if (disposed) return
     if (snap === undefined) {
       await finish(
         id,
@@ -372,47 +428,63 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
       return
     }
     let claimed = false
-    const outcome = await deps
-      .dispatch({
-        transport: transport.id,
-        request: {
-          epoch: record.epoch,
-          instanceId: record.instanceId,
-          continuityKey: record.continuityKey,
-          origin: record.origin,
-          accountContext: record.accountContext,
-          method: record.method as string,
-          args: record.args,
-          sizeBytes: size,
-          beforeCall: async () => {
-            const c = await store.claim(id, inboxDigest(bytes))
-            if (c === 'claimed') {
-              claimed = true
-              return
+    let dispatchSettled = false
+    let releaseExecution = () => {}
+    try {
+      const outcome = await deps
+        .dispatch({
+          transport: transport.id,
+          request: {
+            epoch: record.epoch,
+            instanceId: record.instanceId,
+            continuityKey: record.continuityKey,
+            origin: record.origin,
+            accountContext: record.accountContext,
+            method: record.method as string,
+            args: record.args,
+            sizeBytes: size,
+            beforeCall: async () => {
+              // Approval/readiness waits remain concurrent; only execution and result persistence
+              // serialize. A dispatcher may stop waiting on this promise when its binding closes.
+              const release = await reserveExecution()
+              if (disposed || dispatchSettled) {
+                release()
+                throw connectionError('CONNECTION_CLOSED', 'The bridge stopped waiting', 'not-sent')
+              }
+              releaseExecution = release
+              const c = await store.claim(id, inboxDigest(bytes))
+              if (c === 'claimed') {
+                claimed = true
+                return
+              }
+              throw connectionError(
+                'PROTOCOL_ERROR',
+                c === 'digest-mismatch' ? 'The record changed after it was read' : 'The record is no longer waiting',
+                'not-sent',
+                { epoch: record.epoch }
+              )
             }
-            throw connectionError(
-              'PROTOCOL_ERROR',
-              c === 'digest-mismatch' ? 'The record changed after it was read' : 'The record is no longer waiting',
-              'not-sent',
-              { epoch: record.epoch }
-            )
           }
-        }
-      })
-      .catch(
-        (e): Outcome => ({
-          ok: false,
-          connectionError: connectionError(
-            'CONFIGURATION_ERROR',
-            'The wallet bridge failed',
-            claimed ? 'unknown' : 'not-sent',
-            {
-              epoch: record.epoch
-            }
-          )
         })
-      )
-    await finish(id, outcomeResult(id, outcome))
+        .catch(
+          (e): Outcome => ({
+            ok: false,
+            connectionError: connectionError(
+              'CONFIGURATION_ERROR',
+              'The wallet bridge failed',
+              claimed ? 'unknown' : 'not-sent',
+              {
+                epoch: record.epoch
+              }
+            )
+          })
+        )
+      dispatchSettled = true
+      await finish(id, outcomeResult(id, outcome))
+    } finally {
+      dispatchSettled = true
+      releaseExecution()
+    }
   }
 
   async function sweepExpired() {
@@ -437,28 +509,61 @@ export function createInboxProcessor(deps: InboxProcessorDeps): InboxProcessor {
     flushEvents: () => eventWrites,
 
     dispose() {
+      disposed = true
+      for (const done of resultRetries) done()
       unsubscribeClosed()
     },
 
-    async processPending() {
-      await this.recover()
-      const ready: Array<{ id: string; record: InboxRecord; bytes: Uint8Array; size: number }> = []
-      for (const id of await store.list('pending')) {
-        const loaded = await load(id)
-        if (loaded && (await admissible(loaded.record))) ready.push({ id, ...loaded })
+    processPending() {
+      if (disposed) return Promise.resolve()
+      // One budget across nudges; new arrivals can still join while an earlier approval waits.
+      if (draining) {
+        drainRequested = true
+        wakeDrain?.()
+        return draining
       }
-      // Stable: records with equal timestamps keep the store's order.
-      ready.sort((a, b) => a.record.createdAt - b.record.createdAt)
-      const running: Promise<void>[] = []
-      for (const item of ready) {
-        if (!(await store.accept(item.id))) continue
-        running.push(
-          handle(item.id, item.record, item.bytes, item.size).catch(e => {
-            console.warn('[bridge] inbox record failed', e)
-          })
-        )
-      }
-      await Promise.all(running)
+      draining = (async () => {
+        try {
+          await this.recover()
+          const running = new Set<Promise<void>>()
+          let loadedBytes = 0
+          for (;;) {
+            drainRequested = false
+            const nudged = new Promise<void>(resolve => { wakeDrain = resolve })
+            for (const id of await store.list('pending')) {
+              if (disposed) break
+              const stat = await store.stat(id)
+              if (!stat || stat.state !== 'pending') continue
+              const size = Math.max(0, stat.size)
+              while (running.size > 0 && (running.size >= MAX_IN_FLIGHT_TOTAL || loadedBytes + size > MAX_IN_FLIGHT_BYTES)) {
+                await Promise.race(running)
+              }
+              const loaded = await load(id)
+              if (!loaded || !(await admissible(loaded.record)) || disposed || !(await store.accept(id))) continue
+              loadedBytes += loaded.size
+              const task = handle(id, loaded.record, loaded.bytes, loaded.size)
+                .catch(e => {
+                  console.warn('[bridge] inbox record failed', e)
+                })
+                .finally(() => {
+                  loadedBytes -= loaded.size
+                  running.delete(task)
+                })
+              running.add(task)
+            }
+            if (running.size === 0) {
+              if (drainRequested) continue
+              break
+            }
+            await Promise.race([nudged, ...running])
+          }
+        } finally {
+          draining = undefined
+          wakeDrain = undefined
+          drainRequested = false
+        }
+      })()
+      return draining
     }
   }
 }

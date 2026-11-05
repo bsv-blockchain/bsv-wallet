@@ -7,7 +7,8 @@ import Foundation
 /// synchronous because logout teardown cannot await.
 ///
 /// Errors carry a stable `code`: `ERR_NOT_FOUND` (nothing there), `ERR_KEY_MISSING`, `ERR_RESET`
-/// (the queue was reset and `init` has not run since), `ERR_UNAVAILABLE` (anything else).
+/// (the queue was reset and `init` has not run since), `ERR_RESOURCE_LIMIT` (retryable result capacity),
+/// `ERR_RESULT_TOO_LARGE` (cannot fit), `ERR_UNAVAILABLE` (anything else).
 public class BsvBridgeModule: Module {
   private let lock = NSLock()
   private var store: BridgeStore?
@@ -251,6 +252,10 @@ public class BsvBridgeModule: Module {
       return Exception(name: "KeyMissing", description: "The sealing key is not available", code: "ERR_KEY_MISSING")
     case BridgeError.resetFinal:
       return Exception(name: "Reset", description: "The bridge was reset", code: "ERR_RESET")
+    case BridgeError.quotaExceeded:
+      return Exception(name: "ResourceLimit", description: "The retained-result pool is full", code: "ERR_RESOURCE_LIMIT")
+    case BridgeError.resultTooLarge:
+      return Exception(name: "ResultTooLarge", description: "The result exceeds the native limit", code: "ERR_RESULT_TOO_LARGE")
     case BridgeError.invalidId:
       return Exception(name: "NotFound", description: "invalid id", code: "ERR_NOT_FOUND")
     default:

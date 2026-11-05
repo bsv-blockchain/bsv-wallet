@@ -3,7 +3,7 @@
  *
  * Direction comes from the `direction` search param ('deposit' | 'withdraw').
  *
- * Deposit needs no hardware: the wallet builds an R1C output committed to every
+ * Deposit proves a live enrolled key, then builds an R1C output committed to every
  * enrolled key and broadcasts it (depositToVault). The screen shows the floor
  * and the fee inline, confirms the FIRST deposit into an empty vault, and
  * refuses while encrypted private backup is unavailable. The salt is
@@ -219,7 +219,8 @@ export function VaultTransferScreen() {
     !(isDeposit && overLockLimit) &&
     !!pm &&
     balance !== null &&
-    (isDeposit ? released : chosen !== undefined)
+    chosen !== undefined &&
+    (!isDeposit || released)
 
   /** `nickname · …tail4` for each referenced key; a key no longer in meta shows its pubkey tail. */
   const namesFor = useCallback(
@@ -312,6 +313,7 @@ export function VaultTransferScreen() {
     setError(null)
     try {
       if (isDeposit) {
+        if (!chosen) return
         // XR-003: checked before privateBackupEnabled and before the
         // first-deposit confirmation, for the same reason both of those run
         // early — the user must never be asked to approve a transfer that a
@@ -343,6 +345,7 @@ export function VaultTransferScreen() {
         }
         setBusy(true)
         await depositToVault(w, adminOriginator, sats, {
+          outputKeySerial: chosen.serial,
           isOnline: getOnline,
           backupEnabled: privateBackupEnabled
         })
@@ -526,7 +529,7 @@ export function VaultTransferScreen() {
           {isDeposit ? t('vault_deposit_sub') : t('vault_withdraw_sub')}
         </Text>
 
-        {!isDeposit && keys.length > 0 && (
+        {keys.length > 0 && (
           <View style={styles.chooser}>
             <Text style={[styles.chooserLabel, { color: colors.textPrimary }]}>{t('vault_choose_key')}</Text>
             {/* Frozen while a ceremony runs: the highlighted key must stay the

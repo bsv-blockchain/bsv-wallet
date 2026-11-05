@@ -8,7 +8,7 @@
  */
 import { NATIVE_RETRIES, NATIVE_TIMEOUT_MS } from '../../../shared/constants'
 import type { BridgeReply, BridgeReplyMap, BridgeRequest, ContinuityContext } from '../../../shared/native'
-import { configurationError, protocolError, type ConnectionError } from './errors'
+import { configurationError, protocolError, resourceLimit, type ConnectionError } from './errors'
 
 export type NativeRequest = BridgeRequest
 export type NativeReply = BridgeReply<BridgeRequest['op']>
@@ -40,6 +40,8 @@ export interface NativeClientOptions {
 
 function failureToError(code: string, message: string): ConnectionError {
   switch (code) {
+    case 'RESOURCE_LIMIT':
+      return { ...resourceLimit(message), cause: code }
     case 'BAD_REQUEST':
     case 'BAD_PREIMAGE':
     case 'EXISTS_DIFFERENT':
