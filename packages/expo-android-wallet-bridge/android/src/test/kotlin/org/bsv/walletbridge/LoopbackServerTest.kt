@@ -108,6 +108,16 @@ class LoopbackServerTest {
     assertEquals(0, rec.requests.size)
   }
 
+  @Test fun `invalid Host is refused before an incomplete large body`() {
+    val rec = Rec()
+    val b = boot(rec)
+    val c = connect(b.port)
+    send(c, "POST /x HTTP/1.1\r\nHost: evil.example:${b.port}\r\nContent-Length: 5242880\r\n\r\n")
+    // No body is sent. A post-body Host check would stall until receive timeout.
+    assertTrue(readAll(c).startsWith("HTTP/1.1 403 "))
+    assertEquals(0, rec.requests.size)
+  }
+
   @Test fun `held response stays open for 3 s with no timeout and completes on respond`() {
     val rec = Rec()
     val b = boot(rec)
