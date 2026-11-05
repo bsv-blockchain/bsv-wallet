@@ -304,7 +304,9 @@ export function validateRelayUrl(raw: unknown): string {
   return url.origin
 }
 
-export function parseRelayResponse(raw: unknown): string {
+export type OriginSessionTuple = Pick<ConnectParams, 'topic' | 'backendIdentityKey' | 'protocolID'>
+
+export function parseRelayResponse(raw: unknown, expected?: OriginSessionTuple): string {
   const text = requireBoundedString(raw, 'relay response', MAX_RELAY_RESPONSE_BYTES)
   let data: unknown
   try {
@@ -319,6 +321,16 @@ export function parseRelayResponse(raw: unknown): string {
     typeof (data as { relay?: unknown }).relay !== 'string'
   ) {
     throw new Error('Origin server did not return a relay URL')
+  }
+  if (expected) {
+    const session = data as Partial<OriginSessionTuple>
+    if (
+      session.topic !== expected.topic ||
+      session.backendIdentityKey !== expected.backendIdentityKey ||
+      session.protocolID !== expected.protocolID
+    ) {
+      throw new Error('Origin session does not match the approved pairing tuple')
+    }
   }
   return validateRelayUrl((data as { relay: string }).relay)
 }

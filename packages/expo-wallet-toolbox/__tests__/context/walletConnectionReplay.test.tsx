@@ -30,6 +30,7 @@ import { PrivateKey, ProtoWallet } from '@bsv/sdk'
 import { WalletConnectionProvider, useWalletConnection, lastSeqKey } from '../../core/context/WalletConnectionContext'
 import { buildPairingSignatureMessage } from '../../core/services/walletConnectionValidation'
 
+let mockOriginSession: Record<string, string> = {}
 const mockWebSockets: any[] = []
 const mockWebSocketConstructor = jest.fn(function (this: any, url: string) {
   this.url = url
@@ -46,10 +47,11 @@ beforeEach(() => {
   mockSetItemAsync.mockClear()
   mockSetItemAsync.mockImplementation(async () => {})
   ;(global as any).WebSocket = mockWebSocketConstructor
-  global.fetch = jest.fn(async () => {
-    const relayBody = JSON.stringify({ relay: 'wss://relay.example' })
+  global.fetch = jest.fn(async (url: string) => {
+    const relayBody = JSON.stringify({ relay: 'wss://relay.example', ...mockOriginSession })
     return {
       ok: true,
+      url,
       // XR-025: a real relay server declares Content-Length for a small,
       // deterministic JSON body -- the readBoundedRelayResponse fallback
       // now fails closed when it is absent and no stream reader exists.
@@ -76,6 +78,7 @@ async function signedPairingParams(topic: string) {
   })
   const sig = Buffer.from(signature).toString('base64url')
 
+  mockOriginSession = { topic, backendIdentityKey, protocolID }
   return { topic, backendIdentityKey, protocolID, origin, expiry, sig }
 }
 

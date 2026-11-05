@@ -33,6 +33,7 @@ import { PrivateKey, ProtoWallet } from '@bsv/sdk'
 import { WalletConnectionProvider, useWalletConnection } from '../../core/context/WalletConnectionContext'
 import { buildPairingSignatureMessage } from '../../core/services/walletConnectionValidation'
 
+let mockOriginSession: Record<string, string> = {}
 const mockWebSockets: any[] = []
 const mockWebSocketConstructor = jest.fn(function (this: any, url: string) {
   this.url = url
@@ -45,10 +46,11 @@ beforeEach(() => {
   mockWebSockets.splice(0)
   mockWebSocketConstructor.mockClear()
   ;(global as any).WebSocket = mockWebSocketConstructor
-  global.fetch = jest.fn(async () => {
-    const relayBody = JSON.stringify({ relay: 'wss://relay.example' })
+  global.fetch = jest.fn(async (url: string) => {
+    const relayBody = JSON.stringify({ relay: 'wss://relay.example', ...mockOriginSession })
     return {
       ok: true,
+      url,
       // XR-025: a real relay server declares Content-Length for a small,
       // deterministic JSON body -- the readBoundedRelayResponse fallback
       // now fails closed when it is absent and no stream reader exists.
@@ -75,6 +77,7 @@ async function signedPairingParams(topic: string) {
   })
   const sig = Buffer.from(signature).toString('base64url')
 
+  mockOriginSession = { topic, backendIdentityKey, protocolID }
   return { topic, backendIdentityKey, protocolID, origin, expiry, sig }
 }
 
@@ -239,6 +242,11 @@ test('XR-018: reconnect() closes and fully detaches a previous live socket for a
     status: 'disconnected' as const
   }
 
+  mockOriginSession = {
+    topic: storedConnection.sessionId,
+    backendIdentityKey: storedConnection.backendIdentityKey,
+    protocolID: storedConnection.protocolID
+  }
   await act(async () => {
     await result.current.reconnect(storedConnection as any, wallet as any)
   })
@@ -292,4 +300,20 @@ test('XR-018: disconnect() prevents a message already mid-decrypt on the live so
 
   expect(wallet.listOutputs).not.toHaveBeenCalled()
   expect(ws.send).not.toHaveBeenCalled()
+})
+
+test('a valid attacker signature cannot replace the origin-authenticated backend key', async () => {
+  const { result, unmount } = renderHook(() => useWalletConnection(), {
+    wrapper: ({ children }) => <WalletConnectionProvider>{children}</WalletConnectionProvider>
+  })
+  activeUnmounts.push(unmount)
+  const legitimate = await signedPairingParams('origin-bound-topic')
+  const substituted = await signedPairingParams(legitimate.topic)
+  mockOriginSession = {
+    topic: legitimate.topic,
+    backendIdentityKey: legitimate.backendIdentityKey,
+    protocolID: legitimate.protocolID
+  }
+  await expect(result.current.connect(substituted as any, fakeMobileWallet() as any)).rejects.toThrow(/session.*match/i)
+  expect(mockWebSocketConstructor).not.toHaveBeenCalled()
 })
