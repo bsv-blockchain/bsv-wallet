@@ -1,6 +1,6 @@
 /**
  * "Which key will you tap?" — a radio list of the vault's enrolled keys, used
- * before a withdrawal (spec §4.2 step 1) and before a re-lock (§4.3). Keys are
+ * before a deposit, a withdrawal (spec §4.2 step 1), or a re-lock (§4.3). Keys are
  * shown everywhere as `nickname · …serialTail4` (§3.3), which is what
  * `vaultKeyLabel` produces; the wizard, the vault screen and the transfer
  * screen all import it from here so the format is written once.

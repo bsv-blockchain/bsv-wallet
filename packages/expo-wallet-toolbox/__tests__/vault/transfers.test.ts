@@ -801,10 +801,33 @@ function encPush(data: number[]): number[] {
 
 // ── deposit ───────────────────────────────────────────────────────────────
 
+test('refuses a retired authentic enrollment whose hardware keys were reset before creating new funds', async () => {
+  await seedMeta()
+  const retired = (await vaultStore.getMeta())!
+  const retiredTag = (await vaultStore.getMetaTag())!
+  await vaultStore.clear()
+  await seedMeta([KEY_B, KEY_C])
+  // The attacker replays an authentic old enrollment and its authentic tag.
+  await vaultStore.setMeta(retired, undefined, async () => retiredTag)
+  ;(requestVaultSigner as jest.Mock).mockRejectedValue(new VaultError('wrong-key', 'Old hardware key was reset'))
+  await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'wrong-key' })
+  expect(wallet.createAction).not.toHaveBeenCalled()
+})
+
+test('a new deposit can prove the second enrolled key under the one-of-N policy', async () => {
+  await seedMeta()
+  armWith(PRIV_B, PUB_B, KEY_B.serial)
+  await expect(depositToVault(wallet, ADMIN, 250_000, { outputKeySerial: KEY_B.serial })).resolves.toMatchObject({
+    txid: expect.any(String)
+  })
+  expect(requestVaultSigner).toHaveBeenCalledWith('Verify vault key for new funds', KEY_B.serial)
+  expect(requestVaultSigner).toHaveBeenCalledTimes(1)
+})
+
 describe('depositToVault', () => {
   const depositArgs = () => wallet.createAction.mock.calls[0][0] as any
 
-  it('builds and inspects one version-1 noSend transaction before releasing it, without hardware or a backup receipt', async () => {
+  it('proves the chosen key and inspects one version-1 noSend transaction before releasing it', async () => {
     await seedMeta()
     const { txid } = await depositToVault(wallet, ADMIN, 250_000)
     expect(txid).toBe(lastSignable!.id('hex'))
@@ -842,8 +865,8 @@ describe('depositToVault', () => {
       description: 'Broadcast Vault deposit',
       options: { sendWith: [txid] }
     })
-    // No hardware ceremony or custom-input signing.
-    expect(requestVaultSigner).not.toHaveBeenCalled()
+    // One fresh possession proof; funding still needs no custom-input signing.
+    expect(requestVaultSigner).toHaveBeenCalledWith('Verify vault key for new funds', KEY_A.serial)
     expect(noteVaultProgress).not.toHaveBeenCalled()
     expect(wallet.listOutputs).toHaveBeenCalled() // authoritative collision scan
   })
@@ -1785,7 +1808,7 @@ describe('depositToVault', () => {
       await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'no-transaction' })
       if (abortExpected) expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'deposit-ref' }, ADMIN)
       else expect(wallet.abortAction).not.toHaveBeenCalled()
-      expect(requestVaultSigner).not.toHaveBeenCalled()
+      expect(requestVaultSigner).toHaveBeenCalledWith('Verify vault key for new funds', KEY_A.serial)
       expect(wallet.createAction.mock.calls.some(([args]) => args.options?.sendWith)).toBe(false)
     }
 
@@ -2463,7 +2486,9 @@ describe('withdrawFromVault', () => {
     await expect(withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1')).rejects.toMatchObject({
       code: 'no-transaction'
     })
-    expect(requestVaultSigner).not.toHaveBeenCalled()
+    expect(
+      (requestVaultSigner as jest.Mock).mock.calls.filter(([reason]) => reason !== 'Verify vault key for new funds')
+    ).toHaveLength(0)
   }, 60_000)
 
   it('rejects a toolbox-injected funding input before the YubiKey signs', async () => {
@@ -2471,7 +2496,9 @@ describe('withdrawFromVault', () => {
     await seedVault(fx, [KEY_A, KEY_B], { fundingFirst: true })
     await expect(withdrawAll()).rejects.toMatchObject({ code: 'no-transaction' })
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
-    expect(requestVaultSigner).not.toHaveBeenCalled()
+    expect(
+      (requestVaultSigner as jest.Mock).mock.calls.filter(([reason]) => reason !== 'Verify vault key for new funds')
+    ).toHaveLength(0)
     expect(wallet.signAction).not.toHaveBeenCalled()
   }, 60_000)
 
@@ -2597,7 +2624,9 @@ describe('withdrawFromVault', () => {
     expect(err).toMatchObject({ code: 'template-invalid' })
     expect(err.message).toContain(liar.outpoint)
     expect(wallet.createAction).not.toHaveBeenCalled()
-    expect(requestVaultSigner).not.toHaveBeenCalled()
+    expect(
+      (requestVaultSigner as jest.Mock).mock.calls.filter(([reason]) => reason !== 'Verify vault key for new funds')
+    ).toHaveLength(0)
   })
 
   it('key-not-committed when no output is committed to the chosen key at all', async () => {
@@ -2877,7 +2906,9 @@ describe('withdrawFromVault', () => {
         code: 'no-transaction'
       })
       expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
-      expect(requestVaultSigner).not.toHaveBeenCalled()
+      expect(
+        (requestVaultSigner as jest.Mock).mock.calls.filter(([reason]) => reason !== 'Verify vault key for new funds')
+      ).toHaveLength(0)
       expect(wallet.signAction).not.toHaveBeenCalled()
     })
   })
