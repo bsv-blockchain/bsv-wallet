@@ -313,9 +313,12 @@ describe('browser journeys', () => {
         res.writeHead(settled.status, headers)
         res.end(settled.body)
       } catch (e) {
+        // The browser page renders this body, so the stack stays in the test log.
+        console.error(e)
         if (res.headersSent) return
-        res.writeHead(500, { 'content-type': 'text/plain' })
-        res.end(e instanceof Error ? (e.stack ?? e.message) : String(e))
+        const message = e instanceof Error && e.message ? e.message : 'request failed'
+        res.writeHead(500, { 'content-type': 'text/plain', 'cache-control': 'no-store' })
+        res.end(message)
       }
     })
 
