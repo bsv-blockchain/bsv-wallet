@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 import type { Certifier as WalletCertifier } from '@bsv/wallet-toolbox-mobile'
 import validateTrust from '../validateTrust'
 import { isPublicHttpsUrl } from '../../core/net/publicDestination'
+import { createBoundedNativeFetch } from '../../core/network/boundedFetch'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { showAlert } from '../components/ui/AlertCard'
 import { haptics, useTheme, spacing, radii, typography, useWallet } from '@bsv/expo-wallet-toolbox'
@@ -156,7 +157,7 @@ const fetchWithTimeout = async (url: string, ms: number) => {
     // a trust-provider manifest is fetched from by redirecting the entered
     // HTTPS origin somewhere else (XR-076 / SEC2-011) — a legitimate provider
     // has no reason to redirect its own manifest.json.
-    res = await fetch(url, { signal: controller.signal, redirect: 'error' })
+    res = await createBoundedNativeFetch(MAX_TRUST_MANIFEST_BYTES)(url, { signal: controller.signal, redirect: 'error' })
   } finally {
     clearTimeout(id)
   }
@@ -198,12 +199,14 @@ const fetchWithTimeout = async (url: string, ms: number) => {
 const MAX_TRUST_MANIFEST_BYTES = 64 * 1024
 
 /**
- * Mirrors core/identity/handleRegistry/resolver.ts's readBoundedJson: a
+ * The native receiver enforces the actual byte ceiling before returning this
+ * Response, including on runtimes without WHATWG streams. This additional
+ * reader check bounds trusted injected transports in tests. A
  * declared Content-Length over the cap is refused before anything is read;
  * otherwise, when the runtime exposes the body as a stream, chunks are
  * counted as they arrive and the read is aborted the instant the running
  * total crosses the cap. `fallback` (the runtime's own `response.json`) is
- * used only when no stream is available to count from.
+ * used on native Response implementations after receive-time enforcement.
  */
 async function readBoundedManifestJson(res: Response, fallback: () => Promise<unknown>): Promise<unknown> {
   const declared = res.headers?.get?.('content-length')
