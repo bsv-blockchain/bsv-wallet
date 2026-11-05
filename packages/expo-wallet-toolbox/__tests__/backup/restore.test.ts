@@ -331,8 +331,23 @@ describe('RemoteSyncReader seals', () => {
   ): Promise<{ blobs: number[][]; entries: LogEntry[] }> {
     const blobs: number[][] = []
     for (let i = 0; i < chunkTxids.length; i++) {
-      const sealThis = seal != null && i === chunkTxids.length - 1 ? seal : undefined
-      blobs.push(await encodeChunk(w, chunkWithTx(chunkTxids[i]), 'main', sealThis))
+      const sealThis =
+        seal != null && i === chunkTxids.length - 1
+          ? {
+              ...seal,
+              initialHeadSha256: blobs[seal.initialChunkCount - 1]
+                ? sha256Hex(blobs[seal.initialChunkCount - 1])
+                : '0'.repeat(64)
+            }
+          : undefined
+      blobs.push(
+        await encodeChunk(w, chunkWithTx(chunkTxids[i]), 'main', sealThis, undefined, {
+          deviceId: DEVICE,
+          generation: 1,
+          seq: i + 1,
+          prevSha256: i ? sha256Hex(blobs[i - 1]) : undefined
+        })
+      )
     }
     const entries: LogEntry[] = blobs.map((b, i) => ({
       seq: i + 1,
@@ -346,7 +361,7 @@ describe('RemoteSyncReader seals', () => {
 
   it('yields every entry to the caller, seal or not, and counts them all in length', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], { generation: 1, initialChunkCount: 2 })
+    const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], { generation: 1, initialChunkCount: 1 })
     const reader = new RemoteSyncReader(fakeClient(blobs, entries), w, 'main', DEVICE, 1, SETTINGS)
 
     expect((await reader.getSyncChunk(args)).provenTxs?.[0].txid).toBe('aaa')
@@ -357,7 +372,7 @@ describe('RemoteSyncReader seals', () => {
 
   it('reports verifiedComplete true when the newest entry carries a seal for this generation whose initialChunkCount is covered', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], { generation: 1, initialChunkCount: 2 })
+    const { blobs, entries } = await logWith(w, ['aaa', 'bbb'], { generation: 1, initialChunkCount: 1 })
     const reader = new RemoteSyncReader(fakeClient(blobs, entries), w, 'main', DEVICE, 1, SETTINGS)
 
     await expect(reader.verifiedComplete()).resolves.toBe(true)
@@ -402,8 +417,15 @@ describe('RemoteSyncReader seals', () => {
     // provably complete, rather than losing its proof the moment a new chunk becomes the
     // newest entry. See push.ts's pushOnce.
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const sealed = await logWith(w, ['aaa', 'bbb'], { generation: 1, initialChunkCount: 2 })
-    const extra = await encodeChunk(w, chunkWithTx('ccc'), 'main', { generation: 1, initialChunkCount: 2 })
+    const sealed = await logWith(w, ['aaa', 'bbb'], { generation: 1, initialChunkCount: 1 })
+    const extra = await encodeChunk(
+      w,
+      chunkWithTx('ccc'),
+      'main',
+      { generation: 1, initialChunkCount: 1, initialHeadSha256: sha256Hex(sealed.blobs[0]) },
+      undefined,
+      { deviceId: DEVICE, generation: 1, seq: 3, prevSha256: sha256Hex(sealed.blobs[1]) }
+    )
     const blobs = [...sealed.blobs, extra]
     const entries: LogEntry[] = [
       ...sealed.entries,
@@ -427,7 +449,7 @@ describe('RemoteSyncReader seals', () => {
 
   it('does not re-fetch or re-decrypt the entry replay later reaches', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const { blobs, entries } = await logWith(w, ['aaa'], { generation: 1, initialChunkCount: 1 })
+    const { blobs, entries } = await logWith(w, ['aaa'], null)
     const client = fakeClient(blobs, entries)
 
     const reader = new RemoteSyncReader(client, w, 'main', DEVICE, 1, SETTINGS)
@@ -462,10 +484,24 @@ describe('RemoteSyncReader appData', () => {
 
   it('reflects the newest entry replayed so far, updating as replay proceeds', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const first = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, { localpayPending: '[{"id":"p1"}]' })
-    const second = await encodeChunk(w, chunkWithTx('bbb'), 'main', undefined, {
-      localpayPending: '[{"id":"p1"},{"id":"p2"}]'
-    })
+    const first = await encodeChunk(
+      w,
+      chunkWithTx('aaa'),
+      'main',
+      undefined,
+      { localpayPending: '[{"id":"p1"}]' },
+      { deviceId: DEVICE, generation: 1, seq: 1 }
+    )
+    const second = await encodeChunk(
+      w,
+      chunkWithTx('bbb'),
+      'main',
+      undefined,
+      {
+        localpayPending: '[{"id":"p1"},{"id":"p2"}]'
+      },
+      { deviceId: DEVICE, generation: 1, seq: 2, prevSha256: sha256Hex(first) }
+    )
     const reader = new RemoteSyncReader(fakeClient([first, second]), w, 'main', DEVICE, 1, SETTINGS)
 
     await reader.getSyncChunk(args)
@@ -477,8 +513,20 @@ describe('RemoteSyncReader appData', () => {
 
   it('keeps the last known snapshot when a later entry carries none at all (never regresses to undefined)', async () => {
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const withAppData = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, { peerpayOutbox: '[{"id":"o1"}]' })
-    const withoutAppData = await encodeChunk(w, chunkWithTx('bbb'), 'main')
+    const withAppData = await encodeChunk(
+      w,
+      chunkWithTx('aaa'),
+      'main',
+      undefined,
+      { peerpayOutbox: '[{"id":"o1"}]' },
+      { deviceId: DEVICE, generation: 1, seq: 1 }
+    )
+    const withoutAppData = await encodeChunk(w, chunkWithTx('bbb'), 'main', undefined, undefined, {
+      deviceId: DEVICE,
+      generation: 1,
+      seq: 2,
+      prevSha256: sha256Hex(withAppData)
+    })
     const reader = new RemoteSyncReader(fakeClient([withAppData, withoutAppData]), w, 'main', DEVICE, 1, SETTINGS)
 
     await reader.getSyncChunk(args)
@@ -493,7 +541,14 @@ describe('RemoteSyncReader appData', () => {
     // entry, getSyncChunk must still read its appData off the cache-hit path, not only off a
     // fresh decode.
     const w = deriveBackupWallet(PRIMARY, 'main')
-    const only = await encodeChunk(w, chunkWithTx('aaa'), 'main', undefined, { localpayPending: '[{"id":"p1"}]' })
+    const only = await encodeChunk(
+      w,
+      chunkWithTx('aaa'),
+      'main',
+      undefined,
+      { localpayPending: '[{"id":"p1"}]' },
+      { deviceId: DEVICE, generation: 1, seq: 1 }
+    )
     const client = fakeClient([only])
     const reader = new RemoteSyncReader(client, w, 'main', DEVICE, 1, SETTINGS)
 
