@@ -276,6 +276,86 @@ test('pairing fails closed when the durable replay floor cannot be read', async 
   expect(mockWebSockets).toHaveLength(1)
 })
 
+test('remote close invalidates an already-decrypting duplicate', async () => {
+  const topic = 'close-during-decrypt'
+  const { ws, wallet, decryptedPlaintext } = await connectFixture(topic)
+  decryptedPlaintext.current = JSON.stringify({ id: 'paid', seq: 1, method: 'createAction', params: {} })
+  await act(async () => {
+    await ws.onmessage({ data: rpcEnvelope(topic) })
+  })
+  let release!: (value: { plaintext: number[] }) => void
+  wallet.decrypt.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = resolve
+      })
+  )
+  const duplicate = ws.onmessage({ data: rpcEnvelope(topic) })
+  await flushMicrotasks()
+  await act(async () => {
+    ws.onclose()
+    release({ plaintext: Array.from(new TextEncoder().encode(decryptedPlaintext.current)) })
+    await duplicate
+  })
+  expect(wallet.createAction).toHaveBeenCalledTimes(1)
+})
+
+test('remote close during sequence commit cannot dispatch the closing session', async () => {
+  const topic = 'close-during-commit'
+  const { ws, wallet, decryptedPlaintext } = await connectFixture(topic)
+  let release!: () => void
+  mockSetItemAsync.mockImplementationOnce(
+    () =>
+      new Promise<void>(resolve => {
+        release = resolve
+      })
+  )
+  decryptedPlaintext.current = JSON.stringify({ id: 'pending', seq: 7, method: 'createAction', params: {} })
+  const pending = ws.onmessage({ data: rpcEnvelope(topic) })
+  await flushMicrotasks()
+  expect(release).toBeDefined()
+  await act(async () => {
+    ws.onclose()
+    release()
+    await pending
+  })
+  expect(wallet.createAction).not.toHaveBeenCalled()
+  expect(mockSetItemAsync.mock.calls.filter(call => call[0] === lastSeqKey(topic)).map(call => call[1])).toEqual(['7'])
+})
+
+test('a closing socket cannot regress durable sequence state or overwrite its replacement', async () => {
+  const topic = 'replacement-during-commit'
+  const { ws, wallet, decryptedPlaintext, result, params } = await connectFixture(topic)
+  let durable: string | null = null
+  mockGetItemAsync.mockImplementation(async () => durable)
+  let release!: () => void
+  mockSetItemAsync.mockImplementationOnce(async (_key, value) => {
+    await new Promise<void>(resolve => {
+      release = resolve
+    })
+    durable = value as string
+  })
+  decryptedPlaintext.current = JSON.stringify({ id: 'old', seq: 7, method: 'createAction', params: {} })
+  const oldMessage = ws.onmessage({ data: rpcEnvelope(topic) })
+  await flushMicrotasks()
+  expect(release).toBeDefined()
+  await act(async () => {
+    ws.onclose()
+    await result.current.connect(params as any, wallet as any)
+  })
+  decryptedPlaintext.current = JSON.stringify({ id: 'replay', seq: 1, method: 'createAction', params: {} })
+  const replacementMessage = mockWebSockets[1].onmessage({ data: rpcEnvelope(topic) })
+  await act(async () => {
+    release()
+    await oldMessage
+    await replacementMessage
+  })
+  expect(wallet.createAction).not.toHaveBeenCalled()
+  expect(durable).toBe('7')
+  expect(result.current.sessionMeta?.topic).toBe(topic)
+  mockGetItemAsync.mockResolvedValue(null)
+})
+
 test('re-pairing preserves requests accepted while the replacement identity lookup is pending', async () => {
   const topic = 'repair-live-floor'
   const { ws, wallet, decryptedPlaintext, result, params } = await connectFixture(topic)
