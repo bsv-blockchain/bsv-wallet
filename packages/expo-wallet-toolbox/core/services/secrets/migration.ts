@@ -12,7 +12,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
 import { openSecret, sealSecret } from './envelope'
 import { destroyKek, peekKek, provisionKek, readSentinel, recordSecretName } from './kek'
-import { envKey, envOptions } from './storage'
+import { envKey, envOptions, kekOptions } from './storage'
+import { KEK_AUTH_KEY, KEK_PLAIN_KEY } from './policy'
 import { EnvelopeBlob, SECRET_NAMES, SecretName } from './types'
 
 /** Keys written by the pre-envelope LocalStorageProvider. */
@@ -112,7 +113,12 @@ export async function migrationAttemptsExhausted(): Promise<boolean> {
 export async function migrateLegacySecrets(): Promise<MigrationResult> {
   // Step 0 — idempotence. A committed sentinel means we already migrated;
   // sweeping here is what makes a crash between commit and delete harmless.
-  const existing = await readSentinel()
+  let existing: Awaited<ReturnType<typeof readSentinel>>
+  try {
+    existing = await readSentinel({ strict: true })
+  } catch {
+    return { outcome: 'failed', stage: 'existing-identity', retryable: true }
+  }
   if (existing && existing.names.length > 0) {
     await sweepLegacyKeys()
     return { outcome: 'not-needed' }
@@ -134,6 +140,25 @@ export async function migrateLegacySecrets(): Promise<MigrationResult> {
 
   if (await migrationAttemptsExhausted()) {
     return { outcome: 'failed', stage: 'attempts-exhausted', retryable: false }
+  }
+
+  // The sentinel is unauthenticated and can disappear independently of the
+  // protected KEK. Never interpret its absence as permission to replace an
+  // existing envelope identity with legacy plaintext. Read errors also fail
+  // closed; no destructive provisioning or rollback has started yet.
+  try {
+    for (const name of SECRET_NAMES) {
+      if ((await SecureStore.getItemAsync(envKey(name), envOptions)) !== null) {
+        return { outcome: 'failed', stage: 'existing-identity', retryable: false }
+      }
+    }
+    for (const [key, authenticated] of [[KEK_AUTH_KEY, true], [KEK_PLAIN_KEY, false]] as const) {
+      if ((await SecureStore.getItemAsync(key, kekOptions(authenticated))) !== null) {
+        return { outcome: 'failed', stage: 'existing-identity', retryable: false }
+      }
+    }
+  } catch {
+    return { outcome: 'failed', stage: 'existing-identity', retryable: true }
   }
 
   // Step 3 — mint the KEK. Costs one prompt on Android, none on iOS.
