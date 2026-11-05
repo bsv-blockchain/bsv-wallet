@@ -31,7 +31,7 @@ extension BridgeStore {
     (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)?.epochMs
   }
 
-  /// App only (on init and on each drain). Throws `keyMissing` when the key is unreadable and
+  /// Both processes (on app init/drain and native request/upload admission). Throws `keyMissing` when the key is unreadable and
   /// `resetFinal` after `reset()`.
   ///
   /// - results older than 15 min lose their payload (the header stays, so the id still reads as done
@@ -43,29 +43,39 @@ extension BridgeStore {
   ///   between link and rename) go by the same rule;
   /// - upload chunks older than 15 min; events past 1024 or 24 h; stale `tmp` files.
   public func sweep(nowMs: Int64) throws {
-    try checkWritable()
-    _ = try key()
+    return try withQueueLock {
+      try checkWritable()
+      _ = try key()
 
-    for id in names(.results) {
-      for dir in [Dir.pending, .accepted, .claimed] { Posix.unlink(layout.file(dir, id)) }
-      if let h = try headerOf(.results, id), nowMs - h.createdAt > bridgeResultTtlMs {
-        stripPayload(layout.file(.results, id))
+      // Expire only records no app has accepted. The rename races accept under the same queue
+      // lock, keeps the id tombstone, and never changes accepted/claimed execution semantics.
+      for id in names(.pending) {
+        if let h = try headerOf(.pending, id), nowMs > min(h.notAfter, min(h.createdAt, Int64.max - bridgeValidityMs) + bridgeValidityMs) {
+          _ = withdraw(id: id)
+        }
       }
-    }
-    for id in names(.withdrawn) { stripPayload(layout.file(.withdrawn, id)) }
 
-    for id in names(.ids) {
-      guard let created = mtimeMs(layout.file(.ids, id)), nowMs - created > bridgeTombstoneMs else { continue }
-      if [Dir.pending, .accepted, .claimed].contains(where: { Posix.exists(layout.file($0, id)) }) { continue }
-      Posix.unlink(layout.file(.results, id))
-      Posix.unlink(layout.file(.withdrawn, id))
-      removeStage(id)
-      Posix.unlink(layout.file(.ids, id))
-    }
+      for id in names(.results) {
+        for dir in [Dir.pending, .accepted, .claimed] { Posix.unlink(layout.file(dir, id)) }
+        if let h = try headerOf(.results, id), nowMs - h.createdAt > bridgeResultTtlMs {
+          stripPayload(layout.file(.results, id))
+        }
+      }
+      for id in names(.withdrawn) { stripPayload(layout.file(.withdrawn, id)) }
 
-    sweepStage(nowMs: nowMs)
-    try sweepEvents(nowMs: nowMs)
-    sweepTmp()
+      for id in names(.ids) {
+        guard let created = mtimeMs(layout.file(.ids, id)), nowMs - created > bridgeTombstoneMs else { continue }
+        if [Dir.pending, .accepted, .claimed].contains(where: { Posix.exists(layout.file($0, id)) }) { continue }
+        Posix.unlink(layout.file(.results, id))
+        Posix.unlink(layout.file(.withdrawn, id))
+        removeStage(id)
+        Posix.unlink(layout.file(.ids, id))
+      }
+
+      sweepStage(nowMs: nowMs)
+      try sweepEvents(nowMs: nowMs)
+      sweepTmp()
+    }
   }
 
   private func sweepStage(nowMs: Int64) {

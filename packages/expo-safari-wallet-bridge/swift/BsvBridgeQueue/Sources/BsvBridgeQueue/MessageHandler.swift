@@ -84,6 +84,7 @@ private func map(_ error: Error) -> [String: Any] {
   switch error {
   case let e as HandlerError: return failure(e.code, e.message)
   case BridgeError.keyMissing: return failure("KEY_MISSING", "The sealing key is not available")
+  case BridgeError.quotaExceeded: return failure("RESOURCE_LIMIT", "The native bridge queue is full")
   case BridgeError.invalidId: return failure("BAD_REQUEST", "invalid id")
   case BridgeError.resetFinal: return failure("UNAVAILABLE", "The bridge was reset")
   case BridgeError.io(let m): return failure("UNAVAILABLE", m)
@@ -212,6 +213,7 @@ private func dispatch(_ op: String, _ r: [String: Any], _ env: BridgeEnv) throws
   case "ack":
     guard let ids = r["ids"] as? [String] else { throw HandlerError.bad("ids must be a list of strings") }
     ids.forEach { store.ack(id: $0) }
+    if !ids.isEmpty { env.nudge() }
     return [:]
 
   default:  // nudge

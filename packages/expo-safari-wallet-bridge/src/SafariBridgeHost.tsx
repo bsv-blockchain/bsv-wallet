@@ -175,16 +175,15 @@ async function run(s: Slot, running: Running): Promise<void> {
   writer.start()
   running.cleanups.push(registerSessionTeardown(['logout'], () => resetSafariBridge()))
 
-  // The native store's sweeps (result purge, tombstones, stage chunks, events) are app-only and run on
-  // each drain and on the timer, not only at init: the process may live for days (spec 6.4).
+  // Native admission also sweeps, but the active app must reclaim results even when no page stages
+  // new work: the process may live for days (spec 6.4).
   const sweepStore = () => native.sweep({ nowMs: Date.now() }).catch(warn('sweep'))
 
   // Drain: sweep, then process without awaiting (a record parked behind a sheet stays open as long as the user takes).
   const drain = () => {
     if (running.dead) return
     void sweepStore()
-    void processor
-      .sweepExpired()
+      .then(() => processor.sweepExpired())
       .catch(warn('sweepExpired'))
       .then(() => {
         if (!running.dead) void processor.processPending().catch(warn('processPending'))
@@ -205,10 +204,8 @@ async function run(s: Slot, running: Running): Promise<void> {
   }
   const startTimer = () => {
     if (sweepTimer === undefined)
-      sweepTimer = setInterval(() => {
-        void sweepStore()
-        void processor.sweepExpired().catch(warn('sweepExpired'))
-      }, SWEEP_INTERVAL_MS)
+      // Result expiry can release native admission backpressure without a page nudge.
+      sweepTimer = setInterval(drain, SWEEP_INTERVAL_MS)
   }
   const appState = AppState.addEventListener('change', state => {
     if (state === 'active') {
