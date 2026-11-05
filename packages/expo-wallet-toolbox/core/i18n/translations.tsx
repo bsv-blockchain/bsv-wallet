@@ -684,6 +684,9 @@ const resources = {
       display_currency: 'Display Currency',
       no_pending_payments: 'No pending payments',
       outgoing_payments: 'Outgoing',
+      review_imported_payment: 'Review imported payment',
+      review_imported_payment_detail:
+        'This payment came from a backup and may have been canceled. Send {{amount}} satoshis to {{recipient}} now?',
       payment_not_delivered: 'Not delivered',
       payment_delivered: 'Delivered',
       retry: 'Retry',
@@ -1865,6 +1868,8 @@ const resources = {
       display_currency: '显示货币',
       no_pending_payments: '没有待处理的付款',
       outgoing_payments: '已发出',
+      review_imported_payment: '审核导入的付款',
+      review_imported_payment_detail: '此付款来自备份，可能已被取消。现在向 {{recipient}} 发送 {{amount}} 聪吗？',
       payment_not_delivered: '未送达',
       payment_delivered: '已送达',
       retry: '重试',
@@ -3051,6 +3056,9 @@ const resources = {
       display_currency: 'प्रदर्शन मुद्रा',
       no_pending_payments: 'कोई लंबित भुगतान नहीं',
       outgoing_payments: 'भेजे गए',
+      review_imported_payment: 'आयातित भुगतान की समीक्षा करें',
+      review_imported_payment_detail:
+        'यह भुगतान बैकअप से आया है और संभव है कि इसे रद्द कर दिया गया हो। क्या अभी {{recipient}} को {{amount}} सातोशी भेजें?',
       payment_not_delivered: 'डिलीवर नहीं हुआ',
       payment_delivered: 'डिलीवर हो गया',
       retry: 'पुनः प्रयास',
@@ -4280,6 +4288,9 @@ const resources = {
       display_currency: 'Moneda de visualización',
       no_pending_payments: 'No hay pagos pendientes',
       outgoing_payments: 'Salientes',
+      review_imported_payment: 'Revisar pago importado',
+      review_imported_payment_detail:
+        'Este pago procede de una copia de seguridad y puede haberse cancelado. ¿Enviar ahora {{amount}} satoshis a {{recipient}}?',
       payment_not_delivered: 'No entregado',
       payment_delivered: 'Entregado',
       retry: 'Reintentar',
@@ -5528,6 +5539,9 @@ const resources = {
       display_currency: "Devise d'affichage",
       no_pending_payments: 'Aucun paiement en attente',
       outgoing_payments: 'Sortants',
+      review_imported_payment: 'Vérifier le paiement importé',
+      review_imported_payment_detail:
+        'Ce paiement provient d’une sauvegarde et a peut-être été annulé. Envoyer maintenant {{amount}} satoshis à {{recipient}} ?',
       payment_not_delivered: 'Non livré',
       payment_delivered: 'Livré',
       retry: 'Réessayer',
@@ -6740,6 +6754,9 @@ const resources = {
       display_currency: 'عملة العرض',
       no_pending_payments: 'لا توجد مدفوعات معلقة',
       outgoing_payments: 'صادرة',
+      review_imported_payment: 'مراجعة الدفعة المستوردة',
+      review_imported_payment_detail:
+        'جاءت هذه الدفعة من نسخة احتياطية وربما أُلغيت. هل تريد إرسال {{amount}} ساتوشي إلى {{recipient}} الآن؟',
       payment_not_delivered: 'لم يتم التسليم',
       payment_delivered: 'تم التسليم',
       retry: 'إعادة المحاولة',
@@ -7950,6 +7967,9 @@ const resources = {
       display_currency: 'Moeda de exibição',
       no_pending_payments: 'Nenhum pagamento pendente',
       outgoing_payments: 'Saídas',
+      review_imported_payment: 'Rever pagamento importado',
+      review_imported_payment_detail:
+        'Este pagamento veio de uma cópia de segurança e pode ter sido cancelado. Enviar agora {{amount}} satoshis para {{recipient}}?',
       payment_not_delivered: 'Não entregue',
       payment_delivered: 'Entregue',
       retry: 'Tentar novamente',
@@ -9175,6 +9195,9 @@ const resources = {
       display_currency: 'প্রদর্শন মুদ্রা',
       no_pending_payments: 'কোনো মুলতুবি পেমেন্ট নেই',
       outgoing_payments: 'বহির্গামী',
+      review_imported_payment: 'আমদানি করা পেমেন্ট যাচাই করুন',
+      review_imported_payment_detail:
+        'এই পেমেন্টটি ব্যাকআপ থেকে এসেছে এবং হয়তো বাতিল করা হয়েছে। এখন {{recipient}}-কে {{amount}} সাতোশি পাঠাবেন?',
       payment_not_delivered: 'ডেলিভারি হয়নি',
       payment_delivered: 'ডেলিভারি হয়েছে',
       retry: 'পুনরায় চেষ্টা',
@@ -10400,6 +10423,9 @@ const resources = {
       display_currency: 'Валюта отображения',
       no_pending_payments: 'Нет ожидающих платежей',
       outgoing_payments: 'Исходящие',
+      review_imported_payment: 'Проверить импортированный платёж',
+      review_imported_payment_detail:
+        'Этот платёж восстановлен из резервной копии и мог быть отменён. Отправить сейчас {{amount}} сатоши получателю {{recipient}}?',
       payment_not_delivered: 'Не доставлено',
       payment_delivered: 'Доставлено',
       retry: 'Повторить',
@@ -11630,6 +11656,9 @@ const resources = {
       display_currency: 'Mata uang tampilan',
       no_pending_payments: 'Tidak ada pembayaran tertunda',
       outgoing_payments: 'Keluar',
+      review_imported_payment: 'Tinjau pembayaran yang diimpor',
+      review_imported_payment_detail:
+        'Pembayaran ini berasal dari cadangan dan mungkin telah dibatalkan. Kirim {{amount}} satoshi ke {{recipient}} sekarang?',
       payment_not_delivered: 'Belum terkirim',
       payment_delivered: 'Terkirim',
       retry: 'Coba lagi',
@@ -12864,6 +12893,9 @@ const resources = {
       display_currency: '表示通貨',
       no_pending_payments: '保留中の支払いはありません',
       outgoing_payments: '送信済み',
+      review_imported_payment: 'インポートした支払いを確認',
+      review_imported_payment_detail:
+        'この支払いはバックアップから復元されたもので、キャンセル済みの可能性があります。今すぐ {{recipient}} に {{amount}} サトシを送信しますか？',
       payment_not_delivered: '未配信',
       payment_delivered: '配信済み',
       retry: '再試行',
@@ -14104,6 +14136,9 @@ const resources = {
       display_currency: 'Waluta wyświetlania',
       no_pending_payments: 'Brak oczekujących płatności',
       outgoing_payments: 'Wychodzące',
+      review_imported_payment: 'Sprawdź zaimportowaną płatność',
+      review_imported_payment_detail:
+        'Ta płatność pochodzi z kopii zapasowej i mogła zostać anulowana. Wysłać teraz {{amount}} satoshi do {{recipient}}?',
       payment_not_delivered: 'Nie dostarczono',
       payment_delivered: 'Dostarczono',
       retry: 'Ponów',

@@ -923,6 +923,7 @@ export async function retryDelivery(args: {
   entry: OutboxEntry
 }): Promise<void> {
   const { wallet, adminOriginator, client, storage, entry } = args
+  if (entry.status !== 'unsent') return
   await updateOutboxEntry(storage, entry.id, { lastAttemptAt: new Date().toISOString() })
   // XR-052: a concurrent UI abandon (cancelOutboxPayment) can remove this same
   // row between awaits — it shares no lock with the background drain beyond
@@ -931,7 +932,8 @@ export async function retryDelivery(args: {
   // (mirrors cancelOutboxPayment's own re-read for its 'undelivered' mode) and
   // stop cleanly if the row is gone, so an in-flight retry cannot still
   // deliver or broadcast a payment the user just cancelled.
-  const stillPending = async (): Promise<boolean> => (await getOutboxEntries(storage)).some(e => e.id === entry.id)
+  const stillPending = async (): Promise<boolean> =>
+    (await getOutboxEntries(storage)).some(e => e.id === entry.id && e.status === 'unsent')
   try {
     if (entry.delivered !== true) {
       if (!(await stillPending())) return
