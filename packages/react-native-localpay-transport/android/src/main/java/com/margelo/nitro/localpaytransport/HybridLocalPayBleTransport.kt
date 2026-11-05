@@ -60,7 +60,7 @@ private const val WRITE_BUSY_RETRY_MS = 20L
 private const val WRITE_REJECTED_LEGACY = -1
 
 /**
- * LocalPayBleTransport over android.bluetooth GATT — the `bsvpay-ble/1`
+ * LocalPayBleTransport over android.bluetooth GATT — the `bsvpay-ble/2`
  * profile (design §2–§3). Payee = GATT peripheral (advertises the
  * session-derived service UUID, receives HELLO_A/FRAME on the FRAME
  * characteristic, answers HELLO_B/ACK as indications). Payer = GATT central
@@ -209,6 +209,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
 
   private class Central(val device: BluetoothDevice) {
     val reassembler = BleGattProfile.Reassembler()
+    var exchange: BleGattProfile.Peer? = null
     var subscribed = false
     var mtu = DEFAULT_ATT_MTU
   }
@@ -271,6 +272,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     connectTimeoutMs: Long
   ) {
     val serviceUuid: UUID = BleGattProfile.serviceUuid(psk, instanceName)
+    private val exchange = BleGattProfile.Payer(psk, instanceName, sealed)
     private val t0 = SystemClock.elapsedRealtime()
     private val connectDeadline = t0 + connectTimeoutMs
     fun elapsed(): Long = SystemClock.elapsedRealtime() - t0
@@ -334,7 +336,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       candidate = device
       main.removeCallbacks(connectTimer)
       Log.d(TAG, "payer: central subscribed ${device.address} at ${elapsed()} ms; indicating HELLO_A (mtu ${central.mtu})")
-      sendIndication(central, BleGattProfile.helloA(psk, instanceName)) { ok ->
+      sendIndication(central, exchange.helloA()) { ok ->
         if (!ok && !settled) fail("failed to send frame: HELLO_A indication not delivered")
       }
     }
@@ -346,8 +348,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       val fromCandidate = device.address == candidate?.address
       when {
         message[0] == TYPE_HELLO_B && bound == null && fromCandidate -> {
-          val proof = message.copyOfRange(1, message.size)
-          if (!BleGattProfile.constantTimeEquals(proof, BleGattProfile.proof(psk, instanceName, TYPE_HELLO_B))) {
+          if (!exchange.verifyHelloB(message)) {
             // Not our payee: drop this central, forget the candidate, keep advertising for the real one.
             Log.d(TAG, "payer: HELLO_B proof failed from ${device.address}; dropping")
             candidate = null
@@ -376,7 +377,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
         message[0] == TYPE_ACK && device.address == bound?.address && (frameOnWire || indicationInFlight != null) -> {
           // The ACK write may land before the last chunk's onNotificationSent
           // walked us to frameOnWire (the payee had every chunk already).
-          val json = BleGattProfile.verifyAck(psk, instanceName, message)
+          val json = exchange.verifyAck(message)
           if (json == null) {
             fail("peer failed the session proof")
             return
@@ -412,6 +413,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
     var frameCharacteristic: BluetoothGattCharacteristic? = null
     val reassembler = BleGattProfile.Reassembler()
     var helloVerified = false
+    var exchange: BleGattProfile.Peer? = null
     /** Set when a FRAME from this link was handed to JS; confirmFrame writes the ACK here. */
     var pendingAck = false
     /** confirmFrame's promise while the ACK write is in flight; a write failure rejects it. */
@@ -440,6 +442,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       gatt = null
       frameCharacteristic = null
       helloVerified = false
+      exchange = null
       pendingAck = false
       writeQueue = ArrayDeque()
       onWriteQueueDrained = null
@@ -533,14 +536,15 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       if (message.isEmpty()) return
       when {
         message[0] == TYPE_HELLO_A && !helloVerified -> {
-          val proof = message.copyOfRange(1, message.size)
-          if (!BleGattProfile.constantTimeEquals(proof, BleGattProfile.proof(psk, instanceName, TYPE_HELLO_A))) {
+          val peer = BleGattProfile.acceptHelloA(psk, instanceName, message)
+          if (peer == null) {
             disconnectAndRescan("HELLO_A proof failed")
             return
           }
           helloVerified = true
+          exchange = peer
           Log.d(TAG, "payee(scan): HELLO_A verified; writing HELLO_B (mtu $mtu)")
-          writeMessage(BleGattProfile.helloB(psk, instanceName)) {}
+          writeMessage(peer.helloB()) {}
         }
         message[0] == TYPE_FRAME && helloVerified && !pendingAck -> {
           val sealed = message.copyOfRange(1, message.size)
@@ -553,6 +557,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
             disconnectAndRescan("already accepted on the other link")
             return
           }
+          exchange?.receivedFrame(sealed)
           hasAccepted = true
           pendingAck = true
           idleReaper?.let { main.removeCallbacks(it) }
@@ -838,8 +843,8 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
           refuse(device, "already accepted")
           return
         }
-        val proof = message.copyOfRange(1, message.size)
-        if (!BleGattProfile.constantTimeEquals(proof, BleGattProfile.proof(psk, name, TYPE_HELLO_A))) {
+        val peer = if (central.exchange == null) BleGattProfile.acceptHelloA(psk, name, message) else null
+        if (peer == null) {
           // Silent: a stranger must not be able to kill a live request. Advertising continues.
           Log.d(TAG, "payee: HELLO_A proof failed from ${device.address}; dropping")
           dropCentral(device)
@@ -851,9 +856,10 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
           dropCentral(device)
           return
         }
+        central.exchange = peer
         boundDevice = device
         Log.d(TAG, "payee: HELLO_A verified from ${device.address} at ${SystemClock.elapsedRealtime() - listenStartedAt} ms; sending HELLO_B")
-        sendIndication(central, BleGattProfile.helloB(psk, name)) { ok ->
+        sendIndication(central, peer.helloB()) { ok ->
           // `listening` guards the teardown path: resetSession fails every
           // queued indication, and that is not a peer failure to report.
           if (!ok && listening) {
@@ -879,6 +885,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
           refuse(device, "empty frame")
           return
         }
+        central.exchange?.receivedFrame(sealed)
         cancelIdleReaper(device.address)
         hasAccepted = true
         pendingAckDevice = device
@@ -1307,8 +1314,14 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
           promise.reject(Error("peer disconnected before acking"))
           return@post
         }
+        val ack = s.exchange?.ackMessage(json)
+        if (ack == null) {
+          s.tearDown()
+          promise.reject(Error("missing authenticated frame"))
+          return@post
+        }
         s.ackPromise = promise
-        s.writeMessage(BleGattProfile.ackMessage(s.psk, s.instanceName, json)) {
+        s.writeMessage(ack) {
           Log.d(TAG, "payee(scan): ack ok=$accepted written in ${SystemClock.elapsedRealtime() - t0} ms")
           s.tearDown()
           s.ackPromise?.resolve(Unit)
@@ -1362,7 +1375,13 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       // Protects this link while the indication is on the wire; resetSession
       // clears it once the ack is through (or the send failed).
       ackTargetDevice = device
-      sendIndication(central, BleGattProfile.ackMessage(psk, name, json)) { ok ->
+      val ack = central.exchange?.ackMessage(json)
+      if (ack == null) {
+        resetSession(null)
+        promise.reject(Error("missing authenticated frame"))
+        return@post
+      }
+      sendIndication(central, ack) { ok ->
         Log.d(TAG, "payee: ack ok=$accepted delivered=$ok to ${device.address} in ${SystemClock.elapsedRealtime() - t0} ms")
         gattServer?.cancelConnection(device)
         resetSession(null)
@@ -1625,6 +1644,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
       val t0 = SystemClock.elapsedRealtime()
       fun elapsed(): Long = SystemClock.elapsedRealtime() - t0
 
+      val exchange = BleGattProfile.Payer(psk, instanceName, sealed)
       var settled = false
       /** Step 4 (subscribed to ACK) reached: the connect budget no longer applies (§3 central step 8). */
       var ready = false
@@ -1775,8 +1795,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
             message.isEmpty() -> ignoreOrFail(type, 0, "unexpected payload from peer")
 
             message[0] == TYPE_HELLO_B && !frameOnWire -> {
-              val proof = message.copyOfRange(1, message.size)
-              if (!BleGattProfile.constantTimeEquals(proof, BleGattProfile.proof(psk, instanceName, TYPE_HELLO_B))) {
+              if (!exchange.verifyHelloB(message)) {
                 fail("peer failed the session proof")
                 return
               }
@@ -1800,7 +1819,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
               // The one failure still allowed past frameOnWire: a MAC that does
               // not verify is not our payee, and resolving it would release the
               // payer's inputs on an unauthenticated {"ok":true}.
-              val json = BleGattProfile.verifyAck(psk, instanceName, message)
+              val json = exchange.verifyAck(message)
               if (json == null) {
                 fail("peer failed the session proof")
                 return
@@ -1901,7 +1920,7 @@ class HybridLocalPayBleTransport : HybridLocalPayBleTransportSpec() {
             }
             ready = true
             Log.d(TAG, "payer: subscribed to ACK at ${elapsed()} ms; sending HELLO_A (mtu $mtu)")
-            writeMessage(g, BleGattProfile.helloA(psk, instanceName), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {}
+            writeMessage(g, exchange.helloA(), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {}
           }
         }
 
