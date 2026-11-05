@@ -101,18 +101,33 @@ function fund(chain: Chain, address: string, values: number[], lockingScriptHex?
 
 let requested: string[] = []
 
-function serve(chain: Chain, options: { rateLimitAfter?: number } = {}) {
+const notFound = (text: string) =>
+  ({ ok: false, status: 404, json: async () => ({}), text: async () => text }) as unknown as Response
+
+/**
+ * Answers the way WhatsOnChain does (checked live, Nov 2026): history of an
+ * address with none is HTTP 404 "Not Found"; an unknown route is 404
+ * "404 page not found". `historyGone` serves the second for history.
+ */
+function serve(
+  chain: Chain,
+  options: { rateLimitAfter?: number; rateLimitBeef?: boolean; historyGone?: boolean } = {}
+) {
   requested = []
   global.fetch = jest.fn(async (input: string) => {
     const url = String(input)
     requested.push(url)
-    if (options.rateLimitAfter !== undefined && requested.length > options.rateLimitAfter) {
+    const limited =
+      (options.rateLimitAfter !== undefined && requested.length > options.rateLimitAfter) ||
+      (options.rateLimitBeef && url.endsWith('/beef') && requested.filter(u => u.endsWith('/beef')).length > 1)
+    if (limited) {
       return { ok: false, status: 429, json: async () => ({}), text: async () => '' } as unknown as Response
     }
     const ok = (body: unknown, text?: string) =>
       ({ ok: true, status: 200, json: async () => body, text: async () => text ?? '' }) as unknown as Response
     let m = /\/address\/([^/]+)\/history$/.exec(url)
-    if (m) return ok(chain.history.has(m[1]) ? [{ tx_hash: 'aa', height: 1 }] : [])
+    if (m && options.historyGone) return notFound('404 page not found\n')
+    if (m) return chain.history.has(m[1]) ? ok([{ tx_hash: 'aa', height: 1 }]) : notFound('Not Found')
     m = /\/address\/([^/]+)\/unspent\/all$/.exec(url)
     if (m) {
       const rows = (chain.unspent.get(m[1]) ?? []).map(r => ({ ...r, isSpentInMempoolTx: false }))
@@ -120,7 +135,7 @@ function serve(chain: Chain, options: { rateLimitAfter?: number } = {}) {
     }
     m = /\/tx\/([0-9a-f]+)\/beef$/.exec(url)
     if (m && chain.beef.has(m[1])) return ok(undefined, chain.beef.get(m[1]))
-    return { ok: false, status: 404, json: async () => ({}), text: async () => 'not found' } as unknown as Response
+    return notFound('Not Found')
   }) as unknown as typeof fetch
 }
 
@@ -352,6 +367,43 @@ describe('sweepWif', () => {
     expect(requested.filter(u => u.endsWith('/beef'))).toHaveLength(1)
   })
 
+  it('stops at a WhatsOnChain rate limit and keeps the batches already done', async () => {
+    const chain = fakeChain()
+    fund(chain, KEY1.mainComp.address, [1000, 1001])
+    fund(chain, KEY1.mainComp.address, [1002, 1003])
+    fund(chain, KEY1.mainComp.address, [1004, 1005])
+    serve(chain, { rateLimitBeef: true })
+    const { wallet, calls } = fakeWallet()
+    const result = await sweepWif({
+      wallet,
+      adminOriginator: 'admin',
+      woc: main,
+      wif: KEY1.mainComp.wif,
+      maxInputsPerTx: 2,
+      ...FAST
+    })
+    expect(result.stoppedBy).toBe('rate-limit')
+    expect(result.txids).toHaveLength(1)
+    expect(result.batches).toHaveLength(2)
+    expect(result.batches[1].error).toMatch(/rate limit/)
+    expect(calls.create).toHaveLength(1)
+  })
+
+  it('fails the batch when the wallet reports a failed broadcast', async () => {
+    const chain = fakeChain()
+    fund(chain, KEY1.mainComp.address, [5000])
+    serve(chain)
+    const { wallet } = fakeWallet()
+    const sign = wallet.signAction.bind(wallet)
+    wallet.signAction = async args => ({
+      ...(await sign(args)),
+      sendWithResults: [{ txid: 'ab'.repeat(32), status: 'failed' }]
+    })
+    const result = await sweepWif({ wallet, adminOriginator: 'admin', woc: main, wif: KEY1.mainComp.wif, ...FAST })
+    expect(result.txids).toHaveLength(0)
+    expect(result.batches[0].error).toMatch(/broadcast failed \(failed\)/)
+  })
+
   it('aborts when the wallet adds an input of its own', async () => {
     const chain = fakeChain()
     fund(chain, KEY1.mainComp.address, [5000])
@@ -480,6 +532,12 @@ describe('scanMnemonic', () => {
     await expect(scanMnemonic({ mnemonic: ABANDON, woc: main, gapLimit: 5, ...FAST })).rejects.toBeInstanceOf(
       WocRateLimited
     )
+  })
+
+  it('throws, rather than reporting nothing found, when the history route is gone', async () => {
+    serve(fakeChain(), { historyGone: true })
+    await expect(scanMnemonic({ mnemonic: ABANDON, woc: main, gapLimit: 1, ...FAST })).rejects.toThrow(/not available/)
+    await expect(decideMnemonicImport({ mnemonic: ABANDON, chain: 'main', woc: main, ...FAST })).rejects.toThrow()
   })
 
   it('refuses an invalid phrase', async () => {

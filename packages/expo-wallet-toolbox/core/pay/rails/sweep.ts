@@ -52,9 +52,9 @@ import {
   type AbortActionArgs
 } from '@bsv/sdk'
 import type { BackupChain } from '../../backup/constants'
-import { deriveProfileKeys, hdFromMnemonic } from '../../mnemonicWallet'
+import { deriveProfileKeys } from '../../mnemonicWallet'
 import type { ProfileProbe } from '../../profiles/discovery'
-import { getUtxosForAddress, parseWocBeefBody, wocFetch, type Utxo, type WocConfig } from './address'
+import { getUtxosForAddress, parseWocBeefBody, wocFetch, WocRateLimited, type Utxo, type WocConfig } from './address'
 
 type Network = 'mainnet' | 'testnet'
 
@@ -202,9 +202,25 @@ function pacer(minIntervalMs: number): () => Promise<void> {
   }
 }
 
+/**
+ * Whether an address has any on-chain history: the gap rule's "used".
+ *
+ * WhatsOnChain answers an address with no history with HTTP 404 and the body
+ * `Not Found` (checked live, Nov 2026); an unknown route answers 404 with
+ * `404 page not found`. Only the first means "unused". Any other failure
+ * throws: a scan that cannot read the chain must not report "nothing found",
+ * because decideMnemonicImport then restores the phrase as this wallet's root
+ * and the coins of the old wallet are never looked for again.
+ *
+ * (`/address/{a}/used` is not an alternative: it answered `true` for a fresh
+ * address in the same check.)
+ */
 async function addressHasHistory(woc: WocConfig, address: string): Promise<boolean> {
   const response = await wocFetch(woc, `${woc.apiBase}/v1/bsv/${woc.segment}/address/${address}/history`)
-  if (response.status === 404) return false
+  if (response.status === 404) {
+    if ((await response.text()).trim() === 'Not Found') return false
+    throw new Error('WhatsOnChain history lookup is not available (404)')
+  }
   if (!response.ok) throw new Error(`WhatsOnChain history lookup failed (${response.status})`)
   const body = await response.json()
   if (Array.isArray(body)) return body.length > 0
@@ -359,6 +375,12 @@ export interface SweepResult {
   batches: SweepBatchResult[]
   /** The plan's skipped outputs, plus any the execute step skipped on the real transaction. */
   skipped: SkippedOutput[]
+  /**
+   * Set when WhatsOnChain rate-limited the sweep: the batches after the
+   * limited one were not tried. Their coins are still on the external key, so
+   * a new plan and sweep later picks them up.
+   */
+  stoppedBy?: 'rate-limit'
 }
 
 interface ExecuteArgs {
@@ -601,10 +623,8 @@ export async function decideMnemonicImport(
   }
 ): Promise<MnemonicImportDecision> {
   if (args.probe) {
-    const primaryKey = deriveProfileKeys(
-      hdFromMnemonic(normalizeMnemonic(args.mnemonic), args.passphrase ?? ''),
-      0
-    ).primaryKey
+    // Profile 0 of the phrase, derived exactly as the wallet derives it (deriveProfileKeys).
+    const primaryKey = withSeed(args.mnemonic, args.passphrase ?? '', root => deriveProfileKeys(root, 0).primaryKey)
     try {
       if (await args.probe(primaryKey, args.chain)) return { kind: 'restore' }
     } finally {
@@ -637,6 +657,7 @@ async function executeSweep(
   const skipped: SkippedOutput[] = [...plan.skipped]
   const batches: SweepBatchResult[] = []
   const spent: SweepInput[] = []
+  let stoppedBy: SweepResult['stoppedBy']
 
   // Keys are resolved before any network call, so a plan that does not belong
   // to the key fails before anything is fetched or built.
@@ -725,6 +746,10 @@ async function executeSweep(
         adminOriginator
       )
       reference = undefined
+      // With acceptDelayedBroadcast false the wallet throws WERR_REVIEW_ACTIONS on a
+      // failed broadcast (toolbox-mobile 2.15.1); this check covers a wallet that reports instead.
+      const failed = signed.sendWithResults?.find(r => r.status !== 'unproven' && r.status !== 'sending')
+      if (failed) throw new Error(`The sweep broadcast failed (${failed.status})`)
       if (!signed.txid) throw new Error('The wallet did not broadcast the sweep')
       Object.assign(batch, {
         txid: signed.txid,
@@ -744,11 +769,17 @@ async function executeSweep(
           // The wallet expires an unsigned action on its own; the error above is what matters.
         }
       }
+      // The next batch would be refused the same way and only deepen the limit.
+      if (error instanceof WocRateLimited) {
+        stoppedBy = 'rate-limit'
+        break
+      }
     }
   }
 
   const done = batches.filter(b => b.txid)
   return {
+    ...(stoppedBy ? { stoppedBy } : {}),
     txids: done.map(b => b.txid!),
     importedSatoshis: done.reduce((n, b) => n + b.importedSatoshis, 0),
     utxoCount: done.reduce((n, b) => n + b.inputCount, 0),
