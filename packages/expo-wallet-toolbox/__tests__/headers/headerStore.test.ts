@@ -125,7 +125,6 @@ describe('HeaderStore', () => {
     // predecessor's HASH, not its height — so these are two genuinely different
     // windows over the same bytes, which is all this needs.
     const MOVED = { height: 1, hash: parseHeader(bytes().subarray(0, 80)).hash }
-    const ROOT_1 = '2e650ee9705b54c8d94ea92fd03469afb77dbab072529b7f3496f8f9d1a724f8'
     const ROOT_2 = '6817de212e62baeeafc40dc91bddc468188ece17628dea8a96eb83c2c11c8ffc'
 
     it('deletes the stored headers rather than leaving them on disk', async () => {
@@ -159,12 +158,12 @@ describe('HeaderStore', () => {
       expect(reopened.rootForHeight(3)).toBeUndefined()
     })
 
-    it('keeps the extra roots, which are anchor-independent facts', async () => {
+    it('does not promote unbound extra roots across an anchor change', async () => {
       const fs = memoryHeaderFs()
       const first = await HeaderStore.open(fs, 'ttn', TTN_ANCHOR)
       await first.putExtraRoot(7, 'aa'.repeat(32))
       const moved = await HeaderStore.open(fs, 'ttn', MOVED)
-      expect(moved.rootForHeight(7)).toBe('aa'.repeat(32))
+      expect(moved.rootForHeight(7)).toBeUndefined()
     })
   })
 
@@ -215,13 +214,13 @@ describe('HeaderStore', () => {
     expect(store.tipHeight).toBe(2)
   })
 
-  it('serves and persists extra roots below the window', async () => {
+  it('refuses raw extra roots without a chain-membership proof', async () => {
     const fs = memoryHeaderFs()
     const store = await HeaderStore.open(fs, 'ttn', TTN_ANCHOR)
     await store.putExtraRoot(7, 'aa'.repeat(32))
-    expect(store.rootForHeight(7)).toBe('aa'.repeat(32))
+    expect(store.rootForHeight(7)).toBeUndefined()
     const reopened = await HeaderStore.open(fs, 'ttn', TTN_ANCHOR)
-    expect(reopened.rootForHeight(7)).toBe('aa'.repeat(32))
+    expect(reopened.rootForHeight(7)).toBeUndefined()
   })
 
   it('skips putExtraRoot for a height in the last 6 of the stored chain', async () => {
@@ -232,19 +231,14 @@ describe('HeaderStore', () => {
     expect(store.rootForHeight(2)).toBe(windowRoot)
   })
 
-  it('prefers an extra root over the window for an in-window height', async () => {
+  it('keeps the consensus-validated window authoritative over extra-root hints', async () => {
     const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', TTN_ANCHOR)
     await store.putExtraRoot(1, 'aa'.repeat(32))
     await store.append(bytes(), 1)
-    expect(store.rootForHeight(1)).toBe('aa'.repeat(32))
+    expect(store.rootForHeight(1)).toBe('2e650ee9705b54c8d94ea92fd03469afb77dbab072529b7f3496f8f9d1a724f8')
   })
 
-  // misc-p2-02 hardening: the window's own PoW-linked root is authoritative for
-  // every height in its validated BODY ([baseHeight, tipHeight-6]) — an extra
-  // entry there must never win, because that is exactly how an unauthenticated
-  // remote answer could overwrite headers this device already validated
-  // itself. Only the last 6 heights (which can legitimately reorg) still let
-  // `extra` override the window, unchanged from before.
+  // Raw root hints cannot override any consensus-validated window position.
   describe('window body vs. the last-6 reorg tail (misc-p2-02)', () => {
     const HEADERS = branch(10, 'a')
     const rootFor = (height: number) => parseHeader(HEADERS[height - 1]).merkleRoot
@@ -264,7 +258,7 @@ describe('HeaderStore', () => {
       expect(store.rootForHeight(2)).toBe(rootFor(2))
     })
 
-    it('still lets an extra entry override the last 6 heights (existing reorg-tail behaviour)', async () => {
+    it('quarantines legacy extra-root entries even inside the reorg tail', async () => {
       const fs = memoryHeaderFs()
       // putExtraRoot refuses to WRITE a tail entry once the window covers it, so
       // this simulates one that was healed while the height was still below/
@@ -273,7 +267,7 @@ describe('HeaderStore', () => {
       // with a 2-header window where every height is in the tail.
       await fs.writeText('regtest-extra.json', JSON.stringify({ '8': 'ff'.repeat(32) }))
       const store = await seedWindow(fs)
-      expect(store.rootForHeight(8)).toBe('ff'.repeat(32))
+      expect(store.rootForHeight(8)).toBe(rootFor(8))
     })
 
     it('falls back to the window root for a tail height with no extra entry', async () => {
@@ -284,28 +278,28 @@ describe('HeaderStore', () => {
   })
 
   describe('putExtraRoots (batch)', () => {
-    it('persists every entry across a reopen', async () => {
+    it('does not persist unauthenticated entries across a reopen', async () => {
       const fs = memoryHeaderFs()
       const store = await HeaderStore.open(fs, 'ttn', TTN_ANCHOR)
       await store.putExtraRoots([
         { height: 7, root: 'aa'.repeat(32) },
         { height: 9, root: 'bb'.repeat(32) }
       ])
-      expect(store.rootForHeight(7)).toBe('aa'.repeat(32))
-      expect(store.rootForHeight(9)).toBe('bb'.repeat(32))
+      expect(store.rootForHeight(7)).toBeUndefined()
+      expect(store.rootForHeight(9)).toBeUndefined()
       const reopened = await HeaderStore.open(fs, 'ttn', TTN_ANCHOR)
-      expect(reopened.rootForHeight(7)).toBe('aa'.repeat(32))
-      expect(reopened.rootForHeight(9)).toBe('bb'.repeat(32))
+      expect(reopened.rootForHeight(7)).toBeUndefined()
+      expect(reopened.rootForHeight(9)).toBeUndefined()
     })
 
-    it('returns the count of newly-added entries', async () => {
+    it('returns zero when rows carry no membership proof', async () => {
       const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', TTN_ANCHOR)
       const added = await store.putExtraRoots([
         { height: 7, root: 'aa'.repeat(32) },
         { height: 9, root: 'bb'.repeat(32) },
         { height: 11, root: 'cc'.repeat(32) }
       ])
-      expect(added).toBe(3)
+      expect(added).toBe(0)
     })
 
     it('skips entries already present with the same root', async () => {
@@ -316,8 +310,8 @@ describe('HeaderStore', () => {
         { height: 7, root: 'aa'.repeat(32) }, // already present, same value
         { height: 8, root: 'cc'.repeat(32) } // new
       ])
-      expect(added).toBe(1)
-      expect(store.rootForHeight(8)).toBe('cc'.repeat(32))
+      expect(added).toBe(0)
+      expect(store.rootForHeight(8)).toBeUndefined()
     })
 
     it('does not double-count an exact duplicate height+root within one batch', async () => {
@@ -326,11 +320,11 @@ describe('HeaderStore', () => {
         { height: 7, root: 'aa'.repeat(32) },
         { height: 7, root: 'aa'.repeat(32) } // same height, same root, repeated
       ])
-      expect(added).toBe(1)
-      expect(store.rootForHeight(7)).toBe('aa'.repeat(32))
+      expect(added).toBe(0)
+      expect(store.rootForHeight(7)).toBeUndefined()
     })
 
-    it('writes the extra-roots file exactly once, not once per entry', async () => {
+    it('never writes raw extra-root authority to disk', async () => {
       const base = memoryHeaderFs()
       let writeCount = 0
       const countingFs = {
@@ -349,8 +343,8 @@ describe('HeaderStore', () => {
         { height: 10, root: 'dd'.repeat(32) },
         { height: 11, root: 'ee'.repeat(32) }
       ])
-      expect(added).toBe(5)
-      expect(writeCount).toBe(1)
+      expect(added).toBe(0)
+      expect(writeCount).toBe(0)
     })
   })
 })

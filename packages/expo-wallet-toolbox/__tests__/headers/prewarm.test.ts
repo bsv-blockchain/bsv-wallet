@@ -5,7 +5,7 @@ import { memoryHeaderFs } from '../../core/headers/fs'
 const ANCHOR = { height: 100, hash: '00'.repeat(32) }
 
 describe('prewarmOwnRoots', () => {
-  it('copies proven roots into the store', async () => {
+  it('does not authenticate unanchored proven-tx roots', async () => {
     const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', ANCHOR)
     const added = await prewarmOwnRoots({
       rows: [
@@ -14,9 +14,9 @@ describe('prewarmOwnRoots', () => {
       ],
       store
     })
-    expect(added).toBe(2)
-    expect(store.rootForHeight(7)).toBe('aa'.repeat(32))
-    expect(store.rootForHeight(9)).toBe('bb'.repeat(32))
+    expect(added).toBe(0)
+    expect(store.rootForHeight(7)).toBeUndefined()
+    expect(store.rootForHeight(9)).toBeUndefined()
   })
 
   it('skips rows already covered and malformed rows', async () => {
@@ -30,11 +30,11 @@ describe('prewarmOwnRoots', () => {
       ],
       store
     })
-    expect(added).toBe(1)
-    expect(store.rootForHeight(8)).toBe('cc'.repeat(32))
+    expect(added).toBe(0)
+    expect(store.rootForHeight(8)).toBeUndefined()
   })
 
-  it('keeps the first row when the same height appears twice in one batch', async () => {
+  it('does not authenticate either root when a height appears twice', async () => {
     const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', ANCHOR)
     const added = await prewarmOwnRoots({
       rows: [
@@ -43,7 +43,7 @@ describe('prewarmOwnRoots', () => {
       ],
       store
     })
-    expect(added).toBe(1)
-    expect(store.rootForHeight(7)).toBe('aa'.repeat(32))
+    expect(added).toBe(0)
+    expect(store.rootForHeight(7)).toBeUndefined()
   })
 })

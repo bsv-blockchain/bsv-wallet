@@ -42,6 +42,10 @@ export async function syncHeaders(args: {
   onProgress?: (tipHeight: number, presentHeight: number) => void
   shouldStop?: () => boolean
 }): Promise<SyncHeadersResult> {
+  return args.store.withUpdateLock(() => syncHeadersUnlocked(args))
+}
+
+async function syncHeadersUnlocked(args: Parameters<typeof syncHeaders>[0]): Promise<SyncHeadersResult> {
   const { store, client, chunkSize = 2000, onProgress, shouldStop } = args
   if (!Number.isSafeInteger(chunkSize) || chunkSize < 1 || chunkSize > 100000)
     throw new Error('Invalid header chunk size')
