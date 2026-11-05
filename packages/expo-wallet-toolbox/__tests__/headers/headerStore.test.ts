@@ -1,6 +1,9 @@
 import { HeaderStore } from '../../core/headers/headerStore'
 import { memoryHeaderFs } from '../../core/headers/fs'
 import { Utils } from '@bsv/sdk'
+import { utils } from '@bsv/wallet-toolbox-mobile'
+import { parseHeader } from '../../core/headers/headerConsensus'
+import { anchor as REGTEST_ANCHOR, branch, combine } from './fixtures/regtest'
 
 // Two real consecutive ttn headers, heights 1 and 2, from
 // GET /getHeaders?height=1&count=2 on the ttn chaintracks deployment. Verified:
@@ -15,6 +18,30 @@ const TTN_1_AND_2 = '000000206d77b7767981eac2b2044a1a1c19b9741c2347375b8fa8a0bbe
 const bytes = () => new Uint8Array(Utils.toArray(TTN_1_AND_2, 'hex'))
 
 describe('HeaderStore', () => {
+  it('requires authenticated bootstrap before indexing a non-genesis window', async () => {
+    const items = branch(2, 'c')
+    const anchor = { height: 1, hash: parseHeader(items[0]).hash }
+    const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', anchor)
+    await expect(store.append(items[1], 2)).rejects.toThrow(/bootstrap/)
+    await expect(store.replaceBranch(2, items[1])).rejects.toThrow(/context unavailable/)
+    expect(store.count).toBe(0)
+  })
+
+  it('discards persisted extensions when their authenticated bootstrap has disappeared', async () => {
+    const fs = memoryHeaderFs()
+    const items = branch(2, 'c')
+    const anchor = { height: 1, hash: parseHeader(items[0]).hash }
+    const store = await HeaderStore.open(fs, 'regtest', anchor)
+    await store.initializeContext(new Uint8Array([...utils.genesisBuffer('regtest'), ...items[0]]))
+    await store.append(items[1], 2)
+    await expect(store.initializeContext(new Uint8Array())).rejects.toThrow(/Cannot replace live/)
+    await fs.deleteFile('regtest-context.bin')
+    const reopened = await HeaderStore.open(fs, 'regtest', anchor)
+    expect(reopened.needsContext).toBe(true)
+    expect(reopened.count).toBe(0)
+    expect(reopened.rootForHeight(2)).toBeUndefined()
+  })
+
   it('starts empty at the anchor', async () => {
     const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', TTN_ANCHOR)
     expect(store.count).toBe(0)
@@ -36,8 +63,8 @@ describe('HeaderStore', () => {
   })
 
   it('refuses a chunk that does not link to the current tip', async () => {
-    const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', { height: 0, hash: 'ff'.repeat(32) })
-    await expect(store.append(bytes(), 1)).rejects.toThrow(/previous hash/i)
+    const store = await HeaderStore.open(memoryHeaderFs(), 'ttn', TTN_ANCHOR)
+    await expect(store.append(bytes().subarray(80), 1)).rejects.toThrow(/previous hash/i)
     expect(store.count).toBe(0)
   })
 
@@ -97,7 +124,7 @@ describe('HeaderStore', () => {
     // fixture still validates under the moved anchor because a header names its
     // predecessor's HASH, not its height — so these are two genuinely different
     // windows over the same bytes, which is all this needs.
-    const MOVED = { height: 100, hash: TTN_ANCHOR.hash }
+    const MOVED = { height: 1, hash: parseHeader(bytes().subarray(0, 80)).hash }
     const ROOT_1 = '2e650ee9705b54c8d94ea92fd03469afb77dbab072529b7f3496f8f9d1a724f8'
     const ROOT_2 = '6817de212e62baeeafc40dc91bddc468188ece17628dea8a96eb83c2c11c8ffc'
 
@@ -121,14 +148,15 @@ describe('HeaderStore', () => {
 
       const moved = await HeaderStore.open(fs, 'ttn', MOVED)
       expect(moved.count).toBe(0)
-      expect(await moved.append(bytes(), 101)).toBe(2)
+      await moved.initializeContext(new Uint8Array([...utils.genesisBuffer('ttn'), ...bytes().subarray(0, 80)]))
+      expect(await moved.append(bytes().subarray(80), 2)).toBe(1)
 
       const reopened = await HeaderStore.open(fs, 'ttn', MOVED)
-      expect(reopened.count).toBe(2)
-      expect(reopened.rootForHeight(101)).toBe(ROOT_1)
+      expect(reopened.count).toBe(1)
+      expect(reopened.rootForHeight(2)).toBe(ROOT_2)
       // The one a stale leading header corrupts: index 1 would land on the old
       // anchor's only header instead of the new window's second.
-      expect(reopened.rootForHeight(102)).toBe(ROOT_2)
+      expect(reopened.rootForHeight(3)).toBeUndefined()
     })
 
     it('keeps the extra roots, which are anchor-independent facts', async () => {
@@ -218,36 +246,12 @@ describe('HeaderStore', () => {
   // itself. Only the last 6 heights (which can legitimately reorg) still let
   // `extra` override the window, unchanged from before.
   describe('window body vs. the last-6 reorg tail (misc-p2-02)', () => {
-    const ANCHOR = { height: 0, hash: 'aa'.repeat(32) }
-    // Ten distinct, deterministic 32-byte roots for heights 1..10. Written
-    // straight to the fake filesystem rather than mined: HeaderStore.append's
-    // proof-of-work check is exactly what would make a 10-header fixture
-    // impractical to construct for a unit test, and `open()` never re-validates
-    // headers it reads back off disk — it trusts its own prior `append`.
-    const rootFor = (height: number) => height.toString(16).padStart(2, '0').repeat(32)
-    const ROOTS = Array.from({ length: 10 }, (_, i) => rootFor(i + 1))
-
-    const HEADER_BYTES = 80
+    const HEADERS = branch(10, 'a')
+    const rootFor = (height: number) => parseHeader(HEADERS[height - 1]).merkleRoot
     async function seedWindow(fs: ReturnType<typeof memoryHeaderFs>) {
-      const bin = new Uint8Array(ROOTS.length * HEADER_BYTES)
-      ROOTS.forEach((root, i) => {
-        // Roots are indexed in display order; the .bin stores them on-wire
-        // (reversed), matching what HeaderStore.open() reverses back on load.
-        const wire = new Uint8Array(Utils.toArray(root, 'hex')).slice().reverse()
-        bin.set(wire, i * HEADER_BYTES + 36)
-      })
-      await fs.writeBytes('ttn.bin', bin)
-      await fs.writeText(
-        'ttn.json',
-        JSON.stringify({
-          chain: 'ttn',
-          anchorHeight: ANCHOR.height,
-          anchorHash: ANCHOR.hash,
-          count: ROOTS.length,
-          tipHash: 'ff'.repeat(32)
-        })
-      )
-      return HeaderStore.open(fs, 'ttn', ANCHOR)
+      const store = await HeaderStore.open(fs, 'regtest', REGTEST_ANCHOR)
+      await store.append(combine(HEADERS), 1)
+      return store
     }
 
     // baseHeight=1, tipHeight=10, tipHeight-6=4: body is [1,4], tail is [5,10].
@@ -267,7 +271,7 @@ describe('HeaderStore', () => {
       // outside the window and then got caught up into the tail — the same
       // scenario the pre-existing "prefers an extra root..." test above covers
       // with a 2-header window where every height is in the tail.
-      await fs.writeText('ttn-extra.json', JSON.stringify({ '8': 'ff'.repeat(32) }))
+      await fs.writeText('regtest-extra.json', JSON.stringify({ '8': 'ff'.repeat(32) }))
       const store = await seedWindow(fs)
       expect(store.rootForHeight(8)).toBe('ff'.repeat(32))
     })
