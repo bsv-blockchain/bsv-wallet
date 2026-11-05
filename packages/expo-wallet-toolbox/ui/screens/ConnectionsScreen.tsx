@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView } from 'react-native'
 import { observer } from 'mobx-react-lite'
 import { WalletClient } from '@bsv/sdk'
-import * as SecureStore from 'expo-secure-store'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 import { GroupedSection } from '../components/ui/GroupedList'
@@ -28,6 +27,7 @@ import {
 import { validateStoredConnectionAuthorityTag } from '../../core/services/walletConnectionValidation'
 import { computeConnectionAuthorityTag, verifyConnectionAuthorityTag } from '../../core/services/connectionAuthority'
 import { revokeConnection } from '../../core/services/revokeConnection'
+import { usePairingAttempt } from '../../core/context/usePairingAttempt'
 
 /**
  * expo-clipboard ships an untransformed ESM build (its Clipboard.js imports
@@ -156,6 +156,7 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
   const { t } = useTranslation()
   const { managers } = useWallet()
   const { connect, reconnect, disconnect, sessionMeta } = useWalletConnection()
+  const pairingAttempt = usePairingAttempt()
   const insets = useSafeAreaInsets()
   const [scanning, setScanning] = useState(false)
   const { router } = loadExpoRouter()
@@ -180,6 +181,7 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
       showToast(`${t('wallet_not_ready')}: ${t('please_log_in_first')}`, { type: 'error' })
       return
     }
+    const isCurrent = pairingAttempt.begin(result.params.topic)
     try {
       const external = parseExternalOrigin(result.params.origin)
       const wallet = new WalletClient(
@@ -200,13 +202,16 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
           protocolID: result.params.protocolID,
           backendIdentityKey: result.params.backendIdentityKey
         })
+        if (!isCurrent()) return
         connectionStore.stageAuthorityTag(result.params.topic, tag)
       } catch (err) {
+        if (!isCurrent()) return
         console.warn('[connections] failed to compute connection authority tag', err)
         connectionStore.discardStagedAuthorityTag(result.params.topic)
       }
       await connect({ ...result.params, origin: external.origin }, wallet)
     } catch (err) {
+      if (!isCurrent()) return
       showToast(`${t('connection_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, {
         type: 'error'
       })
@@ -230,6 +235,7 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
 
   async function handleReconnect(conn: Connection) {
     if (!managers.permissionsManager) return
+    const isCurrent = pairingAttempt.begin(conn.sessionId)
     let external: ReturnType<typeof parseExternalOrigin>
     try {
       external = parseExternalOrigin(conn.origin)
@@ -268,6 +274,7 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
       },
       storedTag
     )
+    if (!isCurrent()) return
     if (!authentic) {
       showToast(t('reconnect_needs_reapproval'), { type: 'error' })
       return
@@ -284,7 +291,7 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
         { text: t('cancel'), key: 'cancel', style: 'cancel' }
       ]
     })
-    if (choice !== 'reconnect') return
+    if (choice !== 'reconnect' || !isCurrent()) return
     try {
       const wallet = new WalletClient(
         capWalletArgs(guardVaultAccess(managers.permissionsManager as any, ADMIN_ORIGINATOR)),
@@ -293,6 +300,7 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
       conn = { ...conn, origin: external.origin }
       await reconnect(conn, wallet)
     } catch (err) {
+      if (!isCurrent()) return
       showToast(`${t('reconnect_failed')}: ${err instanceof Error ? err.message : t('unknown_error')}`, {
         type: 'error'
       })
@@ -367,7 +375,6 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
                         </TouchableOpacity>
                         <TouchableOpacity
                           onPress={() => {
-                            void SecureStore.deleteItemAsync(lastSeqKey(item.sessionId))
                             connectionStore.remove(item.sessionId)
                           }}
                           style={[styles.trailingAction, { marginLeft: spacing.md }]}
@@ -396,7 +403,9 @@ export const ConnectionsScreen = observer(function ConnectionsScreen() {
         <TouchableOpacity
           style={[styles.pasteBtn, { borderColor: colors.separator }]}
           onPress={async () => {
+            const isCurrent = pairingAttempt.begin()
             const text = await loadExpoClipboard().getStringAsync()
+            if (!isCurrent()) return
             if (text) handleScan(text.trim())
           }}
         >

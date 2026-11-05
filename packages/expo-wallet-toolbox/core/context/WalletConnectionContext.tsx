@@ -323,8 +323,9 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     return () => {
       unregister()
       if (activeDisconnect === disconnect) activeDisconnect = null
+      closeAndDetachSocket(wsRef.current)
     }
-  }, [disconnect])
+  }, [disconnect, closeAndDetachSocket])
 
   // ── Nav timer (pair screen lifecycle) ─────────────────────────────────────
 
@@ -417,13 +418,9 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     wallet: WalletClient,
     meta: SessionMeta,
     initialSeq: number,
-    // XR-018: this socket's own identity for the generation check below —
-    // the caller (connect()/reconnect()) allocates it right after
-    // supersedeExistingSocket() and before opening `ws`, and reuses the same
-    // value to guard its own onopen handler, so a stale in-flight onopen
-    // from a socket superseded in the meantime is guarded exactly like
-    // onmessage/onerror/onclose below.
-    myGeneration: number,
+    // Captured at attempt start, before any asynchronous work. Includes both
+    // the provider generation and this topic's explicit revocation version.
+    isCurrent: () => boolean,
     onFirstMessage: () => void
   ) {
     wsRef.current = ws
@@ -448,7 +445,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
       // the relay delivering this event and this handler running — closing
       // a socket cannot cancel an event already queued for it. Drop it
       // before touching any in-flight counters.
-      if (connectionGenerationRef.current !== myGeneration) return
+      if (!isCurrent()) return
       if (inFlightRpc >= MAX_IN_FLIGHT_RPC) {
         console.warn('[WalletConnection] dropping message: too many requests in flight')
         return
@@ -533,7 +530,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         // this socket while this invocation was still awaiting them —
         // detaching handlers at that point cannot cancel this already-
         // running invocation, so the dispatch itself must also check.
-        if (connectionGenerationRef.current !== myGeneration) {
+        if (!isCurrent()) {
           console.warn('[WalletConnection] dropping message: connection superseded before dispatch')
           return
         }
@@ -562,7 +559,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
     }
 
     ws.onerror = () => {
-      if (connectionGenerationRef.current !== myGeneration) return
+      if (!isCurrent()) return
       setErrorMsg('WebSocket connection failed')
       setStatus('error')
     }
@@ -574,7 +571,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
       // before calling close() for every controlled teardown path, so this
       // is defense in depth for anything that still holds a reference to
       // this closure directly.
-      if (connectionGenerationRef.current !== myGeneration) return
+      if (!isCurrent()) return
       const wasIntentional = intentionalCloseRef.current
       intentionalCloseRef.current = false
 
@@ -618,6 +615,13 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
 
   const connect = useCallback(
     async (params: ConnectParams, wallet: WalletClient) => {
+      // Allocate authority before waits so teardown can revoke this attempt.
+      supersedeExistingSocket()
+      const myGeneration = ++connectionGenerationRef.current
+      const revocation = connectionStore.revocationVersion(params.topic)
+      const isCurrent = () =>
+        connectionGenerationRef.current === myGeneration &&
+        connectionStore.revocationVersion(params.topic) === revocation
       setStatus('connecting')
       setErrorMsg(null)
 
@@ -630,15 +634,19 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         validated = validateConnectParams(params)
         // Verify QR signature before trusting the origin or opening any connection
         await verifyQrSignature(validated.params)
+        if (!isCurrent()) return
 
         // Fetch relay URL from origin over HTTPS — TLS cert is the trust anchor
         relay = await fetchRelay(validated.external.origin, validated.params.topic)
+        if (!isCurrent()) return
         // Re-approval does not rotate the topic's encryption key. Previously
         // accepted ciphertexts must remain consumed when this QR is scanned again.
         initialSeq = validateStoredConnectionSequence(
           await SecureStore.getItemAsync(lastSeqKey(validated.params.topic))
         )
+        if (!isCurrent()) return
       } catch (err) {
+        if (!isCurrent()) return
         setErrorMsg(err instanceof Error ? err.message : 'Connection failed')
         setStatus('error')
         throw err
@@ -646,6 +654,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
 
       const protocolID = validated.protocolID
       const identityResult = await wallet.getPublicKey({ identityKey: true })
+      if (!isCurrent()) return
       const mobileIdentityKey = validateBackendIdentityKey(identityResult.publicKey)
 
       // The current socket can accept requests while the stored floor and
@@ -654,13 +663,6 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
       if (sessionMetaRef.current?.topic === validated.params.topic) {
         initialSeq = Math.max(initialSeq, lastSeqRef.current)
       }
-
-      // XR-018: tear down any live socket for a DIFFERENT prior session before
-      // wiring this one — see supersedeExistingSocket for why. myGeneration is
-      // allocated right after, so this connection's onopen AND wireSocket's
-      // handlers all guard against the same supersede event.
-      supersedeExistingSocket()
-      const myGeneration = ++connectionGenerationRef.current
 
       const meta: SessionMeta = {
         topic: validated.params.topic,
@@ -679,7 +681,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
         // a later connect()/reconnect()/disconnect() while relay/verify above
         // were in flight — a stale send here must not touch the new session's
         // state, and must not fire on an already-detached socket.
-        if (connectionGenerationRef.current !== myGeneration) return
+        if (!isCurrent()) return
         try {
           const payload = JSON.stringify({
             id: crypto.randomUUID(),
@@ -699,18 +701,18 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
             validated.params.backendIdentityKey,
             payload
           )
-          if (connectionGenerationRef.current !== myGeneration) return
+          if (!isCurrent()) return
           ws.send(
             JSON.stringify({ topic: validated.params.topic, mobileIdentityKey, ciphertext } satisfies WireEnvelope)
           )
         } catch {
-          if (connectionGenerationRef.current !== myGeneration) return
+          if (!isCurrent()) return
           setErrorMsg('Failed to send pairing message')
           setStatus('error')
         }
       }
 
-      wireSocket(ws, wallet, meta, initialSeq, myGeneration, () => {
+      wireSocket(ws, wallet, meta, initialSeq, isCurrent, () => {
         connectionStore.add({
           sessionId: validated.params.topic,
           origin: validated.external.origin,
@@ -731,29 +733,32 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
 
   const reconnect = useCallback(
     async (connection: Connection, wallet: WalletClient) => {
+      // Allocate authority before waits so teardown can revoke this attempt.
+      supersedeExistingSocket()
+      const myGeneration = ++connectionGenerationRef.current
+      const revocation = connectionStore.revocationVersion(connection.sessionId)
+      const isCurrent = () =>
+        connectionGenerationRef.current === myGeneration &&
+        connectionStore.revocationVersion(connection.sessionId) === revocation
       setStatus('connecting')
       setErrorMsg(null)
 
       // Stored connection data is untrusted after import or database tampering.
       const validated = validateStoredConnectionFields(connection)
       const identityResult = await wallet.getPublicKey({ identityKey: true })
+      if (!isCurrent()) return
       const currentMobileIdentityKey = validateBackendIdentityKey(identityResult.publicKey)
       if (currentMobileIdentityKey !== validated.mobileIdentityKey) {
         throw new Error('Stored connection belongs to a different wallet identity')
       }
       // Fetch relay URL from origin over HTTPS — relay may have moved since last connection
       const relay = await fetchRelay(validated.external.origin, validated.topic)
+      if (!isCurrent()) return
 
       const protocolID = validated.protocolID
       const storedSeq = await SecureStore.getItemAsync(lastSeqKey(validated.topic))
+      if (!isCurrent()) return
       const initialSeq = validateStoredConnectionSequence(storedSeq)
-
-      // XR-018: tear down any live socket for a DIFFERENT prior session before
-      // wiring this one — see supersedeExistingSocket for why. myGeneration is
-      // allocated right after, so this connection's onopen AND wireSocket's
-      // handlers all guard against the same supersede event.
-      supersedeExistingSocket()
-      const myGeneration = ++connectionGenerationRef.current
 
       const meta: SessionMeta = {
         topic: validated.topic,
@@ -769,7 +774,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
 
       ws.onopen = async () => {
         // XR-018: see the identical guard in connect()'s onopen.
-        if (connectionGenerationRef.current !== myGeneration) return
+        if (!isCurrent()) return
         try {
           const payload = JSON.stringify({
             id: crypto.randomUUID(),
@@ -789,7 +794,7 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
             validated.backendIdentityKey,
             payload
           )
-          if (connectionGenerationRef.current !== myGeneration) return
+          if (!isCurrent()) return
           ws.send(
             JSON.stringify({
               topic: validated.topic,
@@ -798,13 +803,13 @@ export function WalletConnectionProvider({ children, walletName = 'App' }: Walle
             } satisfies WireEnvelope)
           )
         } catch {
-          if (connectionGenerationRef.current !== myGeneration) return
+          if (!isCurrent()) return
           setErrorMsg('Failed to send reconnect message')
           setStatus('error')
         }
       }
 
-      wireSocket(ws, wallet, meta, initialSeq, myGeneration, () => {
+      wireSocket(ws, wallet, meta, initialSeq, isCurrent, () => {
         connectionStore.setStatus(validated.topic, 'active')
         setStatus('connected')
       })

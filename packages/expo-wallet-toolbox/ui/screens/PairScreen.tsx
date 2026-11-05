@@ -20,6 +20,7 @@ import {
 } from '@bsv/expo-wallet-toolbox'
 import { computeConnectionAuthorityTag } from '../../core/services/connectionAuthority'
 import { profileScopedKey } from '../../core/profiles/profileStore'
+import { usePairingAttempt } from '../../core/context/usePairingAttempt'
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -54,6 +55,7 @@ export function PairScreen() {
   }>()
 
   const { status, sessionMeta, errorMsg, connect, disconnect, startNavTimer, cancelNavTimer } = useWalletConnection()
+  const pairingAttempt = usePairingAttempt()
 
   // Pre-connection validation error (before connect() is called)
   const [preConnectError, setPreConnectError] = useState<string | null>(null)
@@ -130,6 +132,7 @@ export function PairScreen() {
       setPreConnectError('Wallet not ready — please log in first')
       return
     }
+    const isCurrent = pairingAttempt.begin(params.topic)
     try {
       const external = parseExternalOrigin(params.origin)
       // Guarded exactly like every sibling call site (connections.tsx): this is
@@ -160,8 +163,10 @@ export function PairScreen() {
           protocolID: params.protocolID,
           backendIdentityKey: params.backendIdentityKey
         })
+        if (!isCurrent()) return
         connectionStore.stageAuthorityTag(params.topic, tag)
       } catch (err) {
+        if (!isCurrent()) return
         console.warn('[PairScreen] failed to compute connection authority tag', err)
         connectionStore.discardStagedAuthorityTag(params.topic)
       }
@@ -177,11 +182,13 @@ export function PairScreen() {
         wallet
       )
     } catch (err) {
+      if (!isCurrent()) return
       setPreConnectError(err instanceof Error ? err.message : 'Connection failed')
     }
   }
 
   function handleReject() {
+    pairingAttempt.cancel()
     disconnect()
     router.back()
   }

@@ -34,6 +34,20 @@ class ConnectionStore {
    * list; mobx wraps it as an ObservableMap, but nothing here relies on
    * that reactivity. */
   private pendingAuthorityTags = new Map<string, string>()
+  private revocations = new Map<string, number>()
+  private allRevocations = 0
+
+  revocationVersion(sessionId?: string): number {
+    // Clipboard approval starts before its topic is known. Any intervening
+    // revocation must invalidate that gesture before it can claim a new topic.
+    if (sessionId === undefined) return this.allRevocations
+    return this.revocations.get(sessionId) ?? 0
+  }
+
+  private revokePending(sessionId: string) {
+    this.allRevocations++
+    this.revocations.set(sessionId, this.revocationVersion(sessionId) + 1)
+  }
 
   constructor() {
     makeAutoObservable(this)
@@ -68,6 +82,7 @@ class ConnectionStore {
   }
 
   setStatus(sessionId: string, status: Connection['status']) {
+    if (status === 'disconnected') this.revokePending(sessionId)
     const conn = this.connections.find(c => c.sessionId === sessionId)
     if (conn) {
       conn.status = status
@@ -76,6 +91,8 @@ class ConnectionStore {
   }
 
   remove(sessionId: string) {
+    this.revokePending(sessionId)
+    this.pendingAuthorityTags.delete(sessionId)
     this.connections = this.connections.filter(c => c.sessionId !== sessionId)
     void this.save()
   }

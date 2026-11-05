@@ -23,6 +23,7 @@ import {
   useWalletConnection,
   disconnectActivePairedSession
 } from '../../core/context/WalletConnectionContext'
+import connectionStore from '../../core/stores/ConnectionStore'
 import { runSessionTeardown } from '../../core/context/sessionTeardown'
 import { buildPairingSignatureMessage } from '../../core/services/walletConnectionValidation'
 
@@ -57,8 +58,7 @@ afterEach(() => {
   disconnectActivePairedSession()
 })
 
-async function signedPairingParams() {
-  const topic = 'xr018-logout-topic'
+async function signedPairingParams(topic = 'xr018-logout-topic') {
   const backendKey = PrivateKey.fromRandom()
   const backendIdentityKey = backendKey.toPublicKey().toString()
   const protocolID = JSON.stringify([0, 'wallet pairing'])
@@ -133,4 +133,151 @@ test('relay registers for logout and profile only (a network switch keeps the pa
 
   // Unmount unregisters: a later logout touches nothing.
   expect(() => runSessionTeardown('logout')).not.toThrow()
+})
+
+for (const reason of ['disconnect', 'logout', 'profile'] as const) {
+  test(`revokes a pairing still waiting for relay discovery on ${reason}`, async () => {
+    const { result, unmount } = renderHook(() => useWalletConnection(), {
+      wrapper: ({ children }) => <WalletConnectionProvider>{children}</WalletConnectionProvider>
+    })
+    let release!: (response: any) => void
+    ;(global.fetch as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = resolve
+        })
+    )
+    const wallet = fakeMobileWallet()
+    const params = await signedPairingParams()
+    const pending = result.current.connect(params as any, wallet as any)
+    for (let i = 0; i < 40; i++) await Promise.resolve()
+    expect(release).toBeDefined()
+    act(() => {
+      if (reason === 'disconnect') result.current.disconnect()
+      else runSessionTeardown(reason)
+    })
+    const body = JSON.stringify({ relay: 'wss://relay.example' })
+    release({ ok: true, headers: { get: () => String(body.length) }, text: async () => body })
+    await act(async () => {
+      await pending
+    })
+    expect(mockWebSocketConstructor).not.toHaveBeenCalled()
+    expect(wallet.getPublicKey).not.toHaveBeenCalled()
+    expect(wallet.encrypt).not.toHaveBeenCalled()
+    expect(result.current.status).toBe('idle')
+    unmount()
+  })
+}
+
+test('deleting an inactive pairing revokes a reconnect still discovering its relay', async () => {
+  const { result, unmount } = renderHook(() => useWalletConnection(), {
+    wrapper: ({ children }) => <WalletConnectionProvider>{children}</WalletConnectionProvider>
+  })
+  const params = await signedPairingParams()
+  const wallet = fakeMobileWallet()
+  const { publicKey } = await wallet.getPublicKey()
+  const connection = {
+    sessionId: params.topic,
+    origin: params.origin,
+    backendIdentityKey: params.backendIdentityKey,
+    protocolID: params.protocolID,
+    mobileIdentityKey: publicKey,
+    relay: 'wss://relay.example',
+    connectedAt: Date.now(),
+    status: 'disconnected' as const
+  }
+  connectionStore.add(connection)
+  let release!: (response: any) => void
+  ;(global.fetch as jest.Mock).mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = resolve
+      })
+  )
+  const pending = result.current.reconnect(connection, wallet as any)
+  for (let i = 0; i < 20; i++) await Promise.resolve()
+  expect(release).toBeDefined()
+  connectionStore.remove(connection.sessionId)
+  const body = JSON.stringify({ relay: 'wss://relay.example' })
+  release({ ok: true, headers: { get: () => String(body.length) }, text: async () => body })
+  await act(async () => {
+    await pending
+  })
+  expect(mockWebSocketConstructor).not.toHaveBeenCalled()
+  expect(require('expo-secure-store').deleteItemAsync).not.toHaveBeenCalled()
+  unmount()
+})
+
+test('deleting an inactive pairing also revokes its already-wired reconnect before onopen', async () => {
+  const { result, unmount } = renderHook(() => useWalletConnection(), {
+    wrapper: ({ children }) => <WalletConnectionProvider>{children}</WalletConnectionProvider>
+  })
+  const wallet = fakeMobileWallet()
+  const params = await signedPairingParams()
+  await act(async () => {
+    await result.current.connect(params as any, wallet as any)
+  })
+  const onopen = mockWebSockets[0].onopen
+  connectionStore.remove(params.topic)
+  await act(async () => {
+    await onopen()
+  })
+  expect(wallet.encrypt).not.toHaveBeenCalled()
+  unmount()
+})
+
+test('an older pending pairing cannot supersede a newer successful connection', async () => {
+  const { result, unmount } = renderHook(() => useWalletConnection(), {
+    wrapper: ({ children }) => <WalletConnectionProvider>{children}</WalletConnectionProvider>
+  })
+  let release!: (response: any) => void
+  ;(global.fetch as jest.Mock).mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = resolve
+      })
+  )
+  const wallet = fakeMobileWallet()
+  const paramsA = await signedPairingParams('superseded-attempt')
+  const paramsB = await signedPairingParams('current-attempt')
+  const pending = result.current.connect(paramsA as any, wallet as any)
+  for (let i = 0; i < 40; i++) await Promise.resolve()
+  await act(async () => {
+    await result.current.connect(paramsB as any, wallet as any)
+  })
+  const body = JSON.stringify({ relay: 'wss://relay.example' })
+  release({ ok: true, headers: { get: () => String(body.length) }, text: async () => body })
+  await act(async () => {
+    await pending
+  })
+  expect(mockWebSocketConstructor).toHaveBeenCalledTimes(1)
+  expect(result.current.sessionMeta?.topic).toBe(paramsB.topic)
+  expect(wallet.getPublicKey).toHaveBeenCalledTimes(1)
+  unmount()
+})
+
+test('disconnect revokes a pairing awaiting its durable sequence floor', async () => {
+  const { result, unmount } = renderHook(() => useWalletConnection(), {
+    wrapper: ({ children }) => <WalletConnectionProvider>{children}</WalletConnectionProvider>
+  })
+  const secureStore = require('expo-secure-store')
+  let release!: (value: string) => void
+  secureStore.getItemAsync.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        release = resolve
+      })
+  )
+  const wallet = fakeMobileWallet()
+  const pending = result.current.connect((await signedPairingParams('pending-sequence-floor')) as any, wallet as any)
+  for (let i = 0; i < 50; i++) await Promise.resolve()
+  expect(release).toBeDefined()
+  act(() => result.current.disconnect())
+  release('0')
+  await act(async () => {
+    await pending
+  })
+  expect(wallet.getPublicKey).not.toHaveBeenCalled()
+  expect(mockWebSocketConstructor).not.toHaveBeenCalled()
+  unmount()
 })
