@@ -1,4 +1,4 @@
-import { Beef, Transaction, Utils } from '@bsv/sdk'
+import { Beef, Transaction } from '@bsv/sdk'
 import type { WocEndpoints } from '../networks'
 import type { PostBeefResult, PostTxResultForTxid } from '../toolboxTypes'
 
@@ -228,12 +228,55 @@ export function handleArcResponse(
   return txResult
 }
 
+/** Requested txids in BEEF topological order (parents first). */
+function postingOrder(beef: Beef, txids: string[]): string[] {
+  beef.sortTxs()
+  const wanted = new Set(txids)
+  const ordered = beef.txs.map(btx => btx.txid).filter(txid => wanted.has(txid))
+  for (const txid of txids) if (!ordered.includes(txid)) ordered.push(txid)
+  return ordered
+}
+
 /**
- * Convert BEEF to EF-format binary for ARC-compatible endpoints.
+ * Post every requested txid, one result each. A rejected parent blocks its
+ * children so we do not submit an orphan that the endpoint will only refuse.
  */
-function beefToEF(beef: Beef): Uint8Array {
-  const tx = Transaction.fromBEEF(beef.toBinary())
-  return new Uint8Array(tx.toEF())
+async function postEachTransaction(
+  name: string,
+  beef: Beef,
+  txids: string[],
+  postOne: (tx: Transaction, txid: string) => Promise<PostTxResultForTxid>
+): Promise<PostBeefResult> {
+  const results = new Map<string, PostTxResultForTxid>()
+  const notAccepted = new Set<string>()
+  for (const txid of postingOrder(beef, txids)) {
+    let result: PostTxResultForTxid
+    let tx: Transaction | undefined
+    try {
+      tx = beef.findAtomicTransaction(txid)
+    } catch {
+      tx = undefined
+    }
+    if (tx == null) {
+      result = { txid, status: 'error', serviceError: true, data: `transaction ${txid} not found in beef` }
+    } else {
+      const blockedBy = tx.inputs
+        .map(input => input.sourceTXID ?? input.sourceTransaction?.id('hex'))
+        .find(parent => parent != null && notAccepted.has(parent))
+      result =
+        blockedBy != null
+          ? { txid, status: 'error', serviceError: true, data: `parent ${blockedBy} was not accepted` }
+          : await postOne(tx, txid)
+    }
+    if (result.status !== 'success') notAccepted.add(txid)
+    results.set(txid, result)
+  }
+  const txidResults = txids.map(txid => results.get(txid)!)
+  return {
+    name,
+    status: txidResults.every(result => result.status === 'success') ? 'success' : 'error',
+    txidResults
+  }
 }
 
 /**
@@ -251,39 +294,26 @@ function createArcBroadcastService(
 ) {
   return {
     name,
-    service: async (beef: Beef, txids: string[]): Promise<PostBeefResult> => {
-      const r: PostBeefResult = { name, status: 'success', txidResults: [] }
-      try {
-        const ef = beefToEF(beef)
-        const response = await fetchWithBodyDeadline(
-          `${arcUrl}${txPath}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/octet-stream',
-              ...headers
+    service: async (beef: Beef, txids: string[]): Promise<PostBeefResult> =>
+      await postEachTransaction(name, beef, txids, async (tx, txid) => {
+        try {
+          const response = await fetchWithBodyDeadline(
+            `${arcUrl}${txPath}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/octet-stream', ...headers },
+              body: new Uint8Array(tx.toEF()) as unknown as BodyInit
             },
-            body: ef as unknown as BodyInit
-          },
-          BROADCAST_TIMEOUT_MS
-        )
-        const data = await response.json()
-        console.log(`[${name}] POST ${txPath} ${response.status}`, loggableSnippet(JSON.stringify(data)))
-        const txResult = handleArcResponse(name, response, data, txids)
-        r.txidResults.push(txResult)
-        r.status = txResult.status
-      } catch (err: any) {
-        console.log(`[${name}] POST ${txPath} error: ${err.message}`)
-        r.status = 'error'
-        r.txidResults.push({
-          txid: txids[0],
-          status: 'error',
-          serviceError: true,
-          data: err.message
-        })
-      }
-      return r
-    }
+            BROADCAST_TIMEOUT_MS
+          )
+          const data = await response.json()
+          console.log(`[${name}] POST ${txPath} ${response.status}`, loggableSnippet(JSON.stringify(data)))
+          return handleArcResponse(name, response, data, [txid])
+        } catch (err: any) {
+          console.log(`[${name}] POST ${txPath} error: ${err.message}`)
+          return { txid, status: 'error', serviceError: true, data: err.message }
+        }
+      })
   }
 }
 
@@ -326,60 +356,55 @@ export function createWocBroadcastService(woc: WocEndpoints, apiKey?: string) {
 
   return {
     name,
-    service: async (beef: Beef, txids: string[]): Promise<PostBeefResult> => {
-      const r: PostBeefResult = { name, status: 'success', txidResults: [] }
-      try {
-        const tx = Transaction.fromBEEF(beef.toBinary())
-        const rawHex = Utils.toHex(tx.toBinary())
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          Accept: 'text/plain'
+    service: async (beef: Beef, txids: string[]): Promise<PostBeefResult> =>
+      await postEachTransaction(name, beef, txids, async (tx, txid) => {
+        try {
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Accept: 'text/plain'
+          }
+          if (apiKey) headers['woc-api-key'] = apiKey
+          const response = await fetchWithBodyDeadline(
+            `${baseUrl}/tx/raw`,
+            {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ txhex: tx.toHex() })
+            },
+            BROADCAST_TIMEOUT_MS
+          )
+          const body = await response.text()
+          console.log(`[${name}] POST /tx/raw ${response.status}`, loggableSnippet(body))
+          const txResult: PostTxResultForTxid = {
+            txid,
+            status: 'error',
+            notes: [{ when: new Date().toISOString(), what: 'wocPostRawTx', httpStatus: response.status }]
+          }
+          if (response.ok) {
+            txResult.status = 'success'
+          } else if (body.includes('already in the mempool')) {
+            // Idempotent same-txid rebroadcast — a conflicting DIFFERENT tx cannot
+            // produce this message, so it can't mask a double-spend.
+            txResult.status = 'success'
+          } else {
+            // Never classify from WoC body strings. "Missing inputs" is ambiguous
+            // (propagation lag vs mined double-spend) and a wrong terminal verdict
+            // cascades to reject descendants. Terminal verdicts come from Arcade's
+            // structured txStatus only (handleArcResponse); everything here is
+            // retryable, and the release engine's topological order — foreign
+            // ancestors included — is what prevents the orphan case at the source.
+            txResult.serviceError = true
+          }
+          return txResult
+        } catch (err: any) {
+          console.log(`[${name}] POST /tx/raw error: ${err.message}`)
+          return {
+            txid,
+            status: 'error',
+            serviceError: true,
+            data: err.message
+          }
         }
-        if (apiKey) headers['woc-api-key'] = apiKey
-        const response = await fetchWithBodyDeadline(
-          `${baseUrl}/tx/raw`,
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ txhex: rawHex })
-          },
-          BROADCAST_TIMEOUT_MS
-        )
-        const body = await response.text()
-        console.log(`[${name}] POST /tx/raw ${response.status}`, loggableSnippet(body))
-        const txResult: PostTxResultForTxid = {
-          txid: txids[0],
-          status: 'error',
-          notes: [{ when: new Date().toISOString(), what: 'wocPostRawTx', httpStatus: response.status }]
-        }
-        if (response.ok) {
-          txResult.status = 'success'
-        } else if (body.includes('already in the mempool')) {
-          // Idempotent same-txid rebroadcast — a conflicting DIFFERENT tx cannot
-          // produce this message, so it can't mask a double-spend.
-          txResult.status = 'success'
-        } else {
-          // Never classify from WoC body strings. "Missing inputs" is ambiguous
-          // (propagation lag vs mined double-spend) and a wrong terminal verdict
-          // cascades to reject descendants. Terminal verdicts come from Arcade's
-          // structured txStatus only (handleArcResponse); everything here is
-          // retryable, and the release engine's topological order — foreign
-          // ancestors included — is what prevents the orphan case at the source.
-          txResult.serviceError = true
-        }
-        r.txidResults.push(txResult)
-        r.status = txResult.status
-      } catch (err: any) {
-        console.log(`[${name}] POST /tx/raw error: ${err.message}`)
-        r.status = 'error'
-        r.txidResults.push({
-          txid: txids[0],
-          status: 'error',
-          serviceError: true,
-          data: err.message
-        })
-      }
-      return r
-    }
+      })
   }
 }

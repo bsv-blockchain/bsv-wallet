@@ -1,4 +1,4 @@
-import { Beef, Transaction } from '@bsv/sdk'
+import { Beef, LockingScript, Transaction, UnlockingScript } from '@bsv/sdk'
 import {
   createArcadeBroadcastService,
   createGorillaPoolBroadcastService,
@@ -196,9 +196,9 @@ describe('ARC-compatible factories post to the path each deployment serves', () 
 })
 
 describe('createWocBroadcastService classification', () => {
-  // createWocBroadcastService returns { name, service(beef, txids) } —
-  // services/arcadeBroadcastProvider.ts:141-155. It reads the LAST tx out of
-  // the beef and POSTs its raw hex, so a minimal empty transaction suffices.
+  // createWocBroadcastService returns { name, service(beef, txids) }.
+  // Each requested txid is posted as raw hex, so a minimal empty transaction
+  // suffices for classification.
   const postOne = async (status: number, body: string) => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: status >= 200 && status < 300,
@@ -462,5 +462,82 @@ describe('XQ-011: createWocBroadcastService posts to the network table host', ()
 
   it('scaletest has no WhatsOnChain to broadcast to', () => {
     expect(NETWORKS.scaletest.woc).toBeUndefined()
+  })
+})
+
+function chainedParentChild() {
+  const parent = new Transaction()
+  parent.addOutput({ lockingScript: LockingScript.fromASM('OP_TRUE'), satoshis: 1000 })
+  const child = new Transaction()
+  child.addInput({
+    sourceTransaction: parent,
+    sourceOutputIndex: 0,
+    unlockingScript: new UnlockingScript()
+  })
+  child.addOutput({ lockingScript: LockingScript.fromASM('OP_TRUE'), satoshis: 900 })
+  const beef = new Beef()
+  beef.mergeTransaction(child)
+  return {
+    parent,
+    child,
+    beef,
+    parentId: parent.id('hex'),
+    childId: child.id('hex')
+  }
+}
+
+describe('multi-transaction BEEF', () => {
+  it('posts every txid, parent first, with one result per txid', async () => {
+    const { parent, child, beef, parentId, childId } = chainedParentChild()
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ txStatus: 'SEEN_ON_NETWORK' })
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+    const result = await service(beef, [childId, parentId])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(Array.from(fetchMock.mock.calls[0][1].body)).toEqual(Array.from(parent.toEF()))
+    expect(Array.from(fetchMock.mock.calls[1][1].body)).toEqual(Array.from(child.toEF()))
+    expect(result.status).toBe('success')
+    expect(result.txidResults.map(r => r.txid)).toEqual([childId, parentId])
+    expect(result.txidResults.every(r => r.status === 'success')).toBe(true)
+  })
+
+  it('does not post a child whose parent was rejected, and reports it as retryable', async () => {
+    const { beef, parentId, childId } = chainedParentChild()
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ txid: parentId, txStatus: 'REJECTED' })
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+    const result = await service(beef, [childId, parentId])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const childResult = result.txidResults.find(r => r.txid === childId)
+    expect(childResult?.status).toBe('error')
+    expect(childResult?.serviceError).toBe(true)
+    expect(childResult?.doubleSpend).toBeUndefined()
+  })
+
+  it('WhatsOnChain posts both /tx/raw bodies, parent hex then child hex', async () => {
+    const { parent, child, beef, parentId, childId } = chainedParentChild()
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => ''
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createWocBroadcastService(NETWORKS.main.woc!)
+    const result = await service(beef, [childId, parentId])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][0]).toMatch(/\/tx\/raw$/)
+    expect(fetchMock.mock.calls[1][0]).toMatch(/\/tx\/raw$/)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ txhex: parent.toHex() })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ txhex: child.toHex() })
+    expect(result.status).toBe('success')
+    expect(result.txidResults.map(r => r.txid)).toEqual([childId, parentId])
   })
 })
