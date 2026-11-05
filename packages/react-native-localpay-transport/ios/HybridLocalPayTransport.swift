@@ -271,9 +271,11 @@ final class HybridLocalPayTransport: HybridLocalPayTransportSpec {
         self.queue.asyncAfter(deadline: .now() + Self.pendingAckConfirmTimeout, execute: ackTimeout)
 
         onFrame(data.base64EncodedString())
-      case .failure(let error):
+      case .failure:
+        // A connection has not delivered an accepted frame yet. TLS failures,
+        // resets and malformed reads belong only to this peer; reporting them
+        // through onError would make JS stop the shared listener.
         self.live.removeValue(forKey: key)
-        onError(error.localizedDescription)
         conn.cancel()
       }
     }

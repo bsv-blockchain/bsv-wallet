@@ -118,8 +118,8 @@ class BridgeSheetActivity : ReactActivity() {
 
   /**
    * Drops touches that carry an obscured flag (another window draws over the prompt). After `TouchGuard.DROP_LIMIT` drops
-   * the prompt moves to the in-wallet sheet in `MainActivity`, where the user can still answer it. No text: a benign
-   * overlay such as a screen filter reaches the same prompt in the wallet.
+   * the prompt moves to the in-wallet sheet in `MainActivity`, whose Window.Callback has the same native filter.
+   * A covering window must disappear before either surface accepts a touch.
    */
   override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
     if (touchGuard.shouldDrop(ev.flags)) {

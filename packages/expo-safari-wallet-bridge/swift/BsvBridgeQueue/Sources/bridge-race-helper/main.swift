@@ -27,6 +27,14 @@ do {
   while SystemClock().nowMs < start {}
   switch op {
   case "create": print(try store.create(id: id, bytes: Data("payload-\(extra)".utf8), nowMs: now))
+  case "quotaCreate":
+    print(try store.create(id: id, bytes: Data(repeating: 65, count: 1024 * 1024), nowMs: now))
+  case "quotaReserve":
+    try store.stageBegin(id: id, parts: 1, size: 1024 * 1024, digest: String(repeating: "0", count: 64), nowMs: now)
+    print("true")
+  case "quotaCrash":
+    store.faultAfter = { step in if step == "linked" { exit(9) } }
+    _ = try store.create(id: id, bytes: Data(repeating: 65, count: 1024 * 1024), nowMs: now)
   case "claim":
     let digest = SHA256.hash(data: Data(extra.utf8)).map { String(format: "%02x", $0) }.joined()
     print("\(try store.claim(id: id, digest: digest, bootId: "helper-\(getpid())", nowMs: now))")

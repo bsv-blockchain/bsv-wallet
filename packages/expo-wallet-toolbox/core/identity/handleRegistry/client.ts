@@ -21,9 +21,10 @@ import {
   looksLikeDomain
 } from './rules'
 import { verifyProfileCertificate, type ProfileCertJson, type RegistryProfile } from './profileCert'
-import { createRegistryResolver, fetchWithTimeout, type RegistryPin, type RegistryResolver } from './resolver'
+import { createRegistryResolver, fetchWithTimeout, REGISTRY_MAX_BODY_BYTES, type RegistryPin, type RegistryResolver } from './resolver'
 import { createKeyPinStore, type KeyPinStore } from './keyPinStore'
 import { trimTrailingSlashes } from '../../net/trimTrailingSlashes'
+import { createBoundedNativeFetch } from '../../network/boundedFetch'
 
 /** Why a handle is not free. The server's `stale` arrives as `cooldown`. */
 export type AvailabilityReason = 'taken' | 'too_similar' | 'reserved' | 'invalid' | 'cooldown'
@@ -83,12 +84,13 @@ function reasonOf(raw: unknown): AvailabilityReason | null {
 
 export function createHandleRegistryClient(args: {
   pinned: RegistryPin
+  /** Trusted test transport; production must retain the native byte ceiling. */
   fetchImpl?: typeof fetch
   now?: () => number
   resolver?: RegistryResolver
   pinStore?: KeyPinStore
 }): HandleRegistryClient {
-  const fetchImpl = args.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
+  const fetchImpl = args.fetchImpl ?? createBoundedNativeFetch(REGISTRY_MAX_BODY_BYTES)
   const now = args.now ?? (() => Date.now())
   const domain = args.pinned.domain.trim().toLowerCase()
   const origin = trimTrailingSlashes(args.pinned.url.trim())

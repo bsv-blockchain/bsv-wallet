@@ -2,6 +2,8 @@ import { OfflineFirstChaintracks } from '../../core/headers/OfflineFirstChaintra
 import { HeaderStore } from '../../core/headers/headerStore'
 import { memoryHeaderFs } from '../../core/headers/fs'
 import { Utils } from '@bsv/sdk'
+import { parseHeader } from '../../core/headers/headerConsensus'
+import { anchor as REGTEST_ANCHOR, branch, combine } from './fixtures/regtest'
 
 const ANCHOR = { height: 0, hash: '00'.repeat(32) }
 
@@ -199,26 +201,12 @@ describe('OfflineFirstChaintracks', () => {
   // the confirmed absence of TLS pinning) could overwrite a root this device
   // already validated itself.
   describe('window-covered mismatches (misc-p2-02)', () => {
-    const rootFor = (height: number) => height.toString(16).padStart(2, '0').repeat(32)
-    const HEADER_BYTES = 80
-
-    /** Seeds a HeaderStore's persisted files directly (bypassing append's
-     * proof-of-work check) with `count` headers starting at height 1, so a
-     * window big enough to have a body outside the last-6 tail can be built
-     * without mining real headers. */
+    const HEADERS = branch(20, 'a')
+    const rootFor = (height: number) => parseHeader(HEADERS[height - 1]).merkleRoot
     async function seedWindow(count: number) {
-      const fs = memoryHeaderFs()
-      const bin = new Uint8Array(count * HEADER_BYTES)
-      for (let i = 0; i < count; i++) {
-        const wire = new Uint8Array(Utils.toArray(rootFor(i + 1), 'hex')).slice().reverse()
-        bin.set(wire, i * HEADER_BYTES + 36)
-      }
-      await fs.writeBytes('ttn.bin', bin)
-      await fs.writeText(
-        'ttn.json',
-        JSON.stringify({ chain: 'ttn', anchorHeight: 0, anchorHash: ANCHOR.hash, count, tipHash: 'ff'.repeat(32) })
-      )
-      return HeaderStore.open(fs, 'ttn', ANCHOR)
+      const store = await HeaderStore.open(memoryHeaderFs(), 'regtest', REGTEST_ANCHOR)
+      await store.append(combine(HEADERS.slice(0, count)), 1)
+      return store
     }
 
     it('refuses a body-height mismatch outright, even when a lying remote agrees with the forged root (MITM case)', async () => {

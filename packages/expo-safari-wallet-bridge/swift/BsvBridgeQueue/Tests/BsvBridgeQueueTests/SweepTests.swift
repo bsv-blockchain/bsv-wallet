@@ -41,7 +41,7 @@ final class SweepTests: XCTestCase {
     XCTAssertTrue(h.rawFiles().allSatisfy { !contains($0.bytes, MARKER) })
   }
 
-  func testSweepRemovesOrphanTombstonesAndOldChunksAndKeepsLiveRecords() throws {
+  func testSweepRemovesOrphanTombstonesOldChunksAndExpiredPendingRecords() throws {
     let h = try Harness()
     h.store.faultAfter = { if $0 == "linked" { throw NSError(domain: "crash", code: 1) } }
     XCTAssertThrowsError(try h.create(1, "a"))
@@ -59,9 +59,9 @@ final class SweepTests: XCTestCase {
 
     try h.store.sweep(nowMs: h.t + 41 * min)
     XCTAssertFalse(Posix.exists(h.root.appendingPathComponent("ids/\(ID(1))")))
-    // A record nobody resolved yet is the processor's to expire; its tombstone stays.
-    XCTAssertTrue(Posix.exists(h.root.appendingPathComponent("ids/\(ID(2))")))
-    XCTAssertEqual(try h.store.stat(id: ID(2))?.state, .pending)
+    // Native cleanup expired the unaccepted record, then aged out its tombstone.
+    XCTAssertFalse(Posix.exists(h.root.appendingPathComponent("ids/\(ID(2))")))
+    XCTAssertNil(try h.store.stat(id: ID(2)))
   }
 
   func testSweepStripsAWithdrawnFileLeftWithArguments() throws {

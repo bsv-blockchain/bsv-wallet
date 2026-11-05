@@ -46,7 +46,7 @@ export type { InboxCloseEvent }
 
 // ---- Extension <-> appex native messages (spec 6.11 operation table) ----
 
-export type BridgeErrorCode = 'KEY_MISSING' | 'UNAVAILABLE' | 'EXISTS_DIFFERENT' | 'BAD_REQUEST' | 'BAD_PREIMAGE'
+export type BridgeErrorCode = 'KEY_MISSING' | 'UNAVAILABLE' | 'EXISTS_DIFFERENT' | 'BAD_REQUEST' | 'BAD_PREIMAGE' | 'RESOURCE_LIMIT'
 export type ContinuityContext = 'safari' | 'safari-private'
 
 export type BridgeRequest =

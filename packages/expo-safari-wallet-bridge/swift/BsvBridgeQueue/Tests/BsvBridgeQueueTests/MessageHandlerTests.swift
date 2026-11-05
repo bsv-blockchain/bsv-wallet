@@ -32,6 +32,22 @@ final class MessageHandlerTests: XCTestCase {
     String(data: try! JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]), encoding: .utf8)!
   }
 
+  func testNativeQuotaIsReportedAsResourceLimit() throws {
+    for n in 1...bridgeQueuePoolRecords { XCTAssertTrue(try h.create(n, "waiting")) }
+    let r = send(["op": "stage", "id": ID(99), "bytes": b64("one more")])
+    XCTAssertEqual(r["ok"] as? Bool, false)
+    XCTAssertEqual(r["code"] as? String, "RESOURCE_LIMIT")
+    XCTAssertNil(try h.store.stat(id: ID(99)))
+  }
+
+  func testAcknowledgingAResultNudgesBackpressuredPendingWork() throws {
+    XCTAssertTrue(try h.create(1, "request"))
+    XCTAssertTrue(try h.result(1, "result"))
+    XCTAssertEqual(send(["op": "ack", "ids": [ID(1)]])["ok"] as? Bool, true)
+    XCTAssertEqual(nudges, 1)
+    XCTAssertEqual(try h.readResult(1), .purged)
+  }
+
   // MARK: identity and sign
 
   func testIdentityIsStableAcrossHandlerInstancesAndContextSeparated() {
