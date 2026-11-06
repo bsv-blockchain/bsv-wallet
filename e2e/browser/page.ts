@@ -197,15 +197,26 @@ document.getElementById('pay')!.addEventListener('click', () => {
   })()
 })
 
+// One poll at a time. Rebuilding the button on every tick detaches it while
+// Playwright is still checking that it is stable, so the click times out.
+let polling = false
+let pendingKey = ''
 window.setInterval(() => {
+  if (polling) return
+  polling = true
   void (async () => {
     try {
       const pending = (await readJson(await fetch('/__test/pending'))) as { requestId: string; origin: string }[]
+      const key = pending.map(item => item.requestId).join('\n')
+      if (key === pendingKey) return
+      pendingKey = key
       const box = document.getElementById('pending')!
       box.replaceChildren()
       for (const item of pending) {
         const button = document.createElement('button')
         button.type = 'button'
+        button.dataset.testid = 'approve'
+        button.dataset.requestId = item.requestId
         button.textContent = 'Approve'
         button.addEventListener('click', () => {
           void (async () => {
@@ -226,6 +237,8 @@ window.setInterval(() => {
       }
     } catch {
       /* the bridge server is still coming up */
+    } finally {
+      polling = false
     }
   })()
 }, 200)

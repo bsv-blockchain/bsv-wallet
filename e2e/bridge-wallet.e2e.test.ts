@@ -125,6 +125,23 @@ function intentToLaunch(intent: string) {
   return parseLaunchUri(`bsv-browser://${before.slice('intent://'.length)}`, 'bsv-browser')
 }
 
+/**
+ * Click Approve if a sheet is up. A short timeout, then give up: the pending
+ * list replaces the button when the request set changes, and a 30s click
+ * holds the detached node until the whole journey fails.
+ */
+async function clickApprove(page: Page): Promise<void> {
+  const approve = page.getByTestId('approve').first()
+  if ((await approve.count()) === 0) return
+  try {
+    await approve.click({ timeout: 1000 })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (/timeout|detached|not stable|intercepts pointer|element is not/i.test(message)) return
+    throw err
+  }
+}
+
 async function waitForText(page: Page, testId: string): Promise<string> {
   try {
     await page.waitForFunction(
@@ -379,8 +396,17 @@ describe('browser journeys', () => {
     expect(await waitForText(page, 'connected')).toBe('connected')
 
     await page.getByRole('button', { name: 'Request identity' }).click()
-    await page.getByRole('button', { name: 'Approve' }).click()
-    expect(await waitForText(page, 'bridge-identity')).toBe(identity)
+    const identityStarted = Date.now()
+    let bridgeIdentity = ''
+    while (Date.now() - identityStarted < 20000) {
+      bridgeIdentity = (await page.getByTestId('bridge-identity').innerText()).trim()
+      if (bridgeIdentity) break
+      const problem = (await page.getByTestId('status').innerText()).trim()
+      if (problem) throw new Error(problem)
+      await clickApprove(page)
+      await page.waitForTimeout(100)
+    }
+    expect(bridgeIdentity).toBe(identity)
 
     await page.getByRole('button', { name: 'Pay 1 sat' }).click()
     const payStarted = Date.now()
@@ -390,11 +416,8 @@ describe('browser journeys', () => {
       if (txid) break
       const problem = (await page.getByTestId('status').innerText()).trim()
       if (problem) throw new Error(problem)
-      const approveAgain = page.getByRole('button', { name: 'Approve' })
-      if ((await approveAgain.count()) > 0 && (await approveAgain.first().isVisible())) {
-        await approveAgain.first().click()
-      }
-      await page.waitForTimeout(200)
+      await clickApprove(page)
+      await page.waitForTimeout(100)
     }
     expect(txid).toBe(TXID)
     expect(await waitForText(page, 'nosend')).toBe('noSend')
