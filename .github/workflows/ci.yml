@@ -1,0 +1,126 @@
+name: CI
+
+# App-wide regression gate. Runs on every pull request and on master.
+#
+# The "Verify" job in publish.yaml stays the npm publish gate for
+# @bsv/expo-wallet-toolbox (typecheck, package tests, pack dry-run). It only
+# starts when that package's paths change, so a feature PR that does not touch
+# it never ran the suite. This workflow always runs the unit, component and
+# integration tests, uploads coverage, and drives the browser end-to-end
+# journeys.
+#
+# Device end-to-end (Maestro on an Android emulator, or Detox on iOS) is a
+# separate manual workflow: e2e-device.yml. It needs a compiled dev-client,
+# which this Ubuntu job does not build.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit, component, and integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          # node:sqlite, used by the storage tests, needs Node 22.13+.
+          # Pinned to the same version as the toolbox Verify job.
+          node-version: '24.22.1'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test with coverage
+        run: pnpm test:ci
+
+      # XR-026 allocates multi-megabyte ciphertexts. Under V8 coverage the
+      # worker is already large, and the assertion flakes (decrypt never
+      # starts). Verify runs this file uninstrumented and it passes; so does
+      # this step.
+      - name: In-flight byte budget
+        run: pnpm test:memory-budget
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e '
+              const s = require("./coverage/coverage-summary.json").total
+              const line = (name, row) => `| ${name} | ${row.pct}% | ${row.covered}/${row.total} |`
+              const md = [
+                "### Coverage (core, UI, app routes, utils)",
+                "",
+                "| | Percent | Covered |",
+                "| --- | ---: | ---: |",
+                line("Statements", s.statements),
+                line("Branches", s.branches),
+                line("Functions", s.functions),
+                line("Lines", s.lines),
+                ""
+              ].join("\n")
+              const fs = require("fs")
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md)
+              console.log(md)
+            '
+          else
+            echo "No coverage summary was produced."
+            exit 1
+          fi
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage/lcov.info
+            coverage/coverage-summary.json
+          if-no-files-found: error
+          retention-days: 14
+
+  e2e:
+    name: End-to-end (browser)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.22.1'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser journeys
+        run: pnpm test:e2e
