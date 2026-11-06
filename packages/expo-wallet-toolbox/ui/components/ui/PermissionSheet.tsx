@@ -596,14 +596,14 @@ export function usePermissionSheetBusy(): boolean {
 
 interface PermissionSheetProps {
   /**
-   * Whether a backdrop tap or a swipe down answers the prompt as a rejection. Default true. The Android bridge's overlay
-   * root passes false: there an outside tap does nothing and only the Reject button rejects. Per instance, so a main-tree
-   * sheet mounted at the same time is unaffected.
+   * Whether a backdrop tap or a swipe down answers the prompt as a rejection. Default false: an outside tap does
+   * nothing and only Reject or Authorize answers (spec 7.4). In a browser the backdrop covers the page the user was
+   * reading, so a stray tap there must not refuse a site's request. Per instance.
    */
   backdropDismisses?: boolean
 }
 
-const PermissionSheet: React.FC<PermissionSheetProps> = ({ backdropDismisses = true }) => {
+const PermissionSheet: React.FC<PermissionSheetProps> = ({ backdropDismisses = false }) => {
   const { t } = useTranslation()
   const { colors } = useTheme()
   const Ionicons = loadIonicons()

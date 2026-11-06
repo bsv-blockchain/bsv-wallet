@@ -21,11 +21,15 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
   }
 })
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
-// Sheet renders its children and PressableScale records its handler, so the
-// component tests below can press Reject (first) and Authorize (second).
+// Sheet renders its children and records its props, and PressableScale records
+// its handler, so the component tests below can press Reject (first) and
+// Authorize (second) and check how the sheet may be dismissed.
 jest.mock('../../ui/components/ui/Sheet', () => ({
   __esModule: true,
-  default: ({ children }: { children?: unknown }) => children ?? null
+  default: ({ children, ...props }: { children?: unknown }) => {
+    ;(globalThis as any).__sheetProps = props
+    return children ?? null
+  }
 }))
 jest.mock('../../ui/components/ui/PressableScale', () => ({
   __esModule: true,
@@ -964,7 +968,7 @@ describe('tap protection and connection answers', () => {
 describe('stable bridge test ids', () => {
   const { WalletContext, UserContext, ExchangeRateContext } = require('@bsv/expo-wallet-toolbox')
 
-  const tree = (queues: Record<string, unknown>) => (
+  const tree = (queues: Record<string, unknown>, sheet: React.ReactElement = <PermissionSheet />) => (
     <WalletContext.Provider
       value={{
         protocolRequests: [],
@@ -999,7 +1003,7 @@ describe('stable bridge test ids', () => {
         }}
       >
         <ExchangeRateContext.Provider value={{}}>
-          <PermissionSheet />
+          {sheet}
         </ExchangeRateContext.Provider>
       </UserContext.Provider>
     </WalletContext.Provider>
@@ -1039,5 +1043,17 @@ describe('stable bridge test ids', () => {
   ])('approve and deny carry the stable ids for the %s kind', (_kind, queues) => {
     render(tree(queues))
     expect(lastIds()).toEqual(['bridge-deny', 'bridge-approve'])
+  })
+
+  const spending = { spendingRequests: [{ ...req, authorizationAmount: 40_042, lineItems: [] }] }
+
+  it('an outside tap or swipe does not answer a prompt by default', () => {
+    render(tree(spending))
+    expect((globalThis as any).__sheetProps.dismissible).toBe(false)
+  })
+
+  it('a host can still opt in to backdrop dismissal', () => {
+    render(tree(spending, <PermissionSheet backdropDismisses />))
+    expect((globalThis as any).__sheetProps.dismissible).toBe(true)
   })
 })

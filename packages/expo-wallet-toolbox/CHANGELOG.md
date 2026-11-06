@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **An outside tap no longer rejects a permission or spending prompt.** `PermissionSheet` now defaults
+  `backdropDismisses` to `false`, so every mount follows spec 7.4 ("an outside tap does nothing"), not only the Android
+  bridge overlay. In BSV Browser the backdrop covers the website, and a stray tap there was denying the site's request
+  (for example a spending prompt mid-way through a run of transactions). Only Reject or Authorize answers; a swipe
+  down springs back. A host that wants the old behaviour passes `backdropDismisses` explicitly.
+
 ## 0.23.0
 
 Peer floors raised to the latest `@bsv` releases, the browser wallet bridge
