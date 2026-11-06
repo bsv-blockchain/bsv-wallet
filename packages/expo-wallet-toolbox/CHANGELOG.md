@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **The ARC and WhatsOnChain broadcasters now post every transaction in a multi-transaction BEEF.** They previously
+  converted the BEEF to a single transaction (`Transaction.fromBEEF` returns the last one) and returned one result, so in
+  a `sendWith` batch of chained transactions only the last was posted, and the earlier ones reached the network only if
+  a later provider in the chain posted the whole BEEF. Each requested
+  txid is now posted on its own, parents first (`Beef.sortTxs`), with one result per txid in the caller's order. A
+  child whose parent was not accepted is not posted and is reported as a retryable service error.
+
 ## 0.23.0
 
 Peer floors raised to the latest `@bsv` releases, the browser wallet bridge
