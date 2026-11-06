@@ -1,0 +1,36 @@
+appId: org.bsvblockchain.wallet
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+# A previous bsv-wallet:// link can leave SpringBoard's "Open in BSV Wallet?"
+# alert up. It covers the home screen for every later flow.
+- runFlow: confirm-open-in-app.yaml
+# Software-rendered emulator. System UI sometimes posts "isn't responding"
+# over the wallet, which hides e2e-harness. Tap Wait (never Close app).
+# The tap timeout stays short: an optional tap with the default timeout
+# spends a minute searching for a dialog that is not there, and the
+# harness check never gets the cold-start budget.
+- repeat:
+    times: 20
+    commands:
+      # `when` is a point-in-time check. `tapOn` plus `optional` still waits
+      # out the command timeout, which on this emulator is about a minute.
+      - runFlow:
+          when:
+            visible: "Wait"
+          commands:
+            - tapOn: "Wait"
+      - extendedWaitUntil:
+          optional: true
+          visible:
+            id: e2e-harness
+          timeout: 4000
+- extendedWaitUntil:
+    visible:
+      id: e2e-harness
+    timeout: 120000
+- extendedWaitUntil:
+    visible:
+      id: home-balance
+    timeout: 30000

@@ -82,3 +82,7 @@ __pycache__/
 
 # Per-machine Browser-pane preview config (Metro on :8081); commands/, skills/, tasks/ stay tracked
 .claude/launch.json
+
+# E2E harness output (screenshots, videos, Maestro debug, mock request log)
+e2e/artifacts/
+e2e/mock/requests.log

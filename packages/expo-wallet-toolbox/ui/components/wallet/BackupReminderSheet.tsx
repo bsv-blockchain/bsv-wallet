@@ -83,7 +83,14 @@ export const BackupReminderSheet: React.FC<{
       <Animated.View
         style={[styles.card, { backgroundColor: colors.sheetBackground, borderColor: colors.warning }, cardStyle]}
       >
-        <PressableScale haptic="tap" onPress={onClose} style={styles.closeButton}>
+        <PressableScale
+          haptic="tap"
+          onPress={onClose}
+          testID="backup-reminder-close"
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+          style={styles.closeButton}
+        >
           <Ionicons name="close" size={20} color={colors.textSecondary} />
         </PressableScale>
 

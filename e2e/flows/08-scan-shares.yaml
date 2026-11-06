@@ -1,0 +1,28 @@
+appId: org.bsvblockchain.wallet
+---
+# Opens the share scanner. It does not scan a code: the camera UI and the
+# permission prompt are the journey. A virtual camera is enough.
+- runFlow: ../subflows/launch-fresh.yaml
+- tapOn:
+    id: import-from-backup
+- extendedWaitUntil:
+    visible:
+      id: scan-backup-shares
+    timeout: 20000
+- tapOn:
+    id: scan-backup-shares
+- tapOn:
+    text: While using the app
+    optional: true
+- tapOn:
+    text: Allow
+    optional: true
+- tapOn:
+    text: OK
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: scan-shares-screen
+    timeout: 20000
+- assertVisible: Scan your first backup share
+- runFlow: ../subflows/go-home.yaml

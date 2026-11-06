@@ -1,0 +1,62 @@
+appId: org.bsvblockchain.wallet
+---
+# Restores the published BIP-39 test vector (see e2e/fixtures and TESTING.md).
+# The harness is locked to testnet, and backup is off, so this does not
+# contact a backup server and cannot broadcast on mainnet.
+- runFlow: ../subflows/launch-fresh.yaml
+- tapOn:
+    id: import-from-backup
+- extendedWaitUntil:
+    visible:
+      id: import-mnemonic-input
+    timeout: 20000
+- assertVisible: Import Wallet
+- assertVisible:
+    id: scan-backup-shares
+# inputText leaves the software keyboard up. The Continue button sits
+# under it, so the tap lands on a key and corrupts the phrase
+# ("abandon" becomes "abandont"). Paste, then dismiss the keyboard by
+# tapping the title, which is above the field, before Continue.
+- tapOn:
+    id: import-mnemonic-input
+- eraseText
+- pasteText: ${E2E_MNEMONIC}
+- tapOn: "Import Wallet"
+- scrollUntilVisible:
+    element:
+      id: import-wallet-submit
+    direction: DOWN
+    timeout: 30000
+    visibilityPercentage: 50
+- tapOn:
+    id: import-wallet-submit
+# Home is the only screen with e2e-harness. If this wait expires, the
+# screenshot and the failure hierarchy show the screen restore actually
+# stopped on (form, alert, or celebration).
+- extendedWaitUntil:
+    optional: true
+    visible:
+      id: e2e-harness
+    timeout: 300000
+- takeScreenshot: 03-after-import
+- assertVisible:
+    id: e2e-harness
+- assertNotVisible:
+    id: import-from-backup
+- assertVisible:
+    id: activity-empty
+# Relaunch without wiping storage. The harness key has no biometric ceremony,
+# so the wallet opens instead of showing the unlock notice.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: e2e-harness
+    timeout: 90000
+- assertNotVisible: Unlock your wallet
+- assertNotVisible:
+    id: import-from-backup
+- assertVisible:
+    id: home-balance
+- assertVisible:
+    id: activity-empty

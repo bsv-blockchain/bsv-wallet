@@ -1,0 +1,9 @@
+appId: org.bsvblockchain.wallet
+---
+- openLink: bsv-wallet://
+- runFlow: confirm-open-in-app.yaml
+- extendedWaitUntil:
+    visible:
+      id: e2e-harness
+    timeout: 20000
+- runFlow: dismiss-backup-reminder.yaml

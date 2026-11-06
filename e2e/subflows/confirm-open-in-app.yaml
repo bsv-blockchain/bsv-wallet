@@ -1,0 +1,6 @@
+appId: org.bsvblockchain.wallet
+---
+- runFlow:
+    when:
+      platform: iOS
+    file: confirm-open-in-app-ios.yaml

@@ -1,0 +1,108 @@
+appId: org.bsvblockchain.wallet
+---
+- runFlow: ../subflows/launch-fresh.yaml
+- runFlow: ../subflows/create-via-pay.yaml
+- runFlow: ../subflows/go-home.yaml
+- tapOn:
+    id: profile-button
+- extendedWaitUntil:
+    visible:
+      id: profile-switcher
+    timeout: 15000
+- assertVisible:
+    text: ".*Testnet.*"
+- tapOn:
+    id: profile-row-0
+- extendedWaitUntil:
+    visible: Profile
+    timeout: 20000
+- runFlow: ../subflows/go-home.yaml
+- openLink: bsv-wallet://identifier
+- runFlow: ../subflows/confirm-open-in-app.yaml
+- extendedWaitUntil:
+    visible: Your Identifier
+    timeout: 20000
+- openLink: bsv-wallet://contacts
+- runFlow: ../subflows/confirm-open-in-app.yaml
+- extendedWaitUntil:
+    visible: No contacts yet
+    timeout: 20000
+- openLink: bsv-wallet://contact/add
+- runFlow: ../subflows/confirm-open-in-app.yaml
+- extendedWaitUntil:
+    visible: New Contact
+    timeout: 20000
+- openLink: bsv-wallet://trust
+- runFlow: ../subflows/confirm-open-in-app.yaml
+- extendedWaitUntil:
+    visible: Trust Network
+    timeout: 20000
+- openLink: bsv-wallet://connections
+- runFlow: ../subflows/confirm-open-in-app.yaml
+- extendedWaitUntil:
+    visible: Connections
+    timeout: 20000
+- openLink: bsv-wallet://logs
+- runFlow: ../subflows/confirm-open-in-app.yaml
+- extendedWaitUntil:
+    visible: Debugging
+    timeout: 20000
+- openLink: bsv-wallet://wallet-check
+- runFlow: ../subflows/confirm-open-in-app.yaml
+- extendedWaitUntil:
+    visible: Troubleshooting
+    timeout: 20000
+- openLink: bsv-wallet://vault
+- runFlow: ../subflows/confirm-open-in-app.yaml
+- extendedWaitUntil:
+    visible:
+      text: ".*Not available yet.*"
+    timeout: 60000
+- runFlow: ../subflows/go-home.yaml
+- tapOn:
+    id: home-settings
+- extendedWaitUntil:
+    visible: Settings
+    timeout: 20000
+- assertVisible:
+    id: settings-connections
+- assertVisible:
+    id: settings-troubleshooting
+- tapOn:
+    id: settings-advanced
+- extendedWaitUntil:
+    visible:
+      id: settings-network
+    timeout: 15000
+- assertVisible:
+    text: ".*Testnet.*"
+- assertNotVisible: Mainnet
+# The software emulator spends several seconds on each swipe. Do not
+# require the row to be centered: Debugging sits above the system
+# navigation bar, and a 40% centered check fails while the row is
+# already fully on screen.
+- scrollUntilVisible:
+    element:
+      id: settings-trust
+    direction: DOWN
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      id: settings-logs
+    direction: DOWN
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      id: settings-log-out
+    direction: DOWN
+    timeout: 60000
+- tapOn:
+    id: settings-log-out
+- extendedWaitUntil:
+    visible: Delete Wallet?
+    timeout: 15000
+- tapOn: Delete Wallet
+- extendedWaitUntil:
+    visible:
+      id: import-from-backup
+    timeout: 60000

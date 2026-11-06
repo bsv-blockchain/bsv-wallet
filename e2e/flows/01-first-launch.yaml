@@ -1,0 +1,43 @@
+appId: org.bsvblockchain.wallet
+---
+- runFlow: ../subflows/launch-fresh.yaml
+- assertVisible:
+    id: e2e-harness
+- assertVisible:
+    id: home-balance
+- assertVisible:
+    id: home-pay
+- assertVisible:
+    id: home-receive
+- assertVisible:
+    id: home-balance
+- assertVisible:
+    id: activity-empty
+- assertVisible:
+    text: "No transactions yet"
+# `?` is a regex quantifier in Maestro text selectors. Unescaped, this
+# looks for "Already have a walle" and the failure line can drop the reason.
+- assertVisible:
+    text: "Already have a wallet\\?"
+- assertVisible:
+    id: import-from-backup
+# Vault stays off in the harness, so the home destination is absent.
+- assertNotVisible:
+    id: home-vault
+- tapOn:
+    id: home-settings
+- extendedWaitUntil:
+    visible: Settings
+    timeout: 20000
+- tapOn:
+    id: settings-advanced
+- extendedWaitUntil:
+    visible:
+      id: settings-network
+    timeout: 15000
+- assertVisible:
+    text: ".*Testnet.*"
+- assertNotVisible:
+    text: ".*Mainnet.*"
+- tapOn:
+    id: settings-back

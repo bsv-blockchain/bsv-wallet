@@ -127,6 +127,7 @@ export default function RequestHub({
               three rows the user has learned would be a silent answer to a
               question they are entitled to have answered. */}
           <PayCellRow
+            testID="receive-bsv-address"
             title={t('pay_method_address')}
             subtitle={
               !addressAvailable

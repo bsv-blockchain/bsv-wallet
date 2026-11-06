@@ -81,7 +81,9 @@
           }
         }
       ],
-      "./plugins/withAndroidNotificationIcon"
+      "./plugins/withAndroidNotificationIcon",
+      "./plugins/withE2eCleartext",
+      "./plugins/withIosPodfileFixes"
     ],
     "experiments": {
       "typedRoutes": true
