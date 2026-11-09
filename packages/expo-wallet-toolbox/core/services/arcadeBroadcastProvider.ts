@@ -1,5 +1,5 @@
 import { Beef, Transaction } from '@bsv/sdk'
-import type { WocEndpoints } from '../networks'
+import type { NetworkProfile, WocEndpoints } from '../networks'
 import type { PostBeefResult, PostTxResultForTxid } from '../toolboxTypes'
 
 const BROADCAST_TIMEOUT_MS = 30_000
@@ -185,7 +185,7 @@ function loggableSnippet(text: string): string {
 }
 
 /**
- * Shared response handling for ARC-compatible services (Arcade, Taal, GorillaPool).
+ * Shared response handling for ARC-compatible services (Arcade, GorillaPool).
  * Maps txStatus to the correct PostTxResultForTxid fields.
  *
  * Exported for unit tests.
@@ -279,26 +279,26 @@ async function postEachTransaction(
   }
 }
 
+/** Drop trailing slashes so a user-entered URL joins cleanly with a path. */
+function normalizeUrl(url: string): string {
+  return url.replace(/\/+$/, '')
+}
+
 /**
- * Create an ARC-compatible broadcast service that posts EF-format transactions.
- *
- * `txPath` is where the deployment serves its submit route. Arcade serves
- * POST /tx at the root; standard ARC (TAAL, GorillaPool) serves POST /v1/tx and
- * answers POST /tx with 404. Both take EF as application/octet-stream.
+ * Create a BSV Broadcaster (Arcade) compatible service that posts EF-format
+ * transactions to `${url}/tx`. Arcade and GorillaPool's Arcade both serve
+ * POST /tx and take EF as application/octet-stream.
  */
-function createArcBroadcastService(
-  name: string,
-  arcUrl: string,
-  txPath: '/tx' | '/v1/tx',
-  headers: Record<string, string>
-) {
+function createArcBroadcastService(name: string, arcUrl: string, headers: Record<string, string>) {
+  const txPath = '/tx'
+  const endpoint = `${normalizeUrl(arcUrl)}${txPath}`
   return {
     name,
     service: async (beef: Beef, txids: string[]): Promise<PostBeefResult> =>
       await postEachTransaction(name, beef, txids, async (tx, txid) => {
         try {
           const response = await fetchWithBodyDeadline(
-            `${arcUrl}${txPath}`,
+            endpoint,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/octet-stream', ...headers },
@@ -318,29 +318,55 @@ function createArcBroadcastService(
 }
 
 /**
- * Arcade broadcast service — EF format with callback token for SSE updates.
+ * BSV Broadcaster (Arcade) service — EF format with callback token for SSE updates.
  */
 export function createArcadeBroadcastService(arcadeUrl: string, callbackToken: string) {
-  return createArcBroadcastService('Arcade', arcadeUrl, '/tx', {
+  return createArcBroadcastService('Arcade', arcadeUrl, {
     'X-CallbackToken': callbackToken,
     'X-FullStatusUpdates': 'true'
   })
 }
 
 /**
- * Taal ARC broadcast service — EF format.
- */
-export function createTaalBroadcastService(arcUrl: string, apiKey?: string) {
-  const headers: Record<string, string> = {}
-  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
-  return createArcBroadcastService('TaalArc', arcUrl, '/v1/tx', headers)
-}
-
-/**
- * GorillaPool ARC broadcast service — EF format.
+ * GorillaPool broadcast service — EF format, posts to `${url}/tx`.
  */
 export function createGorillaPoolBroadcastService(arcUrl: string) {
-  return createArcBroadcastService('GorillaPoolArc', arcUrl, '/v1/tx', {})
+  return createArcBroadcastService('GorillaPoolArc', arcUrl, {})
+}
+
+type BroadcastProvider = { name: string; service: (beef: Beef, txids: string[]) => Promise<PostBeefResult> }
+
+/**
+ * Replace the toolbox's default broadcast providers with ours, in order:
+ * BSV Broadcaster (primary) -> GorillaPool -> WhatsOnChain -> Bitails. Each
+ * fallback is registered only where `network` says it serves the network, and
+ * GorillaPool is skipped when the person's primary URL already is GorillaPool.
+ * Returns the registered provider names, in order.
+ */
+export function registerBroadcastProviders(
+  services: { postBeefServices: { add(s: BroadcastProvider): void; remove(name: string): void } },
+  network: NetworkProfile,
+  primaryUrl: string,
+  callbackToken: string,
+  whatsOnChainApiKey: string | undefined,
+  bitails: { postBeef: (beef: Beef, txids: string[]) => Promise<PostBeefResult> } | undefined
+): string[] {
+  const { postBeefServices } = services
+  for (const name of ['ArcadeBeef', 'GorillaPoolArcBeef', 'TaalArcBeef', 'Bitails', 'WhatsOnChain']) {
+    postBeefServices.remove(name)
+  }
+  const registered: string[] = []
+  const add = (provider: BroadcastProvider) => {
+    postBeefServices.add(provider)
+    registered.push(provider.name)
+  }
+  add(createArcadeBroadcastService(primaryUrl, callbackToken))
+  if (network.gorillaPoolArcUrl && normalizeUrl(network.gorillaPoolArcUrl) !== normalizeUrl(primaryUrl)) {
+    add(createGorillaPoolBroadcastService(network.gorillaPoolArcUrl))
+  }
+  if (network.woc) add(createWocBroadcastService(network.woc, whatsOnChainApiKey))
+  if (bitails && network.bitails) add({ name: 'Bitails', service: bitails.postBeef.bind(bitails) })
+  return registered
 }
 
 /**

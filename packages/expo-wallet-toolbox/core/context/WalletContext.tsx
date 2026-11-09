@@ -181,12 +181,7 @@ import {
   createWalletMonitorOptions
 } from '../walletMonitor'
 import { runBoundedUnfail } from '../monitor/unfailRetry'
-import {
-  createArcadeBroadcastService,
-  createTaalBroadcastService,
-  createGorillaPoolBroadcastService,
-  createWocBroadcastService
-} from '../services/arcadeBroadcastProvider'
+import { registerBroadcastProviders } from '../services/arcadeBroadcastProvider'
 import { getExchangeRate } from '../services/exchangeRate'
 import { devLog, logWithTimestamp } from '../logging'
 import { recoverMnemonicWallet } from '../mnemonicWallet'
@@ -1649,7 +1644,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         )
 
         // Replace all default broadcast providers with EF/rawtx-only services.
-        // Order: Arcade → GorillaPool → WoC → Bitails. UntilSuccess stops at first success.
+        // Order: BSV Broadcaster → GorillaPool → WoC → Bitails. UntilSuccess stops at first success.
         // Each fallback is registered only where NETWORKS says it serves the
         // network: GorillaPool on main + test, WhatsOnChain where
         // one exists, Bitails on main + test.
@@ -1657,22 +1652,14 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         // because serviceOptions now carries arcadeUrl (needed for Arcade-first
         // proofs and SSE). Our createArcadeBroadcastService replaces it here so
         // the same tx is not posted to Arcade twice with two header sets.
-        const bitailsService = (services as any).bitails
-        services.postBeefServices.remove('ArcadeBeef')
-        services.postBeefServices.remove('GorillaPoolArcBeef')
-        services.postBeefServices.remove('TaalArcBeef')
-        services.postBeefServices.remove('Bitails')
-        services.postBeefServices.remove('WhatsOnChain')
-        services.postBeefServices.add(createArcadeBroadcastService(serviceOptions.arcUrl!, callbackToken))
-        if (network.gorillaPoolArcUrl) {
-          services.postBeefServices.add(createGorillaPoolBroadcastService(network.gorillaPoolArcUrl))
-        }
-        if (network.woc) {
-          services.postBeefServices.add(createWocBroadcastService(network.woc, serviceOptions.whatsOnChainApiKey))
-        }
-        if (bitailsService && network.bitails) {
-          services.postBeefServices.add({ name: 'Bitails', service: bitailsService.postBeef.bind(bitailsService) })
-        }
+        registerBroadcastProviders(
+          services,
+          network,
+          serviceOptions.arcUrl!,
+          callbackToken,
+          serviceOptions.whatsOnChainApiKey,
+          (services as any).bitails
+        )
 
         // Replace WoC getMerklePath with BUMP endpoint — no TSC→BUMP conversion needed.
         // The toolbox's 'Arcade' provider stays where Services put it: first.

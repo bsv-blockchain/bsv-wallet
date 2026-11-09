@@ -2,7 +2,6 @@ import { Beef, LockingScript, Transaction, UnlockingScript } from '@bsv/sdk'
 import {
   createArcadeBroadcastService,
   createGorillaPoolBroadcastService,
-  createTaalBroadcastService,
   createWocBroadcastService,
   handleArcResponse
 } from '../../core/services/arcadeBroadcastProvider'
@@ -88,7 +87,7 @@ describe('handleArcResponse', () => {
   })
 
   it('treats missing txStatus with ok response as success when the txid matches (built-in ARC parity)', () => {
-    const result = handleArcResponse('TaalArc', { ok: true, status: 200 }, { txid: txids[0] }, txids)
+    const result = handleArcResponse('CustomArc', { ok: true, status: 200 }, { txid: txids[0] }, txids)
     expect(result.status).toBe('success')
   })
 
@@ -117,9 +116,8 @@ describe('handleArcResponse', () => {
 })
 
 describe('ARC-compatible factories post to the path each deployment serves', () => {
-  // Arcade serves POST /tx at the root. TAAL and GorillaPool are standard ARC,
-  // where POST /tx is a 404 ("no matching operation was found") and the route
-  // is POST /v1/tx — probed live 2026-09-24.
+  // Arcade serves POST /tx at the root. GorillaPool runs
+  // the same Arcade server and also serves POST /tx.
   const postOne = async (factory: { service: (beef: Beef, txids: string[]) => Promise<unknown> }) => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -138,32 +136,23 @@ describe('ARC-compatible factories post to the path each deployment serves', () 
 
   it('Arcade posts EF to /tx at the root', async () => {
     const { url, init, ef } = await postOne(
-      createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+      createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb-token')
     )
-    expect(url).toBe('https://arcade-v2-us-1.bsvblockchain.tech/tx')
+    expect(url).toBe('https://broadcast.bsvblockchain.tech/tx')
     expect(init.method).toBe('POST')
     expect(init.headers['Content-Type']).toBe('application/octet-stream')
     expect(init.headers['X-CallbackToken']).toBe('cb-token')
     expect(Array.from(init.body)).toEqual(Array.from(ef))
   })
 
-  it('TAAL posts EF to /v1/tx with its bearer key', async () => {
-    const { url, init, ef } = await postOne(createTaalBroadcastService('https://arc.taal.com', 'taal-key'))
-    expect(url).toBe('https://arc.taal.com/v1/tx')
-    expect(init.method).toBe('POST')
-    expect(init.headers['Content-Type']).toBe('application/octet-stream')
-    expect(init.headers.Authorization).toBe('Bearer taal-key')
-    expect(Array.from(init.body)).toEqual(Array.from(ef))
+  it('trims a trailing slash from a user-entered URL', async () => {
+    const { url } = await postOne(createArcadeBroadcastService('https://broadcast.bsvblockchain.tech/testnet/', 'cb'))
+    expect(url).toBe('https://broadcast.bsvblockchain.tech/testnet/tx')
   })
 
-  it('TAAL testnet posts to /v1/tx', async () => {
-    const { url } = await postOne(createTaalBroadcastService('https://arc-test.taal.com'))
-    expect(url).toBe('https://arc-test.taal.com/v1/tx')
-  })
-
-  it('GorillaPool posts EF to /v1/tx', async () => {
-    const { url, init, ef } = await postOne(createGorillaPoolBroadcastService('https://arc.gorillapool.io'))
-    expect(url).toBe('https://arc.gorillapool.io/v1/tx')
+  it('GorillaPool posts EF to /tx', async () => {
+    const { url, init, ef } = await postOne(createGorillaPoolBroadcastService('https://arcade.gorillapool.io'))
+    expect(url).toBe('https://arcade.gorillapool.io/tx')
     expect(init.method).toBe('POST')
     expect(init.headers['Content-Type']).toBe('application/octet-stream')
     expect(Array.from(init.body)).toEqual(Array.from(ef))
@@ -187,7 +176,7 @@ describe('ARC-compatible factories post to the path each deployment serves', () 
     const tx = new Transaction()
     const beef = new Beef()
     beef.mergeTransaction(tx)
-    const { service } = createTaalBroadcastService('https://arc.taal.com', 'key')
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'key')
     await service(beef, [tx.id('hex')])
     const [, loggedSnippet] = logSpy.mock.calls[0] as [string, string]
     expect(loggedSnippet.length).toBeLessThan(hugeStatus.length)
@@ -275,7 +264,7 @@ describe('XR-060 remainder: bounds the broadcast body size itself, not just what
     const tx = new Transaction()
     const beef = new Beef()
     beef.mergeTransaction(tx)
-    const { service } = createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb-token')
     const result = await service(beef, [tx.id('hex')])
     expect(result.status).not.toBe('success')
     expect(result.txidResults[0].serviceError).toBe(true)
@@ -373,7 +362,7 @@ describe('XR-060 remainder: bounds the broadcast body size itself, not just what
  * forever — the AbortController's timer was cleared as soon as fetch()
  * resolved, before response.json()/text() ever ran. Since this provider sits
  * first in the UntilSuccess fallback chain, a stall here blocked every later
- * fallback (Taal, GorillaPool, WoC) from ever being tried.
+ * fallback (GorillaPool, WoC) from ever being tried.
  */
 describe('XR-063: a stalled body converts to a serviceError instead of hanging forever', () => {
   beforeEach(() => jest.useFakeTimers())
@@ -393,7 +382,7 @@ describe('XR-063: a stalled body converts to a serviceError instead of hanging f
       json: () => new Promise(() => {})
     }) as unknown as typeof fetch
     const { tx, beef } = txOf()
-    const { service } = createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb-token')
 
     const pending = service(beef, [tx.id('hex')])
     await jest.advanceTimersByTimeAsync(30_000)
@@ -495,7 +484,7 @@ describe('multi-transaction BEEF', () => {
       json: async () => ({ txStatus: 'SEEN_ON_NETWORK' })
     })
     global.fetch = fetchMock as unknown as typeof fetch
-    const { service } = createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb-token')
     const result = await service(beef, [childId, parentId])
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(Array.from(fetchMock.mock.calls[0][1].body)).toEqual(Array.from(parent.toEF()))
@@ -513,7 +502,7 @@ describe('multi-transaction BEEF', () => {
       json: async () => ({ txid: parentId, txStatus: 'REJECTED' })
     })
     global.fetch = fetchMock as unknown as typeof fetch
-    const { service } = createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb-token')
     const result = await service(beef, [childId, parentId])
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const childResult = result.txidResults.find(r => r.txid === childId)
