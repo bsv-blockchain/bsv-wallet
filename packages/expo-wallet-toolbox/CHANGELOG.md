@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Changed
+
+- BSV Broadcaster (`broadcast.bsvblockchain.tech`) is now the primary
+  broadcast, SSE and chaintracks endpoint on all 4 networks (main, test,
+  teratest, scaletest).
+- Broadcast provider order: BSV Broadcaster, GorillaPool, WhatsOnChain,
+  Bitails. Each is registered only where the network table says it serves
+  that network.
+- Each provider gets a flat 30 s budget (`postBeefUntilSuccessSoftTimeoutMs`
+  30000, per-KB 0, max 30000). The walk inside a provider stops at the same
+  limit; transactions not reached get retryable errors.
+- Every unconfirmed transaction of a BEEF is posted as EF, parents first.
+  An ancestor that cannot be built as EF gets a retryable error, as do its
+  descendants.
+- Only BSV Broadcaster validator answers HTTP 400 with the posted txid and
+  ARC code 461 or 464 (number or string) are final rejections. Every other
+  non-success answer is retryable.
+
+### Removed
+
+- Taal: `taalArcUrl`, `taalApiKey` and `createTaalBroadcastService`. Hosts
+  that pass `taalApiKey` must drop it.
+
 ### Added: sweep external keys (`core/pay/rails/sweep.ts`)
 
 Move coins that an external key controls into this wallet. Each sweep has a

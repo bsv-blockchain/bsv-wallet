@@ -77,7 +77,7 @@ jest.mock('../../core/services/walletServiceConfig', () => ({
       postBeefServices: { add: jest.fn(), remove: jest.fn() },
       getMerklePathServices: { add: jest.fn(), remove: jest.fn() }
     },
-    serviceOptions: {}
+    serviceOptions: { arcUrl: 'https://arcade.invalid' }
   })
 }))
 jest.mock('../../core/pay/creditInbox', () => ({
