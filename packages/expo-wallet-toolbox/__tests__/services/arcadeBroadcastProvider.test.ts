@@ -1,4 +1,4 @@
-import { Beef, LockingScript, Transaction, UnlockingScript } from '@bsv/sdk'
+import { Beef, LockingScript, MerklePath, Transaction, UnlockingScript } from '@bsv/sdk'
 import {
   createArcadeBroadcastService,
   createGorillaPoolBroadcastService,
@@ -528,5 +528,137 @@ describe('multi-transaction BEEF', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ txhex: child.toHex() })
     expect(result.status).toBe('success')
     expect(result.txidResults.map(r => r.txid)).toEqual([childId, parentId])
+  })
+
+  function chain(n: number) {
+    const txs: Transaction[] = []
+    for (let i = 0; i < n; i++) {
+      const tx = new Transaction()
+      if (i > 0) {
+        tx.addInput({
+          sourceTransaction: txs[i - 1],
+          sourceOutputIndex: 0,
+          unlockingScript: new UnlockingScript()
+        })
+      }
+      tx.addOutput({ lockingScript: LockingScript.fromASM('OP_TRUE'), satoshis: 1000 - i })
+      txs.push(tx)
+    }
+    const beef = new Beef()
+    beef.mergeTransaction(txs[n - 1])
+    return { txs, beef, ids: txs.map(t => t.id('hex')) }
+  }
+
+  const okFetch = () =>
+    jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ txStatus: 'SEEN_ON_NETWORK' }) })
+
+  it('posts unconfirmed ancestors that are not requested', async () => {
+    const { txs, beef, ids } = chain(3)
+    const fetchMock = okFetch()
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    const result = await service(beef, [ids[2]])
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    txs.forEach((tx, i) => {
+      expect(Array.from(fetchMock.mock.calls[i][1].body)).toEqual(Array.from(tx.toEF()))
+    })
+    expect(result.txidResults).toHaveLength(1)
+    expect(result.txidResults[0]).toMatchObject({ txid: ids[2], status: 'success' })
+  })
+
+  it('skips a proven ancestor', async () => {
+    const { txs, beef, ids } = chain(3)
+    const mp = new MerklePath(1, [
+      [
+        { offset: 0, hash: ids[0], txid: true },
+        { offset: 1, duplicate: true }
+      ]
+    ])
+    beef.mergeBump(mp)
+    const fetchMock = okFetch()
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    await service(beef, [ids[2]])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(Array.from(fetchMock.mock.calls[0][1].body)).toEqual(Array.from(txs[1].toEF()))
+  })
+
+  it('a proven requested txid is success and not posted', async () => {
+    const { beef, ids } = chain(2)
+    const mp = new MerklePath(1, [
+      [
+        { offset: 0, hash: ids[0], txid: true },
+        { offset: 1, duplicate: true }
+      ]
+    ])
+    beef.mergeBump(mp)
+    const fetchMock = okFetch()
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    const result = await service(beef, [ids[1], ids[0]])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(result.txidResults).toEqual([
+      expect.objectContaining({ txid: ids[1], status: 'success' }),
+      { txid: ids[0], status: 'success' }
+    ])
+  })
+
+  it("does not mutate the caller's beef", async () => {
+    const { beef, ids } = chain(3)
+    const before = beef.toHex()
+    global.fetch = okFetch() as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    await service(beef, [ids[2]])
+    expect(beef.toHex()).toBe(before)
+  })
+
+  it('a txid-only grandparent gives retryable errors, never throws', async () => {
+    const { beef, ids } = chain(3)
+    beef.makeTxidOnly(ids[0])
+    const fetchMock = okFetch()
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    const result = await service(beef, [ids[1], ids[2]])
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.status).toBe('error')
+    for (const r of result.txidResults) {
+      expect(r.status).toBe('error')
+      expect(r.serviceError).toBe(true)
+    }
+  })
+
+  it('stops at the budget', async () => {
+    const { beef, ids } = chain(5)
+    let now = 1_000_000
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    const fetchMock = jest.fn().mockImplementation(async () => {
+      now += 10_000
+      return { ok: true, status: 200, json: async () => ({ txStatus: 'SEEN_ON_NETWORK' }) }
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    try {
+      const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+      const result = await service(beef, [ids[4], ids[3], ids[0]])
+      expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(3)
+      const byId = new Map(result.txidResults.map(r => [r.txid, r]))
+      expect(byId.get(ids[0])?.status).toBe('success')
+      expect(byId.get(ids[3])).toMatchObject({ status: 'error', serviceError: true, data: 'broadcast budget exceeded' })
+      expect(byId.get(ids[4])).toMatchObject({ status: 'error', serviceError: true, data: 'broadcast budget exceeded' })
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it('result txid is the requested txid', async () => {
+    const { beef, ids } = chain(1)
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ txid: 'ff'.repeat(32), txStatus: 'SEEN_ON_NETWORK' })
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    const result = await service(beef, [ids[0]])
+    expect(result.txidResults[0].txid).toBe(ids[0])
   })
 })

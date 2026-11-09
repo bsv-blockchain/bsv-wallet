@@ -228,50 +228,87 @@ export function handleArcResponse(
   return txResult
 }
 
-/** Requested txids in BEEF topological order (parents first). */
-function postingOrder(beef: Beef, txids: string[]): string[] {
-  beef.sortTxs()
+/** Longest a provider may spend on one BEEF, walk included. */
+export const BROADCAST_PROVIDER_BUDGET_MS = 30_000
+
+/**
+ * What to post, and in what order. `order` holds every txid in the BEEF that
+ * has a raw transaction and no merkle path (parents first), then any requested
+ * txid the BEEF does not hold. `proven` holds the requested txids whose BEEF
+ * entry already has a merkle path. Works on a copy, so the caller's `beef`
+ * keeps its order.
+ */
+function postingPlan(beef: Beef, txids: string[]): { order: string[]; proven: Set<string> } {
+  const sorted = Beef.fromBinary(beef.toBinary())
+  sorted.sortTxs()
   const wanted = new Set(txids)
-  const ordered = beef.txs.map(btx => btx.txid).filter(txid => wanted.has(txid))
-  for (const txid of txids) if (!ordered.includes(txid)) ordered.push(txid)
-  return ordered
+  const order: string[] = []
+  const proven = new Set<string>()
+  for (const btx of sorted.txs) {
+    if (btx.hasProof) {
+      if (wanted.has(btx.txid)) proven.add(btx.txid)
+    } else if (!btx.isTxidOnly) {
+      order.push(btx.txid)
+    }
+  }
+  const known = new Set(order)
+  for (const txid of txids) if (!proven.has(txid) && !known.has(txid)) order.push(txid)
+  return { order, proven }
 }
 
 /**
- * Post every requested txid, one result each. A rejected parent blocks its
- * children so we do not submit an orphan that the endpoint will only refuse.
+ * Post every unconfirmed transaction of the BEEF, parents first, and return one
+ * result per requested txid. A transaction whose parent was not accepted is not
+ * posted. The walk stops once `budgetMs` has passed.
  */
 async function postEachTransaction(
   name: string,
   beef: Beef,
   txids: string[],
-  postOne: (tx: Transaction, txid: string) => Promise<PostTxResultForTxid>
+  postOne: (tx: Transaction, txid: string) => Promise<PostTxResultForTxid>,
+  budgetMs: number = BROADCAST_PROVIDER_BUDGET_MS
 ): Promise<PostBeefResult> {
+  const retryable = (txid: string, data: string): PostTxResultForTxid => ({
+    txid,
+    status: 'error',
+    serviceError: true,
+    data
+  })
+  const work = Beef.fromBinary(beef.toBinary())
+  const { order, proven } = postingPlan(work, txids)
   const results = new Map<string, PostTxResultForTxid>()
   const notAccepted = new Set<string>()
-  for (const txid of postingOrder(beef, txids)) {
+  const start = Date.now()
+  for (const txid of order) {
+    if (Date.now() - start >= budgetMs) break
     let result: PostTxResultForTxid
-    let tx: Transaction | undefined
     try {
-      tx = beef.findAtomicTransaction(txid)
-    } catch {
-      tx = undefined
-    }
-    if (tx == null) {
-      result = { txid, status: 'error', serviceError: true, data: `transaction ${txid} not found in beef` }
-    } else {
-      const blockedBy = tx.inputs
-        .map(input => input.sourceTXID ?? input.sourceTransaction?.id('hex'))
-        .find(parent => parent != null && notAccepted.has(parent))
-      result =
-        blockedBy != null
-          ? { txid, status: 'error', serviceError: true, data: `parent ${blockedBy} was not accepted` }
-          : await postOne(tx, txid)
+      const tx = work.findAtomicTransaction(txid)
+      if (tx == null) {
+        result = retryable(txid, `transaction ${txid} not found in beef`)
+      } else {
+        const blockedBy = tx.inputs
+          .map(input => input.sourceTXID ?? input.sourceTransaction?.id('hex'))
+          .find(parent => parent != null && notAccepted.has(parent))
+        if (blockedBy != null) {
+          const parent = results.get(blockedBy)
+          const why = parent?.data ?? parent?.notes?.find(note => note.txStatus != null)?.txStatus
+          result = retryable(txid, `parent ${blockedBy} not accepted${why != null ? `: ${String(why)}` : ''}`)
+        } else {
+          result = await postOne(tx, txid)
+        }
+      }
+    } catch (err: any) {
+      result = retryable(txid, `cannot post ${txid}: ${err?.message ?? String(err)}`)
     }
     if (result.status !== 'success') notAccepted.add(txid)
     results.set(txid, result)
   }
-  const txidResults = txids.map(txid => results.get(txid)!)
+  const txidResults = txids.map((txid): PostTxResultForTxid => {
+    if (proven.has(txid)) return { txid, status: 'success' }
+    const result = results.get(txid)
+    return result != null ? { ...result, txid } : retryable(txid, 'broadcast budget exceeded')
+  })
   return {
     name,
     status: txidResults.every(result => result.status === 'success') ? 'success' : 'error',
