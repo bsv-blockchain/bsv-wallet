@@ -246,8 +246,18 @@ export function handleArcResponse(
   return txResult
 }
 
-/** Longest a provider may spend on one BEEF, walk included. */
+/** Longest the wallet waits on one provider (the Services soft timeout). */
 export const BROADCAST_PROVIDER_BUDGET_MS = 30_000
+
+/**
+ * Time left for one in-flight request after the walk stops starting new ones.
+ * The Services timer starts before the walk, so a walk that ran to the soft
+ * timeout would lose the race and its per-txid results would be discarded.
+ */
+const BROADCAST_WALK_MARGIN_MS = 10_000
+
+/** The walk posts no new transaction after this long. */
+export const BROADCAST_WALK_BUDGET_MS = BROADCAST_PROVIDER_BUDGET_MS - BROADCAST_WALK_MARGIN_MS
 
 /**
  * What to post, and in what order. `order` holds every txid in the BEEF that
@@ -284,7 +294,7 @@ async function postEachTransaction(
   beef: Beef,
   txids: string[],
   postOne: (tx: Transaction, txid: string) => Promise<PostTxResultForTxid>,
-  budgetMs: number = BROADCAST_PROVIDER_BUDGET_MS
+  budgetMs: number = BROADCAST_WALK_BUDGET_MS
 ): Promise<PostBeefResult> {
   const retryable = (txid: string, data: string): PostTxResultForTxid => ({
     txid,

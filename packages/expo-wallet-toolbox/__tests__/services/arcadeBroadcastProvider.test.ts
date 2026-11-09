@@ -1,5 +1,6 @@
 import { Beef, LockingScript, MerklePath, Transaction, UnlockingScript } from '@bsv/sdk'
 import {
+  BROADCAST_PROVIDER_BUDGET_MS,
   createArcadeBroadcastService,
   createGorillaPoolBroadcastService,
   createWocBroadcastService,
@@ -656,6 +657,28 @@ describe('multi-transaction BEEF', () => {
       expect(byId.get(ids[0])?.status).toBe('success')
       expect(byId.get(ids[3])).toMatchObject({ status: 'error', serviceError: true, data: 'broadcast budget exceeded' })
       expect(byId.get(ids[4])).toMatchObject({ status: 'error', serviceError: true, data: 'broadcast budget exceeded' })
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it('stops starting posts well before the Services soft timeout', async () => {
+    const { beef, ids } = chain(10)
+    let now = 1_000_000
+    const t0 = now
+    const starts: number[] = []
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    const fetchMock = jest.fn().mockImplementation(async () => {
+      starts.push(now - t0)
+      now += 5_000
+      return { ok: true, status: 200, json: async () => ({ txStatus: 'SEEN_ON_NETWORK' }) }
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    try {
+      const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+      const result = await service(beef, [ids[9]])
+      expect(Math.max(...starts)).toBeLessThan(BROADCAST_PROVIDER_BUDGET_MS - 5_000)
+      expect(result.txidResults[0]).toMatchObject({ status: 'error', serviceError: true, data: 'broadcast budget exceeded' })
     } finally {
       nowSpy.mockRestore()
     }
