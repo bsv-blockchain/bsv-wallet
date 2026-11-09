@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Changed
+
+- BSV Broadcaster (`broadcast.bsvblockchain.tech`) is now the primary
+  broadcast, SSE and chaintracks endpoint on all 4 networks (main, test,
+  teratest, scaletest).
+- Broadcast provider order: BSV Broadcaster, GorillaPool, WhatsOnChain,
+  Bitails. Each is registered only where the network table says it serves
+  that network.
+- Each provider gets a flat 30 s budget (`postBeefUntilSuccessSoftTimeoutMs`
+  30000, per-KB 0, max 30000). The walk inside a provider ends 2 s earlier
+  (28 s), so its results arrive before the soft timeout; a post does not
+  start with less than 1 s left. Transactions not reached get retryable
+  errors.
+- Every unconfirmed transaction of a BEEF is posted as EF, parents first.
+  An ancestor that cannot be built as EF gets a retryable error, as do its
+  descendants.
+- Only BSV Broadcaster validator answers HTTP 400 with the posted txid and
+  ARC code 461 or 464 (number or string) are final rejections. Every other
+  non-success answer is retryable.
+
+### Removed
+
+- Taal: `taalArcUrl`, `taalApiKey` and `createTaalBroadcastService`. Hosts
+  that pass `taalApiKey` must drop it.
+
 ### Added: sweep external keys (`core/pay/rails/sweep.ts`)
 
 Move coins that an external key controls into this wallet. Each sweep has a
@@ -26,6 +51,15 @@ preview step (WhatsOnChain reads only) and an execute step.
   are reported in `skipped`. A batch is aborted when the wallet adds an input
   of its own or the fee rate exceeds `maxFeeRate` (default 1000 sat/kB).
 - `wocFetch` in `pay/rails/address.ts` is now exported.
+
+### Fixed
+
+- **The ARC and WhatsOnChain broadcasters now post every transaction in a multi-transaction BEEF.** They previously
+  converted the BEEF to a single transaction (`Transaction.fromBEEF` returns the last one) and returned one result, so in
+  a `sendWith` batch of chained transactions only the last was posted, and the earlier ones reached the network only if
+  a later provider in the chain posted the whole BEEF. Each requested
+  txid is now posted on its own, parents first (`Beef.sortTxs`), with one result per txid in the caller's order. A
+  child whose parent was not accepted is not posted and is reported as a retryable service error.
 
 ## 0.23.0
 

@@ -209,13 +209,13 @@ Both schemes are registered in `app.json` and the checked-in `ios/BSVWallet/Info
 
 Create a `.env.local` file in the project root. The app reads `EXPO_PUBLIC_*` variables at build time.
 
-| Variable                      | Purpose                                          | Default (mainnet)                                          |
-| ----------------------------- | ------------------------------------------------ | ---------------------------------------------------------- |
-| `EXPO_PUBLIC_ARC_URL`         | ARC transaction processor URL                    | `https://arcade-v2-us-1.bsvblockchain.tech`                |
-| `EXPO_PUBLIC_ARC_API_KEY`     | ARC API key                                      | (none)                                                     |
-| `EXPO_PUBLIC_CHAINTRACKS_URL` | Chaintracks block-header service URL             | `https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1` |
-| `EXPO_PUBLIC_WOC_API_KEY`     | WhatsOnChain API key (also used as the TAAL key) | (none)                                                     |
-| `EXPO_PUBLIC_BACKUP_URL`      | Encrypted wallet-backup service origin           | (empty -- backup disabled)                                 |
+| Variable                      | Purpose                                | Default (mainnet)                                     |
+| ----------------------------- | -------------------------------------- | ----------------------------------------------------- |
+| `EXPO_PUBLIC_ARC_URL`         | ARC transaction processor URL          | `https://broadcast.bsvblockchain.tech`                |
+| `EXPO_PUBLIC_ARC_API_KEY`     | ARC API key                            | (none)                                                |
+| `EXPO_PUBLIC_CHAINTRACKS_URL` | Chaintracks block-header service URL   | `https://broadcast.bsvblockchain.tech/chaintracks/v1` |
+| `EXPO_PUBLIC_WOC_API_KEY`     | WhatsOnChain API key                   | (none)                                                |
+| `EXPO_PUBLIC_BACKUP_URL`      | Encrypted wallet-backup service origin | (empty -- backup disabled)                            |
 
 Testnet variants use a `_TEST_` infix (e.g. `EXPO_PUBLIC_TEST_ARC_URL`), and Teratest a `_TERATEST_` infix -- see `services/walletServiceConfig.ts` for the full per-network resolution.
 

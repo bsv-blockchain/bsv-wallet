@@ -52,20 +52,16 @@ export interface KnownArcUrl {
  * Known ARC endpoint presets, per network. Each list names only endpoints that
  * serve that network: picking a mainnet ARC on a test chain posts its
  * transactions to a network that will reject them (or, worse, accept a replay).
- * The scaling and tera test networks have one Arcade each, so they offer no
+ * Test, tera and scaling test networks have one BSV Broadcaster each, so they offer no
  * presets beyond their default.
  */
 export const KNOWN_ARC_URLS: Record<AppChain, readonly KnownArcUrl[]> = {
   main: [
-    { label: 'Arcade v2 (default)', url: NETWORKS.main.arcadeUrl, requiresToken: false },
-    { label: 'Arcade', url: 'https://arcade-us-1.bsvb.tech', requiresToken: false },
-    { label: 'TAAL', url: 'https://arc.taal.com', requiresToken: true },
-    { label: 'GorillaPool', url: 'https://arc.gorillapool.io', requiresToken: false }
+    { label: 'BSV Broadcaster (default)', url: NETWORKS.main.arcadeUrl, requiresToken: false },
+    { label: 'BSV Broadcaster US', url: 'https://arcade-us-1.bsvblockchain.tech', requiresToken: false },
+    { label: 'BSV Broadcaster EU', url: 'https://arcade-eu-1.bsvblockchain.tech', requiresToken: false }
   ],
-  test: [
-    { label: 'Arcade v2 (default)', url: NETWORKS.test.arcadeUrl, requiresToken: false },
-    { label: 'TAAL', url: 'https://arc-test.taal.com', requiresToken: true }
-  ],
-  teratest: [{ label: 'Arcade v2 (default)', url: NETWORKS.teratest.arcadeUrl, requiresToken: false }],
-  scaletest: [{ label: 'Arcade (default)', url: NETWORKS.scaletest.arcadeUrl, requiresToken: false }]
+  test: [{ label: 'BSV Broadcaster (default)', url: NETWORKS.test.arcadeUrl, requiresToken: false }],
+  teratest: [{ label: 'BSV Broadcaster (default)', url: NETWORKS.teratest.arcadeUrl, requiresToken: false }],
+  scaletest: [{ label: 'BSV Broadcaster (default)', url: NETWORKS.scaletest.arcadeUrl, requiresToken: false }]
 }

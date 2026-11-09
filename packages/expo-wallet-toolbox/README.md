@@ -187,10 +187,7 @@ configureToolbox({
       arcUrl: process.env.EXPO_PUBLIC_ARC_URL,
       arcApiKey: process.env.EXPO_PUBLIC_ARC_API_KEY,
       chaintracksUrl: process.env.EXPO_PUBLIC_CHAINTRACKS_URL,
-      whatsOnChainApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY,
-      // A distinct key: TAAL and WhatsOnChain are different origins, and this
-      // one is never used as a fallback for the other.
-      taalApiKey: process.env.EXPO_PUBLIC_TAAL_API_KEY
+      whatsOnChainApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY
     }
   }
 })

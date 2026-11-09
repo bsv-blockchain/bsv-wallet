@@ -137,9 +137,8 @@ configureToolbox({
       },
   // Per-chain service overrides. Anything left unset uses the toolbox's
   // built-in default for that chain (its NETWORKS table): each chain has its
-  // own Arcade, chaintracks and MessageBox server. Teratest has no TAAL ARC,
-  // so it takes no TAAL key; scaletest has no WhatsOnChain, so it takes no
-  // WoC key either.
+  // own BSV Broadcaster, chaintracks and MessageBox server. Scaletest has no
+  // WhatsOnChain, so it takes no WoC key.
   services: e2eBroadcaster
     ? {
         test: {
@@ -153,16 +152,14 @@ configureToolbox({
           arcApiKey: process.env.EXPO_PUBLIC_ARC_API_KEY,
           chaintracksUrl: process.env.EXPO_PUBLIC_CHAINTRACKS_URL,
           messageBoxUrl: process.env.EXPO_PUBLIC_DEFAULT_MESSAGEBOX_URL,
-          whatsOnChainApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY,
-          taalApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY
+          whatsOnChainApiKey: process.env.EXPO_PUBLIC_WOC_API_KEY
         },
         test: {
           arcUrl: process.env.EXPO_PUBLIC_TEST_ARC_URL,
           arcApiKey: process.env.EXPO_PUBLIC_TEST_ARC_API_KEY,
           chaintracksUrl: process.env.EXPO_PUBLIC_TEST_CHAINTRACKS_URL,
           messageBoxUrl: process.env.EXPO_PUBLIC_TEST_MESSAGEBOX_URL,
-          whatsOnChainApiKey: process.env.EXPO_PUBLIC_TEST_WOC_API_KEY,
-          taalApiKey: process.env.EXPO_PUBLIC_TEST_TAAL_API_KEY
+          whatsOnChainApiKey: process.env.EXPO_PUBLIC_TEST_WOC_API_KEY
         },
         teratest: {
           arcUrl: process.env.EXPO_PUBLIC_TERATEST_ARC_URL,

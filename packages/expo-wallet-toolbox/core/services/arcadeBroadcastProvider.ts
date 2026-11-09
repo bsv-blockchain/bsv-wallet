@@ -1,5 +1,6 @@
-import { Beef, Transaction, Utils } from '@bsv/sdk'
-import type { WocEndpoints } from '../networks'
+import { Beef, Transaction } from '@bsv/sdk'
+import type { NetworkProfile, WocEndpoints } from '../networks'
+import { trimTrailingSlashes } from '../net/trimTrailingSlashes'
 import type { PostBeefResult, PostTxResultForTxid } from '../toolboxTypes'
 
 const BROADCAST_TIMEOUT_MS = 30_000
@@ -139,6 +140,9 @@ async function fetchWithBodyDeadline(url: string, init: RequestInit, timeoutMs: 
  */
 const ARC_DOUBLE_SPEND_STATUSES = new Set(['DOUBLE_SPEND_ATTEMPTED'])
 
+/** WhatsOnChain bodies meaning this exact txid is already known or mined. */
+const WOC_ALREADY_HAVE_TX = /already[ -](known|in[ -]the[ -]mempool|in[ -](the[ -])?block[ -]?chain)/i
+
 /**
  * XR-062: SEEN_IN_ORPHAN_MEMPOOL means the parent hasn't propagated yet — a
  * transport/timing condition, not a proven conflict. offline/plan.ts's
@@ -149,6 +153,19 @@ const ARC_DOUBLE_SPEND_STATUSES = new Set(['DOUBLE_SPEND_ATTEMPTED'])
  * Treat it as retryable instead, like any other service hiccup.
  */
 const ARC_RETRYABLE_STATUSES = new Set(['SEEN_IN_ORPHAN_MEMPOOL'])
+
+/**
+ * ARC codes (the `status` number in a BSV Broadcaster 400 body) that are a
+ * validator verdict about the transaction bytes: 461 (invalid unlocking
+ * scripts / malformed) and 464 (invalid outputs). The list is deliberately
+ * short. A false terminal verdict is the XR-062 cascade: offline/plan.ts
+ * applyOutcome releases reservations and kills every descendant of a
+ * terminally rejected transaction. Codes such as 460 (not EF), 462 (inputs,
+ * can be propagation lag), 465 (fee policy differs per instance), 466
+ * (conflict; double spends come only from DOUBLE_SPEND_ATTEMPTED) and 476
+ * (locktime not final yet) stay retryable.
+ */
+export const ARC_INVALID_CODES = new Set([461, 464])
 
 /**
  * XR-064: explicit ARC statuses that mean "accepted for relay". A custom
@@ -185,7 +202,7 @@ function loggableSnippet(text: string): string {
 }
 
 /**
- * Shared response handling for ARC-compatible services (Arcade, Taal, GorillaPool).
+ * Shared response handling for ARC-compatible services (Arcade, GorillaPool).
  * Maps txStatus to the correct PostTxResultForTxid fields.
  *
  * Exported for unit tests.
@@ -193,7 +210,7 @@ function loggableSnippet(text: string): string {
 export function handleArcResponse(
   serviceName: string,
   response: { ok: boolean; status: number },
-  data: { txid?: string; txStatus?: string },
+  data: { txid?: string; txStatus?: string; status?: number | string },
   txids: string[]
 ): PostTxResultForTxid {
   const txResult: PostTxResultForTxid = {
@@ -222,95 +239,227 @@ export function handleArcResponse(
     // compatibility with a status this list doesn't know yet) — but a bare
     // or unrelated response is not (XR-064).
     txResult.status = 'success'
+  } else if (response.status === 400 && data.txid === txids[0] && ARC_INVALID_CODES.has(Number(data.status))) {
+    // Final rejection: leave status 'error' with no serviceError, no doubleSpend.
   } else {
     txResult.serviceError = true
   }
   return txResult
 }
 
+/** Longest the wallet waits on one provider (the Services soft timeout). */
+export const BROADCAST_PROVIDER_BUDGET_MS = 30_000
+
 /**
- * Convert BEEF to EF-format binary for ARC-compatible endpoints.
+ * Slack kept between the end of the walk and the Services soft timeout. The
+ * Services timer starts before the walk, so a walk that ran to the soft timeout
+ * would lose the race and its per-txid results would be discarded.
  */
-function beefToEF(beef: Beef): Uint8Array {
-  const tx = Transaction.fromBEEF(beef.toBinary())
-  return new Uint8Array(tx.toEF())
+const BROADCAST_WALK_SLACK_MS = 2_000
+
+/** The walk (every post, including its in-flight request) ends by this time. */
+export const BROADCAST_WALK_BUDGET_MS = BROADCAST_PROVIDER_BUDGET_MS - BROADCAST_WALK_SLACK_MS
+
+/** No new post starts with less time than this left; it could not finish. */
+const MIN_REQUEST_MS = 1_000
+
+/**
+ * What to post, and in what order. `order` holds every txid in the BEEF that
+ * has a raw transaction and no merkle path (parents first), then any requested
+ * txid the BEEF does not hold. `proven` holds the requested txids whose BEEF
+ * entry already has a merkle path. Works on a copy, so the caller's `beef`
+ * keeps its order.
+ */
+function postingPlan(beef: Beef, txids: string[]): { order: string[]; proven: Set<string> } {
+  const sorted = Beef.fromBinary(beef.toBinary())
+  sorted.sortTxs()
+  const wanted = new Set(txids)
+  const order: string[] = []
+  const proven = new Set<string>()
+  for (const btx of sorted.txs) {
+    if (btx.hasProof) {
+      if (wanted.has(btx.txid)) proven.add(btx.txid)
+    } else if (!btx.isTxidOnly) {
+      order.push(btx.txid)
+    }
+  }
+  const known = new Set(order)
+  for (const txid of txids) if (!proven.has(txid) && !known.has(txid)) order.push(txid)
+  return { order, proven }
 }
 
 /**
- * Create an ARC-compatible broadcast service that posts EF-format transactions.
- *
- * `txPath` is where the deployment serves its submit route. Arcade serves
- * POST /tx at the root; standard ARC (TAAL, GorillaPool) serves POST /v1/tx and
- * answers POST /tx with 404. Both take EF as application/octet-stream.
+ * Post every unconfirmed transaction of the BEEF, parents first, and return one
+ * result per requested txid. A transaction whose parent was not accepted is not
+ * posted. Each post gets only the time left in `budgetMs`, so the walk always
+ * ends inside the budget with its own per-txid results.
  */
-function createArcBroadcastService(
+async function postEachTransaction(
   name: string,
-  arcUrl: string,
-  txPath: '/tx' | '/v1/tx',
-  headers: Record<string, string>
-) {
+  beef: Beef,
+  txids: string[],
+  postOne: (tx: Transaction, txid: string, timeoutMs: number) => Promise<PostTxResultForTxid>,
+  budgetMs: number = BROADCAST_WALK_BUDGET_MS
+): Promise<PostBeefResult> {
+  const retryable = (txid: string, data: string): PostTxResultForTxid => ({
+    txid,
+    status: 'error',
+    serviceError: true,
+    data
+  })
+  const work = Beef.fromBinary(beef.toBinary())
+  const { order, proven } = postingPlan(work, txids)
+  const results = new Map<string, PostTxResultForTxid>()
+  const notAccepted = new Set<string>()
+  const start = Date.now()
+  for (const txid of order) {
+    if (budgetMs - (Date.now() - start) < MIN_REQUEST_MS) break
+    let result: PostTxResultForTxid
+    try {
+      const tx = work.findAtomicTransaction(txid)
+      if (tx == null) {
+        result = retryable(txid, `transaction ${txid} not found in beef`)
+      } else {
+        const blockedBy = tx.inputs
+          .map(input => input.sourceTXID ?? input.sourceTransaction?.id('hex'))
+          .find(parent => parent != null && notAccepted.has(parent))
+        if (blockedBy != null) {
+          const parent = results.get(blockedBy)
+          const why = parent?.data ?? parent?.notes?.find(note => note.txStatus != null)?.txStatus
+          result = retryable(txid, `parent ${blockedBy} not accepted${why != null ? `: ${String(why)}` : ''}`)
+        } else {
+          result = await postOne(tx, txid, Math.min(BROADCAST_TIMEOUT_MS, budgetMs - (Date.now() - start)))
+        }
+      }
+    } catch (err: any) {
+      result = retryable(txid, `cannot post ${txid}: ${err?.message ?? String(err)}`)
+    }
+    if (result.status !== 'success') notAccepted.add(txid)
+    results.set(txid, result)
+  }
+  const txidResults = txids.map((txid): PostTxResultForTxid => {
+    if (proven.has(txid)) return { txid, status: 'success' }
+    const result = results.get(txid)
+    return result != null ? { ...result, txid } : retryable(txid, 'broadcast budget exceeded')
+  })
   return {
     name,
-    service: async (beef: Beef, txids: string[]): Promise<PostBeefResult> => {
-      const r: PostBeefResult = { name, status: 'success', txidResults: [] }
-      try {
-        const ef = beefToEF(beef)
-        const response = await fetchWithBodyDeadline(
-          `${arcUrl}${txPath}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/octet-stream',
-              ...headers
+    status: txidResults.every(result => result.status === 'success') ? 'success' : 'error',
+    txidResults
+  }
+}
+
+/** Drop trailing slashes so a user-entered URL joins cleanly with a path. */
+function normalizeUrl(url: string): string {
+  return trimTrailingSlashes(url)
+}
+
+/**
+ * Create a BSV Broadcaster (Arcade) compatible service that posts EF-format
+ * transactions to `${url}/tx`. Arcade and GorillaPool's Arcade both serve
+ * POST /tx and take EF as application/octet-stream.
+ */
+function createArcBroadcastService(name: string, arcUrl: string, headers: Record<string, string>) {
+  const txPath = '/tx'
+  const endpoint = `${normalizeUrl(arcUrl)}${txPath}`
+  return {
+    name,
+    service: async (beef: Beef, txids: string[]): Promise<PostBeefResult> =>
+      await postEachTransaction(name, beef, txids, async (tx, txid, timeoutMs) => {
+        try {
+          const response = await fetchWithBodyDeadline(
+            endpoint,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/octet-stream', ...headers },
+              body: new Uint8Array(tx.toEF()) as unknown as BodyInit
             },
-            body: ef as unknown as BodyInit
-          },
-          BROADCAST_TIMEOUT_MS
-        )
-        const data = await response.json()
-        console.log(`[${name}] POST ${txPath} ${response.status}`, loggableSnippet(JSON.stringify(data)))
-        const txResult = handleArcResponse(name, response, data, txids)
-        r.txidResults.push(txResult)
-        r.status = txResult.status
-      } catch (err: any) {
-        console.log(`[${name}] POST ${txPath} error: ${err.message}`)
-        r.status = 'error'
-        r.txidResults.push({
-          txid: txids[0],
-          status: 'error',
-          serviceError: true,
-          data: err.message
-        })
-      }
-      return r
-    }
+            timeoutMs
+          )
+          const data = await response.json()
+          console.log(`[${name}] POST ${txPath} ${response.status}`, loggableSnippet(JSON.stringify(data)))
+          return handleArcResponse(name, response, data, [txid])
+        } catch (err: any) {
+          console.log(`[${name}] POST ${txPath} error: ${err.message}`)
+          return { txid, status: 'error', serviceError: true, data: err.message }
+        }
+      })
   }
 }
 
 /**
- * Arcade broadcast service — EF format with callback token for SSE updates.
+ * BSV Broadcaster (Arcade) service — EF format with callback token for SSE updates.
  */
 export function createArcadeBroadcastService(arcadeUrl: string, callbackToken: string) {
-  return createArcBroadcastService('Arcade', arcadeUrl, '/tx', {
+  return createArcBroadcastService('Arcade', arcadeUrl, {
     'X-CallbackToken': callbackToken,
     'X-FullStatusUpdates': 'true'
   })
 }
 
 /**
- * Taal ARC broadcast service — EF format.
+ * GorillaPool broadcast service — EF format, posts to `${url}/tx`.
  */
-export function createTaalBroadcastService(arcUrl: string, apiKey?: string) {
-  const headers: Record<string, string> = {}
-  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
-  return createArcBroadcastService('TaalArc', arcUrl, '/v1/tx', headers)
+export function createGorillaPoolBroadcastService(arcUrl: string) {
+  return createArcBroadcastService('GorillaPoolArc', arcUrl, {})
+}
+
+type BroadcastProvider = { name: string; service: (beef: Beef, txids: string[]) => Promise<PostBeefResult> }
+
+/**
+ * Wrap a provider whose own verdicts we do not trust as terminal (the toolbox's
+ * Bitails maps node error -25 "missing inputs" to doubleSpend, and posts no
+ * ancestors first). Every non-success txid result becomes a retryable
+ * serviceError, so only Arcade's structured txStatus can be a final rejection
+ * (XR-062 cascade).
+ */
+function createRetryableOnlyProvider(name: string, post: BroadcastProvider['service']): BroadcastProvider {
+  return {
+    name,
+    service: async (beef, txids) => {
+      const res = await post(beef, txids)
+      const txidResults = (res.txidResults ?? []).map(
+        (r): PostTxResultForTxid =>
+          r.status === 'success'
+            ? r
+            : { ...r, status: 'error', serviceError: true, doubleSpend: undefined, competingTxs: undefined }
+      )
+      return { ...res, txidResults }
+    }
+  }
 }
 
 /**
- * GorillaPool ARC broadcast service — EF format.
+ * Replace the toolbox's default broadcast providers with ours, in order:
+ * BSV Broadcaster (primary) -> GorillaPool -> WhatsOnChain -> Bitails. Each
+ * fallback is registered only where `network` says it serves the network, and
+ * GorillaPool is skipped when the person's primary URL already is GorillaPool.
+ * Returns the registered provider names, in order.
  */
-export function createGorillaPoolBroadcastService(arcUrl: string) {
-  return createArcBroadcastService('GorillaPoolArc', arcUrl, '/v1/tx', {})
+export function registerBroadcastProviders(
+  services: { postBeefServices: { add(s: BroadcastProvider): void; remove(name: string): void } },
+  network: NetworkProfile,
+  primaryUrl: string,
+  callbackToken: string,
+  whatsOnChainApiKey: string | undefined,
+  bitails: { postBeef: (beef: Beef, txids: string[]) => Promise<PostBeefResult> } | undefined
+): string[] {
+  const { postBeefServices } = services
+  for (const name of ['ArcadeBeef', 'GorillaPoolArcBeef', 'TaalArcBeef', 'Bitails', 'WhatsOnChain']) {
+    postBeefServices.remove(name)
+  }
+  const registered: string[] = []
+  const add = (provider: BroadcastProvider) => {
+    postBeefServices.add(provider)
+    registered.push(provider.name)
+  }
+  add(createArcadeBroadcastService(primaryUrl, callbackToken))
+  if (network.gorillaPoolArcUrl && normalizeUrl(network.gorillaPoolArcUrl) !== normalizeUrl(primaryUrl)) {
+    add(createGorillaPoolBroadcastService(network.gorillaPoolArcUrl))
+  }
+  if (network.woc) add(createWocBroadcastService(network.woc, whatsOnChainApiKey))
+  if (bitails && network.bitails) add(createRetryableOnlyProvider('Bitails', bitails.postBeef.bind(bitails)))
+  return registered
 }
 
 /**
@@ -326,60 +475,57 @@ export function createWocBroadcastService(woc: WocEndpoints, apiKey?: string) {
 
   return {
     name,
-    service: async (beef: Beef, txids: string[]): Promise<PostBeefResult> => {
-      const r: PostBeefResult = { name, status: 'success', txidResults: [] }
-      try {
-        const tx = Transaction.fromBEEF(beef.toBinary())
-        const rawHex = Utils.toHex(tx.toBinary())
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          Accept: 'text/plain'
+    service: async (beef: Beef, txids: string[]): Promise<PostBeefResult> =>
+      await postEachTransaction(name, beef, txids, async (tx, txid, timeoutMs) => {
+        try {
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Accept: 'text/plain'
+          }
+          if (apiKey) headers['woc-api-key'] = apiKey
+          const response = await fetchWithBodyDeadline(
+            `${baseUrl}/tx/raw`,
+            {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ txhex: tx.toHex() })
+            },
+            timeoutMs
+          )
+          const body = await response.text()
+          console.log(`[${name}] POST /tx/raw ${response.status}`, loggableSnippet(body))
+          const txResult: PostTxResultForTxid = {
+            txid,
+            status: 'error',
+            notes: [{ when: new Date().toISOString(), what: 'wocPostRawTx', httpStatus: response.status }]
+          }
+          if (response.ok) {
+            txResult.status = 'success'
+          } else if (WOC_ALREADY_HAVE_TX.test(body)) {
+            // Idempotent same-txid rebroadcast (already in the mempool, already
+            // known, or already mined — an unconfirmed ancestor may have been
+            // mined before its proof was fetched). A conflicting DIFFERENT tx
+            // cannot produce these messages, so they can't mask a double-spend.
+            txResult.status = 'success'
+          } else {
+            // Never classify from WoC body strings. "Missing inputs" is ambiguous
+            // (propagation lag vs mined double-spend) and a wrong terminal verdict
+            // cascades to reject descendants. Terminal verdicts come from Arcade's
+            // structured txStatus only (handleArcResponse); everything here is
+            // retryable, and the release engine's topological order — foreign
+            // ancestors included — is what prevents the orphan case at the source.
+            txResult.serviceError = true
+          }
+          return txResult
+        } catch (err: any) {
+          console.log(`[${name}] POST /tx/raw error: ${err.message}`)
+          return {
+            txid,
+            status: 'error',
+            serviceError: true,
+            data: err.message
+          }
         }
-        if (apiKey) headers['woc-api-key'] = apiKey
-        const response = await fetchWithBodyDeadline(
-          `${baseUrl}/tx/raw`,
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ txhex: rawHex })
-          },
-          BROADCAST_TIMEOUT_MS
-        )
-        const body = await response.text()
-        console.log(`[${name}] POST /tx/raw ${response.status}`, loggableSnippet(body))
-        const txResult: PostTxResultForTxid = {
-          txid: txids[0],
-          status: 'error',
-          notes: [{ when: new Date().toISOString(), what: 'wocPostRawTx', httpStatus: response.status }]
-        }
-        if (response.ok) {
-          txResult.status = 'success'
-        } else if (body.includes('already in the mempool')) {
-          // Idempotent same-txid rebroadcast — a conflicting DIFFERENT tx cannot
-          // produce this message, so it can't mask a double-spend.
-          txResult.status = 'success'
-        } else {
-          // Never classify from WoC body strings. "Missing inputs" is ambiguous
-          // (propagation lag vs mined double-spend) and a wrong terminal verdict
-          // cascades to reject descendants. Terminal verdicts come from Arcade's
-          // structured txStatus only (handleArcResponse); everything here is
-          // retryable, and the release engine's topological order — foreign
-          // ancestors included — is what prevents the orphan case at the source.
-          txResult.serviceError = true
-        }
-        r.txidResults.push(txResult)
-        r.status = txResult.status
-      } catch (err: any) {
-        console.log(`[${name}] POST /tx/raw error: ${err.message}`)
-        r.status = 'error'
-        r.txidResults.push({
-          txid: txids[0],
-          status: 'error',
-          serviceError: true,
-          data: err.message
-        })
-      }
-      return r
-    }
+      })
   }
 }
