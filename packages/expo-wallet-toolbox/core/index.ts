@@ -306,6 +306,7 @@ export * from './pay/userError'
 export * from './pay/patp'
 export * from './pay/counterparty'
 export * from './pay/rails/address'
+export * from './pay/rails/sweep'
 export * from './pay/rails/handle'
 export * from './pay/rails/direct'
 // nearby.ts is a pure re-export barrel over localpay/* (already exported above)

@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Added: sweep external keys (`core/pay/rails/sweep.ts`)
+
+Move coins that an external key controls into this wallet. Each sweep has a
+preview step (WhatsOnChain reads only) and an execute step.
+
+- **WIF:** `parseWif` / `isWif` (mainnet and testnet, compressed and
+  uncompressed), `planWifSweep` (preview), `sweepWif` (execute).
+- **Recovery phrase:** `scanMnemonic` (preview: gap-limit scan of each path's
+  receive chain; the change chain only when the receive chain shows use),
+  `sweepMnemonic` (execute, with per-path totals). The path list
+  (`paths`, default `DEFAULT_SWEEP_PATHS`, a placeholder) and the gap limit
+  (`gapLimit`, default 20) are parameters.
+- **Import decision:** `decideMnemonicImport` returns `restore` (backup cache
+  hit), `sweep` (no backup, coins found) or `empty` (restore as this wallet's
+  root). A failed cache lookup throws; it never falls through to a sweep.
+- The spend is the wallet's own `createAction` with the external outpoints as
+  inputs and no outputs, then `signAction` with locally signed inputs. The
+  wallet sets the fee, adds change to the default basket and broadcasts.
+  Batches of at most `maxInputsPerTx` (default 100) inputs per transaction.
+- Never spent: 1-sat outputs (`token`), outputs below their own input fee
+  (`dust`), outputs whose real script is not plain P2PKH (`nonstandard`). All
+  are reported in `skipped`. A batch is aborted when the wallet adds an input
+  of its own or the fee rate exceeds `maxFeeRate` (default 1000 sat/kB).
+- `wocFetch` in `pay/rails/address.ts` is now exported.
+
 ## 0.23.0
 
 Peer floors raised to the latest `@bsv` releases, the browser wallet bridge
