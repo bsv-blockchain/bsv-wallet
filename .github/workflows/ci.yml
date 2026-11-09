@@ -9,9 +9,9 @@ name: CI
 # integration tests, uploads coverage, and drives the browser end-to-end
 # journeys.
 #
-# Device end-to-end (Maestro on an Android emulator, or Detox on iOS) is a
-# separate manual workflow: e2e-device.yml. It needs a compiled dev-client,
-# which this Ubuntu job does not build.
+# Device end-to-end (Maestro on an Android emulator and an iOS simulator) is
+# in e2e-android.yml and e2e-ios.yml. Those jobs need a harness build, so they
+# run only for the `release` label, a `v*` tag, or by hand.
 
 on:
   pull_request:

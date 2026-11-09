@@ -12,12 +12,12 @@ End-to-end uses Playwright (Chromium). The browser wallet bridge is an HTTP loop
 
 | Layer            | What it covers                                                                                                                                | Command                 |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| Unit             | Keys, shares, storage SQL, pay rails, permissions, bridge protocol                                                                            | `pnpm test:unit`        |
-| Component        | Screens and sheets under `packages/expo-wallet-toolbox/__tests__/ui` and the app-root tests in `__tests__/`                                   | `pnpm test:ui`          |
+| Unit             | Keys, shares, storage SQL, pay rails, permissions, bridge protocol, and the app-root config tests in `__tests__/`                             | `pnpm test:unit`        |
+| Component        | Screens and sheets under `packages/expo-wallet-toolbox/__tests__/ui`                                                                          | `pnpm test:ui`          |
 | Integration      | Module journeys (restore → SQLite → testnet address → P2PKH send → approved BRC-100 `createAction`) plus the existing bridge integration test | `pnpm test:integration` |
-| All of the above | Default local / CI suite                                                                                                                      | `pnpm test`             |
+| All of the above | Default local suite                                                                                                                           | `pnpm test`             |
 | End-to-end       | Chromium: create, restore, receive, settings, connect, approve, pay 1 sat with `noSend`                                                       | `pnpm test:e2e`         |
-| Coverage         | Same as `pnpm test`, writing `coverage/`                                                                                                      | `pnpm test:coverage`    |
+| Coverage         | `pnpm test` without the byte-budget file, writing `coverage/`. CI runs this as `pnpm test:ci`                                                 | `pnpm test:coverage`    |
 
 `pnpm test` does not launch a browser. `pnpm test:e2e` does. The first e2e run needs Chromium:
 
@@ -153,10 +153,10 @@ On a booted emulator, `adb logcat` is the app log. On a booted simulator, `xcrun
 
 The device jobs do not run on an ordinary pull request or push. The repo has no pre-existing release label, so both workflows use one label, `release`. Create that label in the repository (this token cannot), then apply it to the pull request that should be gated. A later push to a pull request that still carries `release` runs the suite again. Pushing a version tag `v*` (the same pattern as Publish APK) is the backstop, and `workflow_dispatch` starts a run by hand.
 
-| Workflow                            | When                                                                                          | Runner                           |
-| ----------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------- |
-| `.github/workflows/e2e-android.yml` | Label `release`, a later push while it is applied, tag `v*`, `workflow_dispatch`              | `ubuntu-latest`, API 34 emulator |
-| `.github/workflows/e2e-ios.yml`     | The same gate. The job selects the newest Xcode 26 (Swift tools 6.2). On 26.2 or 26.3 it compiles ExpoModulesCore as Swift 5.10; 26.4+ compiles it as shipped. Then the Rust xcframeworks and the simulator build | `macos-15` simulator |
+| Workflow                            | When                                                                                                                                                                                                              | Runner                           |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `.github/workflows/e2e-android.yml` | Label `release`, a later push while it is applied, tag `v*`, `workflow_dispatch`                                                                                                                                  | `ubuntu-latest`, API 34 emulator |
+| `.github/workflows/e2e-ios.yml`     | The same gate. The job selects the newest Xcode 26 (Swift tools 6.2). On 26.2 or 26.3 it compiles ExpoModulesCore as Swift 5.10; 26.4+ compiles it as shipped. Then the Rust xcframeworks and the simulator build | `macos-15` simulator             |
 
 Jest runs in `.github/workflows/ci.yml` (see [CI](#ci)), and `publish.yaml` stays the npm publish gate. Neither is part of these device jobs.
 
@@ -204,6 +204,6 @@ Collected from `packages/expo-wallet-toolbox/core`, `ui`, `app`, `utils` and `ho
 pnpm test:coverage
 ```
 
-Global thresholds in `package.json` are statements 85, branches 80, functions 82, lines 85. The last local run was about 88.5% statements, 84.4% branches, 86.2% functions, 88.5% lines.
+Global thresholds in `package.json` are statements 85, branches 80, functions 82, lines 85. The CI run on 2026-11-09 measured 88.82% statements, 85.12% branches, 86.84% functions, 88.82% lines.
 
 `walletConnectionMemoryBudget.test.tsx` (paired-connection byte budget) is part of `pnpm test` and of Verify. The coverage command skips it: its multi-megabyte ciphertext makes the assertion flake once the worker is also collecting coverage. CI runs `pnpm test:memory-budget` immediately afterwards, without coverage.

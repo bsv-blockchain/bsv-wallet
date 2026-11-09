@@ -40,7 +40,7 @@
     "test:integration": "jest --watchman=false --testPathPattern=packages/expo-wallet-toolbox/__tests__/journeys|packages/expo-wallet-toolbox/__tests__/bridge/integration.test",
     "test:e2e": "jest --config jest.e2e.config.cjs --runInBand --watchman=false",
     "test:coverage": "jest --ci --coverage --watchman=false --maxWorkers=2 --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns='<rootDir>/e2e/' --testPathIgnorePatterns=walletConnectionMemoryBudget.test",
-    "test:ci": "jest --ci --coverage --watchman=false --maxWorkers=2 --testPathIgnorePatterns=/node_modules/ --testPathIgnorePatterns='<rootDir>/e2e/' --testPathIgnorePatterns=walletConnectionMemoryBudget.test",
+    "test:ci": "pnpm test:coverage",
     "test:memory-budget": "jest --ci --watchman=false --runInBand packages/expo-wallet-toolbox/__tests__/context/walletConnectionMemoryBudget.test.tsx"
   },
   "dependencies": {
