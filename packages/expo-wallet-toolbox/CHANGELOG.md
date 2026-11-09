@@ -11,8 +11,10 @@
   Bitails. Each is registered only where the network table says it serves
   that network.
 - Each provider gets a flat 30 s budget (`postBeefUntilSuccessSoftTimeoutMs`
-  30000, per-KB 0, max 30000). The walk inside a provider stops at the same
-  limit; transactions not reached get retryable errors.
+  30000, per-KB 0, max 30000). The walk inside a provider ends 2 s earlier
+  (28 s), so its results arrive before the soft timeout; a post does not
+  start with less than 1 s left. Transactions not reached get retryable
+  errors.
 - Every unconfirmed transaction of a BEEF is posted as EF, parents first.
   An ancestor that cannot be built as EF gets a retryable error, as do its
   descendants.
