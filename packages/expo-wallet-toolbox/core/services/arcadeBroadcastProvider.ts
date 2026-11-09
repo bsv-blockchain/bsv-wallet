@@ -1,5 +1,6 @@
 import { Beef, Transaction } from '@bsv/sdk'
 import type { NetworkProfile, WocEndpoints } from '../networks'
+import { trimTrailingSlashes } from '../net/trimTrailingSlashes'
 import type { PostBeefResult, PostTxResultForTxid } from '../toolboxTypes'
 
 const BROADCAST_TIMEOUT_MS = 30_000
@@ -350,7 +351,7 @@ async function postEachTransaction(
 
 /** Drop trailing slashes so a user-entered URL joins cleanly with a path. */
 function normalizeUrl(url: string): string {
-  return url.replace(/\/+$/, '')
+  return trimTrailingSlashes(url)
 }
 
 /**
