@@ -677,10 +677,37 @@ describe('multi-transaction BEEF', () => {
     try {
       const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
       const result = await service(beef, [ids[9]])
-      expect(Math.max(...starts)).toBeLessThan(BROADCAST_PROVIDER_BUDGET_MS - 5_000)
-      expect(result.txidResults[0]).toMatchObject({ status: 'error', serviceError: true, data: 'broadcast budget exceeded' })
+      expect(Math.max(...starts)).toBeLessThan(BROADCAST_PROVIDER_BUDGET_MS - 1_000)
+      expect(result.txidResults[0]).toMatchObject({
+        status: 'error',
+        serviceError: true,
+        data: 'broadcast budget exceeded'
+      })
     } finally {
       nowSpy.mockRestore()
+    }
+  })
+
+  it('bounds an in-flight request so the walk ends before the Services soft timeout', async () => {
+    jest.useFakeTimers()
+    const { beef, ids } = chain(3)
+    const fetchMock = jest.fn().mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+        })
+    )
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    try {
+      const t0 = Date.now()
+      const pending = service(beef, [ids[2], ids[0]])
+      await jest.advanceTimersByTimeAsync(BROADCAST_PROVIDER_BUDGET_MS - 1)
+      const result = await pending
+      expect(Date.now() - t0).toBeLessThan(BROADCAST_PROVIDER_BUDGET_MS)
+      expect(result.txidResults.every(r => r.status === 'error' && r.serviceError === true)).toBe(true)
+    } finally {
+      jest.useRealTimers()
     }
   })
 

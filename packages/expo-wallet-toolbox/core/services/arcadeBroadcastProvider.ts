@@ -250,14 +250,17 @@ export function handleArcResponse(
 export const BROADCAST_PROVIDER_BUDGET_MS = 30_000
 
 /**
- * Time left for one in-flight request after the walk stops starting new ones.
- * The Services timer starts before the walk, so a walk that ran to the soft
- * timeout would lose the race and its per-txid results would be discarded.
+ * Slack kept between the end of the walk and the Services soft timeout. The
+ * Services timer starts before the walk, so a walk that ran to the soft timeout
+ * would lose the race and its per-txid results would be discarded.
  */
-const BROADCAST_WALK_MARGIN_MS = 10_000
+const BROADCAST_WALK_SLACK_MS = 2_000
 
-/** The walk posts no new transaction after this long. */
-export const BROADCAST_WALK_BUDGET_MS = BROADCAST_PROVIDER_BUDGET_MS - BROADCAST_WALK_MARGIN_MS
+/** The walk (every post, including its in-flight request) ends by this time. */
+export const BROADCAST_WALK_BUDGET_MS = BROADCAST_PROVIDER_BUDGET_MS - BROADCAST_WALK_SLACK_MS
+
+/** No new post starts with less time than this left; it could not finish. */
+const MIN_REQUEST_MS = 1_000
 
 /**
  * What to post, and in what order. `order` holds every txid in the BEEF that
@@ -287,13 +290,14 @@ function postingPlan(beef: Beef, txids: string[]): { order: string[]; proven: Se
 /**
  * Post every unconfirmed transaction of the BEEF, parents first, and return one
  * result per requested txid. A transaction whose parent was not accepted is not
- * posted. The walk stops once `budgetMs` has passed.
+ * posted. Each post gets only the time left in `budgetMs`, so the walk always
+ * ends inside the budget with its own per-txid results.
  */
 async function postEachTransaction(
   name: string,
   beef: Beef,
   txids: string[],
-  postOne: (tx: Transaction, txid: string) => Promise<PostTxResultForTxid>,
+  postOne: (tx: Transaction, txid: string, timeoutMs: number) => Promise<PostTxResultForTxid>,
   budgetMs: number = BROADCAST_WALK_BUDGET_MS
 ): Promise<PostBeefResult> {
   const retryable = (txid: string, data: string): PostTxResultForTxid => ({
@@ -308,7 +312,7 @@ async function postEachTransaction(
   const notAccepted = new Set<string>()
   const start = Date.now()
   for (const txid of order) {
-    if (Date.now() - start >= budgetMs) break
+    if (budgetMs - (Date.now() - start) < MIN_REQUEST_MS) break
     let result: PostTxResultForTxid
     try {
       const tx = work.findAtomicTransaction(txid)
@@ -323,7 +327,7 @@ async function postEachTransaction(
           const why = parent?.data ?? parent?.notes?.find(note => note.txStatus != null)?.txStatus
           result = retryable(txid, `parent ${blockedBy} not accepted${why != null ? `: ${String(why)}` : ''}`)
         } else {
-          result = await postOne(tx, txid)
+          result = await postOne(tx, txid, Math.min(BROADCAST_TIMEOUT_MS, budgetMs - (Date.now() - start)))
         }
       }
     } catch (err: any) {
@@ -360,7 +364,7 @@ function createArcBroadcastService(name: string, arcUrl: string, headers: Record
   return {
     name,
     service: async (beef: Beef, txids: string[]): Promise<PostBeefResult> =>
-      await postEachTransaction(name, beef, txids, async (tx, txid) => {
+      await postEachTransaction(name, beef, txids, async (tx, txid, timeoutMs) => {
         try {
           const response = await fetchWithBodyDeadline(
             endpoint,
@@ -369,7 +373,7 @@ function createArcBroadcastService(name: string, arcUrl: string, headers: Record
               headers: { 'Content-Type': 'application/octet-stream', ...headers },
               body: new Uint8Array(tx.toEF()) as unknown as BodyInit
             },
-            BROADCAST_TIMEOUT_MS
+            timeoutMs
           )
           const data = await response.json()
           console.log(`[${name}] POST ${txPath} ${response.status}`, loggableSnippet(JSON.stringify(data)))
@@ -448,7 +452,7 @@ export function createWocBroadcastService(woc: WocEndpoints, apiKey?: string) {
   return {
     name,
     service: async (beef: Beef, txids: string[]): Promise<PostBeefResult> =>
-      await postEachTransaction(name, beef, txids, async (tx, txid) => {
+      await postEachTransaction(name, beef, txids, async (tx, txid, timeoutMs) => {
         try {
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
@@ -462,7 +466,7 @@ export function createWocBroadcastService(woc: WocEndpoints, apiKey?: string) {
               headers,
               body: JSON.stringify({ txhex: tx.toHex() })
             },
-            BROADCAST_TIMEOUT_MS
+            timeoutMs
           )
           const body = await response.text()
           console.log(`[${name}] POST /tx/raw ${response.status}`, loggableSnippet(body))
