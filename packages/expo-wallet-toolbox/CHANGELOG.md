@@ -2,6 +2,80 @@
 
 ## Unreleased
 
+## 0.24.0
+
+BSV Broadcaster as the broadcast path (#97), sweep of external keys (#93), the
+security review fixes (#72 to #92) and an end-to-end harness mode (#67). Hosts
+must rebuild their native apps: the package now ships a native module.
+
+### Breaking / host action
+
+- **The package ships a native Expo module, `BsvBoundedFetch` (#72, #79).**
+  `android/`, `ios/` and `expo-module.config.json` are now published, and
+  `expo-modules-core` ~57.0.0 is a new peer. Expo autolinking picks the module
+  up; hosts must rebuild the native apps (a JS-only update is not enough).
+  Backup, handle registry and trust-list requests go through it so that the
+  response size is capped in native code before JS sees a byte. There is no
+  fallback to the global `fetch`: without the module those requests throw.
+  Redirects are returned as 3xx and are not followed.
+- **Taal is removed** (#97): `taalArcUrl`, `taalApiKey` and
+  `createTaalBroadcastService`. See Removed.
+- **Wallet guard** (#77): `revealCounterpartyKeyLinkage` is refused for every
+  originator but the admin, and the wallet database export protocol is a
+  reserved namespace that only the admin may use.
+- **Vault deposits need a hardware key** (#83). Before a new vault output is
+  funded, one enrolled key must sign a challenge bound to that output
+  (`requireVaultOutputKeyPossession`). A deposit with no key present fails
+  with `VaultError` `not-enrolled` or `wrong-key`.
+- **Imported databases hold their outgoing PeerPay payments** (#92).
+  `importDatabases` quarantines the imported outbox; nothing is sent again
+  until the user approves each payment in `UniversalSend`
+  (`ImportedOutboxApproval`). Approval is bound to the signed recipient output.
+- **Legacy secret migration refuses to overwrite an existing wallet** (#84).
+  The result can now be `{ outcome: 'failed', stage: 'existing-identity' }`,
+  `retryable: true` when the store could not be read and `false` when an
+  envelope identity or KEK is already there.
+
+### Security
+
+- **Backup** (#72, #73): response bytes are capped in the native receiver.
+  Writers now produce v2 envelopes that authenticate the log position (device,
+  generation, sequence, predecessor digest) and the snapshot head inside the
+  AEAD. Legacy entries still decode, but they cannot prove that a recovery
+  snapshot is complete.
+- **Headers** (#81, #85): linked headers are checked for difficulty
+  transitions and accumulated work, an interrupted branch replacement is
+  recovered, and a remote payment root is accepted only when its header is an
+  anchored member of the validated chain.
+- **Wallet connections** (#78, #80, #87, #88): the replay floor survives
+  pairing a topic again; revocation cancels pairing attempts that are still in
+  progress (`usePairingAttempt`); in-flight wallet requests are revoked when
+  the relay socket closes; and the session response must match the approved
+  topic, backend identity key and protocol at the claimed HTTPS origin.
+  `parseRelayResponse(raw, expected?)` takes the expected tuple.
+- **Database import** (#82): every `sqlite_master` object is compared with the
+  reference schema. Names that start with `sqlite` are no longer exempt.
+- **Secrets** (#86): a biometric upgrade reads the new key back through its
+  access control before the session unlocks.
+- **Vault** (#91): metadata mutations (rename, key removal, recovery) are
+  bound to the authenticated snapshot.
+- **Safari bridge inbox** (#74): queue limits are enforced in the native
+  store, results are kept under queue pressure and pending calls are closed on
+  disposal.
+- **Nearby payments** (#76): a received description is cut at a complete
+  UTF-8 boundary, so it stays within its byte limit.
+
+### Added: end-to-end harness mode (#67)
+
+- `configureToolbox({ e2e: { broadcasterUrl } })`, for test builds only. It
+  locks the wallet off mainnet, stores keys without a biometric prompt and
+  points Pay at a mock broadcaster on a loopback or private address.
+  `configureToolbox` throws when an E2E config also has a backup URL, the
+  vault, a push adapter or mainnet services. Never set it in a build that can
+  hold funds.
+- Exports `isE2eBuild`, `getE2eBroadcasterUrl` and `e2eSafeChain`. Pay and
+  Home controls gained `testID`s for Maestro.
+
 ### Changed
 
 - BSV Broadcaster (`broadcast.bsvblockchain.tech`) is now the primary
