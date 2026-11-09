@@ -207,6 +207,18 @@ describe('createWocBroadcastService classification', () => {
     expect(r.txidResults[0].doubleSpend).toBeUndefined()
   })
 
+  it.each([
+    'txn-already-known',
+    '257: txn-already-known already known',
+    'unexpected response code 500: Transaction already in the block chain',
+    'transaction already in blockchain'
+  ])('treats %j as success (same-txid already known or mined)', async body => {
+    const r = await postOne(422, body)
+    expect(r.txidResults[0].status).toBe('success')
+    expect(r.txidResults[0].serviceError).toBeUndefined()
+    expect(r.txidResults[0].doubleSpend).toBeUndefined()
+  })
+
   it('classifies "Missing inputs" as a retryable serviceError, never doubleSpend', async () => {
     const r = await postOne(422, 'unexpected response code 500: Missing inputs')
     expect(r.txidResults[0].doubleSpend).toBeUndefined()

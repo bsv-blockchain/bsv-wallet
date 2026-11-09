@@ -139,6 +139,9 @@ async function fetchWithBodyDeadline(url: string, init: RequestInit, timeoutMs: 
  */
 const ARC_DOUBLE_SPEND_STATUSES = new Set(['DOUBLE_SPEND_ATTEMPTED'])
 
+/** WhatsOnChain bodies meaning this exact txid is already known or mined. */
+const WOC_ALREADY_HAVE_TX = /already[ -](known|in[ -]the[ -]mempool|in[ -](the[ -])?block[ -]?chain)/i
+
 /**
  * XR-062: SEEN_IN_ORPHAN_MEMPOOL means the parent hasn't propagated yet — a
  * transport/timing condition, not a proven conflict. offline/plan.ts's
@@ -445,9 +448,11 @@ export function createWocBroadcastService(woc: WocEndpoints, apiKey?: string) {
           }
           if (response.ok) {
             txResult.status = 'success'
-          } else if (body.includes('already in the mempool')) {
-            // Idempotent same-txid rebroadcast — a conflicting DIFFERENT tx cannot
-            // produce this message, so it can't mask a double-spend.
+          } else if (WOC_ALREADY_HAVE_TX.test(body)) {
+            // Idempotent same-txid rebroadcast (already in the mempool, already
+            // known, or already mined — an unconfirmed ancestor may have been
+            // mined before its proof was fetched). A conflicting DIFFERENT tx
+            // cannot produce these messages, so they can't mask a double-spend.
             txResult.status = 'success'
           } else {
             // Never classify from WoC body strings. "Missing inputs" is ambiguous
