@@ -25,3 +25,17 @@ describe('BSV Broadcaster endpoints', () => {
     for (const list of Object.values(KNOWN_ARC_URLS)) for (const p of list) expect(p.requiresToken).toBe(false)
   })
 })
+
+describe('eas.json build env', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const eas = require('fs').readFileSync(require('path').resolve(__dirname, '../../../../eas.json'), 'utf8')
+  const env = JSON.parse(eas).build.production.env as Record<string, string>
+  it.each([
+    ['', 'main'],
+    ['TEST_', 'test'],
+    ['TERATEST_', 'teratest']
+  ] as const)('%sARC/CHAINTRACKS overrides match the BSV Broadcaster front door', (infix, net) => {
+    expect(env[`EXPO_PUBLIC_${infix}ARC_URL`]).toBe(NETWORKS[net].arcadeUrl)
+    expect(env[`EXPO_PUBLIC_${infix}CHAINTRACKS_URL`]).toBe(`${NETWORKS[net].arcadeUrl}/chaintracks/v1`)
+  })
+})
