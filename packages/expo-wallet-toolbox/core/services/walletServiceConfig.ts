@@ -2,6 +2,7 @@ import type { AppChain } from '../config'
 import { toWalletChain } from '../config'
 import { getServiceConfig } from '../toolboxConfig'
 import { NETWORKS } from '../networks'
+import { BROADCAST_PROVIDER_BUDGET_MS } from './arcadeBroadcastProvider'
 import { ChaintracksServiceClient, Services } from '@bsv/wallet-toolbox-mobile'
 import type { ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
 import type { ChainTracker } from '@bsv/sdk'
@@ -133,6 +134,12 @@ export function createServices(
     chaintracksOverride
   )
   const services = new Services(serviceOptions)
+  // Each provider gets one flat budget. The toolbox default (5 s + 50 ms per KB,
+  // max 30 s) is shorter than a serial walk of a long unconfirmed chain; the walk
+  // inside a provider stops at the same cap (BROADCAST_PROVIDER_BUDGET_MS).
+  services.postBeefUntilSuccessSoftTimeoutMs = BROADCAST_PROVIDER_BUDGET_MS
+  services.postBeefUntilSuccessSoftTimeoutPerKbMs = 0
+  services.postBeefUntilSuccessSoftTimeoutMaxMs = BROADCAST_PROVIDER_BUDGET_MS
   // `ChaintracksClientApi` declares `isValidRootForHeight` and `currentHeight`
   // (ChaintracksClientApi.d.ts:137-138), which is the whole of `ChainTracker`, so
   // an override is always usable as one directly.
