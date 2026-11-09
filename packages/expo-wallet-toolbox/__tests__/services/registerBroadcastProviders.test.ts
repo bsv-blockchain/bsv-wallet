@@ -62,4 +62,27 @@ describe('registerBroadcastProviders', () => {
     registerBroadcastProviders(services, NETWORKS.main, NETWORKS.main.arcadeUrl, 'cb', undefined, undefined)
     expect(services.names()).toEqual(['Other', 'Arcade', 'GorillaPoolArc', 'WhatsOnChain'])
   })
+
+  it('Bitails never yields a terminal verdict (-25 missing inputs is retryable)', async () => {
+    const raw = {
+      postBeef: async () => ({
+        name: 'Bitails',
+        status: 'error',
+        txidResults: [
+          { txid: 'a', status: 'error', doubleSpend: true, competingTxs: ['x'] },
+          { txid: 'b', status: 'error' },
+          { txid: 'c', status: 'success' }
+        ]
+      })
+    }
+    const added: Provider[] = []
+    const s2 = { postBeefServices: { add: (p: Provider) => added.push(p), remove: () => {} } }
+    registerBroadcastProviders(s2, NETWORKS.main, NETWORKS.main.arcadeUrl, 'cb', undefined, raw as any)
+    const res = await added.find(p => p.name === 'Bitails')!.service({} as Beef, ['a', 'b', 'c'])
+    expect(res.txidResults[0]).toMatchObject({ txid: 'a', status: 'error', serviceError: true })
+    expect(res.txidResults[0].doubleSpend).toBeUndefined()
+    expect(res.txidResults[0].competingTxs).toBeUndefined()
+    expect(res.txidResults[1]).toMatchObject({ status: 'error', serviceError: true })
+    expect(res.txidResults[2]).toMatchObject({ status: 'success' })
+  })
 })

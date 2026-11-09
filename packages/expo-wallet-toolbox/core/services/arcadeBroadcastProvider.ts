@@ -406,6 +406,29 @@ export function createGorillaPoolBroadcastService(arcUrl: string) {
 type BroadcastProvider = { name: string; service: (beef: Beef, txids: string[]) => Promise<PostBeefResult> }
 
 /**
+ * Wrap a provider whose own verdicts we do not trust as terminal (the toolbox's
+ * Bitails maps node error -25 "missing inputs" to doubleSpend, and posts no
+ * ancestors first). Every non-success txid result becomes a retryable
+ * serviceError, so only Arcade's structured txStatus can be a final rejection
+ * (XR-062 cascade).
+ */
+function createRetryableOnlyProvider(name: string, post: BroadcastProvider['service']): BroadcastProvider {
+  return {
+    name,
+    service: async (beef, txids) => {
+      const res = await post(beef, txids)
+      const txidResults = (res.txidResults ?? []).map(
+        (r): PostTxResultForTxid =>
+          r.status === 'success'
+            ? r
+            : { ...r, status: 'error', serviceError: true, doubleSpend: undefined, competingTxs: undefined }
+      )
+      return { ...res, txidResults }
+    }
+  }
+}
+
+/**
  * Replace the toolbox's default broadcast providers with ours, in order:
  * BSV Broadcaster (primary) -> GorillaPool -> WhatsOnChain -> Bitails. Each
  * fallback is registered only where `network` says it serves the network, and
@@ -434,7 +457,7 @@ export function registerBroadcastProviders(
     add(createGorillaPoolBroadcastService(network.gorillaPoolArcUrl))
   }
   if (network.woc) add(createWocBroadcastService(network.woc, whatsOnChainApiKey))
-  if (bitails && network.bitails) add({ name: 'Bitails', service: bitails.postBeef.bind(bitails) })
+  if (bitails && network.bitails) add(createRetryableOnlyProvider('Bitails', bitails.postBeef.bind(bitails)))
   return registered
 }
 
