@@ -1649,9 +1649,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         )
 
         // Replace all default broadcast providers with EF/rawtx-only services.
-        // Order: Arcade → Taal → GorillaPool → WoC → Bitails. UntilSuccess stops at first success.
+        // Order: Arcade → GorillaPool → WoC → Bitails. UntilSuccess stops at first success.
         // Each fallback is registered only where NETWORKS says it serves the
-        // network: Taal on main + test, GorillaPool on main, WhatsOnChain where
+        // network: GorillaPool on main + test, WhatsOnChain where
         // one exists, Bitails on main + test.
         // 'ArcadeBeef' is the toolbox's own Arcade broadcaster, registered
         // because serviceOptions now carries arcadeUrl (needed for Arcade-first
@@ -1664,9 +1664,6 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
         services.postBeefServices.remove('Bitails')
         services.postBeefServices.remove('WhatsOnChain')
         services.postBeefServices.add(createArcadeBroadcastService(serviceOptions.arcUrl!, callbackToken))
-        if (network.taalArcUrl) {
-          services.postBeefServices.add(createTaalBroadcastService(network.taalArcUrl, serviceOptions.taalApiKey))
-        }
         if (network.gorillaPoolArcUrl) {
           services.postBeefServices.add(createGorillaPoolBroadcastService(network.gorillaPoolArcUrl))
         }

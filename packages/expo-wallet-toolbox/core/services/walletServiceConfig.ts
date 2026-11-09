@@ -74,7 +74,7 @@ export function createServiceOptions(
   }
 
   // One resolved Arcade endpoint feeds BOTH option slots. `arcUrl` is the
-  // toolbox's generic ARC slot (broadcast fallback, `services.arcTaal`).
+  // toolbox's generic ARC slot (generic ARC slot).
   // `arcadeUrl` is what makes `Services` construct its `Arcade` provider —
   // and that provider is the only `getMerklePath` source that can answer for
   // a transaction the moment Arcade sees it mined (GET /tx/{txid} carries
@@ -92,11 +92,6 @@ export function createServiceOptions(
   }
   const arcade = { arcUrl: arcadeUrl, arcConfig, arcadeUrl, arcadeConfig: arcConfig }
 
-  // XR-066: taalApiKey must never fall back to whatsOnChainApiKey. TAAL and
-  // WhatsOnChain are different origins (createTaalBroadcastService sends
-  // this key as a Bearer token to arc.taal.com et al. on every ordinary
-  // broadcast) — a host that scoped a key to WhatsOnChain must not have it
-  // silently disclosed to TAAL just because it left taalApiKey unset.
   const updateMsecs = network === 'main' ? 60 * 60 * 1000 : 60 * 60 * 1000000
   return {
     ...base,
@@ -105,7 +100,6 @@ export function createServiceOptions(
     fiatUpdateMsecs: updateMsecs,
     // A network with no WhatsOnChain gets no key: there is no host to send it to.
     whatsOnChainApiKey: NETWORKS[network].woc ? (svc.whatsOnChainApiKey ?? '') : '',
-    taalApiKey: NETWORKS[network].taalArcUrl ? (svc.taalApiKey ?? '') : '',
     chaintracks: chaintracksOverride ?? new ChaintracksServiceClient(walletChain, chaintracksUrlFor(network))
   }
 }

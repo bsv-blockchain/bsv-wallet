@@ -7,7 +7,7 @@ import {
 import { Services } from '@bsv/wallet-toolbox-mobile'
 import type { ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
 import type { AppChain } from '../../core/networks'
-import { configureToolbox, resetToolboxConfig, type ToolboxServiceConfig } from '../../core/toolboxConfig'
+import { configureToolbox, resetToolboxConfig } from '../../core/toolboxConfig'
 
 // The service config now comes from the host, not from process.env — see
 // core/toolboxConfig.ts. An empty `services` block is the "host stated nothing
@@ -120,10 +120,10 @@ describe('createServices', () => {
 
 describe('chaintracksUrlFor', () => {
   it('returns the right default URL per network when the host configured no override', () => {
-    expect(chaintracksUrlFor('main')).toBe('https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1')
-    expect(chaintracksUrlFor('test')).toBe('https://arcade-v2-testnet-us-1.bsvblockchain.tech/chaintracks/v1')
-    expect(chaintracksUrlFor('teratest')).toBe('https://arcade-v2-ttn-us-1.bsvblockchain.tech/chaintracks/v1')
-    expect(chaintracksUrlFor('scaletest')).toBe('https://arcade-tstn-us-1.bsvblockchain.tech/chaintracks/v1')
+    expect(chaintracksUrlFor('main')).toBe('https://broadcast.bsvblockchain.tech/chaintracks/v1')
+    expect(chaintracksUrlFor('test')).toBe('https://broadcast.bsvblockchain.tech/testnet/chaintracks/v1')
+    expect(chaintracksUrlFor('teratest')).toBe('https://broadcast.bsvblockchain.tech/ttn/chaintracks/v1')
+    expect(chaintracksUrlFor('scaletest')).toBe('https://broadcast.bsvblockchain.tech/tstn/chaintracks/v1')
   })
 
   it('a host override wins', () => {
@@ -141,10 +141,10 @@ describe('chaintracksUrlFor', () => {
 // Arcade, so Arcade must be the first place a proof is looked for.
 describe('Arcade wiring', () => {
   it.each([
-    ['main', 'https://arcade-v2-us-1.bsvblockchain.tech'],
-    ['test', 'https://arcade-v2-testnet-us-1.bsvblockchain.tech'],
-    ['teratest', 'https://arcade-v2-ttn-us-1.bsvblockchain.tech'],
-    ['scaletest', 'https://arcade-tstn-us-1.bsvblockchain.tech']
+    ['main', 'https://broadcast.bsvblockchain.tech'],
+    ['test', 'https://broadcast.bsvblockchain.tech/testnet'],
+    ['teratest', 'https://broadcast.bsvblockchain.tech/ttn'],
+    ['scaletest', 'https://broadcast.bsvblockchain.tech/tstn']
   ] as const)('%s: sets arcadeUrl to the same endpoint as arcUrl, with the monitor callback token', (network, url) => {
     const options = createServiceOptions(
       network,
@@ -172,52 +172,30 @@ describe('Arcade wiring', () => {
   })
 })
 
-// XR-066: taalApiKey silently aliased whatsOnChainApiKey on every network, so
-// a host that scoped a key to WhatsOnChain unknowingly disclosed it to TAAL
-// (arcadeBroadcastProvider's createTaalBroadcastService sends it as a Bearer
-// token to a different origin on every ordinary broadcast).
-describe('XR-066: taalApiKey must not fall back to whatsOnChainApiKey', () => {
-  it.each(['main', 'test', 'teratest'] as const)(
-    '%s: an omitted taalApiKey stays empty even when whatsOnChainApiKey is configured',
-    network => {
-      configureToolbox({
-        backupUrl: null,
-        services: { [network]: { whatsOnChainApiKey: 'woc-key' } as ToolboxServiceConfig }
-      })
-      const options = createServiceOptions(network, 'callback-token', exchangeRate())
-      expect(options.whatsOnChainApiKey).toBe('woc-key')
-      expect(options.taalApiKey).toBe('')
-    }
-  )
-
-  it('a configured taalApiKey is still used, independent of whatsOnChainApiKey', () => {
-    configureToolbox({
-      backupUrl: null,
-      services: { main: { whatsOnChainApiKey: 'woc-key', taalApiKey: 'taal-key' } }
-    })
-    const options = createServiceOptions('main', 'callback-token', exchangeRate())
-    expect(options.taalApiKey).toBe('taal-key')
+// Taal is gone: no taalApiKey key may appear in the service options.
+describe('no Taal key', () => {
+  it('createServiceOptions carries no taalApiKey', () => {
+    expect('taalApiKey' in createServiceOptions('main', 't', exchangeRate())).toBe(false)
   })
 })
 
-// A key is only ever sent to a service the network has. Teratest has no TAAL
-// ARC; scaletest has neither TAAL nor WhatsOnChain — a key configured for one
-// of those is dropped rather than handed to a provider with nowhere to go.
+// A key is only ever sent to a service the network has. Scaletest has no
+// WhatsOnChain — a key configured for it is dropped rather than handed to a
+// provider with nowhere to go.
 describe('keys follow the services each network has', () => {
-  it('teratest takes a WhatsOnChain key but no TAAL key', () => {
+  it('teratest takes a WhatsOnChain key', () => {
     configureToolbox({
       backupUrl: null,
-      services: { teratest: { whatsOnChainApiKey: 'woc-key', taalApiKey: 'taal-key' } }
+      services: { teratest: { whatsOnChainApiKey: 'woc-key' } }
     })
     const options = createServiceOptions('teratest', 'callback-token', exchangeRate())
     expect(options.whatsOnChainApiKey).toBe('woc-key')
-    expect(options.taalApiKey).toBe('')
   })
 
-  it('scaletest takes neither', () => {
+  it('scaletest takes no WhatsOnChain key', () => {
     configureToolbox({
       backupUrl: null,
-      services: { scaletest: { whatsOnChainApiKey: 'woc-key', taalApiKey: 'taal-key' } }
+      services: { scaletest: { whatsOnChainApiKey: 'woc-key' } }
     })
     const options = createServiceOptions(
       'scaletest',
@@ -229,6 +207,5 @@ describe('keys follow the services each network has', () => {
     )
     expect(options.chain).toBe('regtest')
     expect(options.whatsOnChainApiKey).toBe('')
-    expect(options.taalApiKey).toBe('')
   })
 })

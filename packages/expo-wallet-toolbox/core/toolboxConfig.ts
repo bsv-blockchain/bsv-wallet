@@ -17,7 +17,6 @@ export interface ToolboxServiceConfig {
   arcApiKey?: string
   chaintracksUrl?: string
   whatsOnChainApiKey?: string
-  taalApiKey?: string
   /**
    * The chain's default MessageBox origin. A user's own choice in Settings
    * still wins; this only replaces the built-in default in `NETWORKS`.
