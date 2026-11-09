@@ -674,3 +674,50 @@ describe('multi-transaction BEEF', () => {
     expect(result.txidResults[0].txid).toBe(ids[0])
   })
 })
+
+describe('BSV Broadcaster answers', () => {
+  const id = 'aa'.repeat(32)
+  const classify = (httpStatus: number, data: Parameters<typeof handleArcResponse>[2]) =>
+    handleArcResponse('Arcade', { ok: httpStatus >= 200 && httpStatus < 300, status: httpStatus }, data, [id])
+
+  it('treats a 400 with the posted txid and ARC code 461 as a final rejection', () => {
+    const result = classify(400, { txid: id, status: 461 })
+    expect(result.status).toBe('error')
+    expect(result.serviceError).toBeUndefined()
+    expect(result.doubleSpend).toBeUndefined()
+  })
+
+  it('treats a 400 whose ARC code is the string "464" the same way', () => {
+    const result = classify(400, { txid: id, status: '464' })
+    expect(result.status).toBe('error')
+    expect(result.serviceError).toBeUndefined()
+    expect(result.doubleSpend).toBeUndefined()
+  })
+
+  it.each([460, 462, 465, 466, 476])('keeps a 400 with ARC code %s retryable', code => {
+    const result = classify(400, { txid: id, status: code })
+    expect(result.status).toBe('error')
+    expect(result.serviceError).toBe(true)
+  })
+
+  it('keeps a 400 retryable when its txid is not the posted txid', () => {
+    expect(classify(400, { txid: 'bb'.repeat(32), status: 461 }).serviceError).toBe(true)
+  })
+
+  it('keeps a 400 with no txid and no ARC code retryable', () => {
+    const result = classify(400, { error: 'unsafe callback URL' } as never)
+    expect(result.status).toBe('error')
+    expect(result.serviceError).toBe(true)
+  })
+
+  it('keeps a 503 backpressure answer retryable', () => {
+    const result = classify(503, { error: 'backpressure' } as never)
+    expect(result.status).toBe('error')
+    expect(result.serviceError).toBe(true)
+  })
+
+  it('still maps DOUBLE_SPEND_ATTEMPTED on a 202 to doubleSpend', () => {
+    const result = classify(202, { txid: id, txStatus: 'DOUBLE_SPEND_ATTEMPTED' })
+    expect(result.doubleSpend).toBe(true)
+  })
+})

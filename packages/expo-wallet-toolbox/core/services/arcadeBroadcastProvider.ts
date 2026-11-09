@@ -154,6 +154,19 @@ const WOC_ALREADY_HAVE_TX = /already[ -](known|in[ -]the[ -]mempool|in[ -](the[ 
 const ARC_RETRYABLE_STATUSES = new Set(['SEEN_IN_ORPHAN_MEMPOOL'])
 
 /**
+ * ARC codes (the `status` number in a BSV Broadcaster 400 body) that are a
+ * validator verdict about the transaction bytes: 461 (invalid unlocking
+ * scripts / malformed) and 464 (invalid outputs). The list is deliberately
+ * short. A false terminal verdict is the XR-062 cascade: offline/plan.ts
+ * applyOutcome releases reservations and kills every descendant of a
+ * terminally rejected transaction. Codes such as 460 (not EF), 462 (inputs,
+ * can be propagation lag), 465 (fee policy differs per instance), 466
+ * (conflict; double spends come only from DOUBLE_SPEND_ATTEMPTED) and 476
+ * (locktime not final yet) stay retryable.
+ */
+export const ARC_INVALID_CODES = new Set([461, 464])
+
+/**
  * XR-064: explicit ARC statuses that mean "accepted for relay". A custom
  * (person-configured) ARC endpoint's success predicate used to be
  * `response.ok && data.txStatus !== 'REJECTED'` — no txid match, no
@@ -196,7 +209,7 @@ function loggableSnippet(text: string): string {
 export function handleArcResponse(
   serviceName: string,
   response: { ok: boolean; status: number },
-  data: { txid?: string; txStatus?: string },
+  data: { txid?: string; txStatus?: string; status?: number | string },
   txids: string[]
 ): PostTxResultForTxid {
   const txResult: PostTxResultForTxid = {
@@ -225,6 +238,8 @@ export function handleArcResponse(
     // compatibility with a status this list doesn't know yet) — but a bare
     // or unrelated response is not (XR-064).
     txResult.status = 'success'
+  } else if (response.status === 400 && data.txid === txids[0] && ARC_INVALID_CODES.has(Number(data.status))) {
+    // Final rejection: leave status 'error' with no serviceError, no doubleSpend.
   } else {
     txResult.serviceError = true
   }
