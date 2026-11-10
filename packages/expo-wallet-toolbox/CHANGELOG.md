@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.24.1
+
+One fix: the iOS native fetch. Hosts must rebuild their native apps.
+
 ### Fixed
 
 - **iOS: `BsvBoundedFetch` refused every request** with `ERR_INVALID_REQUEST`
