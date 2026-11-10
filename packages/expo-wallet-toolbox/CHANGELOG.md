@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- **iOS: `BsvBoundedFetch` refused every request** with `ERR_INVALID_REQUEST`
+  ("Invalid bounded HTTPS request"). The module read `maxBytes` from an untyped
+  dictionary with `as? Int`; over JSI the value is a Swift `Double`, and that
+  cast is always nil. Backup, handle registry and trust-list requests all go
+  through this module, so none of them worked on iOS in 0.24.0. The value is
+  now read as a whole number from either representation. Android was not
+  affected (it uses a typed record).
+
 ## 0.24.0
 
 BSV Broadcaster as the broadcast path (#97), sweep of external keys (#93), the
