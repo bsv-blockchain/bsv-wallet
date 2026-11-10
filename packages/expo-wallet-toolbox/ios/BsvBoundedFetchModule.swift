@@ -1,6 +1,19 @@
 import ExpoModulesCore
 import Foundation
 
+/// A JS number in an untyped dictionary arrives as a Swift `Double` over JSI
+/// and as an `NSNumber` over the old bridge. `Double as? Int` is always nil, so
+/// a plain cast refused every request on the JSI path. Whole, finite values in
+/// the JS safe-integer range are accepted; anything else is not a byte count.
+private func wholeNumber(_ value: Any?) -> Int? {
+  if let int = value as? Int { return int }
+  if let double = value as? Double, double.isFinite, double == double.rounded(),
+     abs(double) <= 9_007_199_254_740_991 {
+    return Int(double)
+  }
+  return nil
+}
+
 public final class BsvBoundedFetchModule: Module {
   private let lock = NSLock()
   private var requests: [String: BoundedRequest] = [:]
@@ -12,7 +25,7 @@ public final class BsvBoundedFetchModule: Module {
       guard let id = options["id"] as? String,
             let address = options["url"] as? String,
             let url = URL(string: address), url.scheme == "https",
-            let limit = options["maxBytes"] as? Int, (0...67108864).contains(limit) else {
+            let limit = wholeNumber(options["maxBytes"]), (0...67108864).contains(limit) else {
         promise.reject("ERR_INVALID_REQUEST", "Invalid bounded HTTPS request")
         return
       }
