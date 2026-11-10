@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.24.2
+
+Progress events for the sweep rail. No native change: hosts do not rebuild.
+
+### Added
+
+- **`onProgress` on `scanMnemonic`, `decideMnemonicImport`, `sweepWif` and
+  `sweepMnemonic`.** A scan of a recovery phrase takes a request or two per
+  address, paced, so a host had nothing to show for a long time. The listener
+  gets a `SweepProgress` event for the backup check, for each address about to
+  be checked (path name, chain path and index), for coins found, for each
+  finished path, and before and after each sweep transaction. Events carry
+  derivation paths and totals, never an address or a key. A listener that
+  throws does not stop the scan or the sweep.
+
 ## 0.24.1
 
 One fix: the iOS native fetch. Hosts must rebuild their native apps.

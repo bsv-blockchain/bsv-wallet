@@ -357,6 +357,48 @@ export async function planWifSweep(args: { wif: string; woc: WocConfig } & FeeOp
   )
 }
 
+/**
+ * What a scan or a sweep is doing right now, for a screen that shows it.
+ * Events carry derivation paths and totals, never an address or a key.
+ *
+ *  - `backup`: the backup cache is asked about the phrase (decideMnemonicImport).
+ *  - `address`: one address is about to be checked. `chainPath` is the chain
+ *    (receive or change) and `index` the child under it.
+ *  - `found`: an address has coins. Raw figures, before tokens and dust are
+ *    taken out; the plan has the figures the sweep will spend.
+ *  - `path-done`: both chains of one path are finished.
+ *  - `batch`: one sweep transaction is about to be built. `index` counts from 0.
+ *  - `batch-done`: that transaction went through (`txid`), failed (`error`),
+ *    or had nothing to spend (neither).
+ */
+export type SweepProgress =
+  | { stage: 'backup' }
+  | {
+      stage: 'address'
+      name: string
+      pathIndex: number
+      pathCount: number
+      chain: 'receive' | 'change'
+      chainPath: string
+      index: number
+    }
+  | { stage: 'found'; name: string; pathIndex: number; path: string; utxoCount: number; satoshis: number }
+  | { stage: 'path-done'; name: string; pathIndex: number; usedAddresses: number; utxoCount: number; satoshis: number }
+  | { stage: 'batch'; index: number; count: number; inputCount: number }
+  | { stage: 'batch-done'; index: number; count: number; txid?: string; error?: string }
+
+export type SweepProgressListener = (progress: SweepProgress) => void
+
+/** A listener is for display only: one that throws must not stop a scan or a sweep. */
+function report(listener: SweepProgressListener | undefined, progress: SweepProgress): void {
+  if (!listener) return
+  try {
+    listener(progress)
+  } catch {
+    // Display only.
+  }
+}
+
 export interface SweepBatchResult {
   txid?: string
   inputCount: number
@@ -393,6 +435,8 @@ interface ExecuteArgs {
   maxInputsPerTx?: number
   maxFeeRate?: number
   minRequestIntervalMs?: number
+  /** Called before and after each sweep transaction. */
+  onProgress?: SweepProgressListener
 }
 
 /**
@@ -443,6 +487,8 @@ export interface MnemonicScanArgs extends FeeOptions {
   paths?: readonly SweepPathSpec[]
   gapLimit?: number
   minRequestIntervalMs?: number
+  /** Called as the scan moves from address to address, and when it finds coins. */
+  onProgress?: SweepProgressListener
 }
 
 /**
@@ -490,12 +536,17 @@ export async function scanMnemonic(args: MnemonicScanArgs): Promise<MnemonicScan
   const found: SweepInput[] = []
   const summaries: PathScanSummary[] = []
 
-  const walk = async (node: HD, prefix: string): Promise<{ used: number; inputs: SweepInput[] }> => {
+  const walk = async (
+    node: HD,
+    prefix: string,
+    at: { name: string; pathIndex: number; chain: 'receive' | 'change' }
+  ): Promise<{ used: number; inputs: SweepInput[] }> => {
     let used = 0
     let unusedRun = 0
     const inputs: SweepInput[] = []
     for (let i = 0; i < MAX_SCAN_INDEX && unusedRun < gapLimit; i++) {
       const address = addressForKey(node.deriveChild(i).privKey, true, network)
+      report(args.onProgress, { stage: 'address', ...at, pathCount: chains.length, chainPath: prefix, index: i })
       await pace()
       if (!(await addressHasHistory(args.woc, address))) {
         unusedRun++
@@ -506,16 +557,35 @@ export async function scanMnemonic(args: MnemonicScanArgs): Promise<MnemonicScan
       await pace()
       const utxos = await getUtxosForAddress(args.woc, address)
       inputs.push(...utxos.map(u => ({ ...u, address, path: `${prefix}/${i}` })))
+      if (utxos.length > 0) {
+        report(args.onProgress, {
+          stage: 'found',
+          name: at.name,
+          pathIndex: at.pathIndex,
+          path: `${prefix}/${i}`,
+          utxoCount: utxos.length,
+          satoshis: utxos.reduce((n, u) => n + u.satoshis, 0)
+        })
+      }
     }
     return { used, inputs }
   }
 
-  for (const chain of chains) {
-    const receive = await walk(chain.receive, chain.spec.receive)
+  for (const [pathIndex, chain] of chains.entries()) {
+    const at = { name: chain.spec.name, pathIndex }
+    const receive = await walk(chain.receive, chain.spec.receive, { ...at, chain: 'receive' })
     let change = { used: 0, inputs: [] as SweepInput[] }
     const changeScanned = receive.used > 0 && chain.change !== undefined
-    if (changeScanned) change = await walk(chain.change!, chain.spec.change!)
+    if (changeScanned) change = await walk(chain.change!, chain.spec.change!, { ...at, chain: 'change' })
     found.push(...receive.inputs, ...change.inputs)
+    const all = [...receive.inputs, ...change.inputs]
+    report(args.onProgress, {
+      stage: 'path-done',
+      ...at,
+      usedAddresses: receive.used + change.used,
+      utxoCount: all.length,
+      satoshis: all.reduce((n, u) => n + u.satoshis, 0)
+    })
     summaries.push({
       name: chain.spec.name,
       receive: chain.spec.receive,
@@ -623,6 +693,7 @@ export async function decideMnemonicImport(
   }
 ): Promise<MnemonicImportDecision> {
   if (args.probe) {
+    report(args.onProgress, { stage: 'backup' })
     // Profile 0 of the phrase, derived exactly as the wallet derives it (deriveProfileKeys).
     const primaryKey = withSeed(args.mnemonic, args.passphrase ?? '', root => deriveProfileKeys(root, 0).primaryKey)
     try {
@@ -664,9 +735,20 @@ async function executeSweep(
   const keyed = plan.inputs.map(input => ({ input, ...args.keyFor(input) }))
   const sources = new Map<string, Beef>()
 
+  const batchCount = Math.ceil(keyed.length / maxInputs)
   for (let start = 0; start < keyed.length; start += maxInputs) {
     const candidates = keyed.slice(start, start + maxInputs)
     const batch: SweepBatchResult = { inputCount: 0, inputSatoshis: 0, importedSatoshis: 0, feeSatoshis: 0 }
+    const index = start / maxInputs
+    const finished = (): void =>
+      report(args.onProgress, {
+        stage: 'batch-done',
+        index,
+        count: batchCount,
+        ...(batch.txid ? { txid: batch.txid } : {}),
+        ...(batch.error ? { error: batch.error } : {})
+      })
+    report(args.onProgress, { stage: 'batch', index, count: batchCount, inputCount: candidates.length })
     let reference: string | undefined
     try {
       // Verify each input against the real source transaction: its real value
@@ -694,7 +776,10 @@ async function executeSweep(
         inputBeef.mergeBeef(source.toBinaryAtomic(k.input.txid))
         spend.set(`${k.input.txid}.${k.input.vout}`, { ...k, satoshis })
       }
-      if (spend.size === 0) continue
+      if (spend.size === 0) {
+        finished()
+        continue
+      }
       batches.push(batch)
 
       const created = await wallet.createAction(
@@ -759,9 +844,11 @@ async function executeSweep(
         feeSatoshis: fee
       })
       for (const k of spend.values()) spent.push({ ...k.input, satoshis: k.satoshis })
+      finished()
     } catch (error) {
       if (!batches.includes(batch)) batches.push(batch)
       batch.error = error instanceof Error ? error.message : String(error)
+      finished()
       if (reference) {
         try {
           await wallet.abortAction({ reference }, adminOriginator)

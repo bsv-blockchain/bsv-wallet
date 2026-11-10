@@ -23,7 +23,8 @@ import {
   sweepMnemonic,
   sweepWif,
   type SweepInput,
-  type SweepWallet
+  type SweepWallet,
+  type SweepProgress
 } from '../../core/pay/rails/sweep'
 
 /*
@@ -659,5 +660,116 @@ describe('decideMnemonicImport', () => {
 
   it('is empty on a network without WhatsOnChain', async () => {
     expect(await decideMnemonicImport({ mnemonic: ABANDON, chain: 'main', woc: undefined })).toEqual({ kind: 'empty' })
+  })
+})
+
+describe('progress', () => {
+  it('reports each address of a scan by chain path and index, and the coins it finds', async () => {
+    const chain = fakeChain()
+    fund(chain, V.electrumReceive0, [4000, 1])
+    serve(chain)
+    const seen: SweepProgress[] = []
+    await scanMnemonic({ mnemonic: ABANDON, woc: main, gapLimit: 1, onProgress: p => seen.push(p), ...FAST })
+
+    const addresses = seen.filter(p => p.stage === 'address')
+    expect(addresses.map(p => `${p.name} ${p.chainPath}/${p.index}`)).toEqual([
+      "Centbee m/44'/0/0/0",
+      "RockWallet m/0'/0/0",
+      "ElectrumSV m/44'/236'/0'/0/0",
+      "ElectrumSV m/44'/236'/0'/0/1",
+      "ElectrumSV m/44'/236'/0'/1/0",
+      "BIP-44 (coin 0) m/44'/0'/0'/0/0"
+    ])
+    expect(addresses[4]).toMatchObject({ chain: 'change', pathIndex: 2, pathCount: 4 })
+
+    // Raw figures: the 1-sat output is still counted here, the plan takes it out.
+    expect(seen.filter(p => p.stage === 'found')).toEqual([
+      { stage: 'found', name: 'ElectrumSV', pathIndex: 2, path: "m/44'/236'/0'/0/0", utxoCount: 2, satoshis: 4001 }
+    ])
+    expect(seen.filter(p => p.stage === 'path-done').map(p => [p.name, p.usedAddresses, p.satoshis])).toEqual([
+      ['Centbee', 0, 0],
+      ['RockWallet', 0, 0],
+      ['ElectrumSV', 1, 4001],
+      ['BIP-44 (coin 0)', 0, 0]
+    ])
+    // Paths and totals only.
+    expect(JSON.stringify(seen)).not.toContain(V.electrumReceive0)
+  })
+
+  it('reports the backup check before the scan', async () => {
+    serve(fakeChain())
+    const seen: SweepProgress[] = []
+    await decideMnemonicImport({
+      mnemonic: ABANDON,
+      chain: 'main',
+      probe: async () => false,
+      woc: main,
+      gapLimit: 1,
+      onProgress: p => seen.push(p),
+      ...FAST
+    })
+    expect(seen[0]).toEqual({ stage: 'backup' })
+    expect(seen[1]).toMatchObject({ stage: 'address', name: 'Centbee', index: 0 })
+  })
+
+  it('reports each sweep transaction before and after it', async () => {
+    const chain = fakeChain()
+    fund(
+      chain,
+      KEY1.mainComp.address,
+      Array.from({ length: 4 }, () => 1000)
+    )
+    serve(chain)
+    const { wallet } = fakeWallet()
+    const seen: SweepProgress[] = []
+    const result = await sweepWif({
+      wallet,
+      adminOriginator: 'admin',
+      woc: main,
+      wif: KEY1.mainComp.wif,
+      maxInputsPerTx: 3,
+      onProgress: p => seen.push(p),
+      ...FAST
+    })
+    expect(seen).toEqual([
+      { stage: 'batch', index: 0, count: 2, inputCount: 3 },
+      { stage: 'batch-done', index: 0, count: 2, txid: result.txids[0] },
+      { stage: 'batch', index: 1, count: 2, inputCount: 1 },
+      { stage: 'batch-done', index: 1, count: 2, txid: result.txids[1] }
+    ])
+  })
+
+  it('reports a failed transaction with its error', async () => {
+    const chain = fakeChain()
+    fund(chain, KEY1.mainComp.address, [5000])
+    serve(chain)
+    const { wallet } = fakeWallet({ extraInput: true })
+    const seen: SweepProgress[] = []
+    const result = await sweepWif({
+      wallet,
+      adminOriginator: 'admin',
+      woc: main,
+      wif: KEY1.mainComp.wif,
+      onProgress: p => seen.push(p),
+      ...FAST
+    })
+    expect(seen[1]).toEqual({ stage: 'batch-done', index: 0, count: 1, error: result.batches[0].error })
+    expect(result.batches[0].error).toBeTruthy()
+  })
+
+  it('goes on when the listener throws', async () => {
+    const chain = fakeChain()
+    fund(chain, V.bip44Receive0, [4000])
+    serve(chain)
+    const plan = await scanMnemonic({
+      mnemonic: ABANDON,
+      woc: main,
+      gapLimit: 1,
+      onProgress: () => {
+        throw new Error('display broke')
+      },
+      ...FAST
+    })
+    expect(plan.utxoCount).toBe(1)
   })
 })
