@@ -1038,6 +1038,8 @@ const resources = {
       local_pay_queued: 'Saved — it will be added to your wallet automatically.',
       local_pay_already_paid: 'This request has already been paid.',
       local_pay_failed: 'Payment failed',
+      local_pay_wrong_network:
+        'This code is for a wallet on {{theirs}}. Your wallet is on {{mine}}, so this payment cannot go through. Switch networks, or ask them to.',
       local_pay_network_denied: 'Local Network access is off. Enable it in Settings to pay nearby devices.',
       local_pay_radio_fallback: 'Wireless link unavailable — show this code to the other device instead.',
       local_pay_floor_peer_bt_off: 'Their Bluetooth is off, so this payment will go by code.',
@@ -2200,6 +2202,8 @@ const resources = {
       local_pay_queued: '已保存 — 稍后会自动添加到您的钱包。',
       local_pay_already_paid: '此请求已经支付过了。',
       local_pay_failed: '付款失败',
+      local_pay_wrong_network:
+        '此付款码属于{{theirs}}上的钱包。您的钱包在{{mine}}上，因此无法完成此付款。请切换网络，或请对方切换。',
       local_pay_network_denied: '本地网络访问已关闭。请在“设置”中开启，才能向附近的设备付款。',
       local_pay_radio_fallback: '无线连接不可用——请改为向对方出示此码。',
       local_pay_floor_peer_bt_off: '对方的蓝牙已关闭，此付款将通过二维码完成。',
@@ -3402,6 +3406,8 @@ const resources = {
       local_pay_queued: 'सहेज लिया गया — यह अपने आप आपके वॉलेट में जुड़ जाएगा।',
       local_pay_already_paid: 'इस अनुरोध का भुगतान पहले ही हो चुका है।',
       local_pay_failed: 'भुगतान विफल',
+      local_pay_wrong_network:
+        'यह कोड {{theirs}} पर एक वॉलेट का है। आपका वॉलेट {{mine}} पर है, इसलिए यह भुगतान नहीं हो सकता। नेटवर्क बदलें, या उनसे बदलने को कहें।',
       local_pay_network_denied:
         'लोकल नेटवर्क एक्सेस बंद है। नज़दीकी डिवाइस को भुगतान करने के लिए इसे सेटिंग्स में चालू करें।',
       local_pay_radio_fallback: 'वायरलेस लिंक उपलब्ध नहीं — इसके बजाय यह कोड दूसरे डिवाइस को दिखाएँ।',
@@ -4637,6 +4643,8 @@ const resources = {
       local_pay_queued: 'Guardado: se añadirá a tu billetera automáticamente.',
       local_pay_already_paid: 'Esta solicitud ya fue pagada.',
       local_pay_failed: 'El pago falló',
+      local_pay_wrong_network:
+        'Este código es de una billetera en {{theirs}}. Tu billetera está en {{mine}}, así que este pago no puede realizarse. Cambia de red o pídeles que lo hagan.',
       local_pay_network_denied:
         'El acceso a la red local está desactivado. Actívalo en Configuración para pagar a dispositivos cercanos.',
       local_pay_radio_fallback: 'Enlace inalámbrico no disponible: muestra este código al otro dispositivo.',
@@ -5891,6 +5899,8 @@ const resources = {
       local_pay_queued: 'Enregistré — il sera ajouté automatiquement à votre portefeuille.',
       local_pay_already_paid: 'Cette demande a déjà été payée.',
       local_pay_failed: 'Échec du paiement',
+      local_pay_wrong_network:
+        'Ce code est destiné à un portefeuille sur {{theirs}}. Votre portefeuille est sur {{mine}}, ce paiement ne peut donc pas aboutir. Changez de réseau, ou demandez-leur de le faire.',
       local_pay_network_denied:
         'L’accès au réseau local est désactivé. Activez-le dans Réglages pour payer les appareils à proximité.',
       local_pay_radio_fallback: 'Liaison sans fil indisponible — présentez plutôt ce code à l’autre appareil.',
@@ -7093,6 +7103,8 @@ const resources = {
       local_pay_queued: 'تم الحفظ — ستُضاف إلى محفظتك تلقائيًا.',
       local_pay_already_paid: 'تم دفع هذا الطلب بالفعل.',
       local_pay_failed: 'فشلت عملية الدفع',
+      local_pay_wrong_network:
+        'هذا الرمز لمحفظة على {{theirs}}. محفظتك على {{mine}}، لذا لا يمكن إتمام هذه الدفعة. غيّر الشبكة، أو اطلب منهم ذلك.',
       local_pay_network_denied: 'الوصول إلى الشبكة المحلية مُعطَّل. فعّله من الإعدادات للدفع إلى الأجهزة القريبة.',
       local_pay_radio_fallback: 'الاتصال اللاسلكي غير متاح — اعرض هذا الرمز على الجهاز الآخر بدلاً من ذلك.',
       local_pay_floor_peer_bt_off: 'بلوتوث الجهاز الآخر مُغلق، لذا ستتم هذه الدفعة عبر الرمز.',
@@ -8316,6 +8328,8 @@ const resources = {
       local_pay_queued: 'Salvo — será adicionado à sua carteira automaticamente.',
       local_pay_already_paid: 'Esta solicitação já foi paga.',
       local_pay_failed: 'Falha no pagamento',
+      local_pay_wrong_network:
+        'Este código é de uma carteira na {{theirs}}. Sua carteira está na {{mine}}, então este pagamento não pode ser concluído. Troque de rede ou peça que a outra pessoa troque.',
       local_pay_network_denied:
         'O acesso à rede local está desativado. Ative-o em Ajustes para pagar dispositivos por perto.',
       local_pay_radio_fallback: 'Link sem fio indisponível — mostre este código ao outro aparelho.',
@@ -9540,6 +9554,8 @@ const resources = {
       local_pay_queued: 'সংরক্ষিত হয়েছে — এটি স্বয়ংক্রিয়ভাবে আপনার ওয়ালেটে যোগ হবে।',
       local_pay_already_paid: 'এই অনুরোধের পেমেন্ট আগেই হয়ে গেছে।',
       local_pay_failed: 'পেমেন্ট ব্যর্থ হয়েছে',
+      local_pay_wrong_network:
+        'এই কোডটি {{theirs}}-এর একটি ওয়ালেটের জন্য। আপনার ওয়ালেট {{mine}}-এ আছে, তাই এই পেমেন্ট সম্ভব নয়। নেটওয়ার্ক বদলান, অথবা তাদের বদলাতে বলুন।',
       local_pay_network_denied:
         'লোকাল নেটওয়ার্ক অ্যাক্সেস বন্ধ আছে। কাছের ডিভাইসে পেমেন্ট করতে সেটিংসে এটি চালু করুন।',
       local_pay_radio_fallback: 'ওয়্যারলেস লিঙ্ক অনুপলব্ধ — এর পরিবর্তে অন্য ডিভাইসে এই কোডটি দেখান।',
@@ -10770,6 +10786,8 @@ const resources = {
       local_pay_queued: 'Сохранено — платёж будет добавлен в кошелёк автоматически.',
       local_pay_already_paid: 'Этот запрос уже оплачен.',
       local_pay_failed: 'Платёж не прошёл',
+      local_pay_wrong_network:
+        'Этот код для кошелька в сети {{theirs}}. Ваш кошелёк в сети {{mine}}, поэтому платёж не пройдёт. Смените сеть или попросите об этом получателя.',
       local_pay_network_denied:
         'Доступ к локальной сети выключен. Включите его в «Настройках», чтобы платить устройствам поблизости.',
       local_pay_radio_fallback: 'Беспроводное соединение недоступно — покажите этот код другому устройству.',
@@ -12005,6 +12023,8 @@ const resources = {
       local_pay_queued: 'Tersimpan — akan ditambahkan ke dompet Anda secara otomatis.',
       local_pay_already_paid: 'Permintaan ini sudah dibayar.',
       local_pay_failed: 'Pembayaran gagal',
+      local_pay_wrong_network:
+        'Kode ini untuk dompet di {{theirs}}. Dompet Anda di {{mine}}, jadi pembayaran ini tidak bisa dilakukan. Ganti jaringan, atau minta mereka menggantinya.',
       local_pay_network_denied:
         'Akses Jaringan Lokal nonaktif. Aktifkan di Pengaturan untuk membayar perangkat di dekat Anda.',
       local_pay_radio_fallback:
@@ -13249,6 +13269,8 @@ const resources = {
       local_pay_queued: '保存しました — 自動的にウォレットへ追加されます。',
       local_pay_already_paid: 'このリクエストはすでに支払われています。',
       local_pay_failed: '支払いに失敗しました',
+      local_pay_wrong_network:
+        'このコードは{{theirs}}のウォレット用です。あなたのウォレットは{{mine}}にあるため、この支払いはできません。ネットワークを切り替えるか、相手に切り替えてもらってください。',
       local_pay_network_denied:
         'ローカルネットワークへのアクセスがオフです。近くの端末に支払うには「設定」でオンにしてください。',
       local_pay_radio_fallback: '無線リンクが利用できません — 代わりにこのコードを相手の端末に表示してください。',
@@ -14498,6 +14520,8 @@ const resources = {
       local_pay_queued: 'Zapisano — zostanie automatycznie dodane do portfela.',
       local_pay_already_paid: 'Ta prośba została już opłacona.',
       local_pay_failed: 'Płatność nie powiodła się',
+      local_pay_wrong_network:
+        'Ten kod jest dla portfela w sieci {{theirs}}. Twój portfel jest w sieci {{mine}}, więc ta płatność nie przejdzie. Zmień sieć albo poproś o to odbiorcę.',
       local_pay_network_denied:
         'Dostęp do sieci lokalnej jest wyłączony. Włącz go w Ustawieniach, aby płacić urządzeniom w pobliżu.',
       local_pay_radio_fallback: 'Połączenie bezprzewodowe niedostępne — pokaż ten kod drugiemu urządzeniu.',
