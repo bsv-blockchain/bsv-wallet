@@ -3,7 +3,7 @@ Pod::Spec.new do |s|
   s.version = '0.0.0'
   s.summary = 'Sealed App Group request queue shared by the app and the Safari extension.'
   s.homepage = 'https://github.com/bsv-blockchain/bsv-wallet'
-  s.license = { :type => 'Open BSV' }
+  s.license = { :type => 'Apache-2.0' }
   s.author = 'BSV Association'
   s.platforms = { :ios => '15.1' }
   s.source = { :path => '.' }

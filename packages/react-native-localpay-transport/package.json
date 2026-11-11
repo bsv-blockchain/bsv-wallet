@@ -3,7 +3,7 @@
   "version": "0.1.1",
   "private": false,
   "description": "Nitro module exposing native local-payment transports (AWDL/TLS-PSK on iOS, Nearby Connections on Android, plus a BLE rung on both) for proximity BSV payments in Expo/React Native apps.",
-  "license": "Open BSV",
+  "license": "Apache-2.0",
   "author": "BSV Association",
   "repository": {
     "type": "git",
@@ -24,7 +24,12 @@
   ],
   "main": "src/index.ts",
   "types": "src/index.ts",
+  "scripts": {
+    "prepack": "node -e \"const fs=require('fs');for(const f of ['LICENSE','NOTICE'])fs.copyFileSync('../../'+f,f)\""
+  },
   "files": [
+    "LICENSE",
+    "NOTICE",
     "src",
     "ios",
     "android",

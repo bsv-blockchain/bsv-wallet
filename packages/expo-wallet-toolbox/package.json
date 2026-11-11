@@ -3,7 +3,7 @@
   "version": "0.24.2",
   "private": false,
   "description": "Wallet screens and P2P local-payment backend for Expo/React Native apps, extracted from BSV Wallet.",
-  "license": "SEE LICENSE IN LICENSE.txt",
+  "license": "Apache-2.0",
   "author": "BSV Association",
   "repository": {
     "type": "git",
@@ -22,7 +22,12 @@
   ],
   "main": "core/index.ts",
   "types": "core/index.ts",
+  "scripts": {
+    "prepack": "node -e \"const fs=require('fs');for(const f of ['NOTICE'])fs.copyFileSync('../../'+f,f)\""
+  },
   "files": [
+    "LICENSE",
+    "NOTICE",
     "core",
     "ui",
     "assets",
