@@ -25,10 +25,11 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "prepack": "node -e \"const fs=require('fs');for(const f of ['LICENSE','NOTICE'])fs.copyFileSync('../../'+f,f)\""
+    "prepack": "node -e \"const fs=require('fs');for(const f of ['LICENSE','NOTICE','PATENTS'])fs.copyFileSync('../../'+f,f)\""
   },
   "files": [
     "LICENSE",
+    "PATENTS",
     "NOTICE",
     "src",
     "ios",

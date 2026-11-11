@@ -24,10 +24,11 @@
     "expo-modules-core": "~57.0.0"
   },
   "scripts": {
-    "prepack": "node -e \"const fs=require('fs');for(const f of ['LICENSE','NOTICE'])fs.copyFileSync('../../'+f,f)\""
+    "prepack": "node -e \"const fs=require('fs');for(const f of ['LICENSE','NOTICE','PATENTS'])fs.copyFileSync('../../'+f,f)\""
   },
   "files": [
     "LICENSE",
+    "PATENTS",
     "NOTICE",
     "app.plugin.js",
     "expo-module.config.json",

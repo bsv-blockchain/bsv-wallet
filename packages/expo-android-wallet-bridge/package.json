@@ -24,10 +24,11 @@
     "react-native-safe-area-context": "~5.7.0"
   },
   "scripts": {
-    "prepack": "node -e \"const fs=require('fs');for(const f of ['LICENSE','NOTICE'])fs.copyFileSync('../../'+f,f)\""
+    "prepack": "node -e \"const fs=require('fs');for(const f of ['LICENSE','NOTICE','PATENTS'])fs.copyFileSync('../../'+f,f)\""
   },
   "files": [
     "LICENSE",
+    "PATENTS",
     "NOTICE",
     "android",
     "app.plugin.js",
