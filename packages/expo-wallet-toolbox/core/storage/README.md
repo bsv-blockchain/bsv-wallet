@@ -388,4 +388,4 @@ Potential areas for improvement:
 
 ## License
 
-Open BSV License
+Apache License 2.0
