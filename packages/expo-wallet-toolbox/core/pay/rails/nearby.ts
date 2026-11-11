@@ -10,7 +10,7 @@
  * If you find yourself wanting to add a function here, add it to the caller
  * instead.
  */
-export { decodeSession, encodeSession, mintSession, type Session } from '../../localpay/session'
+export { decodeSession, encodeSession, mintSession, sessionNetworkMismatch, type Session } from '../../localpay/session'
 export {
   FRAME_BLOCK_BYTES,
   SEAL_VERSION,
