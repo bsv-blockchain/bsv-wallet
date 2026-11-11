@@ -91,8 +91,12 @@ e2e/mock/requests.log
 # LICENSE / NOTICE copied into nested npm packages by their prepack script
 /packages/expo-android-wallet-bridge/LICENSE
 /packages/expo-android-wallet-bridge/NOTICE
+/packages/expo-android-wallet-bridge/PATENTS
 /packages/expo-safari-wallet-bridge/LICENSE
 /packages/expo-safari-wallet-bridge/NOTICE
+/packages/expo-safari-wallet-bridge/PATENTS
 /packages/expo-wallet-toolbox/NOTICE
+/packages/expo-wallet-toolbox/PATENTS
 /packages/react-native-localpay-transport/LICENSE
 /packages/react-native-localpay-transport/NOTICE
+/packages/react-native-localpay-transport/PATENTS
