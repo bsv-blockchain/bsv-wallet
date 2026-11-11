@@ -133,6 +133,7 @@ import {
   durations,
   springs,
   useWalletManagers,
+  useWalletStatus,
   sounds,
   updateOfflineAction,
   AirGapDecoder,
@@ -168,6 +169,7 @@ import {
   requestBlePermissions,
   requestNearbyPermissions,
   sealedToQr,
+  sessionNetworkMismatch,
   sealFrame,
   selectTransport,
   unsealFrame,
@@ -188,6 +190,7 @@ import {
   type SessionAsset
 } from '@bsv/expo-wallet-toolbox'
 import { useMandala } from '../../hooks/useMandala'
+import { storageMatchesNetwork } from '../../../core/net/chainMatch'
 import { formatTokenAmount, formatTokenAmountWithUnit } from '../../tokenFormat'
 import type { AmountInputAsset } from '../wallet/AmountInput'
 import type { DismissTarget } from '../../dismissTarget'
@@ -391,6 +394,22 @@ function looksLikeLocalNetworkDenial(message: string): boolean {
     m.includes('network is down') ||
     m.includes('-65570')
   )
+}
+
+/**
+ * A network's name as the settings screen shows it. A name this build does
+ * not know (from a newer payee) is shown as it came: it is already checked
+ * to be a short lowercase word, so it cannot carry copy into the screen.
+ */
+const NETWORK_LABEL_KEYS: Record<string, string> = {
+  main: 'mainnet',
+  test: 'testnet',
+  teratest: 'teratest',
+  scaletest: 'scaletest'
+}
+function networkName(chain: string, t: (key: string) => string): string {
+  const key = NETWORK_LABEL_KEYS[chain]
+  return key ? t(key) : chain
 }
 
 function abbreviateKey(key: string): string {
@@ -658,6 +677,19 @@ function NearbyFlow({
   const reducedMotion = useReducedMotion()
   const { managers, adminOriginator, storage } = useWalletManagers()
   const wallet = managers?.permissionsManager ?? null
+  /**
+   * The network this wallet is on, as an AppChain name. The payee writes it
+   * into the session QR; the payer compares it in adoptSession, so two phones
+   * on different networks are told so before the confirm screen rather than
+   * failing in silence.
+   *
+   * Only once the mounted storage is that network's: across a network switch
+   * the picker moves before the wallet is rebuilt, and a wrong tag would
+   * refuse a payment that works. Undefined means "not known": no tag is
+   * minted and no comparison is made.
+   */
+  const { selectedNetwork } = useWalletStatus()
+  const walletNetwork = storageMatchesNetwork(storage, selectedNetwork) ? selectedNetwork : undefined
   /**
    * The only door to stablecoins this screen has. Everything token-shaped
    * below is gated on it: with no runtime there is no token session to mint,
@@ -1634,7 +1666,8 @@ function NearbyFlow({
           // read as 'unknown' a moment earlier, so where it ran it overrides the
           // probe's field. The hint bits are copy for the payer, not dispatch.
           hints: capsFromProbe({ ...probe, bluetooth: bleHere ? bleNow : probe.bluetooth }),
-          os: Platform.OS === 'ios' ? 'ios' : 'android'
+          os: Platform.OS === 'ios' ? 'ios' : 'android',
+          network: walletNetwork
         })
         setRole('payee')
         setHostedSession(session)
@@ -1643,7 +1676,7 @@ function NearbyFlow({
         fail('generic', messageOf(e))
       }
     },
-    [wallet, storage, adminOriginator, supportsAwdl, nearbyReady, blePermitted, fail, t]
+    [wallet, storage, adminOriginator, supportsAwdl, nearbyReady, blePermitted, walletNetwork, fail, t]
   )
 
   // ── Receive: scan the payer's frame ──
@@ -1696,19 +1729,36 @@ function NearbyFlow({
   // ── Send: scan the payee's session ──
 
   /** The state moves that follow a valid session, whether scanned here or handed in. */
-  const adoptSession = useCallback((session: Session) => {
-    setScannedSession(session)
-    // Prompt-free read of this device's Bluetooth state for describeFloor.
-    // Never prepare() here: a payer who lands on QR must never be prompted.
-    setBleState(readBluetoothState())
-    // Who is being paid. Best-effort lookup for the presence row and the
-    // recipient card; nothing waits on it.
-    setPeerKey(session.identityKey)
-    setSendAmount('')
-    setNote('')
-    setRole('payer')
-    setPhase('send_confirm')
-  }, [])
+  const adoptSession = useCallback(
+    (session: Session) => {
+      // Before anything is shown as payable: a payee on another network can
+      // never receive this payment, and nothing later in the flow would say
+      // why. A payee too old to name its network is let through, as before.
+      const mismatch = walletNetwork === undefined ? null : sessionNetworkMismatch(session, walletNetwork)
+      if (mismatch) {
+        fail(
+          'generic',
+          t('local_pay_wrong_network', {
+            theirs: networkName(mismatch.theirs, t),
+            mine: networkName(mismatch.mine, t)
+          })
+        )
+        return
+      }
+      setScannedSession(session)
+      // Prompt-free read of this device's Bluetooth state for describeFloor.
+      // Never prepare() here: a payer who lands on QR must never be prompted.
+      setBleState(readBluetoothState())
+      // Who is being paid. Best-effort lookup for the presence row and the
+      // recipient card; nothing waits on it.
+      setPeerKey(session.identityKey)
+      setSendAmount('')
+      setNote('')
+      setRole('payer')
+      setPhase('send_confirm')
+    },
+    [walletNetwork, fail, t]
+  )
 
   const onSessionScanned = useCallback(
     (data: string) => {

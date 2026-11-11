@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.24.3
+
+The nearby session QR names the payee's network. No native change: hosts do not rebuild.
+
+### Added
+
+- **`n` in the `bsvpay1:` session QR, and `sessionNetworkMismatch`.** Two phones
+  on different networks (mainnet and testnet) paired with no warning, and the
+  payment failed with nothing on either screen to say why. The payee now mints
+  its network (an AppChain name, as a till's code carries) into the session.
+  `NearbyFlow` checks it on the payer before the confirm screen and fails with
+  `local_pay_wrong_network`, which names both networks (12 locales). The key is
+  additive: `SESSION_VERSION` stays at 2, an older decoder ignores it, and a
+  code without it is read as unknown, never as a mismatch. Both sides use the
+  network only once the mounted storage belongs to it, so a network switch in
+  progress never tags or refuses wrongly. Only the payer sees the warning, and
+  only when both phones run this version or later.
+
 ## 0.24.2
 
 Progress events for the sweep rail. No native change: hosts do not rebuild.
