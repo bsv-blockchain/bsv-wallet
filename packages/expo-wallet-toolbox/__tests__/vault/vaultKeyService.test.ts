@@ -75,6 +75,7 @@ import {
   VAULT_MIN_KEYS,
   VAULT_SLOT,
   addVaultKey,
+  discardStagedVaultKey,
   adoptVaultKey,
   disableVault,
   enrollKey,
@@ -1402,12 +1403,17 @@ describe('finalizeEnrollment', () => {
 })
 
 describe('addVaultKey / disableVault', () => {
-  test('addVaultKey appends through vaultStore.addKey and returns the new meta', async () => {
+  test('addVaultKey stages the key through vaultStore.stageKey and returns the new meta', async () => {
     await finalizeReady([rec(1), rec(2)])
     await stageReady(rec(3))
     const meta = await addVaultKey(rec(3), undefined, AUTHORITY)
-    expect(meta.keys.map(k => k.serial)).toEqual(['10000001', '10000002', '10000003'])
-    expect((await vaultStore.getMeta())!.keys).toHaveLength(3)
+    // The key waits in `staged`: the key list and the revision do not change.
+    expect(meta.staged).toEqual(rec(3))
+    expect(meta.keys.map(k => k.serial)).toEqual(['10000001', '10000002'])
+    expect(meta.revision).toBe(1)
+    const stored = (await vaultStore.getMeta())!
+    expect(stored.staged).toEqual(rec(3))
+    expect(stored.keys).toHaveLength(2)
   })
 
   test('addVaultKey requires the exact ready draft produced by enrollment', async () => {
@@ -1425,15 +1431,26 @@ describe('addVaultKey / disableVault', () => {
   })
 
   // Owner rule 2026-09-25: a full vault adds the replacement before removing
-  // the key it replaces, so a sixth key is held (never locked to); a seventh
-  // is refused.
-  test('addVaultKey takes a sixth key on a full vault and refuses a seventh', async () => {
+  // the key it replaces, so a sixth key is held (never locked to). Since the
+  // add-key hardening the sixth key is staged, and only one key waits at a time.
+  test('addVaultKey stages a sixth key on a full vault and refuses a second staged key', async () => {
     await finalizeReady([1, 2, 3, 4, 5].map(rec))
     await stageReady(rec(6))
     await addVaultKey(rec(6), undefined, AUTHORITY)
-    expect((await vaultStore.getMeta())!.keys.map(k => k.serial)).toEqual([1, 2, 3, 4, 5, 6].map(n => rec(n).serial))
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.keys.map(k => k.serial)).toEqual([1, 2, 3, 4, 5].map(n => rec(n).serial))
+    expect(meta.staged).toEqual(rec(6))
+    await stageReady(rec(7))
+    await expect(addVaultKey(rec(7), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'relock-required' })
+    expect((await vaultStore.getMeta())!.staged).toEqual(rec(6))
+  })
+
+  test('addVaultKey refuses with too-many-keys when the list already holds six keys', async () => {
+    await finalizeReady([1, 2, 3, 4, 5].map(rec))
+    const meta = (await vaultStore.getMeta())!
+    await vaultStore.setMeta({ ...meta, keys: [...meta.keys, rec(6)] })
+    await stageReady(rec(7))
     await expect(addVaultKey(rec(7), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'too-many-keys' })
-    expect((await vaultStore.getMeta())!.keys).toHaveLength(6)
   })
 
   test('addVaultKey refuses a duplicate serial and an unenrolled vault', async () => {
@@ -1498,18 +1515,19 @@ describe('addVaultKey / disableVault', () => {
     ).resolves.toBe(false)
   })
 
-  test('XR-002: addVaultKey proceeds normally when the existing meta is validly tagged (multiple local revision bumps, no outputs)', async () => {
-    // The exact scenario the previous fix attempt's on-chain-ceiling approach
-    // broke (69/195 transfers.test.ts failures): several legitimate local
-    // key adds in a row with no intervening deposit. The wallet-root tag
-    // (not an on-chain ceiling) is what distinguishes this from the forgery
-    // above — every one of these writes is freshly, validly re-tagged.
+  test('XR-002: addVaultKey proceeds normally when the existing meta is validly tagged (a staged key and a discard in a row, no outputs)', async () => {
+    // Several legitimate local writes in a row with no intervening deposit.
+    // The wallet-root tag (not an on-chain ceiling) is what distinguishes this
+    // from the forgery above — every one of these writes is freshly, validly
+    // re-tagged, so the next one builds on it.
     await finalizeReady([rec(1), rec(2)])
     await stageReady(rec(3))
     await addVaultKey(rec(3), undefined, AUTHORITY)
+    await discardStagedVaultKey(undefined, AUTHORITY)
     await stageReady(rec(4))
     const meta = await addVaultKey(rec(4), undefined, AUTHORITY)
-    expect(meta.keys.map(k => k.serial)).toEqual(['10000001', '10000002', '10000003', '10000004'])
+    expect(meta.keys.map(k => k.serial)).toEqual(['10000001', '10000002'])
+    expect(meta.staged).toEqual(rec(4))
     expect(await vaultStore.getMetaTag()).not.toBeNull()
   })
 })

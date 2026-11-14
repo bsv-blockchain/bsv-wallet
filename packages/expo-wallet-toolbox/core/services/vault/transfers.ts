@@ -72,7 +72,7 @@ import { VaultError } from './types'
 import { metaFromVerifiedOutputs, VAULT_MAX_KEYS, VAULT_MIN_KEYS } from './VaultKeyService'
 import { vaultStore, VaultKeyRecord, VaultMeta, type VaultScopeToken, type VaultStoreScope } from './vaultStore'
 import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
-import { requireVaultOutputKeyPossession } from './outputAuthority'
+import { requireVaultKeyChallenge, requireVaultOutputKeyPossession } from './outputAuthority'
 import { planLockKeys, type LockKeyPlan } from './lockKeys'
 import { forgetSerialsNoLongerEnrolledForIdentity } from './enrolledSerialRegistry'
 import { getVaultChainLookup, lookupMarker, noteSaltFloor, saltFloorFor, type VaultChainLookup } from './markerLookup'
@@ -3731,6 +3731,97 @@ export async function relockVault(
     }
     if (plan.changesKeySet) await commitPlannedKeySet(w, adminOriginator, scopeToken, plan)
     return result
+  })
+}
+
+/**
+ * Promote the staged key when the Vault holds no output (add-key, late-key).
+ *
+ * With funds the key is activated by a re-lock (relockVault with
+ * `activateStagedKey`). With none there is nothing to re-lock, so the proof is
+ * a fresh PIN and touch challenge from an existing proven key that binds the
+ * vault, the staged pubkey and the new revision (requireVaultKeyChallenge). A
+ * phone-only attacker cannot give it. Refuses with `relock-required` as soon as
+ * an output exists, and with `action-pending` while a vault action is pending.
+ *
+ * A phone that has not scanned the chain may show no outputs while deposits
+ * exist. The promotion still needs the tap, and such deposits only lack the new
+ * key until a re-lock (the coverage badge shows it); no spend authority is
+ * gained by anyone.
+ */
+export async function activateStagedKeyWithoutOutputs(
+  w: VaultWallet,
+  adminOriginator: string,
+  chosenSerial: string,
+  opts?: VaultTransferOptions
+): Promise<VaultMeta> {
+  const scopeToken = vaultStore.captureScopeToken()
+  return await withVaultMutation(async () => {
+    assertVaultScope(scopeToken)
+    requireReleased(opts, scopeToken, 'Adding a key')
+    await requireOnline(opts)
+    assertVaultScope(scopeToken)
+    const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
+    if (!meta.staged) throw new VaultError('not-enrolled', 'No key is waiting to be added')
+    if (meta.pendingRemoval) {
+      throw new VaultError('relock-required', 'Finish the pending key removal first')
+    }
+    const { state: found } = await reduceVerifiedVaultOutputs(
+      w,
+      adminOriginator,
+      () => ({ outputs: 0 }),
+      state => {
+        state.outputs++
+      },
+      scopeToken,
+      'block'
+    )
+    if (found.outputs > 0) {
+      throw new VaultError('relock-required', 'This vault holds funds: add the key with a re-lock')
+    }
+    let pendingAction = false
+    await scanVaultActions(
+      w,
+      adminOriginator,
+      { includeLabels: true },
+      action => {
+        if (PENDING_ACTION_STATUSES.has(action.status) && !BROADCAST_ACTION_STATUSES.has(action.status)) {
+          pendingAction = true
+        }
+      },
+      scopeToken
+    )
+    if (pendingAction) {
+      throw new VaultError('action-pending', 'Wait for pending vault actions before adding a key')
+    }
+    if (!meta.keys.some(k => k.serial === chosenSerial)) {
+      throw new VaultError('not-enrolled', `Key ${chosenSerial} is not one of this vault's keys`)
+    }
+    if (!vaultStore.provenKeyRecords(meta, scopeToken).some(k => k.serial === chosenSerial)) {
+      throw new VaultError('keys-unproven', 'This key has not been checked by a tap on this phone', undefined, {
+        serials: chosenSerial
+      })
+    }
+    // Every refusal that needs no tap comes first (limit of five keys per lock,
+    // unproven other keys).
+    const plan = planLockKeys({
+      meta,
+      scopeToken,
+      chosenSerial,
+      purpose: 'relock',
+      activateStagedKey: meta.staged.serial,
+      acceptDroppingUnproven: opts?.acceptDroppingUnproven
+    })
+    requireLockableKeyCount(plan.lockKeys.length)
+    await requireVaultKeyChallenge(
+      meta,
+      scopeToken,
+      { kind: 'vault-add-key', stagedPubkey: meta.staged.pubkey, newRevision: meta.revision + 1 },
+      chosenSerial
+    )
+    assertVaultScope(scopeToken)
+    await commitPlannedKeySet(w, adminOriginator, scopeToken, plan)
+    return await requireMeta(scopeToken)
   })
 }
 

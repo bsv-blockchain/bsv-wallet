@@ -1258,6 +1258,67 @@ export const vaultStore = {
     })
   },
 
+  /**
+   * Stage a new key (add-key, late-key). The key is written to `meta.staged`
+   * only: `keys` and `revision` do not change, so no lock can commit it. It
+   * joins `keys` only through commitLockKeySet after a re-lock (or a tap proof
+   * when nothing is funded) signed by an existing key. Same laundering caveat
+   * as addKey: `expectedMeta` must be the caller's authenticated snapshot.
+   */
+  async stageKey(
+    k: VaultKeyRecord,
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<VaultMeta> {
+    const token = scopeToken ?? captureScope(true)
+    if (!isVaultKeyRecord(k)) throw new VaultError('template-invalid', 'Invalid vault key record')
+    return enqueueMutation(async () => {
+      const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
+      if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal first')
+      if (meta.staged) throw new VaultError('relock-required', 'Finish adding the previous key first')
+      if (meta.keys.length + 1 > MAX_ACTIVE_KEYS) {
+        throw new VaultError('too-many-keys', `The vault already has ${meta.keys.length} keys`)
+      }
+      if (meta.keys.some(x => x.serial === k.serial || x.pubkey === k.pubkey)) {
+        throw new VaultError('key-already-enrolled', k.serial, undefined, { serial: k.serial })
+      }
+      const next: VaultMeta = { ...meta, staged: { ...k } }
+      await writeMetaAndTag(token, next, tagger)
+      return next
+    })
+  },
+
+  /** Drop the staged key. It only lowers authority, so no tap is needed. The
+   * adoption pair of the staged key goes with it. Same laundering caveat as
+   * addKey. */
+  async discardStagedKey(
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<VaultMeta> {
+    const token = scopeToken ?? captureScope(true)
+    return enqueueMutation(async () => {
+      const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
+      const staged = meta.staged
+      if (!staged) throw new VaultError('not-enrolled', 'No key is waiting to be added')
+      const next: VaultMeta = { ...meta }
+      delete next.staged
+      if (next.recovery) {
+        const adopted = (next.recovery.adopted ?? []).filter(p => pairId(p) !== pairId(staged))
+        next.recovery = {
+          required: true,
+          adoptedSerials: next.recovery.adoptedSerials.filter(s => s !== staged.serial),
+          ...(next.recovery.adopted === undefined ? {} : { adopted })
+        }
+      }
+      await writeMetaAndTag(token, next, tagger)
+      return next
+    })
+  },
+
   /** Same laundering caveat as addKey: `meta` must already be established as
    * trustworthy by the caller (transfers.ts's beginVaultKeyRemoval gates its
    * whole flow on requireAuthenticatedMeta before reaching here) before a

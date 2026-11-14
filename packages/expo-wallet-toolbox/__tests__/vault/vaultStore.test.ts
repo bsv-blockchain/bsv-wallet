@@ -279,6 +279,24 @@ describe('vaultStore v6', () => {
     })
   })
 
+  it('stageKey writes meta.staged only (keys and revision unchanged); discardStagedKey drops it; the limits hold', async () => {
+    await vaultStore.setMeta(META)
+    const staged = await vaultStore.stageKey(key(3))
+    expect(staged.staged).toEqual(key(3))
+    expect(staged.revision).toBe(META.revision)
+    expect(staged.keys).toEqual(META.keys)
+    await expect(vaultStore.stageKey(key(4))).rejects.toMatchObject({ code: 'relock-required' })
+    const discarded = await vaultStore.discardStagedKey()
+    expect(discarded.staged).toBeUndefined()
+    expect((await vaultStore.getMeta())!.staged).toBeUndefined()
+    await expect(vaultStore.discardStagedKey()).rejects.toMatchObject({ code: 'not-enrolled' })
+    await expect(vaultStore.stageKey({ ...key(4), pubkey: key(1).pubkey })).rejects.toMatchObject({
+      code: 'key-already-enrolled'
+    })
+    await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3), key(4), key(5), key(6)] })
+    await expect(vaultStore.stageKey(key(7))).rejects.toMatchObject({ code: 'too-many-keys' })
+  })
+
   it('begins removal by excluding the key and retaining a durable tombstone', async () => {
     await vaultStore.setMeta({
       ...META,

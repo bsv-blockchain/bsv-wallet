@@ -1162,8 +1162,12 @@ export async function finalizeEnrollment(
   }
 }
 
-/** Append one key to an enrolled vault (spec §3.4 "Add key"). vaultStore
- * enforces the duplicate-serial and VAULT_MAX_ACTIVE_KEYS rules. */
+/** Stage one key for an enrolled vault (spec §3.4 "Add key"; hardening:
+ * add-key, late-key). The key goes into `meta.staged`; `keys` and `revision`
+ * do not change, so no lock commits it. It becomes part of the key list only
+ * when a re-lock signed by an existing key activates it (relockVault with
+ * `activateStagedKey`, or activateStagedKeyWithoutOutputs when nothing is
+ * funded). No tap is asked here. */
 export async function addVaultKey(
   record: VaultKeyRecord,
   scopeToken: VaultScopeToken | undefined,
@@ -1173,11 +1177,16 @@ export async function addVaultKey(
   const token = scopeToken ?? vaultStore.captureScopeToken()
   const existing = await vaultStore.getMeta(token)
   if (!existing) throw new VaultError('not-enrolled', 'Vault is not set up')
-  if (existing.keys.length >= VAULT_MAX_ACTIVE_KEYS) {
-    throw new VaultError('too-many-keys', `The vault already has ${VAULT_MAX_ACTIVE_KEYS} keys`)
+  // Five keys plus the staged one is the most a vault holds (a lock commits
+  // at most VAULT_MAX_KEYS).
+  if (existing.keys.length + 1 > VAULT_MAX_ACTIVE_KEYS) {
+    throw new VaultError('too-many-keys', `The vault already has ${existing.keys.length} keys`)
   }
   if (existing.keys.some(key => key.serial === record.serial || key.pubkey === record.pubkey)) {
     throw new VaultError('key-already-enrolled', record.serial, undefined, { serial: record.serial })
+  }
+  if (existing.staged) {
+    throw new VaultError('relock-required', 'Finish adding the previous key first')
   }
   // XR-002: verify `existing`'s own tag BEFORE trusting it as the basis for
   // a freshly tagged `next` — see requireTaggedMeta's laundering caveat.
@@ -1187,7 +1196,7 @@ export async function addVaultKey(
   await requireReadyEnrollmentDrafts([record], token, authority)
   const scope = vaultStore.getScope()
   if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
-  const meta = await vaultStore.addKey(
+  const meta = await vaultStore.stageKey(
     record,
     token,
     next => computeVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, next, scope),
@@ -1200,6 +1209,30 @@ export async function addVaultKey(
   } catch (error) {
     if (error instanceof VaultError && error.code === 'scope-changed') throw error
   }
+  return meta
+}
+
+/** Drop the staged key (add-key, late-key). It only lowers authority, so no
+ * tap is asked. The serial leaves the device-wide registry unless another
+ * chain of this identity still holds it. */
+export async function discardStagedVaultKey(
+  scopeToken: VaultScopeToken | undefined,
+  authority: VaultWalletAuthority
+): Promise<VaultMeta> {
+  const token = scopeToken ?? vaultStore.captureScopeToken()
+  const existing = await vaultStore.getMeta(token)
+  if (!existing) throw new VaultError('not-enrolled', 'Vault is not set up')
+  if (!existing.staged) throw new VaultError('not-enrolled', 'No key is waiting to be added')
+  await requireTaggedMeta(authority, existing, token)
+  const scope = vaultStore.getScope()
+  if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+  const serial = existing.staged.serial
+  const meta = await vaultStore.discardStagedKey(
+    token,
+    next => computeVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, next, scope),
+    existing
+  )
+  await forgetSerialsNoLongerEnrolledForIdentity([serial], () => vaultStore.enrolledSerialsAcrossChains(token))
   return meta
 }
 
