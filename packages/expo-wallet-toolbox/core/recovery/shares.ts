@@ -29,9 +29,10 @@
  * of the modules the sdk-free guard test proves never loads `@bsv/sdk`.
  */
 
-import { PrivateKey, Hash } from '@bsv/sdk'
+import { PrivateKey, Hash, Random } from '@bsv/sdk'
 
 export * from './shareParsing'
+import { isPrintId, parseShare, PRINT_ID_ALPHABET, PRINT_ID_LENGTH } from './shareParsing'
 import type { ParsedShare } from './shareParsing'
 
 // ── Payload framing ──────────────────────────────────────────────────────────
@@ -101,6 +102,33 @@ export function generateLegacyKeyShares(
   totalShares: number = 3
 ): string[] {
   return new PrivateKey(privateKeyBytes).toBackupShares(threshold, totalShares)
+}
+
+// ── Print ID ─────────────────────────────────────────────────────────────────
+
+/**
+ * A fresh random print ID: PRINT_ID_LENGTH characters from PRINT_ID_ALPHABET.
+ * Draws 32 random bytes and maps each with `byte % 32`. The alphabet has 32
+ * characters and 256 is a multiple of 32, so the mapping has no bias.
+ */
+export function generatePrintId(): string {
+  const bytes = Random(32)
+  let id = ''
+  for (let i = 0; i < PRINT_ID_LENGTH; i++) id += PRINT_ID_ALPHABET[bytes[i] % 32]
+  return id
+}
+
+/**
+ * Add the print ID to a 4-part share: `${share}.${printId}`.
+ * @throws If the share is not a plain 4-part share or the ID is not valid
+ */
+export function attachPrintId(share: string, printId: string): string {
+  if (!isPrintId(printId)) throw new Error('attachPrintId: invalid print ID')
+  const parsed = parseShare(share)
+  if (parsed === null || parsed.printId !== undefined || parsed.raw !== share) {
+    throw new Error('attachPrintId: expected a 4-part share')
+  }
+  return `${share}.${printId}`
 }
 
 // ── Share validation ─────────────────────────────────────────────────────────
