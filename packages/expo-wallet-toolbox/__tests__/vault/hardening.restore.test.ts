@@ -137,25 +137,22 @@ describe('hardening: scans add outputs only, set conflicting records apart, keep
   /** Put a published record in the local basket directly, as a wallet that
    * already holds it would (the scan's own admission is bypassed). */
   async function internalizeDirect(published: { txid: string; customInstructions: string }): Promise<void> {
-    await wallet.internalizeAction(
-      {
-        tx: chain.tx(published.txid)!.toAtomicBEEF(),
-        outputs: [
-          {
-            outputIndex: 0,
-            protocol: 'basket insertion',
-            insertionRemittance: {
-              basket: 'admin vault',
-              customInstructions: published.customInstructions,
-              tags: ['vault']
-            }
+    await wallet.internalizeAction({
+      tx: chain.tx(published.txid)!.toAtomicBEEF(),
+      outputs: [
+        {
+          outputIndex: 0,
+          protocol: 'basket insertion',
+          insertionRemittance: {
+            basket: 'admin vault',
+            customInstructions: published.customInstructions,
+            tags: ['vault']
           }
-        ],
-        description: 'test',
-        seekPermission: false
-      },
-      ADMIN
-    )
+        }
+      ],
+      description: 'test',
+      seekPermission: false
+    })
   }
 
   /** The state a planted rev-99 {X,Y} record leaves on a phone: both outputs in the basket and an authentic

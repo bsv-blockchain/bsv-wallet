@@ -850,6 +850,7 @@ const resources = {
       scan_shares_threshold_mismatch: 'Threshold does not match previous shares',
       scan_shares_integrity_mismatch: 'Integrity hash does not match — shares are from different keys',
       scan_shares_duplicate: 'This share has already been scanned',
+      scan_shares_print_mismatch: 'These slices are from different prints and do not combine',
       // Shown when the biometric prompt guarding the keychain is refused, so
       // the recovered secret could not be stored. The buttons reuse the generic
       // `cancel` / `retry` keys, which are already translated everywhere.
@@ -1308,7 +1309,8 @@ const resources = {
       bridge_toast_failed: 'Not completed · ◀ Safari',
       bridge_setup_title: 'Use this wallet in Safari',
       bridge_setup_step_extension: 'Turn the extension on in Settings › Apps › Safari › Extensions.',
-      bridge_setup_step_allow: 'For websites, choose Always Allow: for all websites there, or for one site through aA › the extension › Always Allow.',
+      bridge_setup_step_allow:
+        'For websites, choose Always Allow: for all websites there, or for one site through aA › the extension › Always Allow.',
       bridge_setup_why: 'Without website access, a page in Safari cannot see the wallet.',
       'bridge.policy.seekBasketInsertionPermissions.off': 'add outputs to app baskets',
       'bridge.policy.seekBasketInsertionPermissions.on': 'add outputs to app baskets',
@@ -1778,8 +1780,10 @@ const resources = {
       vault_err_no_transaction: '转账未能完成。请重试。',
       vault_err_nfc_lost: '连接已断开。请将密钥稳定贴在手机上。',
       vault_err_lookup_unknown: '暂时无法检查区块链。未做任何更改。请稍后重试。',
-      vault_err_keys_unproven: '此保险库中有些密钥尚未在这部手机上验证。请将每把密钥贴近手机进行验证，或不使用未验证的密钥继续。',
-      vault_err_not_enough_proven_keys: '新的锁需要两把已验证的密钥。请验证另一把密钥，或添加一把新密钥。您仍可全部取出。',
+      vault_err_keys_unproven:
+        '此保险库中有些密钥尚未在这部手机上验证。请将每把密钥贴近手机进行验证，或不使用未验证的密钥继续。',
+      vault_err_not_enough_proven_keys:
+        '新的锁需要两把已验证的密钥。请验证另一把密钥，或添加一把新密钥。您仍可全部取出。',
       vault_err_chain_check_required: '重置这把密钥之前，请先检查区块链上是否有您之前的保险库。',
       vault_err_no_mnemonic: '保险库需要由恢复短语创建的钱包。此钱包是从旧的密钥分片恢复的。',
       vault_pin_invalid_retry: 'PIN 码错误 — 还剩 {{count}} 次机会。再次点击“提取”重试。',
@@ -2028,6 +2032,7 @@ const resources = {
       scan_shares_threshold_mismatch: '阈值与之前的份额不匹配',
       scan_shares_integrity_mismatch: '完整性哈希值不匹配 — 份额来自不同的密钥',
       scan_shares_duplicate: '此份额已经扫描过',
+      scan_shares_print_mismatch: '这些分片来自不同的打印版本，无法组合',
       scan_shares_biometric_title: '需要生物识别验证',
       scan_shares_biometric_message: '需要生物识别验证以保护您的钱包密钥。请重试。',
       recovery_replace_wallet_title: '要替换此手机上的钱包吗？',
@@ -2457,7 +2462,8 @@ const resources = {
       bridge_toast_failed: '未完成 · ◀ Safari',
       bridge_setup_title: '在 Safari 中使用此钱包',
       bridge_setup_step_extension: '在“设置”›“App”›“Safari 浏览器”›“扩展”中开启该扩展。',
-      bridge_setup_step_allow: '对于网站，请选择“始终允许”：可在此对所有网站设置，也可通过 aA ›该扩展›“始终允许”对单个网站设置。',
+      bridge_setup_step_allow:
+        '对于网站，请选择“始终允许”：可在此对所有网站设置，也可通过 aA ›该扩展›“始终允许”对单个网站设置。',
       bridge_setup_why: '没有网站访问权限，Safari 中的网页无法看到钱包。',
       'bridge.policy.seekBasketInsertionPermissions.off': '向应用篮子添加输出',
       'bridge.policy.seekBasketInsertionPermissions.on': '向应用篮子添加输出',
@@ -3233,6 +3239,7 @@ const resources = {
       scan_shares_threshold_mismatch: 'थ्रेशोल्ड पिछले शेयरों से मेल नहीं खाता',
       scan_shares_integrity_mismatch: 'अखंडता हैश मेल नहीं खाता — शेयर विभिन्न कुंजियों से हैं',
       scan_shares_duplicate: 'यह शेयर पहले से ही स्कैन किया जा चुका है',
+      scan_shares_print_mismatch: 'ये हिस्से अलग-अलग प्रिंट के हैं और एक साथ नहीं जुड़ते',
       scan_shares_biometric_title: 'बायोमेट्रिक एक्सेस आवश्यक',
       scan_shares_biometric_message:
         'आपके वॉलेट की कुंजियों की सुरक्षा के लिए बायोमेट्रिक एक्सेस आवश्यक है। कृपया पुनः प्रयास करें।',
@@ -3689,7 +3696,8 @@ const resources = {
       bridge_toast_failed: 'पूरा नहीं हुआ · ◀ Safari',
       bridge_setup_title: 'Safari में इस वॉलेट का उपयोग करें',
       bridge_setup_step_extension: 'सेटिंग › ऐप › Safari › एक्सटेंशन में एक्सटेंशन चालू करें।',
-      bridge_setup_step_allow: 'वेबसाइटों के लिए \'हमेशा अनुमति दें\' चुनें: वहीं सभी वेबसाइटों के लिए, या एक साइट के लिए aA › एक्सटेंशन › हमेशा अनुमति दें के माध्यम से।',
+      bridge_setup_step_allow:
+        "वेबसाइटों के लिए 'हमेशा अनुमति दें' चुनें: वहीं सभी वेबसाइटों के लिए, या एक साइट के लिए aA › एक्सटेंशन › हमेशा अनुमति दें के माध्यम से।",
       bridge_setup_why: 'वेबसाइट एक्सेस के बिना, Safari में कोई पेज वॉलेट नहीं देख सकता।',
       'bridge.policy.seekBasketInsertionPermissions.off': 'ऐप बास्केट में आउटपुट जोड़ना',
       'bridge.policy.seekBasketInsertionPermissions.on': 'ऐप बास्केट में आउटपुट जोड़ना',
@@ -4479,6 +4487,7 @@ const resources = {
       scan_shares_threshold_mismatch: 'El umbral no coincide con las partes anteriores',
       scan_shares_integrity_mismatch: 'El hash de integridad no coincide: las partes son de claves diferentes',
       scan_shares_duplicate: 'Esta parte ya ha sido escaneada',
+      scan_shares_print_mismatch: 'Estas partes son de impresiones diferentes y no se pueden combinar',
       scan_shares_biometric_title: 'Se requiere acceso biométrico',
       scan_shares_biometric_message:
         'Se necesita acceso biométrico para proteger las claves de tu billetera. Inténtalo de nuevo.',
@@ -4943,7 +4952,8 @@ const resources = {
       bridge_toast_failed: 'No completado · ◀ Safari',
       bridge_setup_title: 'Usa esta cartera en Safari',
       bridge_setup_step_extension: 'Activa la extensión en Ajustes › Apps › Safari › Extensiones.',
-      bridge_setup_step_allow: 'Para los sitios web, elige Permitir siempre: para todos los sitios web ahí, o para un sitio mediante aA › la extensión › Permitir siempre.',
+      bridge_setup_step_allow:
+        'Para los sitios web, elige Permitir siempre: para todos los sitios web ahí, o para un sitio mediante aA › la extensión › Permitir siempre.',
       bridge_setup_why: 'Sin acceso a los sitios web, una página en Safari no puede ver la cartera.',
       'bridge.policy.seekBasketInsertionPermissions.off': 'añadir salidas a las cestas de aplicaciones',
       'bridge.policy.seekBasketInsertionPermissions.on': 'añadir salidas a las cestas de aplicaciones',
@@ -5743,6 +5753,7 @@ const resources = {
       scan_shares_integrity_mismatch:
         "Le hash d'intégrité ne correspond pas — les parts proviennent de clés différentes",
       scan_shares_duplicate: 'Cette part a déjà été scannée',
+      scan_shares_print_mismatch: "Ces parts proviennent d'impressions différentes et ne se combinent pas",
       scan_shares_biometric_title: 'Accès biométrique requis',
       scan_shares_biometric_message:
         "L'accès biométrique est nécessaire pour protéger les clés de votre portefeuille. Veuillez réessayer.",
@@ -6214,8 +6225,9 @@ const resources = {
       bridge_toast_done: 'Terminé · ◀ Safari',
       bridge_toast_failed: 'Non terminé · ◀ Safari',
       bridge_setup_title: 'Utiliser ce portefeuille dans Safari',
-      bridge_setup_step_extension: 'Activez l\'extension dans Réglages › Apps › Safari › Extensions.',
-      bridge_setup_step_allow: 'Pour les sites web, choisissez Toujours autoriser : pour tous les sites web à cet endroit, ou pour un seul site via aA › l\'extension › Toujours autoriser.',
+      bridge_setup_step_extension: "Activez l'extension dans Réglages › Apps › Safari › Extensions.",
+      bridge_setup_step_allow:
+        "Pour les sites web, choisissez Toujours autoriser : pour tous les sites web à cet endroit, ou pour un seul site via aA › l'extension › Toujours autoriser.",
       bridge_setup_why: 'Sans accès aux sites web, une page dans Safari ne peut pas voir le portefeuille.',
       'bridge.policy.seekBasketInsertionPermissions.off': "ajouter des sorties aux paniers d'applications",
       'bridge.policy.seekBasketInsertionPermissions.on': "ajouter des sorties aux paniers d'applications",
@@ -6964,6 +6976,7 @@ const resources = {
       scan_shares_threshold_mismatch: 'لا تتطابق العتبة مع الحصص السابقة',
       scan_shares_integrity_mismatch: 'لا تتطابق تجزئة السلامة — الحصص من مفاتيح مختلفة',
       scan_shares_duplicate: 'تم مسح هذه الحصة بالفعل',
+      scan_shares_print_mismatch: 'هذه الحصص من طبعات مختلفة ولا يمكن دمجها',
       scan_shares_biometric_title: 'يلزم الوصول البيومتري',
       scan_shares_biometric_message: 'يلزم الوصول البيومتري لحماية مفاتيح محفظتك. يرجى المحاولة مرة أخرى.',
       recovery_replace_wallet_title: 'استبدال المحفظة الموجودة على هذا الهاتف؟',
@@ -7405,7 +7418,8 @@ const resources = {
       bridge_toast_failed: 'لم يكتمل · ◀ Safari',
       bridge_setup_title: 'استخدم هذه المحفظة في Safari',
       bridge_setup_step_extension: 'فعّل الإضافة من الإعدادات › التطبيقات › Safari › الإضافات.',
-      bridge_setup_step_allow: 'بالنسبة إلى المواقع، اختر السماح دائمًا: لكل المواقع من هناك، أو لموقع واحد عبر aA › الإضافة › السماح دائمًا.',
+      bridge_setup_step_allow:
+        'بالنسبة إلى المواقع، اختر السماح دائمًا: لكل المواقع من هناك، أو لموقع واحد عبر aA › الإضافة › السماح دائمًا.',
       bridge_setup_why: 'من دون الوصول إلى المواقع، لا تستطيع صفحة في Safari رؤية المحفظة.',
       'bridge.policy.seekBasketInsertionPermissions.off': 'إضافة مخرجات إلى سلال التطبيقات',
       'bridge.policy.seekBasketInsertionPermissions.on': 'إضافة مخرجات إلى سلال التطبيقات',
@@ -8192,6 +8206,7 @@ const resources = {
       scan_shares_threshold_mismatch: 'O limite não corresponde às partes anteriores',
       scan_shares_integrity_mismatch: 'O hash de integridade não corresponde — as partes são de chaves diferentes',
       scan_shares_duplicate: 'Esta parte já foi escaneada',
+      scan_shares_print_mismatch: 'Estas partes são de impressões diferentes e não se combinam',
       scan_shares_biometric_title: 'Acesso biométrico necessário',
       scan_shares_biometric_message:
         'É necessário acesso biométrico para proteger as chaves da sua carteira. Tente novamente.',
@@ -8656,7 +8671,8 @@ const resources = {
       bridge_toast_failed: 'Não concluído · ◀ Safari',
       bridge_setup_title: 'Use esta carteira no Safari',
       bridge_setup_step_extension: 'Ative a extensão em Ajustes › Apps › Safari › Extensões.',
-      bridge_setup_step_allow: 'Para os sites, escolha Permitir Sempre: para todos os sites ali, ou para um site em aA › a extensão › Permitir Sempre.',
+      bridge_setup_step_allow:
+        'Para os sites, escolha Permitir Sempre: para todos os sites ali, ou para um site em aA › a extensão › Permitir Sempre.',
       bridge_setup_why: 'Sem acesso aos sites, uma página no Safari não consegue ver a carteira.',
       'bridge.policy.seekBasketInsertionPermissions.off': 'adicionar saídas às cestas de apps',
       'bridge.policy.seekBasketInsertionPermissions.on': 'adicionar saídas às cestas de apps',
@@ -9428,6 +9444,7 @@ const resources = {
       scan_shares_threshold_mismatch: 'থ্রেশহোল্ড পূর্ববর্তী শেয়ারের সাথে মেলে না',
       scan_shares_integrity_mismatch: 'ইন্টিগ্রিটি হ্যাশ মেলে না — শেয়ারগুলো ভিন্ন কী থেকে এসেছে',
       scan_shares_duplicate: 'এই শেয়ারটি ইতিমধ্যে স্ক্যান করা হয়েছে',
+      scan_shares_print_mismatch: 'এই শেয়ারগুলো ভিন্ন প্রিন্টের এবং একসাথে মেলে না',
       scan_shares_biometric_title: 'বায়োমেট্রিক অ্যাক্সেস প্রয়োজন',
       scan_shares_biometric_message:
         'আপনার ওয়ালেট কী সুরক্ষিত রাখতে বায়োমেট্রিক অ্যাক্সেস প্রয়োজন। আবার চেষ্টা করুন।',
@@ -9884,7 +9901,8 @@ const resources = {
       bridge_toast_failed: 'সম্পন্ন হয়নি · ◀ Safari',
       bridge_setup_title: 'Safari-তে এই ওয়ালেট ব্যবহার করুন',
       bridge_setup_step_extension: 'সেটিংস › অ্যাপ › Safari › এক্সটেনশন-এ এক্সটেনশন চালু করুন।',
-      bridge_setup_step_allow: 'ওয়েবসাইটের জন্য সবসময় অনুমতি দিন বেছে নিন: সেখানে সব ওয়েবসাইটের জন্য, অথবা aA › এক্সটেনশন › সবসময় অনুমতি দিন-এর মাধ্যমে একটি সাইটের জন্য।',
+      bridge_setup_step_allow:
+        'ওয়েবসাইটের জন্য সবসময় অনুমতি দিন বেছে নিন: সেখানে সব ওয়েবসাইটের জন্য, অথবা aA › এক্সটেনশন › সবসময় অনুমতি দিন-এর মাধ্যমে একটি সাইটের জন্য।',
       bridge_setup_why: 'ওয়েবসাইটে অ্যাক্সেস ছাড়া Safari-র কোনো পেজ ওয়ালেট দেখতে পায় না।',
       'bridge.policy.seekBasketInsertionPermissions.off': 'অ্যাপ বাস্কেটে আউটপুট যোগ করা',
       'bridge.policy.seekBasketInsertionPermissions.on': 'অ্যাপ বাস্কেটে আউটপুট যোগ করা',
@@ -10668,6 +10686,7 @@ const resources = {
       scan_shares_threshold_mismatch: 'Порог не совпадает с предыдущими долями',
       scan_shares_integrity_mismatch: 'Хеш целостности не совпадает — доли от разных ключей',
       scan_shares_duplicate: 'Эта доля уже была отсканирована',
+      scan_shares_print_mismatch: 'Эти доли из разных распечаток и не объединяются',
       scan_shares_biometric_title: 'Требуется биометрия',
       scan_shares_biometric_message: 'Биометрия нужна для защиты ключей вашего кошелька. Попробуйте ещё раз.',
       recovery_replace_wallet_title: 'Заменить кошелёк на этом телефоне?',
@@ -11130,7 +11149,8 @@ const resources = {
       bridge_toast_failed: 'Не выполнено · ◀ Safari',
       bridge_setup_title: 'Используйте этот кошелёк в Safari',
       bridge_setup_step_extension: 'Включите расширение в Настройки › Приложения › Safari › Расширения.',
-      bridge_setup_step_allow: 'Для веб-сайтов выберите «Всегда разрешать»: для всех сайтов там же или для одного сайта через aA › расширение › Всегда разрешать.',
+      bridge_setup_step_allow:
+        'Для веб-сайтов выберите «Всегда разрешать»: для всех сайтов там же или для одного сайта через aA › расширение › Всегда разрешать.',
       bridge_setup_why: 'Без доступа к веб-сайтам страница в Safari не видит кошелёк.',
       'bridge.policy.seekBasketInsertionPermissions.off': 'добавлять выходы в корзины приложений',
       'bridge.policy.seekBasketInsertionPermissions.on': 'добавлять выходы в корзины приложений',
@@ -11912,6 +11932,7 @@ const resources = {
       scan_shares_threshold_mismatch: 'Ambang batas tidak cocok dengan bagian sebelumnya',
       scan_shares_integrity_mismatch: 'Hash integritas tidak cocok — bagian berasal dari kunci yang berbeda',
       scan_shares_duplicate: 'Bagian ini sudah dipindai',
+      scan_shares_print_mismatch: 'Bagian ini berasal dari cetakan yang berbeda dan tidak dapat digabungkan',
       scan_shares_biometric_title: 'Akses Biometrik Diperlukan',
       scan_shares_biometric_message:
         'Akses biometrik diperlukan untuk melindungi kunci dompet Anda. Silakan coba lagi.',
@@ -12378,7 +12399,8 @@ const resources = {
       bridge_toast_failed: 'Tidak selesai · ◀ Safari',
       bridge_setup_title: 'Gunakan dompet ini di Safari',
       bridge_setup_step_extension: 'Aktifkan ekstensi di Pengaturan › Apl › Safari › Ekstensi.',
-      bridge_setup_step_allow: 'Untuk situs web, pilih Selalu Izinkan: untuk semua situs web di sana, atau untuk satu situs lewat aA › ekstensi › Selalu Izinkan.',
+      bridge_setup_step_allow:
+        'Untuk situs web, pilih Selalu Izinkan: untuk semua situs web di sana, atau untuk satu situs lewat aA › ekstensi › Selalu Izinkan.',
       bridge_setup_why: 'Tanpa akses situs web, halaman di Safari tidak dapat melihat dompet.',
       'bridge.policy.seekBasketInsertionPermissions.off': 'menambahkan output ke keranjang aplikasi',
       'bridge.policy.seekBasketInsertionPermissions.on': 'menambahkan output ke keranjang aplikasi',
@@ -12893,11 +12915,16 @@ const resources = {
       vault_err_below_dust: 'この金額は少なすぎて送金できません。',
       vault_err_no_transaction: '送金を完了できませんでした。もう一度お試しください。',
       vault_err_nfc_lost: '接続が切れました。鍵をスマートフォンにしっかり当ててください。',
-      vault_err_lookup_unknown: 'いまはブロックチェーンを確認できませんでした。何も変更されていません。しばらくしてからもう一度お試しください。',
-      vault_err_keys_unproven: 'この金庫の一部のキーは、このスマートフォンでまだ確認されていません。各キーをスマートフォンにかざして確認するか、未確認のキーを除いて続けてください。',
-      vault_err_not_enough_proven_keys: '新しいロックには、確認済みのキーが2つ必要です。別のキーを確認するか、新しいキーを追加してください。全額の引き出しはいつでもできます。',
-      vault_err_chain_check_required: 'このキーをリセットする前に、以前の金庫がないかブロックチェーンを確認してください。',
-      vault_err_no_mnemonic: '金庫には、リカバリーフレーズから作成したウォレットが必要です。このウォレットは古いキーのスライスから復元されたものです。',
+      vault_err_lookup_unknown:
+        'いまはブロックチェーンを確認できませんでした。何も変更されていません。しばらくしてからもう一度お試しください。',
+      vault_err_keys_unproven:
+        'この金庫の一部のキーは、このスマートフォンでまだ確認されていません。各キーをスマートフォンにかざして確認するか、未確認のキーを除いて続けてください。',
+      vault_err_not_enough_proven_keys:
+        '新しいロックには、確認済みのキーが2つ必要です。別のキーを確認するか、新しいキーを追加してください。全額の引き出しはいつでもできます。',
+      vault_err_chain_check_required:
+        'このキーをリセットする前に、以前の金庫がないかブロックチェーンを確認してください。',
+      vault_err_no_mnemonic:
+        '金庫には、リカバリーフレーズから作成したウォレットが必要です。このウォレットは古いキーのスライスから復元されたものです。',
       vault_pin_invalid_retry: 'PIN が違います — 残り {{count}} 回。もう一度「出金」をタップしてやり直してください。',
       vault_pin_invalid_retry_generic: 'PIN が違います。もう一度「出金」をタップしてやり直してください。',
       vault_disable_row: '保管庫を無効にする',
@@ -13165,6 +13192,7 @@ const resources = {
       scan_shares_threshold_mismatch: 'しきい値が以前のシェアと一致しません',
       scan_shares_integrity_mismatch: '整合性ハッシュが一致しません — シェアが異なる鍵から生成されています',
       scan_shares_duplicate: 'このシェアは既にスキャンされています',
+      scan_shares_print_mismatch: 'これらのシェアは別々の印刷のもので、組み合わせることができません',
       scan_shares_biometric_title: '生体認証が必要です',
       scan_shares_biometric_message: 'ウォレットの鍵を保護するため生体認証が必要です。もう一度お試しください。',
       recovery_replace_wallet_title: 'この端末のウォレットを置き換えますか？',
@@ -13622,7 +13650,8 @@ const resources = {
       bridge_toast_failed: '未完了 · ◀ Safari',
       bridge_setup_title: 'Safari でこのウォレットを使う',
       bridge_setup_step_extension: '設定 › アプリ › Safari › 機能拡張 で機能拡張をオンにします。',
-      bridge_setup_step_allow: 'Webサイトについては「常に許可」を選びます。そこですべてのWebサイトに対して、または aA › 機能拡張 › 常に許可 から1つのサイトに対して設定できます。',
+      bridge_setup_step_allow:
+        'Webサイトについては「常に許可」を選びます。そこですべてのWebサイトに対して、または aA › 機能拡張 › 常に許可 から1つのサイトに対して設定できます。',
       bridge_setup_why: 'Webサイトへのアクセスがないと、Safari のページはウォレットを見つけられません。',
       'bridge.policy.seekBasketInsertionPermissions.off': 'アプリのバスケットに出力を追加する',
       'bridge.policy.seekBasketInsertionPermissions.on': 'アプリのバスケットに出力を追加する',
@@ -14421,6 +14450,7 @@ const resources = {
       scan_shares_threshold_mismatch: 'Próg nie zgadza się z poprzednimi udziałami',
       scan_shares_integrity_mismatch: 'Suma kontrolna integralności nie zgadza się — udziały pochodzą z różnych kluczy',
       scan_shares_duplicate: 'Ten udział został już zeskanowany',
+      scan_shares_print_mismatch: 'Te udziały pochodzą z różnych wydruków i nie łączą się',
       scan_shares_biometric_title: 'Wymagany dostęp biometryczny',
       scan_shares_biometric_message:
         'Dostęp biometryczny jest potrzebny, aby chronić klucze portfela. Spróbuj ponownie.',
@@ -14890,7 +14920,8 @@ const resources = {
       bridge_toast_failed: 'Nie ukończono · ◀ Safari',
       bridge_setup_title: 'Używaj tego portfela w Safari',
       bridge_setup_step_extension: 'Włącz rozszerzenie w Ustawienia › Aplikacje › Safari › Rozszerzenia.',
-      bridge_setup_step_allow: 'W przypadku witryn wybierz Zawsze zezwalaj: dla wszystkich witryn w tym miejscu lub dla jednej witryny przez aA › rozszerzenie › Zawsze zezwalaj.',
+      bridge_setup_step_allow:
+        'W przypadku witryn wybierz Zawsze zezwalaj: dla wszystkich witryn w tym miejscu lub dla jednej witryny przez aA › rozszerzenie › Zawsze zezwalaj.',
       bridge_setup_why: 'Bez dostępu do witryn strona w Safari nie widzi portfela.',
       'bridge.policy.seekBasketInsertionPermissions.off': 'dodawać wyjścia do koszyków aplikacji',
       'bridge.policy.seekBasketInsertionPermissions.on': 'dodawać wyjścia do koszyków aplikacji',
