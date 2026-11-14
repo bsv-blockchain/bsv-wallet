@@ -705,6 +705,7 @@ async function restoreScannedDeposits(
   const admittedReady = new Set<RecoverableCandidate>()
   const admittedPending: VaultInstructionsV7[] = []
   let conflict = false
+  let chosenGroup: VaultRecoveryGroup | undefined
   let setApart: VaultRecoveryGroup[]
 
   if (meta) {
@@ -747,6 +748,7 @@ async function restoreScannedDeposits(
       chosen = []
       conflict = groups.length > 1
     }
+    if (chosen.length === 1) chosenGroup = chosen[0].group
     for (const g of chosen) {
       for (const c of g.ready) admittedReady.add(c)
       for (const ci of g.pending) admittedPending.push(ci)
@@ -766,7 +768,18 @@ async function restoreScannedDeposits(
     else found++
   }
   pendingConfirmation = admittedPending.length
-  await recoverVaultMetaFromOutputs(w, adminOriginator)
+  // Rebuild meta only from the records of the group just chosen (or, with an
+  // authenticated local meta, from records that agree with it). Nothing chosen
+  // and no local meta: nothing to rebuild from, and no guessing.
+  if (meta) await recoverVaultMetaFromOutputs(w, adminOriginator)
+  else if (chosenGroup) {
+    await recoverVaultMetaFromOutputs(w, adminOriginator, {
+      vaultId: chosenGroup.vaultId,
+      createdAt: chosenGroup.createdAt,
+      revision: chosenGroup.revision,
+      keys: chosenGroup.keys
+    })
+  }
   // The next salt allocation starts above every index this scan saw in use.
   if (maxUsedIndex > 0) noteSaltFloor(scopeToken.storageKey, maxUsedIndex)
   return {

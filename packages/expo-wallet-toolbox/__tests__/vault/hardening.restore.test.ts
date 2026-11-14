@@ -437,4 +437,68 @@ describe('hardening: scans add outputs only, set conflicting records apart, keep
     expect(pubkeys(meta.keys)).toEqual(pubkeys([A, B]))
     await withdrawAllWithA()
   })
+
+  it('review fix 1: meta at revision 2, real output at revision 1, a planted revision-1 variant with other keys does not wedge scan or rebuild', async () => {
+    await seedMeta({ revision: 2 })
+    const real = await publishVaultTx(wallet, chain, 1, [A, B], 300_000, { revision: 1 })
+    const planted = await publishVaultTx(wallet, chain, 2, [A, B, X], 100_000, { revision: 1 })
+
+    const first = await scanVaultDeposits(wallet, ADMIN, lookup(), CHAIN)
+    expect(first.problems).toEqual([])
+    expect(first.found).toBeGreaterThanOrEqual(1)
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.revision).toBe(2)
+    expect(pubkeys(meta.keys)).toEqual(pubkeys([A, B]))
+
+    // Rescan and a rebuild with the planted record already in the basket: no throw.
+    await internalizeDirect(real)
+    await internalizeDirect(planted)
+    await expect(scanVaultDeposits(wallet, ADMIN, lookup(), CHAIN)).resolves.toBeDefined()
+    const rebuilt = await recoverVaultMetaFromOutputs(wallet, ADMIN)
+    expect(rebuilt?.revision).toBe(2)
+    expect(pubkeys(rebuilt!.keys)).toEqual(pubkeys([A, B]))
+    await withdrawAllWithA()
+  })
+
+  it('review fix 2: a basket holding another group does not make a later restore of a different group throw; meta is built from the chosen group only', async () => {
+    const mine = await publishVaultTx(wallet, chain, 1, [A, B], 300_000)
+    const other = await publishVaultTx(wallet, chain, 2, [A, X], 200_000, { vaultId: OTHER_VAULT_ID, createdAt: 5 })
+
+    const first = await recoverVaultWithKey(wallet, ADMIN, lookup(), CHAIN, proveWith(A), undefined, {
+      groupId: `${VAULT_ID}:1`
+    })
+    expect(first.found).toBe(1)
+    // The device lost its meta (or it is untagged) but the basket keeps the output.
+    await vaultStore.forgetSetup()
+    expect(await vaultStore.getMeta()).toBeNull()
+
+    // An unfiltered rebuild with two lineages in the basket picks nothing and does not throw.
+    await internalizeDirect(other)
+    await expect(recoverVaultMetaFromOutputs(wallet, ADMIN)).resolves.toBeNull()
+
+    const second = await recoverVaultWithKey(wallet, ADMIN, lookup(), CHAIN, proveWith(A), undefined, {
+      groupId: `${OTHER_VAULT_ID}:5`
+    })
+    expect(second.problems).toEqual([])
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.vaultId).toBe(OTHER_VAULT_ID)
+    expect(pubkeys(meta.keys)).toEqual(pubkeys([A, X]))
+    expect(wallet.localVaultOutpoints()).toContain(`${mine.txid}.0`)
+  })
+
+  it('review fix 2b: a basket holding two key-list variants of one lineage restores the chosen variant without throwing', async () => {
+    await publishVaultTx(wallet, chain, 1, [A, B], 300_000, { revision: 1 })
+    await publishVaultTx(wallet, chain, 2, [A, B, X], 100_000, { revision: 1 })
+    const noTap = await recoverVaultFromChain(wallet, ADMIN, lookup(), CHAIN)
+    const planted = noTap.groups!.find(g => g.keys.length === 3)!.id
+    const real = noTap.groups!.find(g => g.keys.length === 2)!.id
+
+    await recoverVaultWithKey(wallet, ADMIN, lookup(), CHAIN, proveWith(A), undefined, { groupId: planted })
+    await vaultStore.forgetSetup()
+    const restored = await recoverVaultWithKey(wallet, ADMIN, lookup(), CHAIN, proveWith(A), undefined, {
+      groupId: real
+    })
+    expect(restored.problems).toEqual([])
+    expect(pubkeys((await vaultStore.getMeta())!.keys)).toEqual(pubkeys([A, B]))
+  })
 })

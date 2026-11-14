@@ -1831,6 +1831,77 @@ export function introducesUnknownKey(
   return keys.some(key => !known.some(k => k.serial === key.serial && k.pubkey === key.pubkey))
 }
 
+/** The group a restore chose: meta is rebuilt from its records only. */
+export interface VaultMetaGroup {
+  vaultId: string
+  createdAt: number
+  /** Highest revision of the group. */
+  revision: number
+  /** Key list at that revision. */
+  keys: readonly Pick<VaultKeyRecord, 'serial' | 'pubkey'>[]
+}
+
+const sameSerialPubkeys = (
+  a: readonly Pick<VaultKeyRecord, 'serial' | 'pubkey'>[],
+  b: readonly Pick<VaultKeyRecord, 'serial' | 'pubkey'>[]
+): boolean => a.length === b.length && a.every((k, i) => k.serial === b[i].serial && k.pubkey === b[i].pubkey)
+
+/**
+ * Pick the records metaFromVerifiedOutputs may see, or null when nothing can be
+ * chosen without guessing (the caller then keeps the existing meta). The
+ * validator throws on disagreement, and a mnemonic-only attacker can plant a
+ * disagreeing record, so a disagreement is resolved here, never thrown:
+ * - `only` (a restore chose one group): that group's top-revision records.
+ * - existing meta: its own lineage, at its revision or higher, naming no
+ *   unknown key; older records cannot supersede it. One key list at the top.
+ * - neither: one lineage and one key list at its top revision, else null.
+ */
+function selectMetaRecords(
+  records: readonly { instructions: VaultInstructions; txid: string }[],
+  existing: VaultMeta | null,
+  only?: VaultMetaGroup
+): { instructions: VaultInstructions; txid: string }[] | null {
+  let pool = [...records]
+  if (only) {
+    pool = pool.filter(
+      r =>
+        r.instructions.vaultId === only.vaultId &&
+        r.instructions.createdAt === only.createdAt &&
+        r.instructions.revision === only.revision &&
+        sameSerialPubkeys(r.instructions.keys, only.keys)
+    )
+  }
+  if (existing) {
+    pool = pool.filter(
+      r =>
+        r.instructions.vaultId === existing.vaultId &&
+        r.instructions.createdAt === existing.createdAt &&
+        r.instructions.revision >= existing.revision &&
+        !introducesUnknownKey(existing, r.instructions.keys)
+    )
+  }
+  if (pool.length === 0) return null
+  // Without a chosen group or an existing meta, two lineages cannot be ranked.
+  const lineage = pool[0].instructions
+  if (pool.some(r => r.instructions.vaultId !== lineage.vaultId || r.instructions.createdAt !== lineage.createdAt)) {
+    return null
+  }
+  const top = Math.max(...pool.map(r => r.instructions.revision))
+  const atTop = pool.filter(r => r.instructions.revision === top)
+  const first = atTop[0].instructions
+  if (
+    atTop.some(
+      r =>
+        r.instructions.vaultId !== first.vaultId ||
+        r.instructions.createdAt !== first.createdAt ||
+        !sameSerialPubkeys(r.instructions.keys, first.keys)
+    )
+  ) {
+    return null
+  }
+  return atTop
+}
+
 /** Restore a missing scoped cache only from currently spendable outputs whose
  * real source values, exact R1C locks, salted commitments, v6 recovery records, and
  * wallet salt-key derivations all authenticate. Conflict selection belongs to
@@ -1844,7 +1915,11 @@ export function introducesUnknownKey(
  * always runs; the existing record is kept only when it is not superseded
  * (recoveredSupersedesExisting), and restored the same way — through
  * vaultStore.restoreVerifiedMeta — when it is. */
-export async function recoverVaultMetaFromOutputs(w: VaultWallet, adminOriginator: string): Promise<VaultMeta | null> {
+export async function recoverVaultMetaFromOutputs(
+  w: VaultWallet,
+  adminOriginator: string,
+  only?: VaultMetaGroup
+): Promise<VaultMeta | null> {
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
     assertVaultScope(scopeToken)
@@ -1862,7 +1937,12 @@ export async function recoverVaultMetaFromOutputs(w: VaultWallet, adminOriginato
     )
     if (scan.outputs === 0) return existing
     await verifyVaultSaltDerivations(w, adminOriginator, scan.inventory)
-    const recovered = metaFromVerifiedOutputs(scan.state)
+    // Build meta only from records that agree with each other and with the
+    // chosen group or the existing meta, so a planted record never reaches a
+    // metaFromVerifiedOutputs throw (restore must not wedge, R1).
+    const records = selectMetaRecords(scan.state, existing, only)
+    if (!records) return existing
+    const recovered = metaFromVerifiedOutputs(records)
     // A scan never adds a key to existing local meta: a recovered record that
     // names a key local meta does not know (a planted higher revision) is
     // ignored. The crash-recovery case (every key known) still supersedes.
