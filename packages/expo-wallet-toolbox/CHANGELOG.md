@@ -2,6 +2,73 @@
 
 ## Unreleased
 
+## 0.25.0
+
+Vault hardening: a planted key, a stale scan or a reset on a new phone can no longer cost funds or add a key. No native change: hosts do not rebuild.
+
+### Added
+
+- **`scanVaultDeposits` and `VaultScanResult`.** A permanent, idempotent scan of the blockchain for deposits. The result carries `status` (`complete` or `incomplete`), `problemCount`, `unknownIndexes`, `maxUsedIndex`, `ignoredBelowMinimum`, and, on a conflict, `groups` and `setApart`. `VaultChainRecoveryResult` stays as an alias.
+- **`markerHistory`, `MarkerHistory` and `lookupMarker`.** One chain lookup with three results: found, none, unknown. A failed lookup, a rate limit or a full history window is `unknown` and never reads as "no funds". `wocChainLookup` takes an optional `requestInit`.
+- **`VAULT_SCAN_MIN_SATS`.** A frozen scan floor of 100,000 sat. No path creates a smaller vault output.
+- **`allocateSaltIndex`.** Salt indexes come from the chain as well as from local history.
+- **`provenKeyRecords` and `planLockKeys`.** One definition of a proven key (a live tap, bound to serial and pubkey), and one rule for the key set of every new lock.
+- **`activateStagedKeyWithoutOutputs` and `discardStagedVaultKey`.** Activate or drop a staged key.
+- **`forgetVaultSetup`.** Removes the local vault records of a phone stuck with conflicting or planted records. The chain is untouched.
+- **`recoverVaultFromTxids`.** Restore from transaction IDs (at most 50) when an index has too much history to read.
+- **`recoverVaultFromTxidsWithKey`** and **`VaultScanResult.needsKey`.** Restore from transaction IDs with one tapped key. `needsKey` is true when a scan saw a vault and restored none of it because no key was tapped.
+- **`checkVaultCardFunds`.** Checks the chain before a YubiKey reset: `clear`, `funds` or `unknown`.
+- **`canSetUpVault`.** Reports `no-mnemonic` for a wallet that cannot set up a vault.
+- **Print IDs on slices.** `generatePrintId`, `attachPrintId`, `isPrintId`, `PRINT_ID_ALPHABET`, `PRINT_ID_LENGTH`, and the `print-mismatch` compatibility issue, so slices from different prints do not combine.
+- **Five error codes:** `lookup-unknown`, `keys-unproven`, `not-enough-proven-keys`, `chain-check-required`, `no-mnemonic`, with copy in 12 locales.
+
+### Changed
+
+- **`addVaultKey` stages a key** (`meta.staged`). It joins `meta.keys` only when a re-lock signed by an existing proven key succeeds.
+- **A restore needs a tapped key.** A scan (`scanVaultDeposits`, `recoverVaultFromChain`, `recoverVaultFromTxids`) never creates local vault records and never internalizes outputs on a phone that holds no vault with a checked key; it reports what it found (`groups`, `needsKey`). `recoverVaultWithKey` and `recoverVaultFromTxidsWithKey` restore. A phone that already holds a vault with a checked key still merges newly found outputs by outpoint. A tapped restore also marks the tapped key checked when nothing new was internalized.
+- **`recoverVaultWithKey` can report `conflict`**, and takes `options.groupId` and `options.vaultId` to choose a group.
+- **`resetPivApplication` needs a clearance** (`fundsClearance`) or `acknowledgeFundsLoss: true`. Without one it throws `chain-check-required`.
+- **Deposits need all keys proven.** A deposit never drops a key.
+- **Re-lock and partial withdrawal drop unproven keys only with `acceptDroppingUnproven`.** A new lock needs at least two proven keys. A full withdrawal is never gated. `previewVaultWithdrawal` returns a `lockPlan`.
+- **The WhatsOnChain lookup uses confirmed and unconfirmed history, with paging** (up to 5 pages).
+- **`adoptVaultKey` without `authority` is a session proof.** It lasts until the app restarts.
+- **`metaFromVerifiedOutputs` no longer infers a pending removal** from an old output.
+- **`enrollKey` with `replaceOccupiedVaultSlot: true` needs the same gate as a PIV reset.** Pass `fundsClearance` (from `checkVaultCardFunds` for the card) or `acknowledgeFundsLoss: true`, else it throws `chain-check-required` before the card is changed. Without the flag nothing changes.
+
+### Fixed
+
+- The audit ids `planted-key`, `planted-lockout`, `add-key`, `late-key`, `salt-reuse`, `scan-shadow`, `decoy-wedge`, `scan-silent` (library result), `no-rescan` (library entry), `reset-new-phone` (library gate), `primary-key` and `slices` (library half).
+
+### Breaking changes for the app
+
+Every item below can break an app that built against 0.24.x.
+
+- **`VaultChainLookup` left `chainRecovery.ts`.** The type was re-exported from `core/services/vault/chainRecovery`; it now lives only in `core/services/vault/markerLookup` (a deep import of the old path stops compiling). The package root still exports it, because `core/index.ts` star-exports `markerLookup`. Change `import { type VaultChainLookup } from '.../chainRecovery'` to `markerLookup` or the package root.
+- **`vaultStore.addKey` is removed.** It appended a key to `meta.keys` with no proof and had no caller. A key is added with `addVaultKey` (it stages) and activated by a re-lock or `activateStagedKeyWithoutOutputs`.
+- **`addVaultKey` no longer commits the key.** It stages it in `meta.staged`. Screens that read `meta.keys` right after it must read `meta.staged` and run the activation step. `VaultMeta` gains `staged`, and `recovery.adopted` (pairs of serial and pubkey).
+- **Five new `VaultErrorCode` values** (`lookup-unknown`, `keys-unproven`, `not-enough-proven-keys`, `chain-check-required`, `no-mnemonic`). A host `Record<VaultErrorCode, ...>` or exhaustive `switch` fails to compile until it handles them. `lookup-unknown` is not in the library's retry set.
+- **`resetPivApplication` throws `chain-check-required`** unless it gets a `fundsClearance` from `checkVaultCardFunds` or `acknowledgeFundsLoss: true`.
+- **A deposit, a partial withdrawal and a re-lock need the chain.** Salt indexes are checked against WhatsOnChain; a failed or rate-limited check throws `lookup-unknown` before any tap. They no longer work fully offline. A full withdrawal still does not need it.
+- **Deposits throw `keys-unproven`** while any key of a restored vault is unproven. Re-lock and partial withdrawal throw it too, unless `acceptDroppingUnproven` is set, and then need two proven keys (`not-enough-proven-keys`).
+- **`recoverVaultWithKey` and `recoverVaultFromChain` can return `conflict: true` with `found: 0`** and nothing restored. The host must offer a group (`options.groupId`). A scan never adds keys or revisions to a local meta.
+- **A no-tap scan no longer restores a vault.** `scanVaultDeposits`, `recoverVaultFromChain` and `recoverVaultFromTxids` return `found: 0` and `needsKey: true` for a vault this phone does not hold. A host that shows "No vault found" for `found === 0` is wrong for that result (the library's own unpatched `VaultScreen` does). Offer a restore with a key; keep Set up hidden.
+- **`recoverVaultFromTxids` refuses `maxIndex` above 1000** (`template-invalid`). Default is 200.
+- **`wocChainLookup` reads three endpoints** (confirmed history with paging, unconfirmed history, plain history). `requestInit.headers` may be a plain object, a `Headers` instance or an array of pairs.
+- **`metaFromVerifiedOutputs` no longer returns a `pendingRemoval`.**
+- **`adoptVaultKey` without `authority`** records a session proof only; it is lost on app restart.
+- **`wocChainLookup` moved to `core/services/vault/wocLookup`.** `chainRecovery.ts` still re-exports it, and the package root exports it once.
+- **`VaultChainRecoveryResult` is now an alias of `VaultScanResult`**, which has more fields (`status`, `problemCount`, `unknownIndexes`, `groups`, `setApart`, `conflict` and others). Code that builds such a result by hand needs them.
+- **`ShareCompatibilityIssue` gains `print-mismatch`.** An exhaustive `switch` over it fails to compile. A slice may carry a print ID after its four parts.
+- **`recoverVaultMetaFromOutputs` takes an optional group** (`vaultId`, `createdAt`, `revision`, `keys`), and `vaultStore.markKeyAdopted` takes more optional arguments. Calls without them still compile.
+- **A vault scan ignores outputs below `VAULT_SCAN_MIN_SATS`** (100,000 sat), and `ignoredBelowMinimum` counts them.
+- **`enrollKey({ replaceOccupiedVaultSlot: true })` throws `chain-check-required`** unless it gets a `fundsClearance` or `acknowledgeFundsLoss: true`. The library's unpatched `EnrollWizard` passes neither, so its Replace step fails closed.
+
+### Host changes needed
+
+- Regenerate the app's `patches/@bsv+expo-wallet-toolbox` patch for 0.25.0.
+- Implement the screens listed in the App integration contract: scan button and incomplete state, conflict choice, staged keys, unproven keys, drop warning, card funds check before reset, transaction ID restore, forget setup, print IDs.
+- Handle `needsKey`: say that a vault was found and ask for a tap (`recoverVaultWithKey`, or `recoverVaultFromTxidsWithKey` when an index is `unknown`).
+
 ## 0.24.3
 
 The nearby session QR names the payee's network. No native change: hosts do not rebuild.

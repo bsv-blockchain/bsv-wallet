@@ -62,10 +62,12 @@ import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 import { setMockDriver } from '../../core/services/vault/driver'
 import {
   computeVaultDraftAuthorityTag,
+  computeVaultMetaAuthorityTag,
   verifyVaultMetaAuthorityTag,
   type HmacCapableWallet
 } from '../../core/services/vault/metaAuthority'
 import { compressPubkey } from '../../core/services/vault/r1comb'
+import { issueResetClearance } from '../../core/services/vault/resetClearance'
 import { VaultError } from '../../core/services/vault/types'
 import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore'
 import {
@@ -74,6 +76,7 @@ import {
   VAULT_MIN_KEYS,
   VAULT_SLOT,
   addVaultKey,
+  discardStagedVaultKey,
   adoptVaultKey,
   disableVault,
   enrollKey,
@@ -824,12 +827,110 @@ describe('enrollKey', () => {
     expect(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey)).toBe(compressPubkey(existing))
   })
 
-  test('replaces only the occupied Vault slot after explicit consent', async () => {
-    mock.occupySlot()
-    const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
-    const record = await enrollKey(args({ replaceOccupiedVaultSlot: true }))
-    expect(record.pubkey).not.toBe(compressPubkey(existing))
-    expect(record.pubkey).toBe(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey))
+  describe('replacing an occupied Vault slot (reset-new-phone gate)', () => {
+    const slotKey = async () => compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey)
+    const spies = () => ({
+      start: jest.spyOn(mock, 'start'),
+      getKeyInfo: jest.spyOn(mock, 'getKeyInfo'),
+      generateVaultKey: jest.spyOn(mock, 'generateVaultKey'),
+      changePuk: jest.spyOn(mock, 'changePuk')
+    })
+
+    test('replace without a clearance or acknowledgement refuses with chain-check-required and never touches the card', async () => {
+      mock.occupySlot()
+      const before = await slotKey()
+      const s = spies()
+      await expect(enrollKey(args({ replaceOccupiedVaultSlot: true }))).rejects.toMatchObject({
+        code: 'chain-check-required'
+      })
+      expect(s.start).not.toHaveBeenCalled()
+      expect(s.getKeyInfo).not.toHaveBeenCalled()
+      expect(s.generateVaultKey).not.toHaveBeenCalled()
+      expect(s.changePuk).not.toHaveBeenCalled()
+      expect(await slotKey()).toBe(before)
+    })
+
+    test('replace with acknowledgeFundsLoss: true replaces the key', async () => {
+      mock.occupySlot()
+      const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
+      const record = await enrollKey(args({ replaceOccupiedVaultSlot: true, acknowledgeFundsLoss: true }))
+      expect(record.pubkey).not.toBe(compressPubkey(existing))
+      expect(record.pubkey).toBe(await slotKey())
+    })
+
+    test('replace with a valid clearance for the tapped serial replaces the key', async () => {
+      mock.occupySlot()
+      const before = await slotKey()
+      const storageKey = vaultStore.captureScopeToken().storageKey
+      const record = await enrollKey(
+        args({ replaceOccupiedVaultSlot: true, fundsClearance: issueResetClearance('MOCK-1', storageKey) })
+      )
+      expect(record.pubkey).not.toBe(before)
+      expect(record.pubkey).toBe(await slotKey())
+    })
+
+    test('a clearance for another serial is refused after the card is read and before any change', async () => {
+      mock.occupySlot()
+      const before = await slotKey()
+      const storageKey = vaultStore.captureScopeToken().storageKey
+      const s = spies()
+      const err = await enrollKey(
+        args({ replaceOccupiedVaultSlot: true, fundsClearance: issueResetClearance('MOCK-2', storageKey) })
+      ).catch(e => e)
+      expect(err).toMatchObject({ code: 'chain-check-required', details: { serial: 'MOCK-1' } })
+      expect(s.getKeyInfo).toHaveBeenCalled()
+      expect(s.changePuk).not.toHaveBeenCalled()
+      expect(s.generateVaultKey).not.toHaveBeenCalled()
+      expect(await slotKey()).toBe(before)
+    })
+
+    test('an expired clearance is refused before card contact', async () => {
+      mock.occupySlot()
+      const storageKey = vaultStore.captureScopeToken().storageKey
+      const s = spies()
+      await expect(
+        enrollKey(
+          args({
+            replaceOccupiedVaultSlot: true,
+            fundsClearance: issueResetClearance('MOCK-1', storageKey, Date.now() - 11 * 60 * 1000)
+          })
+        )
+      ).rejects.toMatchObject({ code: 'chain-check-required' })
+      expect(s.start).not.toHaveBeenCalled()
+    })
+
+    test('a hand-made clearance object is refused', async () => {
+      mock.occupySlot()
+      const storageKey = vaultStore.captureScopeToken().storageKey
+      const s = spies()
+      await expect(
+        enrollKey(
+          args({
+            replaceOccupiedVaultSlot: true,
+            fundsClearance: { serial: 'MOCK-1', storageKey, issuedAt: Date.now() }
+          })
+        )
+      ).rejects.toMatchObject({ code: 'chain-check-required' })
+      expect(s.start).not.toHaveBeenCalled()
+    })
+
+    test('a clearance from another wallet scope is refused', async () => {
+      mock.occupySlot()
+      const before = await slotKey()
+      await expect(
+        enrollKey(
+          args({ replaceOccupiedVaultSlot: true, fundsClearance: issueResetClearance('MOCK-1', 'other-scope-key') })
+        )
+      ).rejects.toMatchObject({ code: 'chain-check-required' })
+      expect(await slotKey()).toBe(before)
+    })
+
+    test('without the flag nothing changes: an empty slot enrolls with no clearance, and a clearance argument is ignored', async () => {
+      const storageKey = vaultStore.captureScopeToken().storageKey
+      const record = await enrollKey(args({ fundsClearance: issueResetClearance('MOCK-9', storageKey) }))
+      expect(record.serial).toBe('MOCK-1')
+      expect(record.pubkey).toBe(await slotKey())
+    })
   })
 
   test('XR-008: an explicit slot replacement never erases a signer enrolled under another chain of the same wallet', async () => {
@@ -845,7 +946,7 @@ describe('enrollKey', () => {
     mock.occupySlot()
     const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
     const genSpy = jest.spyOn(mock, 'generateVaultKey')
-    const err = await enrollKey(args({ replaceOccupiedVaultSlot: true })).catch(e => e)
+    const err = await enrollKey(args({ replaceOccupiedVaultSlot: true, acknowledgeFundsLoss: true })).catch(e => e)
     expect(err).toMatchObject({ code: 'key-already-enrolled', details: { serial: 'MOCK-1' } })
     expect(genSpy).not.toHaveBeenCalled()
     expect(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey)).toBe(compressPubkey(existing))
@@ -860,7 +961,7 @@ describe('enrollKey', () => {
     mock.occupySlot()
     const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
     const genSpy = jest.spyOn(mock, 'generateVaultKey')
-    const err = await enrollKey(args({ replaceOccupiedVaultSlot: true })).catch(e => e)
+    const err = await enrollKey(args({ replaceOccupiedVaultSlot: true, acknowledgeFundsLoss: true })).catch(e => e)
     expect(err).toMatchObject({ code: 'key-already-enrolled', details: { serial: 'MOCK-1' } })
     expect(genSpy).not.toHaveBeenCalled()
     expect(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey)).toBe(compressPubkey(existing))
@@ -868,9 +969,11 @@ describe('enrollKey', () => {
 
   test('explicit Vault-slot replacement does not permit another occupied PIV slot', async () => {
     mock.occupyOtherPivSlot()
-    await expect(enrollKey(args({ replaceOccupiedVaultSlot: true }))).rejects.toMatchObject({
-      code: 'slot-occupied'
-    })
+    await expect(enrollKey(args({ replaceOccupiedVaultSlot: true, acknowledgeFundsLoss: true }))).rejects.toMatchObject(
+      {
+        code: 'slot-occupied'
+      }
+    )
   })
 
   // The three tests below pin the slot PROBE, not the preflight. Preflight now
@@ -1070,6 +1173,31 @@ describe('enrollKey', () => {
     ])
   })
 
+  test('NFC (iOS shape): replace with a clearance for another card is refused inside the session, closes it and writes nothing', async () => {
+    const nfc = nfcMock()
+    nfc.occupySlot()
+    setMockDriver(nfc)
+    const before = compressPubkey((await nfc.readVaultPublicKey('MOCK-1'))!.publicKey)
+    jest.spyOn(nfc, 'start').mockImplementation(() => {
+      ;(nfc as unknown as { emit: (e: unknown) => void }).emit({
+        type: 'attached',
+        serial: 'MOCK-1',
+        transport: 'mock'
+      })
+    })
+    const stopSpy = jest.spyOn(nfc, 'stop')
+    const generateSpy = jest.spyOn(nfc, 'generateVaultKey')
+    const pukSpy = jest.spyOn(nfc, 'changePuk')
+    const storageKey = vaultStore.captureScopeToken().storageKey
+    await expect(
+      enrollKey(args({ replaceOccupiedVaultSlot: true, fundsClearance: issueResetClearance('MOCK-2', storageKey) }))
+    ).rejects.toMatchObject({ code: 'chain-check-required', details: { serial: 'MOCK-1' } })
+    expect(stopSpy).toHaveBeenCalledTimes(1)
+    expect(generateSpy).not.toHaveBeenCalled()
+    expect(pukSpy).not.toHaveBeenCalled()
+    expect(compressPubkey((await nfc.readVaultPublicKey('MOCK-1'))!.publicKey)).toBe(before)
+  })
+
   test('NFC: the system sheet being cancelled rejects the step with user-cancelled and closes the session', async () => {
     const nfc = nfcMock()
     setMockDriver(nfc)
@@ -1126,6 +1254,52 @@ describe('adoptVaultKey', () => {
     await expect(vaultStore.requireKeyAdopted(enrolled.serial)).resolves.toBeUndefined()
   })
 
+  describe('durable adoption', () => {
+    const restoreRecovered = async (enrolled: VaultKeyRecord, tagged: boolean): Promise<void> => {
+      await stageReady(rec(2))
+      await finalizeEnrollment([enrolled, rec(2)], undefined, AUTHORITY)
+      await vaultStore.clear()
+      await vaultStore.restoreVerifiedMeta(
+        { v: 6, vaultId: '11'.repeat(32), revision: 1, createdAt: 1, keys: [enrolled, rec(2)] },
+        undefined,
+        tagged ? next => computeVaultMetaAuthorityTag(FAKE_WALLET, ADMIN, next, vaultStore.getScope()!) : undefined
+      )
+    }
+
+    test('with an authority writes the adopted pair and a tag that still verifies', async () => {
+      const enrolled = await enrollKey(args())
+      await restoreRecovered(enrolled, true)
+      await adoptVaultKey({ record: enrolled, onPhase: () => {}, getPin: async () => '654321', authority: AUTHORITY })
+      const meta = (await vaultStore.getMeta())!
+      expect(meta.recovery?.adopted).toEqual([{ serial: enrolled.serial, pubkey: enrolled.pubkey }])
+      expect(meta.recovery?.adoptedSerials).toEqual([enrolled.serial])
+      await expect(
+        verifyVaultMetaAuthorityTag(FAKE_WALLET, ADMIN, meta, vaultStore.getScope()!, await vaultStore.getMetaTag())
+      ).resolves.toBe(true)
+    })
+
+    test('with an authority over a meta whose tag does not verify keeps the proof in memory only', async () => {
+      const enrolled = await enrollKey(args())
+      await restoreRecovered(enrolled, false)
+      const before = JSON.stringify(await vaultStore.getMeta())
+      await adoptVaultKey({ record: enrolled, onPhase: () => {}, getPin: async () => '654321', authority: AUTHORITY })
+      expect(JSON.stringify(await vaultStore.getMeta())).toBe(before)
+      await expect(vaultStore.requireKeyAdopted(enrolled.serial)).resolves.toBeUndefined()
+    })
+
+    test('without an authority writes nothing and the proof ends with the scope', async () => {
+      const enrolled = await enrollKey(args())
+      await restoreRecovered(enrolled, true)
+      const before = JSON.stringify(await vaultStore.getMeta())
+      await adoptVaultKey({ record: enrolled, onPhase: () => {}, getPin: async () => '654321' })
+      expect(JSON.stringify(await vaultStore.getMeta())).toBe(before)
+      const scope = vaultStore.getScope()!
+      vaultStore.clearScope()
+      vaultStore.configureScope(scope)
+      await expect(vaultStore.requireKeyAdopted(enrolled.serial)).rejects.toMatchObject({ code: 'key-not-adopted' })
+    })
+  })
+
   test('rejects a different serial or public key and never generates', async () => {
     const enrolled = await enrollKey(args())
     const generate = jest.spyOn(mock, 'generateVaultKey')
@@ -1166,7 +1340,7 @@ describe('metaFromVerifiedOutputs', () => {
     ...over
   })
 
-  test('selects one consistent latest revision and detects an in-progress removal', () => {
+  test('selects one consistent latest revision and never infers a removal', () => {
     const oldKeys = [rec(1), rec(2), rec(3)]
     const active = [rec(1), rec(3)]
     const recovered = metaFromVerifiedOutputs([
@@ -1176,12 +1350,7 @@ describe('metaFromVerifiedOutputs', () => {
     ])
     expect(recovered.keys).toEqual(active)
     expect(recovered.revision).toBe(2)
-    expect(recovered.pendingRemoval).toMatchObject({
-      key: rec(2),
-      keyIndex: 1,
-      state: 'broadcast'
-    })
-    expect(JSON.stringify(recovered.pendingRemoval)).not.toContain('txids')
+    expect(recovered.pendingRemoval).toBeUndefined()
   })
 
   test('rejects mixed enrollments and conflicting key sets at one revision', () => {
@@ -1360,12 +1529,17 @@ describe('finalizeEnrollment', () => {
 })
 
 describe('addVaultKey / disableVault', () => {
-  test('addVaultKey appends through vaultStore.addKey and returns the new meta', async () => {
+  test('addVaultKey stages the key through vaultStore.stageKey and returns the new meta', async () => {
     await finalizeReady([rec(1), rec(2)])
     await stageReady(rec(3))
     const meta = await addVaultKey(rec(3), undefined, AUTHORITY)
-    expect(meta.keys.map(k => k.serial)).toEqual(['10000001', '10000002', '10000003'])
-    expect((await vaultStore.getMeta())!.keys).toHaveLength(3)
+    // The key waits in `staged`: the key list and the revision do not change.
+    expect(meta.staged).toEqual(rec(3))
+    expect(meta.keys.map(k => k.serial)).toEqual(['10000001', '10000002'])
+    expect(meta.revision).toBe(1)
+    const stored = (await vaultStore.getMeta())!
+    expect(stored.staged).toEqual(rec(3))
+    expect(stored.keys).toHaveLength(2)
   })
 
   test('addVaultKey requires the exact ready draft produced by enrollment', async () => {
@@ -1383,15 +1557,26 @@ describe('addVaultKey / disableVault', () => {
   })
 
   // Owner rule 2026-09-25: a full vault adds the replacement before removing
-  // the key it replaces, so a sixth key is held (never locked to); a seventh
-  // is refused.
-  test('addVaultKey takes a sixth key on a full vault and refuses a seventh', async () => {
+  // the key it replaces, so a sixth key is held (never locked to). Since the
+  // add-key hardening the sixth key is staged, and only one key waits at a time.
+  test('addVaultKey stages a sixth key on a full vault and refuses a second staged key', async () => {
     await finalizeReady([1, 2, 3, 4, 5].map(rec))
     await stageReady(rec(6))
     await addVaultKey(rec(6), undefined, AUTHORITY)
-    expect((await vaultStore.getMeta())!.keys.map(k => k.serial)).toEqual([1, 2, 3, 4, 5, 6].map(n => rec(n).serial))
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.keys.map(k => k.serial)).toEqual([1, 2, 3, 4, 5].map(n => rec(n).serial))
+    expect(meta.staged).toEqual(rec(6))
+    await stageReady(rec(7))
+    await expect(addVaultKey(rec(7), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'relock-required' })
+    expect((await vaultStore.getMeta())!.staged).toEqual(rec(6))
+  })
+
+  test('addVaultKey refuses with too-many-keys when the list already holds six keys', async () => {
+    await finalizeReady([1, 2, 3, 4, 5].map(rec))
+    const meta = (await vaultStore.getMeta())!
+    await vaultStore.setMeta({ ...meta, keys: [...meta.keys, rec(6)] })
+    await stageReady(rec(7))
     await expect(addVaultKey(rec(7), undefined, AUTHORITY)).rejects.toMatchObject({ code: 'too-many-keys' })
-    expect((await vaultStore.getMeta())!.keys).toHaveLength(6)
   })
 
   test('addVaultKey refuses a duplicate serial and an unenrolled vault', async () => {
@@ -1456,18 +1641,19 @@ describe('addVaultKey / disableVault', () => {
     ).resolves.toBe(false)
   })
 
-  test('XR-002: addVaultKey proceeds normally when the existing meta is validly tagged (multiple local revision bumps, no outputs)', async () => {
-    // The exact scenario the previous fix attempt's on-chain-ceiling approach
-    // broke (69/195 transfers.test.ts failures): several legitimate local
-    // key adds in a row with no intervening deposit. The wallet-root tag
-    // (not an on-chain ceiling) is what distinguishes this from the forgery
-    // above — every one of these writes is freshly, validly re-tagged.
+  test('XR-002: addVaultKey proceeds normally when the existing meta is validly tagged (a staged key and a discard in a row, no outputs)', async () => {
+    // Several legitimate local writes in a row with no intervening deposit.
+    // The wallet-root tag (not an on-chain ceiling) is what distinguishes this
+    // from the forgery above — every one of these writes is freshly, validly
+    // re-tagged, so the next one builds on it.
     await finalizeReady([rec(1), rec(2)])
     await stageReady(rec(3))
     await addVaultKey(rec(3), undefined, AUTHORITY)
+    await discardStagedVaultKey(undefined, AUTHORITY)
     await stageReady(rec(4))
     const meta = await addVaultKey(rec(4), undefined, AUTHORITY)
-    expect(meta.keys.map(k => k.serial)).toEqual(['10000001', '10000002', '10000003', '10000004'])
+    expect(meta.keys.map(k => k.serial)).toEqual(['10000001', '10000002'])
+    expect(meta.staged).toEqual(rec(4))
     expect(await vaultStore.getMetaTag()).not.toBeNull()
   })
 })

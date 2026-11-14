@@ -172,6 +172,8 @@ import { buildPaymentFrame } from '../../core/localpay/build'
 import { mintSession } from '../../core/localpay/session'
 import { PEERPAY_PROTOCOL_ID } from '../../core/localpay/pending'
 import { freeReservedInputs, type VaultWallet } from '../../core/services/vault/transfers'
+import { setVaultChainLookup } from '../../core/services/vault/markerLookup'
+import { emptyChainLookup } from './testSupport/vaultHarness'
 
 const ORIGINATOR = 'admin.example'
 const FUNDING_SATOSHIS = 100_000
@@ -293,6 +295,9 @@ async function fundingOutputSpendable(storage: StorageExpoSQLite): Promise<boole
 }
 
 describe('XQ-016 review follow-up: freeReservedInputs against the REAL (non-mocked) vendor abortAction', () => {
+  beforeEach(() => setVaultChainLookup(emptyChainLookup()))
+  afterEach(() => setVaultChainLookup(null))
+
   it('does not free a vault outpoint reserved by a real signed nosend orphan when chain status cannot be established', async () => {
     const { wallet, storage, getStatusForTxids, fundingOutpoint } = await setupFundedWallet(701)
 

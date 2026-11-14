@@ -114,8 +114,12 @@ import {
   withdrawFromVault
 } from '../../core/services/vault/transfers'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
+import { tapRestore } from './testSupport/tapRestore'
+import { setVaultChainLookup } from '../../core/services/vault/markerLookup'
 
 jest.setTimeout(300_000)
+
+afterEach(() => setVaultChainLookup(null))
 
 const ADMIN = 'admin.com'
 const hex = (a: ArrayLike<number>): string => Utils.toHex(Array.from(a))
@@ -184,6 +188,7 @@ interface VaultFixture {
 async function setupVault(tag: string, n = 2, satoshis = 500_000): Promise<VaultFixture> {
   const identityKey = `02${tag}${'b3'.repeat(31)}`
   const chain = new FakeChain()
+  setVaultChainLookup(fakeChainLookup(chain)) // deposits see the real marker history
   const primaryKey = generateMnemonicWallet().primaryKey
   const deviceA = new FakeVaultWallet(primaryKey, chain)
   vaultStore.clearScope()
@@ -258,7 +263,7 @@ beforeEach(async () => {
 
 // ─────────────────────────────────────────────────────────────────────────
 describe('I2 (a): mnemonic only, no committed key', () => {
-  it('I2: chain recovery succeeds from the mnemonic alone, but withdrawal refuses before any physical key proves possession (positive control: adopting the committed key then succeeds)', async () => {
+  it('I2: a mnemonic-only scan restores nothing and withdrawal refuses; restoring with a tap of the committed key then succeeds (positive control)', async () => {
     const { chain, primaryKey, mock, keys, identityKey } = await setupVault('a1')
 
     await AsyncStorage.clear()
@@ -267,18 +272,21 @@ describe('I2 (a): mnemonic only, no committed key', () => {
     vaultStore.configureScope({ identityKey, chain: 'test' })
 
     const deviceB = new FakeVaultWallet(primaryKey, chain)
-    const recovery = await recoverVaultFromChain(deviceB, ADMIN, fakeChainLookup(chain), 'test')
-    expect(recovery.found).toBe(1)
-    expect(recovery.problems).toEqual([])
-
-    // Negative: mnemonic-only recovery never adopts a key — no physical key
-    // has been presented — so withdrawal must refuse.
+    // Negative: a mnemonic-only scan restores nothing (no physical key has
+    // been presented), so there is no vault to spend from.
+    const scan = await recoverVaultFromChain(deviceB, ADMIN, fakeChainLookup(chain), 'test')
+    expect(scan).toMatchObject({ found: 0, needsKey: true })
+    expect(deviceB.hasLocalVaultOutputs()).toBe(false)
+    expect(await vaultStore.getMeta()).toBeNull()
     await expect(withdrawFromVault(deviceB, ADMIN, 'all', 'no card presented', keys[0].serial)).rejects.toMatchObject({
-      code: 'key-not-adopted'
+      code: 'not-enrolled'
     })
 
-    // Positive control: the SAME device, the SAME recovered vault, spends
-    // once the committed key actually proves possession.
+    // Positive control: with the committed key tapped the same device
+    // restores the vault and spends.
+    const recovery = await tapRestore(deviceB, fakeChainLookup(chain), 'test', keys[0])
+    expect(recovery.found).toBe(1)
+    expect(recovery.problems).toEqual([])
     armSigner(mock, keys[0].serial)
     await adoptVaultKey({ record: keys[0], onPhase: () => {}, getPin: async () => '123456' })
     const spend = await withdrawFromVault(deviceB, ADMIN, 'all', 'with the committed key', keys[0].serial)
@@ -294,7 +302,7 @@ describe('I2 (a): mnemonic only, no committed key', () => {
     vaultStore.configureScope({ identityKey, chain: 'test' })
 
     const deviceB = new FakeVaultWallet(primaryKey, chain)
-    const recovery = await recoverVaultFromChain(deviceB, ADMIN, fakeChainLookup(chain), 'test')
+    const recovery = await tapRestore(deviceB, fakeChainLookup(chain), 'test', keys[0])
     expect(recovery.found).toBe(1)
 
     const { outpoint, satoshis, lockingScript, ci } = await readVaultOutput(deviceB)
@@ -786,6 +794,7 @@ describe('I2 residual (v6 legacy): a stolen v6 output carries the salt', () => {
   it("I2 residual (v6 legacy): the app's own withdrawFromVault refuses a different-root wallet even for a v6 output (verifyVaultSaltDerivations cross-checks the listed salt claim against the acting wallet's own root) — but see the next test for why this is not the real security boundary", async () => {
     const identityKey = `02f6${'c4'.repeat(31)}`
     const chain = new FakeChain()
+    setVaultChainLookup(fakeChainLookup(chain)) // deposits see the real marker history
     const owner = generateMnemonicWallet()
     const deviceA = new FakeVaultWallet(owner.primaryKey, chain)
     vaultStore.clearScope()
@@ -857,6 +866,7 @@ describe('I2 residual (v6 legacy): a stolen v6 output carries the salt', () => {
 
   it("I2 residual (v6 legacy): the R1C SCRIPT accepts a witness built straight from a v6 record's embedded salt — a raw-transaction attacker with the stolen DB, the committed key and its correct PIN needs no mnemonic and no app at all (positive control: the same witness shape is what the real owner would also produce)", async () => {
     const chain = new FakeChain()
+    setVaultChainLookup(fakeChainLookup(chain)) // deposits see the real marker history
     const { mock, keys } = await buildKeyring(2)
 
     const salt = hex(p256.utils.randomSecretKey())

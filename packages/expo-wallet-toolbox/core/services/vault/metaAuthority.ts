@@ -28,16 +28,18 @@
  * `requireReadyEnrollmentDrafts`/`resumeEnrollmentDraft` trust a `ready`
  * draft (VaultKeyService.ts).
  *
- * WHY THESE FIELDS AND NOT OTHERS. The tagged meta payload is exactly
- * `vaultId`, `revision`, `createdAt`, the ordered key list (serial/slot/
- * pubkey) and `pendingRemoval` — the fields `newVaultOutput` bakes into a
- * new R1C lock, or that gate a two-phase key removal. Cosmetic/local-only
- * fields (`nickname`, `enrolledAt`, `lastUsedAt`/`lastUsedSerial`,
- * `recovery.adoptedSerials`) are deliberately EXCLUDED: they never feed a
- * new output's lock, and including them would force a fresh tag on every
- * rename/last-use/adoption write in addition to every revision-bumping one,
- * without closing any additional attack surface (see vaultStore.ts's
- * markKeyAdopted/noteLastUsed/renameKey for where this matters).
+ * WHY THESE FIELDS AND NOT OTHERS. The tagged meta payload is `vaultId`,
+ * `revision`, `createdAt`, the ordered key list (serial/slot/pubkey),
+ * `pendingRemoval`, the staged key and the adopted (serial, pubkey) pairs.
+ * The first five are what `newVaultOutput` bakes into a new R1C lock or what
+ * gates a two-phase key removal. The staged key and the adopted pairs decide
+ * which keys a new lock may commit (vaultStore.provenKeyRecords), so a
+ * store-only attacker must not be able to add either. Cosmetic/local-only
+ * fields (`nickname`, `enrolledAt`, `lastUsedAt`/`lastUsedSerial`, the legacy
+ * `recovery.adoptedSerials`) stay EXCLUDED: they never feed a lock, and
+ * covering them would force a fresh tag on every rename/last-use write (see
+ * vaultStore.ts's noteLastUsed/renameKey). Session proofs are in memory and
+ * never tagged.
  */
 import type { WalletInterface } from '@bsv/sdk'
 import type { VaultKeyRecord, VaultMeta, VaultPendingRemoval, VaultStoreScope } from './vaultStore'
@@ -53,7 +55,10 @@ export const VAULT_META_PROTOCOL_ID = [2, 'vault meta'] as const
  * trusted rather than refusing it. */
 export type HmacCapableWallet = Pick<WalletInterface, 'createHmac' | 'verifyHmac'>
 
-type TaggedMetaFields = Pick<VaultMeta, 'vaultId' | 'revision' | 'createdAt' | 'keys' | 'pendingRemoval'>
+type TaggedMetaFields = Pick<
+  VaultMeta,
+  'vaultId' | 'revision' | 'createdAt' | 'keys' | 'pendingRemoval' | 'staged' | 'recovery'
+>
 
 function canonicalKeyFields(k: Pick<VaultKeyRecord, 'serial' | 'slot' | 'pubkey'>) {
   return { serial: k.serial, slot: k.slot, pubkey: k.pubkey }
@@ -79,7 +84,14 @@ function vaultMetaAuthorityMessage(meta: TaggedMetaFields, scope: VaultStoreScop
     revision: meta.revision,
     createdAt: meta.createdAt,
     keys: meta.keys.map(canonicalKeyFields),
-    pendingRemoval: canonicalPendingRemoval(meta.pendingRemoval)
+    pendingRemoval: canonicalPendingRemoval(meta.pendingRemoval),
+    // Added conditionally and last, so the tag of a meta with no staged key and
+    // no recovery state is byte-identical to the one computed before these
+    // fields were covered.
+    ...(meta.staged ? { staged: canonicalKeyFields(meta.staged) } : {}),
+    ...(meta.recovery?.required
+      ? { adopted: [...(meta.recovery.adopted ?? [])].map(p => `${p.serial}:${p.pubkey}`).sort() }
+      : {})
   })
 }
 

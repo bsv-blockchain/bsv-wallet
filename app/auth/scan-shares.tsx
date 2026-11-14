@@ -27,7 +27,8 @@ import { showAlert, Celebration, QRScanner, restorePrompts } from '@bsv/expo-wal
 const ISSUE_KEY: Record<ShareCompatibilityIssue, string> = {
   'threshold-mismatch': 'scan_shares_threshold_mismatch',
   'integrity-mismatch': 'scan_shares_integrity_mismatch',
-  duplicate: 'scan_shares_duplicate'
+  duplicate: 'scan_shares_duplicate',
+  'print-mismatch': 'scan_shares_print_mismatch'
 }
 
 export default function ScanSharesScreen() {

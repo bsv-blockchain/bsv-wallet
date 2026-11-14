@@ -46,7 +46,52 @@ export async function requireVaultOutputKeyPossession(
       'utf8'
     )
   )
-  const signer = await requestVaultSigner('Verify vault key for new funds', chosen.serial)
+  await proveKeyPossession(scope, chosen, digest, 'Verify vault key for new funds')
+}
+
+/** Fresh hardware authority to promote a staged key (add-key, late-key) when
+ * no funded output exists to re-lock. Same flow as requireVaultOutputKeyPossession:
+ * the chosen existing key signs a digest that binds the vault, its current
+ * revision and key list, the staged pubkey, the new revision and a nonce. */
+export async function requireVaultKeyChallenge(
+  meta: Pick<VaultMeta, 'vaultId' | 'revision' | 'createdAt' | 'keys' | 'lastUsedSerial'>,
+  scope: VaultScopeToken,
+  challenge: { kind: 'vault-add-key'; stagedPubkey: string; newRevision: number },
+  chosenSerial: string
+): Promise<void> {
+  vaultStore.assertScopeToken(scope)
+  const chosen = meta.keys.find(key => key.serial === chosenSerial)
+  if (!chosen) throw new VaultError('not-enrolled', 'Choose a key that is already part of the vault')
+  const digest = Hash.sha256(
+    Utils.toArray(
+      JSON.stringify({
+        v: 1,
+        kind: challenge.kind,
+        walletScope: scope.storageKey,
+        chain: scope.chain,
+        vaultId: meta.vaultId,
+        revision: meta.revision,
+        createdAt: meta.createdAt,
+        keys: meta.keys.map(key => ({ serial: key.serial, slot: key.slot, pubkey: key.pubkey })),
+        stagedPubkey: challenge.stagedPubkey,
+        newRevision: challenge.newRevision,
+        nonce: Utils.toHex(randomBytes(32))
+      }),
+      'utf8'
+    )
+  )
+  await proveKeyPossession(scope, chosen, digest, 'Verify vault key to add a new key')
+}
+
+/** Ask the chosen key's card to sign `digest` and verify the P-256 signature
+ * against the stored pubkey. */
+async function proveKeyPossession(
+  scope: VaultScopeToken,
+  chosen: VaultMeta['keys'][number],
+  digest: number[],
+  reason: string
+): Promise<void> {
+  const signer = await requestVaultSigner(reason, chosen.serial)
   try {
     vaultStore.assertScopeToken(scope)
     if (signer.serial !== chosen.serial || signer.pubkey !== chosen.pubkey) {

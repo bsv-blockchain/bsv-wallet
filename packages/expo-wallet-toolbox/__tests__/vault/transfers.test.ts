@@ -125,6 +125,8 @@ import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore
 import { computeVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
 import type { VaultSigner } from '../../core/services/vault/ceremony'
 import { VaultError } from '../../core/services/vault/types'
+import { resetSaltFloors, setVaultChainLookup } from '../../core/services/vault/markerLookup'
+import { emptyChainLookup } from './testSupport/vaultHarness'
 import {
   VAULT_BASKET,
   VAULT_DEPOSIT_MIN,
@@ -244,6 +246,8 @@ let wallet: VaultWallet & {
 }
 
 beforeEach(async () => {
+  setVaultChainLookup(emptyChainLookup())
+  resetSaltFloors()
   fixtureSaltIndex = 1000
   await AsyncStorage.clear()
   ;(jest.requireMock('expo-secure-store') as { __clear: () => void }).__clear()
@@ -334,6 +338,7 @@ beforeEach(async () => {
   signCalls = []
   armWith(PRIV_A, PUB_A, 'A-1')
 })
+afterEach(() => setVaultChainLookup(null))
 
 // Spies on r1comb (Task 10 stubs verifyVaultInput / pushTxDerCheck in a few
 // tests) must not leak between tests: a stubbed verifyVaultInput would let a
@@ -1773,7 +1778,7 @@ describe('depositToVault', () => {
     expect(wallet.createAction).not.toHaveBeenCalled()
   })
 
-  it('requires possession proof for at least two recovered keys before accepting net-new funds', async () => {
+  it('requires possession proof for every recovered key before accepting net-new funds', async () => {
     await vaultStore.setMeta(
       {
         v: 6,
@@ -1781,12 +1786,19 @@ describe('depositToVault', () => {
         revision: 2,
         createdAt: 1,
         keys: [KEY_A, KEY_B],
-        recovery: { required: true, adoptedSerials: ['A-1'] }
+        recovery: {
+          required: true,
+          adoptedSerials: ['A-1'],
+          adopted: [{ serial: 'A-1', pubkey: KEY_A.pubkey }]
+        }
       },
       undefined,
       tagFor
     )
-    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'key-not-adopted' })
+    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({
+      code: 'keys-unproven',
+      details: { serials: KEY_B.serial }
+    })
     expect(wallet.createAction).not.toHaveBeenCalled()
 
     await vaultStore.setMeta(
@@ -1796,7 +1808,14 @@ describe('depositToVault', () => {
         revision: 2,
         createdAt: 1,
         keys: [KEY_A, KEY_B],
-        recovery: { required: true, adoptedSerials: ['A-1', 'B-1'] }
+        recovery: {
+          required: true,
+          adoptedSerials: ['A-1', 'B-1'],
+          adopted: [
+            { serial: 'A-1', pubkey: KEY_A.pubkey },
+            { serial: 'B-1', pubkey: KEY_B.pubkey }
+          ]
+        }
       },
       undefined,
       tagFor
@@ -2087,7 +2106,11 @@ describe('XR-002: forged local vault metadata never redirects a new output', () 
     })
     const token = vaultStore.captureScopeToken()
     const authenticated = await requireAuthenticatedMeta(wallet, ADMIN, token, original)
-    expect(authenticated).toEqual(original)
+    // current was untagged: its (absent) adoption state is not trusted, so nothing is proven
+    expect(authenticated).toEqual({
+      ...original,
+      recovery: { required: true, adoptedSerials: [], adopted: [] }
+    })
     expect(await vaultStore.getMeta()).toEqual(forged)
     const tagger = jest.fn(tagFor)
     await expect(vaultStore.renameKey(KEY_A.serial, 'Renamed', token, tagger, authenticated)).rejects.toMatchObject({
@@ -3099,6 +3122,7 @@ describe('previewVaultWithdrawal', () => {
 
     const preview = await previewVaultWithdrawal(wallet, ADMIN, 'A-1', 'all')
     expect(preview).toEqual({
+      lockPlan: { needsRelock: false, provenSerials: ['A-1', 'B-1'], unprovenSerials: [] },
       selectedTotal: 800_000, // A's two outputs, not the 1,200,000 balance
       cappedInputs: 0,
       unreachable: { count: 1, satoshis: 400_000, keys: [{ serial: 'B-1', pubkey: PUB_B }] }
@@ -4275,7 +4299,7 @@ describe('authenticated vault scans', () => {
       v: 6,
       vaultId: VAULT_ID,
       keys: [KEY_A, KEY_B],
-      recovery: { required: true, adoptedSerials: [] }
+      recovery: { required: true, adoptedSerials: [], adopted: [] }
     })
     const ci = decodeVaultInstructions(fixture.customInstructions)!
     expect(wallet.createHmac).toHaveBeenCalledWith(
