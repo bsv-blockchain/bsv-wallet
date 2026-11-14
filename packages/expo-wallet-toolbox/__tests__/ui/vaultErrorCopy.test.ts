@@ -166,7 +166,18 @@ describe('vaultErrorCopy', () => {
     expect(vaultErrorCopy('puk-invalid')).toBe('vault_err_puk_invalid')
   })
 
-  test('the retryable set is the two tap-again codes plus an unclear chain lookup', () => {
-    expect([...RETRYABLE_VAULT_ERRORS].sort()).toEqual(['lookup-unknown', 'nfc-lost', 'touch-timeout'])
+  test('the retryable set is exactly the two tap-again codes', () => {
+    expect([...RETRYABLE_VAULT_ERRORS].sort()).toEqual(['nfc-lost', 'touch-timeout'])
+  })
+
+  test('every retryable UI code is in the ceremony retry set (no dead Retry button)', () => {
+    const src = require('fs').readFileSync(
+      require('path').join(__dirname, '../../core/services/vault/ceremony.ts'),
+      'utf8'
+    )
+    const m = src.match(/RETRYABLE_TAP_ERRORS = new Set\(\[([^\]]*)\]\)/)
+    expect(m).not.toBeNull()
+    const ceremony = (m![1].match(/'([^']+)'/g) ?? []).map((x: string) => x.slice(1, -1))
+    for (const c of RETRYABLE_VAULT_ERRORS) expect(ceremony).toContain(c)
   })
 })

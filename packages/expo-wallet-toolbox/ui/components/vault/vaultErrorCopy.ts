@@ -108,12 +108,13 @@ const KEY: Record<VaultErrorCode, string> = {
  * the button renders but does nothing. 'key-removed-mid-op' is deliberately
  * excluded even though the signing loop can produce it, because it can ALSO
  * arrive from a moment the loop does not cover (waiting-for-key), where retry
- * would be a dead button.
+ * would be a dead button. 'lookup-unknown' is excluded too: the ceremony has
+ * no retry waiter for it, so a Retry button would do nothing. Callers that
+ * throw it outside a ceremony show their own retry.
  */
 export const RETRYABLE_VAULT_ERRORS: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>([
   'touch-timeout',
-  'nfc-lost',
-  'lookup-unknown'
+  'nfc-lost'
 ])
 
 export function vaultErrorCopy(code: VaultErrorCode | undefined, params: VaultErrorParams = {}): string {
