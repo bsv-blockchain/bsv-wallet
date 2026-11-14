@@ -481,13 +481,14 @@ export async function recoverVaultWithKey(
   const scan = await scanVaultChain(w, adminOriginator, lookup, chain, gap)
   const records = [...scan.ready.map(c => c.ci), ...scan.pending]
   const key = await prove(records)
-  const result = await restoreScannedDeposits(w, adminOriginator, scan, {
+  const selection: RestoreSelection = {
     pubkey: key.pubkey,
     groupId: options?.groupId,
     vaultId: options?.vaultId,
     requireGroup: true
-  })
-  if (result.found > 0) {
+  }
+  const result = await restoreScannedDeposits(w, adminOriginator, scan, selection)
+  if (result.found > 0 || selection.metaReplaced) {
     // A durable proof re-tags the whole stored meta, so it is only written over
     // a meta whose own tag verifies (the restore above may have left an
     // existing meta untouched). Any other meta gets a session proof.
@@ -824,6 +825,10 @@ interface RestoreSelection {
   vaultId?: string
   /** A named group must be one of the groups found (tapped restore). */
   requireGroup?: boolean
+  /** Output flag: set when an unproven local meta was forgotten and rebuilt
+   * from the chosen group, so the caller adopts the tapped key even if every
+   * output was already in the basket. */
+  metaReplaced?: boolean
 }
 
 /**
@@ -879,7 +884,24 @@ async function restoreScannedDeposits(
   for (const candidate of scan.ready) maxUsedIndex = Math.max(maxUsedIndex, candidate.index)
 
   const groups = formGroups(ready, pending)
-  const meta = await authenticatedLocalMeta(w, adminOriginator)
+  let meta = await authenticatedLocalMeta(w, adminOriginator)
+  // I-1: a tapped restore over an authentic local meta that carries no proof
+  // (recovery.required, nothing adopted) and does not hold the tapped key has
+  // no authority: a planted lineage record can have produced it. Forget the
+  // meta and its tag (outputs stay) and rebuild from the chosen group. This
+  // cannot weaken R2, because a meta with no proof gates nothing.
+  if (meta && selection.pubkey && meta.recovery?.required && (meta.recovery.adopted ?? []).length === 0) {
+    const tapped = selection.pubkey
+    const holdsTapped =
+      meta.keys.some(k => k.pubkey === tapped) ||
+      meta.staged?.pubkey === tapped ||
+      meta.pendingRemoval?.key.pubkey === tapped
+    if (!holdsTapped) {
+      await vaultStore.forgetSetup(scopeToken)
+      selection.metaReplaced = true
+      meta = null
+    }
+  }
   const admittedReady = new Set<RecoverableCandidate>()
   const admittedPending: VaultInstructionsV7[] = []
   let conflict = false

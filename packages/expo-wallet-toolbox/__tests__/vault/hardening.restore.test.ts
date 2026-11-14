@@ -438,6 +438,29 @@ describe('hardening: scans add outputs only, set conflicting records apart, keep
     await withdrawAllWithA()
   })
 
+  it('I-1: a planted rev-99 {X,Y} record in the real lineage does not wedge in-app spending; a tapped restore replaces the unproven meta with no forgetVaultSetup', async () => {
+    await publishVaultTx(wallet, chain, 1, [A, B], 300_000, { revision: 1 })
+    await publishVaultTx(wallet, chain, 2, [X, Y], 100_000, { revision: 99 })
+
+    // Vault screen load: no-tap restore writes the planted meta.
+    const noTap = await recoverVaultFromChain(wallet, ADMIN, lookup(), CHAIN)
+    expect(noTap.found).toBe(2)
+    const planted = (await vaultStore.getMeta())!
+    expect(planted.revision).toBe(99)
+    expect(planted.recovery?.required).toBe(true)
+
+    const tapped = await recoverVaultWithKey(wallet, ADMIN, lookup(), CHAIN, proveWith(A))
+    expect(tapped.conflict).toBe(false)
+    const meta = (await vaultStore.getMeta())!
+    expect(pubkeys(meta.keys)).toEqual(pubkeys([A, B]))
+    expect(meta.recovery?.adopted?.some(p => p.serial === A.serial && p.pubkey === A.pubkey)).toBe(true)
+    // Full withdrawal with A works. Only the planted {X,Y} output stays: A cannot open it.
+    armSigner(mock, A.serial)
+    const result = await withdrawFromVault(wallet, ADMIN, 'all', 'Withdraw', A.serial)
+    expect(result.txid).toMatch(/^[0-9a-f]{64}$/)
+    expect(wallet.localVaultOutpoints()).toHaveLength(1)
+  })
+
   it('review fix 1: meta at revision 2, real output at revision 1, a planted revision-1 variant with other keys does not wedge scan or rebuild', async () => {
     await seedMeta({ revision: 2 })
     const real = await publishVaultTx(wallet, chain, 1, [A, B], 300_000, { revision: 1 })

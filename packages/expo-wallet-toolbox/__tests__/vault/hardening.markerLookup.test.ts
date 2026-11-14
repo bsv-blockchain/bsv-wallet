@@ -109,6 +109,27 @@ describe('wocChainLookup.markerHistory', () => {
     })
   })
 
+  it('I-2: a 404 from the paged confirmed endpoint does not hide a row the legacy /history returns', async () => {
+    const urls = routeFetch(u => {
+      if (isConfirmed(u) || isUnconfirmed(u)) return { status: 404, text: 'Not Found' }
+      return { json: [{ tx_hash: tx(7), height: 5 }] }
+    })
+    await expect(wocChainLookup('main').markerHistory!(MARKER_SCRIPT_HEX)).resolves.toEqual({
+      status: 'found',
+      txids: [tx(7)]
+    })
+    expect(urls.some(u => u.endsWith('/history') && !isConfirmed(u) && !isUnconfirmed(u))).toBe(true)
+  })
+
+  it('I-2: a legacy /history failure makes the lookup unknown, never none', async () => {
+    routeFetch(u => (isConfirmed(u) || isUnconfirmed(u) ? { status: 404 } : { status: 500 }))
+    await expect(wocChainLookup('main').markerHistory!(MARKER_SCRIPT_HEX)).resolves.toEqual({
+      status: 'unknown',
+      reason: 'request-failed',
+      txids: []
+    })
+  })
+
   it('markerHistory pages through confirmed history with the next-page token', async () => {
     const urls = routeFetch(u => {
       if (isUnconfirmed(u)) return { status: 404 }
@@ -177,7 +198,7 @@ describe('wocChainLookup.markerHistory', () => {
   it('more than 5 pages is unknown/window-full', async () => {
     let page = 0
     const urls = routeFetch(u => {
-      if (isUnconfirmed(u)) return { status: 404 }
+      if (!isConfirmed(u)) return { status: 404 }
       page++
       return { json: { result: rows(page * 1000, 1000), nextPageToken: `t${page}` } }
     })
@@ -249,7 +270,7 @@ describe('wocChainLookup.markerHistory', () => {
       return { ok: false, status: 404, json: async () => ({}), text: async () => '' } as unknown as Response
     }) as unknown as typeof fetch
     await wocChainLookup('main', { headers: { 'woc-api-key': 'k' } }).markerHistory!(MARKER_SCRIPT_HEX)
-    expect(seen).toHaveLength(2)
+    expect(seen).toHaveLength(3)
     for (const init of seen) expect(init).toMatchObject({ headers: { 'woc-api-key': 'k' } })
   })
 

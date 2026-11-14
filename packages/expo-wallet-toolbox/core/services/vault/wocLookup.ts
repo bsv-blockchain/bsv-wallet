@@ -64,15 +64,18 @@ export function wocChainLookup(chain: AppChain, requestInit?: RequestInit): Vaul
     } catch {
       return { failed: 'malformed' }
     }
-    if (body === null || typeof body !== 'object' || !Array.isArray(body.result)) return { failed: 'malformed' }
-    const rows: string[] = body.result.map((r: any) => r?.tx_hash).filter((h: unknown) => typeof h === 'string')
-    const token = pageTokenFrom(body)
+    // The plain /history endpoint answers a bare array; the paged endpoints
+    // answer {result: [...]}.
+    const list: unknown = Array.isArray(body) ? body : body !== null && typeof body === 'object' ? body.result : undefined
+    if (!Array.isArray(list)) return { failed: 'malformed' }
+    const rows: string[] = list.map((r: any) => r?.tx_hash).filter((h: unknown) => typeof h === 'string')
+    const token = Array.isArray(body) ? undefined : pageTokenFrom(body)
     return {
       rows,
       // A page as long as the request, or exactly as long as a server-side cap
       // we know of (the plain /history cap of 100), with no token after it is
       // treated as cut off, never as complete.
-      fullPage: body.result.length >= pageSize || suspectCaps.includes(body.result.length),
+      fullPage: list.length >= pageSize || suspectCaps.includes(list.length),
       token
     }
   }
@@ -150,6 +153,17 @@ export function wocChainLookup(chain: AppChain, requestInit?: RequestInit): Vaul
       // only make worse; still read when the confirmed window was just full.
       if (problem === undefined || problem === 'window-full') {
         const result = await readPage(`${base}/address/${address}/unconfirmed/history`, Number.POSITIVE_INFINITY)
+        if ('failed' in result) note(result.failed)
+        else for (const txid of result.rows) seen.add(txid)
+      }
+
+      // Legacy plain /history (newest first, capped at 100 rows): the endpoint
+      // the base code used, verified live on 2026-09-27. Its rows are unioned
+      // in so base behaviour is the floor if the paged endpoints differ from
+      // their documentation (a 404 there must not read as "no history"). Its
+      // cap is not a window problem: only a failure counts.
+      if (problem === undefined || problem === 'window-full') {
+        const result = await readPage(`${base}/address/${address}/history`, Number.POSITIVE_INFINITY)
         if ('failed' in result) note(result.failed)
         else for (const txid of result.rows) seen.add(txid)
       }
