@@ -173,6 +173,27 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
     expect(result.status).toBe('complete')
   })
 
+  it('a wallet-level decrypt failure is a problem, not noise: the scan is incomplete', async () => {
+    await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
+    const realDecrypt = wallet.decrypt.bind(wallet)
+    wallet.decrypt = async () => {
+      throw new Error('wallet is locked')
+    }
+    try {
+      const result = await scanVaultDeposits(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+      expect(result.found).toBe(0)
+      expect(result.ignoredNonVault).toBe(0)
+      expect(result.problemCount).toBe(1)
+      expect(result.status).toBe('incomplete')
+    } finally {
+      wallet.decrypt = realDecrypt
+    }
+    // Positive control: once the wallet works, the same deposit is found.
+    const again = await scanVaultDeposits(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+    expect(again.found).toBe(1)
+    expect(again.status).toBe('complete')
+  })
+
   it('a failed transaction fetch stays a problem and keeps the scan incomplete', async () => {
     const real = await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
     const base = fakeChainLookup(chain)

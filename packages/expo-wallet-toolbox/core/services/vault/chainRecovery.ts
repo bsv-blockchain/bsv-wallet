@@ -163,6 +163,14 @@ type CandidateOutcome =
   | { kind: 'non-vault' }
   | { kind: 'problem'; reason: string }
 
+/** True only for the two ways a stranger-planted ciphertext fails to open
+ * under SymmetricKey.decrypt: AES-GCM authentication failure and a ciphertext
+ * too short for IV + tag. Everything else is a wallet-level failure. */
+function isForeignCiphertextError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /decryption failed|ciphertext too short/i.test(message)
+}
+
 /**
  * Locate and authenticate ONE candidate marker transaction for scan index
  * `k`. Never throws — every failure mode is a distinct, reported outcome, per
@@ -211,9 +219,14 @@ async function recoverOneCandidate(
   let plaintext: string
   try {
     plaintext = await decryptVaultDescriptorPlaintext(w, adminOriginator, chain, saltKeyId, parsedDescriptor.ciphertext)
-  } catch {
-    // Not encrypted to this wallet's key for this index: not our record.
-    return { kind: 'non-vault' }
+  } catch (error) {
+    // Only an AES-GCM authentication failure (or a ciphertext too short to
+    // hold an IV and tag) proves the descriptor is not encrypted to this
+    // wallet's key for this index: a stranger can plant either. Any other
+    // throw (wallet locked, storage error, transient failure) says nothing
+    // about the record, so a real deposit must not be dropped as noise.
+    if (isForeignCiphertextError(error)) return { kind: 'non-vault' }
+    return { kind: 'problem', reason: 'could not decrypt the descriptor (wallet error)' }
   }
 
   const ci: VaultInstructionsV7 | null = decodeVaultInstructionsV7(plaintext)
