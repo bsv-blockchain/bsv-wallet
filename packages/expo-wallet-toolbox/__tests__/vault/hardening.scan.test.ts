@@ -118,15 +118,23 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
         const copy = await publishVaultTx(wallet, chain, 1, KEYS, 1)
         expect(copy.txid).not.toBe(real.txid)
         const base = fakeChainLookup(chain)
+        // The scan reads rows through lookupMarker, which prefers markerHistory
+        // when a lookup has one. The fake has none, so the reversal below is
+        // the only path rows take; guard that, so the reversed case cannot go
+        // vacuous if the fake ever grows a markerHistory.
+        expect(base.markerHistory).toBeUndefined()
+        let reversedCalls = 0
         const lookup: VaultChainLookup = {
           ...base,
           transactionsForLockingScript: async hexScript => {
             const rows = await base.transactionsForLockingScript(hexScript)
+            if (rows.length > 1) reversedCalls++
             return reversed ? [...rows].reverse() : rows
           }
         }
 
         const result = await scanVaultDeposits(wallet, ADMIN, lookup, CHAIN)
+        expect(reversedCalls).toBe(1)
         expect(result.found).toBe(1)
         expect(result.ignoredBelowMinimum).toBe(1)
         expect(wallet.localVaultOutpoints()).toEqual([`${real.txid}.0`])
@@ -141,8 +149,41 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
     const result = await scanVaultDeposits(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
     expect(result.found).toBe(1)
     expect(wallet.localVaultOutpoints()).toEqual([`${real.txid}.0`])
-    // The dust rows are reported, not silently dropped.
-    expect(result.problemCount).toBe(55)
+    // The dust rows are counted as noise, never as problems: a stranger who
+    // pays a public marker address must not keep every later scan 'incomplete'.
+    expect(result.ignoredNonVault).toBe(55)
+    expect(result.problemCount).toBe(0)
+    expect(result.problems).toEqual([])
+    expect(result.status).toBe('complete')
+  })
+
+  it('a marker payment whose neighbour is not a v7 descriptor is noise, not a problem', async () => {
+    const tx = new Transaction()
+    tx.addOutput({ satoshis: 200_000, lockingScript: new P2PKH().lock(Utils.toArray('d2'.repeat(20), 'hex')) })
+    tx.addOutput({ satoshis: 1, lockingScript: LockingScript.fromHex(await markerHex(wallet, 1)) })
+    tx.addOutput({ satoshis: 5, lockingScript: new P2PKH().lock(Utils.toArray('d3'.repeat(20), 'hex')) })
+    chain.publish(tx)
+    const real = await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
+
+    const result = await scanVaultDeposits(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+    expect(result.found).toBe(1)
+    expect(wallet.localVaultOutpoints()).toEqual([`${real.txid}.0`])
+    expect(result.ignoredNonVault).toBe(1)
+    expect(result.problemCount).toBe(0)
+    expect(result.status).toBe('complete')
+  })
+
+  it('a failed transaction fetch stays a problem and keeps the scan incomplete', async () => {
+    const real = await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
+    const base = fakeChainLookup(chain)
+    const lookup: VaultChainLookup = {
+      ...base,
+      transactionForTxid: async txid => (txid === real.txid ? null : base.transactionForTxid(txid))
+    }
+    const result = await scanVaultDeposits(wallet, ADMIN, lookup, CHAIN)
+    expect(result.found).toBe(0)
+    expect(result.ignoredNonVault).toBe(0)
+    expect(result.problemCount).toBe(1)
     expect(result.status).toBe('incomplete')
   })
 

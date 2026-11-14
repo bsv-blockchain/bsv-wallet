@@ -118,6 +118,12 @@ export interface VaultScanResult {
   /** Valid candidates under VAULT_SCAN_MIN_SATS: counted, never internalized,
    * not pending and not a problem. */
   ignoredBelowMinimum: number
+  /** Rows at a marker address that are structurally not a Vault record of
+   * ours: no marker between a vault output and a descriptor, the adjacent
+   * output is not a v7 descriptor, or the descriptor does not decrypt under
+   * this index. Anyone can pay a public marker address, so these are counted
+   * as noise: never a problem, and never a reason for status 'incomplete'. */
+  ignoredNonVault: number
   /** A found-but-unusable record, an index whose lookup was incomplete, or a
    * failed internalize. Reported distinctly; none of them counts as a "no
    * marker" miss, so one bad index can never silently truncate the scan. */
@@ -154,6 +160,7 @@ type CandidateOutcome =
   | { kind: 'pending'; ci: VaultInstructionsV7 }
   | { kind: 'spent' }
   | { kind: 'below-minimum' }
+  | { kind: 'non-vault' }
   | { kind: 'problem'; reason: string }
 
 /**
@@ -194,17 +201,19 @@ async function recoverOneCandidate(
   const vaultOutput = markerIndex >= 1 ? tx.outputs[markerIndex - 1] : undefined
   const descriptorOutput = markerIndex >= 0 ? tx.outputs[markerIndex + 1] : undefined
   if (!vaultOutput || !descriptorOutput) {
-    return { kind: 'problem', reason: 'marker is not immediately between a vault output and a descriptor' }
+    // Structural noise: a stranger can pay a public marker address.
+    return { kind: 'non-vault' }
   }
 
   const parsedDescriptor = parseVaultDescriptorScript(descriptorOutput.lockingScript)
-  if (!parsedDescriptor) return { kind: 'problem', reason: 'adjacent output is not a v7 descriptor' }
+  if (!parsedDescriptor) return { kind: 'non-vault' }
 
   let plaintext: string
   try {
     plaintext = await decryptVaultDescriptorPlaintext(w, adminOriginator, chain, saltKeyId, parsedDescriptor.ciphertext)
   } catch {
-    return { kind: 'problem', reason: 'descriptor did not decrypt under this index' }
+    // Not encrypted to this wallet's key for this index: not our record.
+    return { kind: 'non-vault' }
   }
 
   const ci: VaultInstructionsV7 | null = decodeVaultInstructionsV7(plaintext)
@@ -393,6 +402,7 @@ interface VaultChainScan {
   problems: VaultChainRecoveryProblem[]
   unknownIndexes: number[]
   ignoredBelowMinimum: number
+  ignoredNonVault: number
   maxUsedIndex: number
   scanned: number
 }
@@ -414,6 +424,7 @@ async function scanVaultChain(
   const problems: VaultChainRecoveryProblem[] = []
   const unknownIndexes: number[] = []
   let ignoredBelowMinimum = 0
+  let ignoredNonVault = 0
   let maxUsedIndex = 0
   let consecutiveMisses = 0
   // Bounds the loop independently of consecutiveMisses — see
@@ -489,6 +500,7 @@ async function scanVaultChain(
         ready.push(outcome)
       } else if (outcome.kind === 'pending') pending.push(outcome.ci)
       else if (outcome.kind === 'below-minimum') ignoredBelowMinimum++
+      else if (outcome.kind === 'non-vault') ignoredNonVault++
       else if (outcome.kind === 'problem') problems.push({ index: k, reason: outcome.reason, markerAddress })
       // 'spent': a superseded output (already withdrawn or re-locked) —
       // entirely normal, silently skipped; keep inspecting other candidates
@@ -496,7 +508,7 @@ async function scanVaultChain(
     }
     k++
   }
-  return { ready, pending, problems, unknownIndexes, ignoredBelowMinimum, maxUsedIndex, scanned }
+  return { ready, pending, problems, unknownIndexes, ignoredBelowMinimum, ignoredNonVault, maxUsedIndex, scanned }
 }
 
 function markerAddressFor(
@@ -523,7 +535,7 @@ async function restoreScannedDeposits(
   scan: VaultChainScan,
   live: ReadonlySet<string>
 ): Promise<VaultScanResult> {
-  const { ready, pending, scanned, unknownIndexes, ignoredBelowMinimum } = scan
+  const { ready, pending, scanned, unknownIndexes, ignoredBelowMinimum, ignoredNonVault } = scan
   const problems = [...scan.problems]
   let found = 0
   let pendingConfirmation = 0
@@ -556,6 +568,7 @@ async function restoreScannedDeposits(
     pendingConfirmation,
     unreachable,
     ignoredBelowMinimum,
+    ignoredNonVault,
     problems,
     problemCount: problems.length,
     unknownIndexes,
