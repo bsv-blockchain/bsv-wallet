@@ -54,3 +54,19 @@ Re-run on 2026-11-14 at base b9c8b1dd (Node v24.15.0, pnpm 11.9.0), exit 0, 89 s
 ## What this proves and what it does not
 
 These suites show that the 0.24.3 Vault code behaves as specified against a software MockYubiKey and an in-memory chain. They do not exercise a real indexer, a real node or a physical YubiKey. The `hardware-test` item stays accepted and unverified.
+
+## After the hardening branch
+
+Run on 2026-11-14 on branch `fix/vault-hardening` at toolbox 0.25.0 (not published), Node v24.15.0, pnpm 11.9.0. Same commands as above.
+
+| Check | Result |
+|---|---|
+| Types (`tsc -p packages/expo-wallet-toolbox/tsconfig.json --noEmit`) | exit 0 |
+| Lint, `core/services/vault` | 0 errors, 3 warnings (same three as at base) |
+| Lint, `core`, `ui/components/vault`, `ui/backupShares.ts` | no new errors or warnings in changed files; the remaining errors are in files this branch does not change (`BrowserBridgeProvider.tsx`, `core/bridge/index.ts`, `core/index.ts` `ADMIN_ORIGINATOR`, `pay/rails/sweep.ts`, `EnrollWizard.tsx`, `VaultCeremonySheet.tsx`) and were there at base |
+| Proof bar | 6 passed, 0 failed |
+| Whole toolbox (memory-budget test excluded) | Test Suites: 1 skipped, 448 passed, 448 of 449 total. Tests: 9 skipped, 7739 passed, 7748 total (base: 437 suites, 7577 tests; +11 suites, +162 tests) |
+| Rest of repo | Test Suites: 1 skipped, 81 passed, 81 of 82 total. Tests: 1 skipped, 838 passed, 839 total (same as base) |
+| `walletConnectionMemoryBudget.test` (run in band) | 1 suite passed, 1 test passed |
+
+The branch audit items fixed in the library are listed in `packages/expo-wallet-toolbox/CHANGELOG.md` under 0.25.0. What cannot be shown without a phone, a YubiKey or the live indexer stays listed under "Not verified" in the plan: the WhatsOnChain paging shapes, real-card behaviour, and the app's patch applying to 0.25.0.
