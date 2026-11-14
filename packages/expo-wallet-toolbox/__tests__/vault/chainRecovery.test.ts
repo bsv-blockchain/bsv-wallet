@@ -76,7 +76,7 @@ import {
 } from '../../core/services/vault/chainRecovery'
 import type { VaultWallet } from '../../core/services/vault/transfers'
 import { vaultStore } from '../../core/services/vault/vaultStore'
-import { computeVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
+import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
 import { setMockDriver } from '../../core/services/vault/driver'
 import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 import { compressPubkey } from '../../core/services/vault/r1comb'
@@ -349,6 +349,36 @@ describe('recoverVaultFromChain', () => {
       expect(meta?.vaultId).toBe(OLD_VAULT)
       expect(meta?.recovery?.adoptedSerials).toEqual(['YK-1'])
       expect(meta?.recovery?.adopted).toEqual([{ serial: 'YK-1', pubkey: held.pubkey }])
+    })
+
+    it('does not write a fresh tag over a stored meta it cannot authenticate: the tapped key becomes a session proof only', async () => {
+      const held = await heldKey('YK-1', 'Primary', 1)
+      const backup = newMember('Backup', 2)
+      await publishVaultTx(wallet, chain, 1, [held, backup], 300_000, { vaultId: OLD_VAULT, createdAt: 1 })
+      mock.insertKey('YK-1')
+      // Store-only attacker: same authority fields, forged adoption, no valid tag.
+      // recoverVaultMetaFromOutputs keeps this meta (not superseded).
+      await vaultStore.setMeta({
+        v: 6,
+        vaultId: OLD_VAULT,
+        revision: 1,
+        createdAt: 1,
+        keys: [held, backup],
+        recovery: {
+          required: true,
+          adoptedSerials: [backup.serial],
+          adopted: [{ serial: backup.serial, pubkey: backup.pubkey }]
+        }
+      })
+
+      const before = JSON.stringify(await vaultStore.getMeta())
+      await recoverVaultWithKey(wallet, ADMIN, fakeChainLookup(chain), CHAIN, prove)
+      // Nothing was written: no tag blesses the forged adoption, and the tap is in memory only.
+      expect(JSON.stringify(await vaultStore.getMeta())).toBe(before)
+      const meta = (await vaultStore.getMeta())!
+      expect(
+        await verifyVaultMetaAuthorityTag(wallet, ADMIN, meta, vaultStore.getScope()!, await vaultStore.getMetaTag())
+      ).toBe(false)
     })
 
     it('reports key-opens-nothing when the card holds a key no deposit names, and restores nothing', async () => {

@@ -406,15 +406,20 @@ export async function recoverVaultWithKey(
   )
   const result = await restoreScannedDeposits(w, adminOriginator, scan, live)
   if (result.found > 0) {
-    // The meta was just reconciled with authenticated outputs and tagged by
-    // that path, so this live-tap proof is written durably under a new tag.
+    // A durable proof re-tags the whole stored meta, so it is only written over
+    // a meta whose own tag verifies (the restore above may have left an
+    // existing meta untouched). Any other meta gets a session proof.
     const scope = vaultStore.getScope()
+    const hmacWallet = w as unknown as HmacCapableWallet
+    const snapshot = scope ? await vaultStore.getMeta() : null
+    const tag = snapshot ? await vaultStore.getMetaTag() : null
+    const authentic =
+      !!scope && !!snapshot && (await verifyVaultMetaAuthorityTag(hmacWallet, adminOriginator, snapshot, scope, tag))
     await vaultStore.markKeyAdopted(
       key,
       undefined,
-      scope
-        ? next => computeVaultMetaAuthorityTag(w as unknown as HmacCapableWallet, adminOriginator, next, scope)
-        : undefined
+      authentic && scope ? next => computeVaultMetaAuthorityTag(hmacWallet, adminOriginator, next, scope) : undefined,
+      authentic && snapshot ? snapshot : undefined
     )
   }
   return { ...result, key }

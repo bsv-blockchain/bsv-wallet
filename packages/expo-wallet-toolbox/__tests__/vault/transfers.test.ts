@@ -2103,7 +2103,11 @@ describe('XR-002: forged local vault metadata never redirects a new output', () 
     })
     const token = vaultStore.captureScopeToken()
     const authenticated = await requireAuthenticatedMeta(wallet, ADMIN, token, original)
-    expect(authenticated).toEqual(original)
+    // current was untagged: its (absent) adoption state is not trusted, so nothing is proven
+    expect(authenticated).toEqual({
+      ...original,
+      recovery: { required: true, adoptedSerials: [], adopted: [] }
+    })
     expect(await vaultStore.getMeta()).toEqual(forged)
     const tagger = jest.fn(tagFor)
     await expect(vaultStore.renameKey(KEY_A.serial, 'Renamed', token, tagger, authenticated)).rejects.toMatchObject({

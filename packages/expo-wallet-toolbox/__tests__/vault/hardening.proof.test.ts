@@ -198,7 +198,7 @@ describe('markKeyAdopted', () => {
     const meta = base({ recovery: recovered([]) })
     await vaultStore.setMeta(meta, token, tagger)
 
-    await vaultStore.markKeyAdopted(pair(key(1)), token, tagger)
+    await vaultStore.markKeyAdopted(pair(key(1)), token, tagger, (await vaultStore.getMeta())!)
     const stored = await vaultStore.getMeta()
     expect(stored?.recovery?.adopted).toEqual([pair(key(1))])
     expect(stored?.recovery?.adoptedSerials).toEqual([key(1).serial])
@@ -217,19 +217,24 @@ describe('markKeyAdopted', () => {
     const token = vaultStore.captureScopeToken()
     await vaultStore.setMeta(base({ recovery: recovered([]) }), token, tagger)
     await expect(
-      vaultStore.markKeyAdopted({ serial: key(1).serial, pubkey: key(2).pubkey }, token, tagger)
+      vaultStore.markKeyAdopted(
+        { serial: key(1).serial, pubkey: key(2).pubkey },
+        token,
+        tagger,
+        (await vaultStore.getMeta())!
+      )
     ).rejects.toMatchObject({ code: 'wrong-key' })
 
     await vaultStore.setMeta(base(), token, tagger)
     const before = JSON.stringify(await vaultStore.getMeta())
-    await vaultStore.markKeyAdopted(pair(key(1)), token, tagger)
+    await vaultStore.markKeyAdopted(pair(key(1)), token, tagger, (await vaultStore.getMeta())!)
     expect(JSON.stringify(await vaultStore.getMeta())).toBe(before)
   })
 
   it('a staged key can be adopted', async () => {
     const token = vaultStore.captureScopeToken()
     await vaultStore.setMeta(base({ staged: key(3), recovery: recovered([]) }), token, tagger)
-    await vaultStore.markKeyAdopted(pair(key(3)), token, tagger)
+    await vaultStore.markKeyAdopted(pair(key(3)), token, tagger, (await vaultStore.getMeta())!)
     expect((await vaultStore.getMeta())?.recovery?.adopted).toEqual([pair(key(3))])
   })
 })
@@ -287,6 +292,81 @@ describe('restoreVerifiedMeta adoption carry-over', () => {
     expect(restored.recovery?.adopted).toEqual([pair(A), pair(B)])
     expect(restored.recovery?.adoptedSerials).toEqual([A.serial, B.serial])
     expect(vaultStore.provenKeyRecords(restored, token)).toEqual([A, B])
+  })
+})
+
+/** Store-only attacker: rewrite the stored meta, leave the tag as it was. */
+async function forgeStoredMeta(edit: (m: VaultMetaV6) => VaultMetaV6): Promise<void> {
+  const storageKey = vaultStore.captureScopeToken().storageKey
+  const raw = JSON.parse((await SecureStore.getItemAsync(storageKey))!)
+  await SecureStore.setItemAsync(storageKey, JSON.stringify(edit(raw)))
+}
+
+describe('review round 1: no fresh tag over unverified adoption state', () => {
+  it('same-revision restore after forged adopted + stale tag does not leave the planted pair proven', async () => {
+    const A = key(1)
+    const B = key(2)
+    const token = vaultStore.captureScopeToken()
+    await vaultStore.setMeta(base({ recovery: recovered([pair(A)]) }), token, tagger)
+    await forgeStoredMeta(m => ({ ...m, recovery: recovered([pair(A), pair(B)]) }))
+    const forged = (await vaultStore.getMeta())!
+    expect(
+      await verifyVaultMetaAuthorityTag(
+        wallet,
+        ADMIN,
+        forged,
+        vaultStore.getScope()!,
+        await vaultStore.getMetaTag(token)
+      )
+    ).toBe(false)
+
+    const restored = await vaultStore.restoreVerifiedMeta(base(), token, tagger)
+    expect(restored.recovery?.adopted).toEqual([])
+    expect(vaultStore.provenKeyRecords((await vaultStore.getMeta())!, token)).toEqual([])
+  })
+
+  it('same-revision restore drops a planted staged key when current tag does not verify, keeps it when it does', async () => {
+    const token = vaultStore.captureScopeToken()
+    await vaultStore.setMeta(base({ staged: key(3), recovery: recovered([pair(key(1))]) }), token, tagger)
+    const kept = await vaultStore.restoreVerifiedMeta(base(), token, tagger)
+    expect(kept.staged).toEqual(key(3))
+    expect(kept.recovery?.adopted).toEqual([pair(key(1))])
+
+    await forgeStoredMeta(m => ({ ...m, staged: key(4) }))
+    const dropped = await vaultStore.restoreVerifiedMeta(base(), token, tagger)
+    expect(dropped.staged).toBeUndefined()
+    expect(dropped.recovery?.adopted).toEqual([])
+  })
+
+  it('higher-revision restore carries nothing when current has stripped recovery and its tag does not verify', async () => {
+    const A = key(1)
+    const B = key(2)
+    const token = vaultStore.captureScopeToken()
+    await vaultStore.setMeta(base({ recovery: recovered([]) }), token, tagger)
+    await forgeStoredMeta(m => {
+      const { recovery: _r, ...rest } = m
+      return rest as VaultMetaV6
+    })
+    const restored = await vaultStore.restoreVerifiedMeta(base({ revision: 2, keys: [A, B] }), token, tagger)
+    expect(restored.recovery?.adopted).toEqual([])
+    expect(vaultStore.provenKeyRecords(restored, token)).toEqual([])
+  })
+
+  it('markKeyAdopted with a tagger and no authenticated snapshot throws and writes nothing', async () => {
+    const token = vaultStore.captureScopeToken()
+    await vaultStore.setMeta(base({ recovery: recovered([]) }), token, tagger)
+    const before = JSON.stringify(await vaultStore.getMeta())
+    await expect(vaultStore.markKeyAdopted(pair(key(1)), token, tagger)).rejects.toMatchObject({
+      code: 'template-invalid'
+    })
+    expect(JSON.stringify(await vaultStore.getMeta())).toBe(before)
+  })
+
+  it('markKeyAdopted with a tagger and a matching snapshot writes the pair', async () => {
+    const token = vaultStore.captureScopeToken()
+    await vaultStore.setMeta(base({ recovery: recovered([]) }), token, tagger)
+    await vaultStore.markKeyAdopted(pair(key(1)), token, tagger, (await vaultStore.getMeta())!)
+    expect((await vaultStore.getMeta())?.recovery?.adopted).toEqual([pair(key(1))])
   })
 })
 

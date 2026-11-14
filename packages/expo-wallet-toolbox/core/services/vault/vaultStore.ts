@@ -255,6 +255,20 @@ function requireAuthenticatedSnapshot(meta: VaultMeta, expected?: VaultMeta, tag
   }
 }
 
+/** True only when the tag on file is exactly the tag `tagger` computes over
+ * `meta` (tags are deterministic HMACs). Without a tagger, a stored tag or on
+ * any failure: false (fail closed). Used so a fresh tag is never written over
+ * adoption or staging fields that no authentic tag ever covered. */
+async function storedTagMatches(token: VaultScopeToken, meta: VaultMeta, tagger?: VaultMetaTagger): Promise<boolean> {
+  if (!tagger) return false
+  try {
+    const stored = await readMetaTag(token)
+    return !!stored && (await tagger(meta)) === stored
+  } catch {
+    return false
+  }
+}
+
 /** XR-001: same contract as VaultMetaTagger, for one `ready` draft record. */
 export type VaultDraftTagger = (record: VaultKeyRecord) => Promise<string>
 
@@ -1056,9 +1070,12 @@ export const vaultStore = {
    * ONLY after the equality check just above already proved them identical
    * to `checked` — itself independently authenticated against a real,
    * chain-verified R1C lock by the caller; in the higher-revision branch
-   * they are taken from `checked` directly, never from `current`. Either
-   * way `current`'s own (possibly forged, possibly absent) tag never
-   * "launders" into the fresh one. */
+   * they are taken from `checked` directly, never from `current`.
+   *
+   * The tag-covered recovery.adopted and staged fields are NOT proven by the
+   * chain, so they are kept from `current` only when `current`'s own tag
+   * verifies (storedTagMatches); otherwise adopted becomes [] and staged is
+   * dropped. A forged adoption therefore never launders into the fresh tag. */
   async restoreVerifiedMeta(
     meta: VaultMeta,
     scopeToken?: VaultScopeToken,
@@ -1093,6 +1110,14 @@ export const vaultStore = {
       if (current && checked.revision === current.revision) {
         const pendingRemoval = mergePendingRemoval(current.pendingRemoval, checked.pendingRemoval)
         const restored: VaultMeta = { ...current }
+        // adopted and staged decide which keys a new lock commits. Keep them
+        // only when current's own tag verifies; otherwise a store-only edit
+        // would be blessed by the fresh tag below. With no tagger no tag is
+        // written, so nothing is blessed and current stays as it is.
+        if (tagger && !(await storedTagMatches(token, current, tagger))) {
+          restored.recovery = { required: true, adoptedSerials: [], adopted: [] }
+          delete restored.staged
+        }
         if (pendingRemoval) restored.pendingRemoval = pendingRemoval
         else delete restored.pendingRemoval
         await writeMetaAndTag(token, restored, tagger)
@@ -1106,14 +1131,17 @@ export const vaultStore = {
       const checkedPairs = new Set(
         [...checked.keys, ...(checked.pendingRemoval ? [checked.pendingRemoval.key] : [])].map(pairId)
       )
-      const currentProven = current
+      // current's adoption state counts only when its own tag verifies: a
+      // store-only attacker may have edited adopted or stripped recovery.
+      const currentTrusted = current ? await storedTagMatches(token, current, tagger) : false
+      const currentProven = current && currentTrusted
         ? current.recovery?.required
           ? metaPairs(current).filter(k =>
               (current.recovery!.adopted ?? []).some(p => p.serial === k.serial && p.pubkey === k.pubkey)
             )
           : metaPairs(current)
         : []
-      const stagedPair = current?.staged ? [current.staged] : []
+      const stagedPair = current?.staged && currentTrusted ? [current.staged] : []
       const carried: { serial: string; pubkey: string }[] = []
       for (const k of [...currentProven, ...stagedPair]) {
         const pair = { serial: k.serial, pubkey: k.pubkey }
@@ -1162,7 +1190,7 @@ export const vaultStore = {
     return enqueueMutation(async () => {
       const meta = await readMeta(token)
       if (!meta) throw new VaultError('not-enrolled', 'Vault is not set up')
-      if (tagger && expectedMeta) requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
+      if (tagger || expectedMeta) requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
       if (!metaPairs(meta).some(k => k.serial === record.serial && k.pubkey === record.pubkey)) {
         throw new VaultError('wrong-key', 'Challenged key does not match restored vault metadata')
       }
