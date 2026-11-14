@@ -49,7 +49,7 @@ Command:
 pnpm exec jest --ci --watchman=false --maxWorkers=4 --testPathPattern=packages/expo-wallet-toolbox --testPathIgnorePatterns=walletConnectionMemoryBudget.test
 ```
 
-Totals (taken from the plan's baseline table, not re-run for this record): 437 suites (1 skipped), 7577 tests, 9 skipped.
+Re-run on 2026-11-14 at base b9c8b1dd (Node v24.15.0, pnpm 11.9.0), exit 0, 89 s: Test Suites: 1 skipped, 437 passed, 437 of 438 total. Tests: 9 skipped, 7577 passed, 7586 total. These match the plan's baseline table.
 
 ## What this proves and what it does not
 
