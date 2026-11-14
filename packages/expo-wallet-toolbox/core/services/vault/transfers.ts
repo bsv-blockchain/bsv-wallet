@@ -523,6 +523,26 @@ async function scanVaultOutputPages(
   return offset
 }
 
+/** Every outpoint already in the Vault basket, as lowercase `txid.vout`. The
+ * scan uses it to merge by outpoint, so a second run adds only what is new. */
+export async function listVaultBasketOutpoints(
+  w: VaultWallet,
+  adminOriginator: string,
+  scopeToken?: VaultScopeToken
+): Promise<Set<string>> {
+  const outpoints = new Set<string>()
+  await scanVaultOutputPages(
+    w,
+    adminOriginator,
+    'locking scripts',
+    outputs => {
+      for (const output of outputs) outpoints.add(output.outpoint.toLowerCase())
+    },
+    scopeToken
+  )
+  return outpoints
+}
+
 /** An empty-basket safety decision needs one authoritative row, not every
  * locking script in the basket. A contradictory total still fails closed. */
 async function vaultHasOutputs(

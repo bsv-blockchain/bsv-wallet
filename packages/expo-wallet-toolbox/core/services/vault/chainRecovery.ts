@@ -56,11 +56,19 @@ import {
   deriveVaultSalt,
   decryptVaultDescriptorPlaintext,
   parseVaultDescriptorScript,
+  listVaultBasketOutpoints,
   recoverVaultMetaFromOutputs,
   vaultChainKeyId,
   type VaultWallet
 } from './transfers'
-import type { VaultChainLookup } from './markerLookup'
+import {
+  VAULT_SCAN_MIN_SATS,
+  lookupMarker,
+  noteSaltFloor,
+  type MarkerHistory,
+  type VaultChainLookup
+} from './markerLookup'
+import { p2pkhAddressFromScript } from './wocLookup'
 
 /** Default, caller-raisable gap: consecutive indices with NO marker history
  * (a found-but-unusable record does not count — see below) before the scan
@@ -84,51 +92,58 @@ export const VAULT_RECOVERY_GAP_DEFAULT = 20
  * recovery parameter. */
 export const VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS = 20
 
-/** Defensive cap on how many candidate transactions a single scan index will
- * inspect. A v7 marker is an ordinary P2PKH address that becomes publicly
- * visible the moment its real deposit confirms; nothing stops a stranger
- * from paying arbitrary dust to it afterward. A legitimate index has exactly
- * one real deposit history, so recovery never needs more than a handful of
- * candidates to find it — this only bounds how much free decrypt-and-discard
- * work a targeted victim's recovery can be forced to do. */
-const VAULT_RECOVERY_MAX_CANDIDATES_PER_INDEX = 50
-
 export type { VaultChainLookup } from './markerLookup'
 
 export interface VaultChainRecoveryProblem {
   /** The scan index (saltKeyId) this problem was found at. */
   index: number
   reason: string
+  /** Base58 marker address of the index, set when known, so a person can look
+   * it up in a block explorer. */
+  markerAddress?: string
 }
 
-export interface VaultChainRecoveryResult {
-  /** Indices newly inserted into 'admin vault' by this run. */
+/** What one scan run found. `found`, `unreachable`, `pendingConfirmation`,
+ * `problems` and `scanned` keep the meaning they always had. */
+export interface VaultScanResult {
+  /** Outputs newly internalized by this run. */
   found: number
-  /** Authenticated, unspent deposits no live key can open (an earlier setup's)
+  /** Authenticated, unspent, and no live key opens them (an earlier setup's)
    * — skipped rather than inserted. See this file's KEY FILTER note. */
   unreachable: number
-  /** Marker history existed and decrypted to a valid, unspent v7 record, but
-   * the lookup could not yet show it as confirmed — the honest zero-conf
-   * scope cut (this file's docstring). Not a miss: does not consume a
-   * gap-scan slot, and is not a "problem" (nothing is wrong; it just isn't
-   * recoverable yet). */
+  /** A valid, unspent v7 record the lookup could not yet show as confirmed —
+   * the honest zero-conf scope cut (this file's docstring). Not a miss and not
+   * a problem. */
   pendingConfirmation: number
-  /** A found-but-unusable record (bad decrypt, wrong version, index/chain
-   * mismatch, lock-rebuild mismatch, unreadable transaction bytes) — reported
-   * distinctly and does NOT count as a "no marker" miss, so a version
-   * mismatch or transient lookup hiccup at one index can never silently
-   * truncate the scan. */
+  /** Valid candidates under VAULT_SCAN_MIN_SATS: counted, never internalized,
+   * not pending and not a problem. */
+  ignoredBelowMinimum: number
+  /** A found-but-unusable record, an index whose lookup was incomplete, or a
+   * failed internalize. Reported distinctly; none of them counts as a "no
+   * marker" miss, so one bad index can never silently truncate the scan. */
   problems: VaultChainRecoveryProblem[]
+  /** = problems.length */
+  problemCount: number
+  /** Indexes whose lookup was unknown (window full, request failed, rate
+   * limited). Their rows, if any were read, were still examined. */
+  unknownIndexes: number[]
+  /** Highest index with any marker history or any recovered record; 0 if none. */
+  maxUsedIndex: number
   /** Highest index actually scanned this run — surfaced so a UI can offer
-   * "scan further" when the gap default (or a caller-raised one) turns out
-   * to be too small for a heavily re-tried enrollment. */
+   * "scan further" when the gap default turns out to be too small. */
   scanned: number
+  /** 'incomplete' when problemCount > 0 or unknownIndexes is not empty. */
+  status: 'complete' | 'incomplete'
 }
+
+/** Alias kept for existing callers. */
+export type VaultChainRecoveryResult = VaultScanResult
 
 /** An authenticated, unspent candidate, held until the scan ends so the key
  * filter can see every setup before anything is inserted. */
 export interface RecoverableCandidate {
   index: number
+  txid: string
   ci: VaultInstructionsV7
   beef: number[]
   vaultOutputIndex: number
@@ -138,6 +153,7 @@ type CandidateOutcome =
   | ({ kind: 'ready' } & RecoverableCandidate)
   | { kind: 'pending'; ci: VaultInstructionsV7 }
   | { kind: 'spent' }
+  | { kind: 'below-minimum' }
   | { kind: 'problem'; reason: string }
 
 /**
@@ -222,6 +238,12 @@ async function recoverOneCandidate(
   }
 
   const vaultOutputIndex = markerIndex - 1
+  // A real Vault output is never under the frozen scan floor (every deposit,
+  // remainder and re-lock is at least VAULT_DEPOSIT_MIN). Anything smaller is
+  // a copy or dust: counted, never internalized, never pending.
+  if (vaultOutput.satoshis === undefined || vaultOutput.satoshis < VAULT_SCAN_MIN_SATS) {
+    return { kind: 'below-minimum' }
+  }
   let status: 'unspent' | 'spent' | 'unknown'
   try {
     status = await lookup.outputStatus({ txid, vout: vaultOutputIndex })
@@ -232,7 +254,7 @@ async function recoverOneCandidate(
   if (status === 'unknown') return { kind: 'problem', reason: 'could not confirm the vault output is unspent' }
 
   if (!entry.confirmed) return { kind: 'pending', ci }
-  return { kind: 'ready', index: k, ci, beef: entry.beef, vaultOutputIndex }
+  return { kind: 'ready', index: k, txid, ci, beef: entry.beef, vaultOutputIndex }
 }
 
 async function internalizeCandidate(
@@ -296,10 +318,16 @@ async function recoveryLiveKeys(
 }
 
 /**
- * Scan k = 1.. for chain-published v7 Vault outputs and internalize every
- * confirmed, unspent, authenticated one into 'admin vault'. Then rebuilds
- * local vault metadata from the now-listed outputs via the unchanged
- * recoverVaultMetaFromOutputs (which itself re-authenticates everything).
+ * "Scan the blockchain for deposits": scan k = 1.. for chain-published v7
+ * Vault outputs and internalize every confirmed, unspent, authenticated one
+ * that is not already in 'admin vault' (merge by outpoint, so a second run is a
+ * no-op for known outputs). Then rebuilds local vault metadata from the
+ * now-listed outputs via the unchanged recoverVaultMetaFromOutputs (which
+ * itself re-authenticates everything).
+ *
+ * It works with or without local metadata, and the result says what was found
+ * and what went wrong: `status` is 'incomplete' when any index had a problem
+ * or an unknown lookup, so a caller never shows a partial scan as complete.
  *
  * `wallet` need only satisfy VaultWallet (already used throughout
  * transfers.ts) — getPublicKey/encrypt/decrypt/createHmac/internalizeAction
@@ -308,6 +336,19 @@ async function recoveryLiveKeys(
  * marker, decrypt the descriptor, or derive the salt — see INT-10's fail-closed
  * claim in restoreSalt.test.ts).
  */
+export async function scanVaultDeposits(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  gap: number = VAULT_RECOVERY_GAP_DEFAULT
+): Promise<VaultScanResult> {
+  const scan = await scanVaultChain(w, adminOriginator, lookup, chain, gap)
+  const live = await recoveryLiveKeys(w, adminOriginator, [...scan.ready.map(c => c.ci), ...scan.pending])
+  return await restoreScannedDeposits(w, adminOriginator, scan, live)
+}
+
+/** The first-restore entry point, kept for existing callers: the same scan. */
 export async function recoverVaultFromChain(
   w: VaultWallet,
   adminOriginator: string,
@@ -315,9 +356,7 @@ export async function recoverVaultFromChain(
   chain: VaultSaltChain,
   gap: number = VAULT_RECOVERY_GAP_DEFAULT
 ): Promise<VaultChainRecoveryResult> {
-  const scan = await scanVaultChain(w, adminOriginator, lookup, chain, gap)
-  const live = await recoveryLiveKeys(w, adminOriginator, [...scan.ready.map(c => c.ci), ...scan.pending])
-  return await restoreScannedDeposits(w, adminOriginator, scan, live)
+  return await scanVaultDeposits(w, adminOriginator, lookup, chain, gap)
 }
 
 /**
@@ -352,6 +391,9 @@ interface VaultChainScan {
   ready: RecoverableCandidate[]
   pending: VaultInstructionsV7[]
   problems: VaultChainRecoveryProblem[]
+  unknownIndexes: number[]
+  ignoredBelowMinimum: number
+  maxUsedIndex: number
   scanned: number
 }
 
@@ -370,6 +412,9 @@ async function scanVaultChain(
   const ready: RecoverableCandidate[] = []
   const pending: VaultInstructionsV7[] = []
   const problems: VaultChainRecoveryProblem[] = []
+  const unknownIndexes: number[] = []
+  let ignoredBelowMinimum = 0
+  let maxUsedIndex = 0
   let consecutiveMisses = 0
   // Bounds the loop independently of consecutiveMisses — see
   // VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS's doc comment. Reset on any
@@ -378,6 +423,14 @@ async function scanVaultChain(
   let consecutiveProblems = 0
   let scanned = 0
   let k = 1
+  const tooManyProblems = (): VaultError =>
+    // A plain Error here left VaultScreen (vaultErrorCopy(undefined)) showing
+    // its generic fallback copy instead of a message actually describing what
+    // happened — 'chain-scan-failed' is a code the UI already translates.
+    new VaultError(
+      'chain-scan-failed',
+      `Vault recovery scan could not complete: ${consecutiveProblems} consecutive derivation/lookup failures, most recently at index ${k}`
+    )
   while (consecutiveMisses < gap) {
     scanned = k
     const saltKeyId = String(k)
@@ -390,83 +443,99 @@ async function scanVaultChain(
       // — but still bounded, so a persistent failure fails loudly instead of
       // looping forever (INT-01/INT-06/XQ-012 availability review).
       problems.push({ index: k, reason: 'could not derive the marker key for this index' })
-      if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) {
-        // A plain Error here left VaultScreen (vaultErrorCopy(undefined))
-        // showing its generic fallback copy instead of a message actually
-        // describing what happened — 'chain-scan-failed' is a code the UI
-        // already translates.
-        throw new VaultError(
-          'chain-scan-failed',
-          `Vault recovery scan could not complete: ${consecutiveProblems} consecutive derivation/lookup failures, most recently at index ${k}`
-        )
-      }
+      if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) throw tooManyProblems()
       k++
       continue
     }
-    let txids: string[]
+    const markerAddress = markerAddressFor(lookup, markerScriptHex, chain)
+    let history: MarkerHistory
     try {
-      txids = await lookup.transactionsForLockingScript(markerScriptHex)
+      history = await lookupMarker(lookup, markerScriptHex)
     } catch {
-      problems.push({ index: k, reason: 'chain lookup failed for this marker' })
-      if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) {
-        throw new VaultError(
-          'chain-scan-failed',
-          `Vault recovery scan could not complete: ${consecutiveProblems} consecutive derivation/lookup failures, most recently at index ${k}`
-        )
-      }
-      k++
-      continue
+      history = { status: 'unknown', reason: 'request-failed', txids: [] }
     }
-    consecutiveProblems = 0
-    if (txids.length === 0) {
+    if (history.status === 'none') {
+      consecutiveProblems = 0
       consecutiveMisses++
       k++
       continue
     }
+    const rows = [...new Set(history.txids.map(txid => txid.toLowerCase()))]
+    if (history.status === 'unknown') {
+      // Never a "no funds" answer: reported, kept out of the miss count, and
+      // the rows that were read are still examined below.
+      unknownIndexes.push(k)
+      problems.push({ index: k, reason: `lookup incomplete: ${history.reason}`, markerAddress })
+      if (rows.length === 0) {
+        if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) throw tooManyProblems()
+        k++
+        continue
+      }
+    }
+    consecutiveProblems = 0
     // Marker history exists at this index — never a "no marker" miss from
     // here on, no matter how every candidate below turns out.
     consecutiveMisses = 0
-    let inspected = 0
-    for (const txid of txids) {
-      if (inspected >= VAULT_RECOVERY_MAX_CANDIDATES_PER_INDEX) {
-        problems.push({
-          index: k,
-          reason: `stopped after ${VAULT_RECOVERY_MAX_CANDIDATES_PER_INDEX} candidates at this index`
-        })
-        break
-      }
-      inspected++
+    maxUsedIndex = Math.max(maxUsedIndex, k)
+    // Every row is examined. The window is already bounded by the lookup (at
+    // most a few thousand rows), and a valid row never hides another.
+    const seenOutpoints = new Set<string>()
+    for (const txid of rows) {
       const outcome = await recoverOneCandidate(w, adminOriginator, lookup, chain, k, markerScriptHex, txid)
       if (outcome.kind === 'ready') {
+        const outpoint = `${txid}.${outcome.vaultOutputIndex}`
+        if (seenOutpoints.has(outpoint)) continue
+        seenOutpoints.add(outpoint)
         ready.push(outcome)
-        break
-      } else if (outcome.kind === 'pending') {
-        pending.push(outcome.ci)
-        break
-      } else if (outcome.kind === 'problem') problems.push({ index: k, reason: outcome.reason })
+      } else if (outcome.kind === 'pending') pending.push(outcome.ci)
+      else if (outcome.kind === 'below-minimum') ignoredBelowMinimum++
+      else if (outcome.kind === 'problem') problems.push({ index: k, reason: outcome.reason, markerAddress })
       // 'spent': a superseded output (already withdrawn or re-locked) —
       // entirely normal, silently skipped; keep inspecting other candidates
       // at this index.
     }
     k++
   }
-  return { ready, pending, problems, scanned }
+  return { ready, pending, problems, unknownIndexes, ignoredBelowMinimum, maxUsedIndex, scanned }
 }
 
-/** The insert half: internalize the scanned deposits `live` can open, count
- * the rest as unreachable, then rebuild local vault metadata. */
+function markerAddressFor(
+  lookup: VaultChainLookup,
+  markerScriptHex: string,
+  chain: VaultSaltChain
+): string | undefined {
+  try {
+    return (
+      lookup.markerAddress?.(markerScriptHex) ??
+      p2pkhAddressFromScript(markerScriptHex, chain === 'main' ? 'mainnet' : 'testnet')
+    )
+  } catch {
+    return undefined
+  }
+}
+
+/** The insert half: internalize the scanned deposits `live` can open and that
+ * are not yet in the basket, count the rest, then rebuild local vault
+ * metadata. */
 async function restoreScannedDeposits(
   w: VaultWallet,
   adminOriginator: string,
   scan: VaultChainScan,
   live: ReadonlySet<string>
-): Promise<VaultChainRecoveryResult> {
-  const { ready, pending, scanned } = scan
+): Promise<VaultScanResult> {
+  const { ready, pending, scanned, unknownIndexes, ignoredBelowMinimum } = scan
   const problems = [...scan.problems]
   let found = 0
   let pendingConfirmation = 0
   let unreachable = 0
+  let maxUsedIndex = scan.maxUsedIndex
+  const scopeToken = vaultStore.captureScopeToken()
+  // Merge by outpoint: what the basket already holds is neither re-added nor
+  // counted, so a second scan is a no-op for known outputs.
+  const known = await listVaultBasketOutpoints(w, adminOriginator, scopeToken)
   for (const candidate of ready) {
+    maxUsedIndex = Math.max(maxUsedIndex, candidate.index)
+    if (known.has(`${candidate.txid.toLowerCase()}.${candidate.vaultOutputIndex}`)) continue
     if (!opensWithAny(candidate.ci, live)) {
       unreachable++
       continue
@@ -480,7 +549,20 @@ async function restoreScannedDeposits(
     else unreachable++
   }
   await recoverVaultMetaFromOutputs(w, adminOriginator)
-  return { found, pendingConfirmation, unreachable, problems, scanned }
+  // The next salt allocation starts above every index this scan saw in use.
+  if (maxUsedIndex > 0) noteSaltFloor(scopeToken.storageKey, maxUsedIndex)
+  return {
+    found,
+    pendingConfirmation,
+    unreachable,
+    ignoredBelowMinimum,
+    problems,
+    problemCount: problems.length,
+    unknownIndexes,
+    maxUsedIndex,
+    scanned,
+    status: problems.length > 0 || unknownIndexes.length > 0 ? 'incomplete' : 'complete'
+  }
 }
 
 export { wocChainLookup } from './wocLookup'
