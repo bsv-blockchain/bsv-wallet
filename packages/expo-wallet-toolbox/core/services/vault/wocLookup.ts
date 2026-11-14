@@ -66,7 +66,11 @@ export function wocChainLookup(chain: AppChain, requestInit?: RequestInit): Vaul
     }
     // The plain /history endpoint answers a bare array; the paged endpoints
     // answer {result: [...]}.
-    const list: unknown = Array.isArray(body) ? body : body !== null && typeof body === 'object' ? body.result : undefined
+    const list: unknown = Array.isArray(body)
+      ? body
+      : body !== null && typeof body === 'object'
+        ? body.result
+        : undefined
     if (!Array.isArray(list)) return { failed: 'malformed' }
     const rows: string[] = list.map((r: any) => r?.tx_hash).filter((h: unknown) => typeof h === 'string')
     const token = Array.isArray(body) ? undefined : pageTokenFrom(body)
