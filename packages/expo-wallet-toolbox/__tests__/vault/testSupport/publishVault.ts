@@ -47,7 +47,7 @@ export async function publishVaultTx(
   keys: VaultInstructionKey[],
   satoshis: number,
   opts: { confirmed?: boolean; vaultId?: string; createdAt?: number; revision?: number } = {}
-): Promise<{ txid: string; vaultOutputIndex: number }> {
+): Promise<{ txid: string; vaultOutputIndex: number; customInstructions: string }> {
   const saltKeyId = String(k)
   const salt = await deriveVaultSalt(
     wallet,
@@ -89,5 +89,5 @@ export async function publishVaultTx(
   tx.addOutput({ satoshis: 9_500, lockingScript: new P2PKH().lock(Utils.toArray('e3'.repeat(20), 'hex')) })
 
   const txid = chain.publish(tx, opts)
-  return { txid, vaultOutputIndex: 0 }
+  return { txid, vaultOutputIndex: 0, customInstructions }
 }

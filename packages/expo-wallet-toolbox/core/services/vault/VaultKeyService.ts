@@ -1015,7 +1015,9 @@ export interface VerifiedVaultRecoveryOutput {
  * Reconstruct one current enrollment from authoritative spendable R1C outputs.
  * The transfer layer owns pagination and lock verification; this function owns
  * conflict detection and version selection. It never accepts a mixture of
- * enrollment ids or two different key sets at the same revision. A mixed
+ * enrollment ids or two different key sets at the same revision, and it never
+ * infers a pendingRemoval (callers pre-filter by lineage and variant, see
+ * chainRecovery.ts). A mixed
  * v6+v7 output set reduces to one VaultMeta the same way a same-version
  * mixture does — version is not part of the conflict/version-selection
  * identity here, only vaultId/createdAt/revision/keys are.
@@ -1038,29 +1040,9 @@ export function metaFromVerifiedOutputs(outputs: readonly VerifiedVaultRecoveryO
     throw new VaultError('template-invalid', 'Conflicting vault key sets share the latest revision')
   }
   const keys = current[0].instructions.keys.map(k => ({ ...k }))
-  const currentPubkeys = new Set(keys.map(k => k.pubkey))
-  const removed = new Map<string, { key: VaultKeyRecord; index: number }>()
-  for (const { instructions } of outputs) {
-    if (instructions.revision >= revision) continue
-    instructions.keys.forEach((key, index) => {
-      if (!currentPubkeys.has(key.pubkey)) removed.set(key.pubkey, { key: { ...key }, index })
-    })
-  }
-  if (removed.size > 1) {
-    throw new VaultError('template-invalid', 'Multiple incomplete key removals are present')
-  }
-
+  // A scan never infers a removal from older outputs (decoy-wedge): anyone can
+  // plant a copy of an old record. A real removal lives in local meta only.
   const meta: VaultMeta = { v: 6, vaultId, revision, createdAt, keys }
-  const tombstone = [...removed.values()][0]
-  if (tombstone) {
-    meta.pendingRemoval = {
-      key: tombstone.key,
-      keyIndex: Math.min(tombstone.index, keys.length),
-      startedAt: Date.now(),
-      revision,
-      state: 'broadcast'
-    }
-  }
   if (!isVaultMeta(meta)) throw new VaultError('template-invalid', 'Recovered vault metadata is invalid')
   return meta
 }

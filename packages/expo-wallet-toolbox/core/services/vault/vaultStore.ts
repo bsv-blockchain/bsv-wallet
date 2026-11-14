@@ -1456,6 +1456,23 @@ export const vaultStore = {
     })
   },
 
+  /**
+   * Forget the local setup of the active scope: the meta item, its authority
+   * tag and the in-memory session proofs. Unlike `clear` it works with no meta,
+   * with a corrupt one and with a pendingRemoval, and it keeps enrollment
+   * drafts. It does not touch the chain; the caller relinquishes local outputs.
+   */
+  async forgetSetup(scopeToken?: VaultScopeToken): Promise<void> {
+    const token = scopeToken ?? captureScope(true)
+    return enqueueMutation(async () => {
+      assertScope(token)
+      await SecureStore.deleteItemAsync(token.storageKey, SECURE_OPTIONS)
+      await clearMetaTag(token)
+      sessionProofs.delete(token.storageKey)
+      assertScope(token)
+    })
+  },
+
   /** XR-002: the wallet-root authority tag on file for this scope's VaultMeta,
    * or null if none exists (never tagged — every enrollment created before
    * this fix shipped — or explicitly cleared). Read by

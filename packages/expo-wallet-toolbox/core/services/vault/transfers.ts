@@ -1816,6 +1816,21 @@ function recoveredSupersedesExisting(existing: VaultMeta, recovered: VaultMeta):
   return true
 }
 
+/** Whether `keys` names a key (serial AND pubkey) that `meta` does not know:
+ * not among its keys, its staged key or its pending-removal key. A scan uses it
+ * to keep a planted higher revision from adding a key to existing local meta. */
+export function introducesUnknownKey(
+  meta: Pick<VaultMeta, 'keys' | 'staged' | 'pendingRemoval'>,
+  keys: readonly Pick<VaultKeyRecord, 'serial' | 'pubkey'>[]
+): boolean {
+  const known = [
+    ...meta.keys,
+    ...(meta.staged ? [meta.staged] : []),
+    ...(meta.pendingRemoval ? [meta.pendingRemoval.key] : [])
+  ]
+  return keys.some(key => !known.some(k => k.serial === key.serial && k.pubkey === key.pubkey))
+}
+
 /** Restore a missing scoped cache only from currently spendable outputs whose
  * real source values, exact R1C locks, salted commitments, v6 recovery records, and
  * wallet salt-key derivations all authenticate. Conflict selection belongs to
@@ -1848,6 +1863,10 @@ export async function recoverVaultMetaFromOutputs(w: VaultWallet, adminOriginato
     if (scan.outputs === 0) return existing
     await verifyVaultSaltDerivations(w, adminOriginator, scan.inventory)
     const recovered = metaFromVerifiedOutputs(scan.state)
+    // A scan never adds a key to existing local meta: a recovered record that
+    // names a key local meta does not know (a planted higher revision) is
+    // ignored. The crash-recovery case (every key known) still supersedes.
+    if (existing && introducesUnknownKey(existing, recovered.keys)) return existing
     if (existing && !recoveredSupersedesExisting(existing, recovered)) return existing
     const scope = vaultStore.getScope()
     await vaultStore.restoreVerifiedMeta(
@@ -2584,6 +2603,11 @@ interface VaultSelection {
   beef?: number[]
   /** Salts, derivation IDs and script hashes already present in authenticated history. */
   saltInventory: VaultSaltInventory
+  /** The first record that disagrees with local meta (another enrollment, a
+   * newer revision, other keys at the active revision). Selection does not throw
+   * it: only an operation that creates a new output refuses on it, so a full
+   * withdrawal stays open (R1). */
+  consistencyError?: VaultError
 }
 
 /**
@@ -2653,6 +2677,7 @@ async function selectVaultInputs(
     unreachableSatoshis: number
     otherPubkeys: Set<string>
     selected: Candidate[]
+    consistencyError?: VaultError
   }
   const add = (current: number, value: number, where: string): number => {
     const next = current + value
@@ -2674,7 +2699,12 @@ async function selectVaultInputs(
       selected: []
     }),
     (state, output, sources) => {
-      requireOutputMetaConsistency([output], meta)
+      try {
+        requireOutputMetaConsistency([output], meta)
+      } catch (error) {
+        if (!(error instanceof VaultError)) throw error
+        state.consistencyError ??= error
+      }
       if (requiredPubkey && !hasPubkey(output, requiredPubkey)) return
       state.decodable++
       state.total = add(state.total, output.satoshis, 'Vault selection')
@@ -2759,7 +2789,8 @@ async function selectVaultInputs(
     cappedInputs,
     unreachable,
     beef: sourceBeef.toBinary(),
-    saltInventory: verified.inventory
+    saltInventory: verified.inventory,
+    consistencyError: scan.consistencyError
   }
 }
 
@@ -3304,6 +3335,9 @@ export async function withdrawFromVault(
     const remainder = sel.acc - want
     const outputs: VaultSpendPlan['outputs'] = []
     if (remainder >= VAULT_DEPOSIT_MIN) {
+      // A new output would be created next to a record that disagrees with
+      // local meta: refuse. A full withdrawal creates none and stays open.
+      if (sel.consistencyError) throw sel.consistencyError
       // P2-774: reconcileHeldVaultDeposits' gate exists only to protect
       // salt-index-allocation integrity for a call that is about to allocate a
       // NEW one (spec's high-water-mark check) — a full-balance withdrawal
@@ -3435,6 +3469,9 @@ export async function relockVault(
     await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
     const revokePubkey = opts?.revokePubkey
     const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, 'all', revokePubkey, scopeToken)
+    // A re-lock always creates a new output, so it refuses on a record that
+    // disagrees with local meta.
+    if (sel.consistencyError) throw sel.consistencyError
     if (sel.meta.pendingRemoval && !revokePubkey) {
       throw new VaultError('relock-required', 'Finish the pending key removal before another re-lock')
     }
@@ -3592,6 +3629,42 @@ export async function forgetUnreachableVaultOutputs(
       await w.relinquishOutput({ basket: VAULT_BASKET, output: outpoint }, adminOriginator)
     }
     return { forgotten: unreachable.length }
+  })
+}
+
+/**
+ * The exit for a phone stuck with conflicting or planted local rows: relinquish
+ * every local Vault output and forget the local setup (meta, tag, session
+ * proofs), so a fresh scan or a tapped restore starts clean. It reads the raw
+ * basket (no authentication, so conflicting rows cannot block it) and never
+ * touches the chain: the funds stay where they are and a scan finds them again.
+ * Refuses while any Vault action is pending.
+ */
+export async function forgetVaultSetup(w: VaultWallet, adminOriginator: string): Promise<{ forgottenOutputs: number }> {
+  const scopeToken = vaultStore.captureScopeToken()
+  return await withVaultMutation(async () => {
+    assertVaultScope(scopeToken)
+    let pendingAction = false
+    await scanVaultActions(
+      w,
+      adminOriginator,
+      { includeLabels: true },
+      action => {
+        if (PENDING_ACTION_STATUSES.has(action.status)) pendingAction = true
+      },
+      scopeToken
+    )
+    if (pendingAction) {
+      throw new VaultError('action-pending', 'Wait for pending vault actions before forgetting this setup')
+    }
+    const outpoints = await listVaultBasketOutpoints(w, adminOriginator, scopeToken)
+    for (const outpoint of outpoints) {
+      assertVaultScope(scopeToken)
+      await w.relinquishOutput({ basket: VAULT_BASKET, output: outpoint }, adminOriginator)
+    }
+    assertVaultScope(scopeToken)
+    await vaultStore.forgetSetup(scopeToken)
+    return { forgottenOutputs: outpoints.size }
   })
 }
 

@@ -1213,7 +1213,7 @@ describe('metaFromVerifiedOutputs', () => {
     ...over
   })
 
-  test('selects one consistent latest revision and detects an in-progress removal', () => {
+  test('selects one consistent latest revision and never infers a removal', () => {
     const oldKeys = [rec(1), rec(2), rec(3)]
     const active = [rec(1), rec(3)]
     const recovered = metaFromVerifiedOutputs([
@@ -1223,12 +1223,7 @@ describe('metaFromVerifiedOutputs', () => {
     ])
     expect(recovered.keys).toEqual(active)
     expect(recovered.revision).toBe(2)
-    expect(recovered.pendingRemoval).toMatchObject({
-      key: rec(2),
-      keyIndex: 1,
-      state: 'broadcast'
-    })
-    expect(JSON.stringify(recovered.pendingRemoval)).not.toContain('txids')
+    expect(recovered.pendingRemoval).toBeUndefined()
   })
 
   test('rejects mixed enrollments and conflicting key sets at one revision', () => {

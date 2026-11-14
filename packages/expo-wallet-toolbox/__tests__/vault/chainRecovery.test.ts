@@ -288,14 +288,15 @@ describe('recoverVaultFromChain', () => {
       expect(wallet.localVaultOutpoints()).toEqual([`${current.txid}.0`])
     })
 
-    it('with no key list on this device, restores the newest setup and skips older ones', async () => {
+    it('with no key list on this device, two setups are a conflict: nothing is restored and both groups are reported', async () => {
       await publishVaultTx(wallet, chain, 1, OLD_KEYS, 300_000, { vaultId: OLD_VAULT, createdAt: 1 })
-      const current = await publishVaultTx(wallet, chain, 2, KEYS, 400_000, { createdAt: 5 })
+      await publishVaultTx(wallet, chain, 2, KEYS, 400_000, { createdAt: 5 })
 
       const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
-      expect(result).toMatchObject({ found: 1, unreachable: 1, problems: [] })
-      expect(wallet.localVaultOutpoints()).toEqual([`${current.txid}.0`])
-      expect((await vaultStore.getMeta())?.vaultId).toBe(VAULT_ID)
+      expect(result).toMatchObject({ found: 0, unreachable: 0, problems: [], conflict: true })
+      expect(result.setApart).toHaveLength(2)
+      expect(wallet.hasLocalVaultOutputs()).toBe(false)
+      expect(await vaultStore.getMeta()).toBeNull()
     })
 
     it("never reports an earlier setup's unconfirmed deposit as pending", async () => {

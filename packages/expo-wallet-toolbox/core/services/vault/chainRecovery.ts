@@ -26,16 +26,17 @@
  * reported back as `pendingConfirmation`, never thrown and never silently
  * dropped, and does not consume a gap-scan slot.
  *
- * KEY FILTER: every setup of the same YubiKeys writes fresh PIV keys (and a
- * new vaultId), yet its deposits still authenticate here — the marker and
- * descriptor derive from the wallet root, not the keys. So a scan also finds
- * deposits from earlier setups that nothing the owner still holds can open.
- * Only candidates sharing a key with the live set are internalized: this
- * device's authenticated key list when it has one, otherwise every key of the
- * newest setup the scan found (latest createdAt). The rest are counted as
- * `unreachable`, never inserted.
+ * ADMISSION (a scan only adds outputs): the marker and descriptor derive from
+ * the wallet root, so anyone holding the mnemonic can plant a record, and
+ * earlier setups' deposits authenticate too. Candidates are grouped into
+ * lineages (`vaultId:createdAt`) and, at a lineage's highest revision, into one
+ * variant per distinct key list. With a local, authenticated meta only
+ * candidates of that lineage that add no unknown key are internalized (the rest
+ * are set apart). With no local meta one group is internalized; more than one
+ * is a conflict: nothing is internalized and the groups are reported. A tapped
+ * restore keeps only outputs whose OWN key list holds the tapped key.
  */
-import { Transaction } from '@bsv/sdk'
+import { Hash, Transaction, Utils } from '@bsv/sdk'
 import {
   buildLock,
   commitment,
@@ -46,10 +47,11 @@ import {
   type VaultSaltChain
 } from './r1comb'
 import { VaultError } from './types'
-import { vaultStore } from './vaultStore'
+import { vaultStore, type VaultMeta } from './vaultStore'
 import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
 import {
   VAULT_BASKET,
+  introducesUnknownKey,
   liveVaultPubkeys,
   opensWithAny,
   deriveVaultMarkerScript,
@@ -103,6 +105,21 @@ export interface VaultChainRecoveryProblem {
   markerAddress?: string
 }
 
+/** One lineage (`vaultId:createdAt`), or one variant of it, found by a scan. */
+export interface VaultRecoveryGroup {
+  /** '<vaultId>:<createdAt>', or for a variant '<vaultId>:<createdAt>:<16 hex>'. */
+  id: string
+  vaultId: string
+  createdAt: number
+  /** Highest revision in the group. */
+  revision: number
+  /** Key list at that revision. */
+  keys: VaultInstructionKey[]
+  /** Internalizable outputs (at or above the floor, unspent, confirmed). */
+  outputs: number
+  satoshis: number
+}
+
 /** What one scan run found. `found`, `unreachable`, `pendingConfirmation`,
  * `problems` and `scanned` keep the meaning they always had. */
 export interface VaultScanResult {
@@ -140,6 +157,21 @@ export interface VaultScanResult {
   scanned: number
   /** 'incomplete' when problemCount > 0 or unknownIndexes is not empty. */
   status: 'complete' | 'incomplete'
+  /** Every group found (after the tapped-key filter, when there is one),
+   * including set-apart ones. */
+  groups?: VaultRecoveryGroup[]
+  /** True when more than one group is a candidate and nothing was internalized. */
+  conflict?: boolean
+  /** Groups that were not internalized. */
+  setApart?: VaultRecoveryGroup[]
+}
+
+/** Options that pick one group when a scan finds several. */
+export interface VaultRestoreOptions {
+  /** A `VaultRecoveryGroup.id`. */
+  groupId?: string
+  /** Alias for `groupId`; matches a lineage with exactly one group. */
+  vaultId?: string
 }
 
 /** Alias kept for existing callers. */
@@ -153,6 +185,7 @@ export interface RecoverableCandidate {
   ci: VaultInstructionsV7
   beef: number[]
   vaultOutputIndex: number
+  satoshis: number
 }
 
 type CandidateOutcome =
@@ -276,7 +309,7 @@ async function recoverOneCandidate(
   if (status === 'unknown') return { kind: 'problem', reason: 'could not confirm the vault output is unspent' }
 
   if (!entry.confirmed) return { kind: 'pending', ci }
-  return { kind: 'ready', index: k, txid, ci, beef: entry.beef, vaultOutputIndex }
+  return { kind: 'ready', index: k, txid, ci, beef: entry.beef, vaultOutputIndex, satoshis: vaultOutput.satoshis }
 }
 
 async function internalizeCandidate(
@@ -310,33 +343,80 @@ async function internalizeCandidate(
   return undefined
 }
 
-/**
- * The keys a recovered deposit must share one of (KEY FILTER). A local key
- * list counts only when its authority tag verifies: a forged list would
- * otherwise hide every real deposit. Without one, the newest setup found
- * wins — an older setup's PIV keys were replaced by the reset that made it.
- */
-async function recoveryLiveKeys(
-  w: VaultWallet,
-  adminOriginator: string,
-  records: readonly VaultInstructionsV7[]
-): Promise<ReadonlySet<string>> {
+/** This device's local meta, only when its authority tag verifies: a forged
+ * record must never decide what is admitted. */
+async function authenticatedLocalMeta(w: VaultWallet, adminOriginator: string): Promise<VaultMeta | null> {
   const scopeToken = vaultStore.captureScopeToken()
   const scope = vaultStore.getScope()
   const meta = await vaultStore.getMeta(scopeToken)
-  if (meta && scope) {
-    const tag = await vaultStore.getMetaTag(scopeToken)
-    if (await verifyVaultMetaAuthorityTag(w as unknown as HmacCapableWallet, adminOriginator, meta, scope, tag)) {
-      return liveVaultPubkeys(meta)
+  if (!meta || !scope) return null
+  const tag = await vaultStore.getMetaTag(scopeToken)
+  if (await verifyVaultMetaAuthorityTag(w as unknown as HmacCapableWallet, adminOriginator, meta, scope, tag)) {
+    return meta
+  }
+  return null
+}
+
+const lineageId = (ci: Pick<VaultInstructionsV7, 'vaultId' | 'createdAt'>): string => `${ci.vaultId}:${ci.createdAt}`
+
+const sameKeyList = (a: readonly VaultInstructionKey[], b: readonly VaultInstructionKey[]): boolean =>
+  a.length === b.length && a.every((key, i) => key.serial === b[i].serial && key.pubkey === b[i].pubkey)
+
+function keyListDigest(keys: readonly VaultInstructionKey[]): string {
+  const json = JSON.stringify(keys.map(key => ({ serial: key.serial, pubkey: key.pubkey })))
+  return Utils.toHex(Hash.sha256(Utils.toArray(json, 'utf8'))).slice(0, 16)
+}
+
+/** A group with the candidates it would internalize. */
+interface InternalGroup {
+  group: VaultRecoveryGroup
+  ready: RecoverableCandidate[]
+  pending: VaultInstructionsV7[]
+}
+
+/**
+ * Form the groups of a set of records: one per lineage, split at the lineage's
+ * highest revision into one per distinct key list (a variant). Outputs of a
+ * lower revision belong to every variant of their lineage.
+ */
+function formGroups(ready: readonly RecoverableCandidate[], pending: readonly VaultInstructionsV7[]): InternalGroup[] {
+  const lineages = new Map<string, { ready: RecoverableCandidate[]; pending: VaultInstructionsV7[] }>()
+  const entry = (id: string) => {
+    let e = lineages.get(id)
+    if (!e) lineages.set(id, (e = { ready: [], pending: [] }))
+    return e
+  }
+  for (const c of ready) entry(lineageId(c.ci)).ready.push(c)
+  for (const ci of pending) entry(lineageId(ci)).pending.push(ci)
+
+  const groups: InternalGroup[] = []
+  for (const [id, members] of lineages) {
+    const records = [...members.ready.map(c => c.ci), ...members.pending]
+    const revision = Math.max(...records.map(ci => ci.revision))
+    const variants: VaultInstructionKey[][] = []
+    for (const ci of records) {
+      if (ci.revision === revision && !variants.some(v => sameKeyList(v, ci.keys))) variants.push(ci.keys)
+    }
+    for (const keys of variants) {
+      const belongs = (ci: VaultInstructionsV7): boolean => ci.revision < revision || sameKeyList(keys, ci.keys)
+      const groupReady = members.ready.filter(c => belongs(c.ci))
+      const first = records[0]
+      groups.push({
+        group: {
+          id: variants.length > 1 ? `${id}:${keyListDigest(keys)}` : id,
+          vaultId: first.vaultId,
+          createdAt: first.createdAt,
+          revision,
+          keys: keys.map(key => ({ ...key })),
+          outputs: groupReady.length,
+          satoshis: groupReady.reduce((sum, c) => sum + c.satoshis, 0)
+        },
+        ready: groupReady,
+        pending: members.pending.filter(belongs)
+      })
     }
   }
-  if (records.length === 0) return new Set()
-  const newest = records.reduce((a, b) => (b.createdAt > a.createdAt ? b : a))
-  return new Set(
-    records
-      .filter(r => r.vaultId === newest.vaultId && r.createdAt === newest.createdAt)
-      .flatMap(r => r.keys.map(key => key.pubkey))
-  )
+  return groups
 }
 
 /**
@@ -366,11 +446,13 @@ export async function scanVaultDeposits(
   gap: number = VAULT_RECOVERY_GAP_DEFAULT
 ): Promise<VaultScanResult> {
   const scan = await scanVaultChain(w, adminOriginator, lookup, chain, gap)
-  const live = await recoveryLiveKeys(w, adminOriginator, [...scan.ready.map(c => c.ci), ...scan.pending])
-  return await restoreScannedDeposits(w, adminOriginator, scan, live)
+  return await restoreScannedDeposits(w, adminOriginator, scan, {})
 }
 
-/** The first-restore entry point, kept for existing callers: the same scan. */
+/** The first-restore entry point, kept for existing callers: the same scan. It
+ * has no tapped key, so it uses the variant rule only; with more than one group
+ * it internalizes nothing and reports `conflict`. Picking a group needs the tap
+ * (recoverVaultWithKey). */
 export async function recoverVaultFromChain(
   w: VaultWallet,
   adminOriginator: string,
@@ -382,11 +464,12 @@ export async function recoverVaultFromChain(
 }
 
 /**
- * Restore with one tapped YubiKey (no local key list needed, and no guessing
- * between setups): scan the chain, let `prove` pick and prove the key the
- * card holds (proveHeldVaultKey), then restore every deposit of the setups
- * that key belongs to. The proven key is marked adopted, so it can withdraw
- * without a second challenge.
+ * Restore with one tapped YubiKey (no local key list needed): scan the chain,
+ * let `prove` pick and prove the key the card holds (proveHeldVaultKey), then
+ * keep only the outputs whose OWN key list holds that key and restore the group
+ * they form. More than one group and no `options.groupId`: restore nothing and
+ * report `conflict` with the groups. The proven key is marked adopted, so it
+ * can withdraw without a second challenge.
  */
 export async function recoverVaultWithKey(
   w: VaultWallet,
@@ -394,17 +477,18 @@ export async function recoverVaultWithKey(
   lookup: VaultChainLookup,
   chain: VaultSaltChain,
   prove: (records: readonly VaultInstructionsV7[]) => Promise<VaultInstructionKey>,
-  gap: number = VAULT_RECOVERY_GAP_DEFAULT
+  gap: number = VAULT_RECOVERY_GAP_DEFAULT,
+  options?: VaultRestoreOptions
 ): Promise<VaultChainRecoveryResult & { key: VaultInstructionKey }> {
   const scan = await scanVaultChain(w, adminOriginator, lookup, chain, gap)
   const records = [...scan.ready.map(c => c.ci), ...scan.pending]
   const key = await prove(records)
-  // Every key of a setup the proven key is part of, so that setup's deposits
-  // come back whole and rebuild one consistent key list.
-  const live = new Set(
-    records.filter(r => r.keys.some(k => k.pubkey === key.pubkey)).flatMap(r => r.keys.map(k => k.pubkey))
-  )
-  const result = await restoreScannedDeposits(w, adminOriginator, scan, live)
+  const result = await restoreScannedDeposits(w, adminOriginator, scan, {
+    pubkey: key.pubkey,
+    groupId: options?.groupId,
+    vaultId: options?.vaultId,
+    requireGroup: true
+  })
   if (result.found > 0) {
     // A durable proof re-tags the whole stored meta, so it is only written over
     // a meta whose own tag verifies (the restore above may have left an
@@ -555,40 +639,133 @@ function markerAddressFor(
   }
 }
 
-/** The insert half: internalize the scanned deposits `live` can open and that
- * are not yet in the basket, count the rest, then rebuild local vault
- * metadata. */
+interface RestoreSelection {
+  /** Tapped key: keep only outputs whose own key list holds it. */
+  pubkey?: string
+  groupId?: string
+  vaultId?: string
+  /** A named group must be one of the groups found (tapped restore). */
+  requireGroup?: boolean
+}
+
+/**
+ * With an authenticated local meta: which candidates a scan may internalize.
+ * Same lineage as meta, and either older than meta or adding no unknown key.
+ * Two further guards keep the later metaFromVerifiedOutputs from ever seeing a
+ * disagreement: at meta's own revision the key list must equal meta's, and above
+ * it a revision with more than one key list admits none of them.
+ */
+function admitAgainstMeta(meta: VaultMeta, ready: readonly RecoverableCandidate[]): Set<RecoverableCandidate> {
+  const admitted = ready.filter(c => {
+    const { ci } = c
+    if (ci.vaultId !== meta.vaultId || ci.createdAt !== meta.createdAt) return false
+    if (ci.revision < meta.revision) return true
+    if (introducesUnknownKey(meta, ci.keys)) return false
+    if (ci.revision === meta.revision) return sameKeyList(meta.keys, ci.keys)
+    return true
+  })
+  const above = admitted.filter(c => c.ci.revision > meta.revision)
+  if (above.length > 0) {
+    const top = Math.max(...above.map(c => c.ci.revision))
+    const atTop = above.filter(c => c.ci.revision === top)
+    if (atTop.some(c => !sameKeyList(atTop[0].ci.keys, c.ci.keys))) {
+      return new Set(admitted.filter(c => c.ci.revision !== top))
+    }
+  }
+  return new Set(admitted)
+}
+
+/** The insert half: decide which groups are admitted (see this file's
+ * ADMISSION note), internalize their candidates that are not yet in the basket,
+ * then rebuild local vault metadata. */
 async function restoreScannedDeposits(
   w: VaultWallet,
   adminOriginator: string,
   scan: VaultChainScan,
-  live: ReadonlySet<string>
+  selection: RestoreSelection
 ): Promise<VaultScanResult> {
-  const { ready, pending, scanned, unknownIndexes, ignoredBelowMinimum, ignoredNonVault } = scan
+  const { scanned, unknownIndexes, ignoredBelowMinimum, ignoredNonVault } = scan
   const problems = [...scan.problems]
   let found = 0
   let pendingConfirmation = 0
   let unreachable = 0
   let maxUsedIndex = scan.maxUsedIndex
   const scopeToken = vaultStore.captureScopeToken()
+
+  // Tapped key: an output counts only if its OWN key list holds the key.
+  const holds = (keys: readonly VaultInstructionKey[]): boolean =>
+    !selection.pubkey || keys.some(key => key.pubkey === selection.pubkey)
+  const ready = scan.ready.filter(c => holds(c.ci.keys))
+  const pending = scan.pending.filter(ci => holds(ci.keys))
+  unreachable += scan.ready.length - ready.length + (scan.pending.length - pending.length)
+  for (const candidate of scan.ready) maxUsedIndex = Math.max(maxUsedIndex, candidate.index)
+
+  const groups = formGroups(ready, pending)
+  const meta = await authenticatedLocalMeta(w, adminOriginator)
+  const admittedReady = new Set<RecoverableCandidate>()
+  const admittedPending: VaultInstructionsV7[] = []
+  let conflict = false
+  let setApart: VaultRecoveryGroup[]
+
+  if (meta) {
+    const admitted = admitAgainstMeta(meta, ready)
+    for (const c of admitted) admittedReady.add(c)
+    for (const ci of pending) {
+      if (ci.vaultId === meta.vaultId && ci.createdAt === meta.createdAt && !introducesUnknownKey(meta, ci.keys)) {
+        admittedPending.push(ci)
+      }
+    }
+    // Not admitted and sharing no key with this device's list (an earlier
+    // setup's deposit): counted as unreachable, as well as set apart below.
+    const live = liveVaultPubkeys(meta)
+    unreachable += ready.filter(c => !admitted.has(c) && !opensWithAny(c.ci, live)).length
+    unreachable += pending.filter(ci => !admittedPending.includes(ci) && !opensWithAny(ci, live)).length
+    // A group is set apart when none of its outputs at its own revision were admitted.
+    setApart = groups
+      .filter(g => !g.ready.some(c => admitted.has(c) && c.ci.revision === g.group.revision))
+      .filter(g => !g.pending.some(ci => admittedPending.includes(ci) && ci.revision === g.group.revision))
+      .map(g => {
+        // A lower-revision output shared with an admitted group is not set apart.
+        const apart = g.ready.filter(c => !admitted.has(c))
+        return { ...g.group, outputs: apart.length, satoshis: apart.reduce((sum, c) => sum + c.satoshis, 0) }
+      })
+  } else {
+    const wanted = selection.groupId ?? selection.vaultId
+    let chosen: InternalGroup[]
+    if (wanted) {
+      chosen = groups.filter(g => g.group.id === wanted)
+      if (chosen.length === 0 && selection.vaultId && !selection.groupId) {
+        const byLineage = groups.filter(g => `${g.group.vaultId}` === wanted)
+        if (byLineage.length === 1) chosen = byLineage
+      }
+      if (chosen.length === 0 && selection.requireGroup) {
+        throw new VaultError('key-opens-nothing', 'No vault group found for this key matches the requested group')
+      }
+    } else if (groups.length === 1) {
+      chosen = groups
+    } else {
+      chosen = []
+      conflict = groups.length > 1
+    }
+    for (const g of chosen) {
+      for (const c of g.ready) admittedReady.add(c)
+      for (const ci of g.pending) admittedPending.push(ci)
+    }
+    setApart = groups.filter(g => !chosen.includes(g)).map(g => g.group)
+  }
+
   // Merge by outpoint: what the basket already holds is neither re-added nor
   // counted, so a second scan is a no-op for known outputs.
   const known = await listVaultBasketOutpoints(w, adminOriginator, scopeToken)
   for (const candidate of ready) {
-    maxUsedIndex = Math.max(maxUsedIndex, candidate.index)
+    if (!admittedReady.has(candidate)) continue
     if (known.has(`${candidate.txid.toLowerCase()}.${candidate.vaultOutputIndex}`)) continue
-    if (!opensWithAny(candidate.ci, live)) {
-      unreachable++
-      continue
-    }
+    known.add(`${candidate.txid.toLowerCase()}.${candidate.vaultOutputIndex}`)
     const failure = await internalizeCandidate(w, adminOriginator, candidate)
     if (failure) problems.push({ index: candidate.index, reason: failure })
     else found++
   }
-  for (const ci of pending) {
-    if (opensWithAny(ci, live)) pendingConfirmation++
-    else unreachable++
-  }
+  pendingConfirmation = admittedPending.length
   await recoverVaultMetaFromOutputs(w, adminOriginator)
   // The next salt allocation starts above every index this scan saw in use.
   if (maxUsedIndex > 0) noteSaltFloor(scopeToken.storageKey, maxUsedIndex)
@@ -603,7 +780,10 @@ async function restoreScannedDeposits(
     unknownIndexes,
     maxUsedIndex,
     scanned,
-    status: problems.length > 0 || unknownIndexes.length > 0 ? 'incomplete' : 'complete'
+    status: problems.length > 0 || unknownIndexes.length > 0 ? 'incomplete' : 'complete',
+    groups: groups.map(g => g.group),
+    conflict,
+    setApart
   }
 }
 
