@@ -509,6 +509,148 @@ export async function recoverVaultWithKey(
   return { ...result, key }
 }
 
+/** Most transaction IDs one `recoverVaultFromTxids` call accepts. */
+export const VAULT_TXID_RESTORE_MAX = 50
+
+const TXID_PATTERN = /^[0-9a-f]{64}$/
+const P2PKH_PATTERN = /^76a914[0-9a-f]{40}88ac$/
+
+/**
+ * Restore deposits from their transaction IDs. This is the exit for a marker
+ * address whose history is too large to read (dust can fill any window): no
+ * history is used, so nothing can hide the deposit. The txid comes from the
+ * marker address a person looks up in a block explorer
+ * (`problems[].markerAddress`).
+ *
+ * Each transaction is fetched, its P2PKH outputs are tested against the
+ * marker scripts of indexes 1..maxIndex, and a match goes through the same
+ * `recoverOneCandidate` path as the scan (descriptor decrypt, lock rebuild,
+ * floor, `outputStatus`). The result feeds `restoreScannedDeposits`, so the
+ * same admission rules apply and it never adds keys or revisions to an
+ * existing local meta. `scanned` is `maxIndex`.
+ */
+export async function recoverVaultFromTxids(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  txids: readonly string[],
+  maxIndex: number = 200
+): Promise<VaultScanResult> {
+  if (!Number.isSafeInteger(maxIndex) || maxIndex < 1) {
+    throw new VaultError('template-invalid', 'Vault restore index limit must be a positive integer')
+  }
+  const distinct: string[] = []
+  for (const raw of txids) {
+    const txid = typeof raw === 'string' ? raw.toLowerCase() : ''
+    if (!TXID_PATTERN.test(txid)) {
+      throw new VaultError('template-invalid', 'A transaction ID must be 64 hexadecimal characters')
+    }
+    if (!distinct.includes(txid)) distinct.push(txid)
+  }
+  if (distinct.length > VAULT_TXID_RESTORE_MAX) {
+    throw new VaultError('template-invalid', `At most ${VAULT_TXID_RESTORE_MAX} transaction IDs per restore`)
+  }
+
+  // Derive every marker script once: script hex -> index.
+  const markerIndexByScript = new Map<string, number>()
+  for (let k = 1; k <= maxIndex; k++) {
+    markerIndexByScript.set((await deriveVaultMarkerScript(w, adminOriginator, chain, String(k))).toHex(), k)
+  }
+
+  // recoverOneCandidate fetches the bytes again; answer it from this cache.
+  const fetched = new Map<string, { beef: number[]; confirmed: boolean } | null>()
+  const cachedLookup: VaultChainLookup = {
+    ...lookup,
+    transactionForTxid: async txid => {
+      if (!fetched.has(txid)) fetched.set(txid, await lookup.transactionForTxid(txid))
+      return fetched.get(txid) ?? null
+    }
+  }
+
+  const ready: RecoverableCandidate[] = []
+  const pending: VaultInstructionsV7[] = []
+  const problems: VaultChainRecoveryProblem[] = []
+  let ignoredBelowMinimum = 0
+  let ignoredNonVault = 0
+  let maxUsedIndex = 0
+  const seenOutpoints = new Set<string>()
+
+  for (const txid of distinct) {
+    let entry: { beef: number[]; confirmed: boolean } | null
+    try {
+      entry = await cachedLookup.transactionForTxid(txid)
+    } catch {
+      problems.push({ index: 0, reason: 'chain lookup failed to fetch transaction bytes' })
+      continue
+    }
+    if (!entry) {
+      problems.push({ index: 0, reason: 'no transaction bytes available for this transaction' })
+      continue
+    }
+    let tx: Transaction
+    try {
+      try {
+        tx = Transaction.fromAtomicBEEF(entry.beef)
+      } catch {
+        tx = Transaction.fromBEEF(entry.beef)
+      }
+    } catch {
+      problems.push({ index: 0, reason: 'malformed transaction bytes' })
+      continue
+    }
+    const matches = new Map<number, string>()
+    for (const output of tx.outputs) {
+      const hex = output.lockingScript.toHex()
+      if (!P2PKH_PATTERN.test(hex)) continue
+      const k = markerIndexByScript.get(hex)
+      if (k !== undefined) matches.set(k, hex)
+    }
+    if (matches.size === 0) {
+      problems.push({ index: 0, reason: 'no vault marker found in this transaction' })
+      continue
+    }
+    for (const [k, hex] of [...matches].sort((a, b) => a[0] - b[0])) {
+      const outcome = await recoverOneCandidate(w, adminOriginator, cachedLookup, chain, k, hex, txid)
+      if (outcome.kind === 'ready') {
+        maxUsedIndex = Math.max(maxUsedIndex, k)
+        const outpoint = `${txid}.${outcome.vaultOutputIndex}`
+        if (seenOutpoints.has(outpoint)) continue
+        seenOutpoints.add(outpoint)
+        ready.push(outcome)
+      } else if (outcome.kind === 'pending') {
+        maxUsedIndex = Math.max(maxUsedIndex, k)
+        pending.push(outcome.ci)
+      } else if (outcome.kind === 'below-minimum') ignoredBelowMinimum++
+      else if (outcome.kind === 'non-vault') {
+        // The person named this transaction, so unlike a scan row it is reported.
+        ignoredNonVault++
+        problems.push({
+          index: k,
+          reason: 'this transaction pays a vault marker address but holds no vault record for this wallet'
+        })
+      } else if (outcome.kind === 'problem') problems.push({ index: k, reason: outcome.reason })
+      // 'spent': already withdrawn or re-locked, normal.
+    }
+  }
+
+  return await restoreScannedDeposits(
+    w,
+    adminOriginator,
+    {
+      ready,
+      pending,
+      problems,
+      unknownIndexes: [],
+      ignoredBelowMinimum,
+      ignoredNonVault,
+      maxUsedIndex,
+      scanned: maxIndex
+    },
+    {}
+  )
+}
+
 interface VaultChainScan {
   ready: RecoverableCandidate[]
   pending: VaultInstructionsV7[]
