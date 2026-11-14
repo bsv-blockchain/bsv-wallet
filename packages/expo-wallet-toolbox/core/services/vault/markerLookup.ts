@@ -95,3 +95,10 @@ export function noteSaltFloor(storageKey: string, index: number): void {
 export function saltFloorFor(storageKey: string): number {
   return saltFloors.get(storageKey) ?? 0
 }
+
+/** Test seam, same __DEV__ gate as setVaultChainLookup: forget the in-memory
+ * floor hints so one test's allocations do not move the next test's start. */
+export function resetSaltFloors(): void {
+  if (!__DEV__) return
+  saltFloors.clear()
+}

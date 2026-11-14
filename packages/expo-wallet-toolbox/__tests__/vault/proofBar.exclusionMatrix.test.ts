@@ -114,8 +114,11 @@ import {
   withdrawFromVault
 } from '../../core/services/vault/transfers'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
+import { setVaultChainLookup } from '../../core/services/vault/markerLookup'
 
 jest.setTimeout(300_000)
+
+afterEach(() => setVaultChainLookup(null))
 
 const ADMIN = 'admin.com'
 const hex = (a: ArrayLike<number>): string => Utils.toHex(Array.from(a))
@@ -184,6 +187,7 @@ interface VaultFixture {
 async function setupVault(tag: string, n = 2, satoshis = 500_000): Promise<VaultFixture> {
   const identityKey = `02${tag}${'b3'.repeat(31)}`
   const chain = new FakeChain()
+  setVaultChainLookup(fakeChainLookup(chain)) // deposits see the real marker history
   const primaryKey = generateMnemonicWallet().primaryKey
   const deviceA = new FakeVaultWallet(primaryKey, chain)
   vaultStore.clearScope()
@@ -786,6 +790,7 @@ describe('I2 residual (v6 legacy): a stolen v6 output carries the salt', () => {
   it("I2 residual (v6 legacy): the app's own withdrawFromVault refuses a different-root wallet even for a v6 output (verifyVaultSaltDerivations cross-checks the listed salt claim against the acting wallet's own root) — but see the next test for why this is not the real security boundary", async () => {
     const identityKey = `02f6${'c4'.repeat(31)}`
     const chain = new FakeChain()
+    setVaultChainLookup(fakeChainLookup(chain)) // deposits see the real marker history
     const owner = generateMnemonicWallet()
     const deviceA = new FakeVaultWallet(owner.primaryKey, chain)
     vaultStore.clearScope()
@@ -857,6 +862,7 @@ describe('I2 residual (v6 legacy): a stolen v6 output carries the salt', () => {
 
   it("I2 residual (v6 legacy): the R1C SCRIPT accepts a witness built straight from a v6 record's embedded salt — a raw-transaction attacker with the stolen DB, the committed key and its correct PIN needs no mnemonic and no app at all (positive control: the same witness shape is what the real owner would also produce)", async () => {
     const chain = new FakeChain()
+    setVaultChainLookup(fakeChainLookup(chain)) // deposits see the real marker history
     const { mock, keys } = await buildKeyring(2)
 
     const salt = hex(p256.utils.randomSecretKey())

@@ -95,64 +95,15 @@ import { computeVaultMetaAuthorityTag } from '../../core/services/vault/metaAuth
 import { recoverVaultFromChain } from '../../core/services/vault/chainRecovery'
 import { depositToVault, getVaultBalance, relockVault, withdrawFromVault } from '../../core/services/vault/transfers'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
+import { resetSaltFloors, setVaultChainLookup } from '../../core/services/vault/markerLookup'
+import { ADMIN, armSigner, buildKeyring, seedOwnMeta } from './testSupport/vaultHarness'
 
 jest.setTimeout(300_000)
 
-const ADMIN = 'admin.com'
+afterEach(() => setVaultChainLookup(null))
+
 const hex = (a: ArrayLike<number>): string => Utils.toHex(Array.from(a))
 const digestBytes = (digestHex: string): Uint8Array => Uint8Array.from(Utils.toArray(digestHex, 'hex') as number[])
-
-/** XR-002: seeds a device's very first local meta the way a real enrollment
- * (finalizeEnrollment) leaves it — validly tagged with THAT device's own
- * wallet-root HMAC — rather than the bare, untagged shape a SecureStore-only
- * attacker could equally produce. This harness sets up its "device A already
- * enrolled and has deposited before" starting state directly, never through
- * the real card-enrollment ceremony (a separate, already-covered surface —
- * see vaultKeyService.test.ts), so it has to do this step itself. */
-async function seedOwnMeta(owner: FakeVaultWallet, meta: VaultMeta): Promise<void> {
-  const scope = vaultStore.getScope()!
-  await vaultStore.setMeta(meta, undefined, next => computeVaultMetaAuthorityTag(owner, ADMIN, next, scope))
-}
-
-/** One MockYubiKey "keyring": every member gets its own persistent record
- * (insertKey/generateVaultKey), and switching `insertKey` back to a serial
- * later re-presents the SAME key with a fresh (unverified) PIN session —
- * modelling "the same physical set of cards, present the one at position k". */
-async function buildKeyring(n: number): Promise<{ mock: MockYubiKey; keys: VaultKeyRecord[] }> {
-  const mock = new MockYubiKey()
-  const keys: VaultKeyRecord[] = []
-  for (let i = 0; i < n; i++) {
-    const serial = `YK-${1000 + i}`
-    mock.insertKey(serial)
-    const { publicKey } = await mock.generateVaultKey(serial)
-    keys.push({ serial, slot: 0x82, pubkey: compressPubkey(publicKey), nickname: `Key ${i + 1}`, enrolledAt: i + 1 })
-  }
-  return { mock, keys }
-}
-
-/** Arm ceremonyHost's requestVaultSigner to present exactly `serial`'s
- * MockYubiKey record via the real card protocol (verifyPin + signEcdsa) —
- * real P-256 math, no card. Also installs `mock` as the active vault driver
- * (the seam adoptVaultKey/getVaultDriver() reads), so the possession
- * challenge after recovery goes through the same physical presentment. */
-function armSigner(mock: MockYubiKey, serial: string): void {
-  mock.insertKey(serial)
-  setMockDriver(mock)
-  ;(requestVaultSigner as jest.Mock).mockImplementation(async (_reason: string, chosenSerial: string) => {
-    if (chosenSerial !== serial) throw new Error(`serial-mismatch: armed ${serial}, chose ${chosenSerial}`)
-    const info = await mock.readVaultPublicKey(serial)
-    const signer: VaultSigner = {
-      serial,
-      pubkey: compressPubkey(info!.publicKey),
-      sign: async digestHex => {
-        const { signature } = await mock.signEcdsa(serial, '123456', digestHex)
-        return Utils.toArray(signature, 'hex') as number[]
-      },
-      release: () => {}
-    }
-    return signer
-  })
-}
 
 /** Independently re-verify EVERY input of a completed spend: the real
  * strict interpreter (verifyVaultInput), AND noble p256 directly over the
@@ -211,6 +162,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
     await AsyncStorage.clear()
     ;(jest.requireMock('expo-secure-store') as { __clear: () => void }).__clear()
     vaultStore.clearScope()
+    resetSaltFloors() // each test starts on a fresh chain
     ;(requestVaultSigner as jest.Mock).mockReset()
   })
 
@@ -234,6 +186,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
        * drained via a full 'all' withdrawal. */
       async function freshChainWithADeposits(): Promise<FakeChain> {
         const chain = new FakeChain()
+        setVaultChainLookup(fakeChainLookup(chain)) // deposits see the real marker history
         const deviceA = new FakeVaultWallet(primaryKey, chain)
         vaultStore.clearScope()
         vaultStore.configureScope({ identityKey, chain: 'test' })
@@ -313,6 +266,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
   it('a different mnemonic finds nothing', async () => {
     const identityKey = `02${'b2'.repeat(32)}`
     const chain = new FakeChain()
+    setVaultChainLookup(fakeChainLookup(chain)) // deposits see the real marker history
     const owner = generateMnemonicWallet()
     const stranger = generateMnemonicWallet()
     const { mock, keys } = await buildKeyring(2)
@@ -339,6 +293,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
   it('an unconfirmed deposit is reported pending, not thrown and not counted as a miss', async () => {
     const identityKey = `02${'c3'.repeat(32)}`
     const chain = new FakeChain()
+    setVaultChainLookup(fakeChainLookup(chain)) // deposits see the real marker history
     const owner = generateMnemonicWallet()
     const { mock, keys } = await buildKeyring(2)
     const vaultId = hex(p256.utils.randomSecretKey())
@@ -376,6 +331,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
   it('backup "enabled" but the push never happens, local DB/SecureStore wiped — chain-only recovery still finds and spends the v7 output', async () => {
     const identityKey = `02${'d4'.repeat(32)}`
     const chain = new FakeChain()
+    setVaultChainLookup(fakeChainLookup(chain)) // deposits see the real marker history
     const owner = generateMnemonicWallet()
     const { mock, keys } = await buildKeyring(2)
     const vaultId = hex(p256.utils.randomSecretKey())
@@ -429,6 +385,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
   it("a wallet holding the owner's local DB rows, a committed key and its correct PIN, but a DIFFERENT root, cannot read or spend the vault (I2, end-to-end)", async () => {
     const identityKey = `02${'e7'.repeat(32)}`
     const chain = new FakeChain()
+    setVaultChainLookup(fakeChainLookup(chain)) // deposits see the real marker history
     const owner = generateMnemonicWallet()
     const attacker = generateMnemonicWallet()
     const { mock, keys } = await buildKeyring(2)

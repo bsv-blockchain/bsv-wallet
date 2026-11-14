@@ -125,6 +125,8 @@ import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore
 import { computeVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
 import type { VaultSigner } from '../../core/services/vault/ceremony'
 import { VaultError } from '../../core/services/vault/types'
+import { resetSaltFloors, setVaultChainLookup } from '../../core/services/vault/markerLookup'
+import { emptyChainLookup } from './testSupport/vaultHarness'
 import {
   VAULT_BASKET,
   VAULT_DEPOSIT_MIN,
@@ -244,6 +246,8 @@ let wallet: VaultWallet & {
 }
 
 beforeEach(async () => {
+  setVaultChainLookup(emptyChainLookup())
+  resetSaltFloors()
   fixtureSaltIndex = 1000
   await AsyncStorage.clear()
   ;(jest.requireMock('expo-secure-store') as { __clear: () => void }).__clear()
@@ -334,6 +338,7 @@ beforeEach(async () => {
   signCalls = []
   armWith(PRIV_A, PUB_A, 'A-1')
 })
+afterEach(() => setVaultChainLookup(null))
 
 // Spies on r1comb (Task 10 stubs verifyVaultInput / pushTxDerCheck in a few
 // tests) must not leak between tests: a stubbed verifyVaultInput would let a

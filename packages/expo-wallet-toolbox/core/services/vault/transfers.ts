@@ -74,6 +74,7 @@ import { vaultStore, VaultKeyRecord, VaultMeta, type VaultScopeToken, type Vault
 import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
 import { requireVaultOutputKeyPossession } from './outputAuthority'
 import { forgetSerialsNoLongerEnrolledForIdentity } from './enrolledSerialRegistry'
+import { getVaultChainLookup, lookupMarker, noteSaltFloor, saltFloorFor, type VaultChainLookup } from './markerLookup'
 
 export const VAULT_BASKET = 'admin vault'
 /** Wallet HMAC domain used only for Vault output salts. */
@@ -2086,6 +2087,55 @@ function requireLockableKeyCount(count: number): void {
   }
 }
 
+/**
+ * Pick the salt index for a new Vault output (hardening: salt-reuse).
+ *
+ * The local inventory only knows the indexes this phone has seen. After a
+ * full withdrawal (the witness publishes the salt) and a wiped phone the
+ * local floor is 0 again, so the old rule re-derived an index whose salt was
+ * already public. Every candidate index is therefore looked up on its marker
+ * address first. Any history at all (confirmed, unconfirmed, dust, a
+ * truncated window with rows) means the index is used and is skipped. A
+ * lookup that fails with no rows fails closed: nothing is allocated, and the
+ * caller has not asked for a tap yet.
+ */
+export async function allocateSaltIndex(args: {
+  w: VaultWallet
+  adminOriginator: string
+  chain: VaultScopeToken['chain']
+  storageKey: string
+  lookup: VaultChainLookup
+  /** inventory.maxKeyIndex */
+  floor: number
+  /** default 64 */
+  maxProbe?: number
+}): Promise<number> {
+  const { w, adminOriginator, chain, storageKey, lookup } = args
+  const maxProbe = args.maxProbe ?? 64
+  const start = Math.max(args.floor, saltFloorFor(storageKey)) + 1
+  for (let k = start; k < start + maxProbe; k++) {
+    const script = (await deriveVaultMarkerScript(w, adminOriginator, chain, String(k))).toHex()
+    const history = await lookupMarker(lookup, script)
+    if (history.status === 'none') {
+      noteSaltFloor(storageKey, k - 1)
+      return k
+    }
+    if (history.status === 'found' || history.txids.length > 0) continue
+    throw new VaultError(
+      'lookup-unknown',
+      `Could not check whether Vault salt index ${k} is already used (${history.reason})`,
+      undefined,
+      { reason: history.reason, index: k }
+    )
+  }
+  throw new VaultError(
+    'lookup-unknown',
+    `Every one of the next ${maxProbe} Vault salt indexes is already used`,
+    undefined,
+    { reason: 'probe-limit', index: start + maxProbe - 1 }
+  )
+}
+
 async function newVaultOutput(
   w: VaultWallet,
   adminOriginator: string,
@@ -2103,7 +2153,16 @@ async function newVaultOutput(
   requireLockableKeyCount(meta.keys.length)
   const { chain } = scopeToken
   const pubkeys = meta.keys.map(k => k.pubkey)
-  const keyIndex = inventory.maxKeyIndex + 1
+  // The chain, not only local history, decides which salt index is free. This
+  // runs before requireVaultOutputKeyPossession, so a refusal costs no tap.
+  const keyIndex = await allocateSaltIndex({
+    w,
+    adminOriginator,
+    chain,
+    storageKey: scopeToken.storageKey,
+    lookup: getVaultChainLookup(chain),
+    floor: inventory.maxKeyIndex
+  })
   if (!Number.isSafeInteger(keyIndex)) {
     throw new VaultError('template-invalid', 'Vault salt key index is exhausted')
   }
