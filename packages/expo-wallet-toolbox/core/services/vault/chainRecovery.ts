@@ -47,7 +47,7 @@ import {
 } from './r1comb'
 import { VaultError } from './types'
 import { vaultStore } from './vaultStore'
-import { verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
+import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
 import {
   VAULT_BASKET,
   liveVaultPubkeys,
@@ -405,7 +405,18 @@ export async function recoverVaultWithKey(
     records.filter(r => r.keys.some(k => k.pubkey === key.pubkey)).flatMap(r => r.keys.map(k => k.pubkey))
   )
   const result = await restoreScannedDeposits(w, adminOriginator, scan, live)
-  if (result.found > 0) await vaultStore.markKeyAdopted(key)
+  if (result.found > 0) {
+    // The meta was just reconciled with authenticated outputs and tagged by
+    // that path, so this live-tap proof is written durably under a new tag.
+    const scope = vaultStore.getScope()
+    await vaultStore.markKeyAdopted(
+      key,
+      undefined,
+      scope
+        ? next => computeVaultMetaAuthorityTag(w as unknown as HmacCapableWallet, adminOriginator, next, scope)
+        : undefined
+    )
+  }
   return { ...result, key }
 }
 

@@ -195,7 +195,7 @@ describe('vaultStore v6', () => {
     await vaultStore.restoreVerifiedMeta(newer)
     expect(await vaultStore.getMeta()).toEqual({
       ...newer,
-      recovery: { required: true, adoptedSerials: [] }
+      recovery: { required: true, adoptedSerials: [], adopted: [] }
     })
     await expect(vaultStore.restoreVerifiedMeta(META)).rejects.toMatchObject({ code: 'template-invalid' })
     await expect(vaultStore.restoreVerifiedMeta({ ...newer, vaultId: '22'.repeat(32) })).rejects.toMatchObject({
@@ -551,7 +551,17 @@ describe('authenticated mutation snapshots', () => {
     expect(restored).toEqual(stored)
     expect(tagger).toHaveBeenCalledWith(restored)
     expect(restored).toMatchObject({ revision, lastUsedSerial: key(1).serial, lastUsedAt: 123 })
-    if (revision === 2) expect(restored?.recovery).toEqual({ required: true, adoptedSerials: [] })
+    // a phone that enrolled the vault itself proved every key at enrollment
+    if (revision === 2) {
+      expect(restored?.recovery).toEqual({
+        required: true,
+        adoptedSerials: [key(1).serial, key(2).serial],
+        adopted: [
+          { serial: key(1).serial, pubkey: key(1).pubkey },
+          { serial: key(2).serial, pubkey: key(2).pubkey }
+        ]
+      })
+    }
   })
 
   it.each([

@@ -867,6 +867,9 @@ export async function adoptVaultKey(args: {
   getPin: () => Promise<string>
   nfcMessage?: string
   scopeToken?: VaultScopeToken
+  /** With the wallet authority the proof is written durably (and tagged).
+   * Without it, the proof lasts for this session only. */
+  authority?: VaultWalletAuthority
 }): Promise<VaultKeyRecord> {
   if (!isVaultKeyRecord(args.record)) throw new VaultError('template-invalid', 'Invalid recovered vault key record')
   const driver = getVaultDriver()
@@ -915,7 +918,29 @@ export async function adoptVaultKey(args: {
     { nfcMessage: args.nfcMessage }
   )
 
-  await vaultStore.markKeyAdopted(args.record, scopeToken)
+  // The fresh tag covers the whole stored meta, so a durable write is only
+  // allowed over a meta whose own tag verifies (see markKeyAdopted). Any
+  // other meta gets a session proof: nothing is written and nothing is blessed.
+  const authority = args.authority
+  const scope = vaultStore.getScope()
+  let durable: { authority: VaultWalletAuthority; snapshot: VaultMeta } | undefined
+  if (authority && scope) {
+    const snapshot = await vaultStore.getMeta(scopeToken)
+    if (snapshot) {
+      const tag = await vaultStore.getMetaTag(scopeToken)
+      if (await verifyVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, snapshot, scope, tag)) {
+        durable = { authority, snapshot }
+      }
+    }
+  }
+  await vaultStore.markKeyAdopted(
+    args.record,
+    scopeToken,
+    durable && scope
+      ? next => computeVaultMetaAuthorityTag(durable.authority.wallet, durable.authority.adminOriginator, next, scope)
+      : undefined,
+    durable?.snapshot
+  )
   args.onPhase('done')
   return { ...args.record }
 }

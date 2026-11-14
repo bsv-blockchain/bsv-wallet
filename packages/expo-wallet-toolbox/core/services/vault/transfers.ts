@@ -2458,8 +2458,7 @@ export async function depositToVault(
     const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
     if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal before depositing')
     if (meta.recovery?.required) {
-      const adopted = new Set(meta.recovery.adoptedSerials)
-      if (meta.keys.filter(key => adopted.has(key.serial)).length < VAULT_MIN_KEYS) {
+      if (vaultStore.provenKeyRecords(meta, scopeToken).length < VAULT_MIN_KEYS) {
         throw new VaultError('key-not-adopted', 'Verify at least two recovered YubiKeys before depositing new funds')
       }
     }

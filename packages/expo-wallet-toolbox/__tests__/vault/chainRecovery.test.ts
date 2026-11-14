@@ -348,6 +348,7 @@ describe('recoverVaultFromChain', () => {
       const meta = await vaultStore.getMeta()
       expect(meta?.vaultId).toBe(OLD_VAULT)
       expect(meta?.recovery?.adoptedSerials).toEqual(['YK-1'])
+      expect(meta?.recovery?.adopted).toEqual([{ serial: 'YK-1', pubkey: held.pubkey }])
     })
 
     it('reports key-opens-nothing when the card holds a key no deposit names, and restores nothing', async () => {

@@ -1786,7 +1786,11 @@ describe('depositToVault', () => {
         revision: 2,
         createdAt: 1,
         keys: [KEY_A, KEY_B],
-        recovery: { required: true, adoptedSerials: ['A-1'] }
+        recovery: {
+          required: true,
+          adoptedSerials: ['A-1'],
+          adopted: [{ serial: 'A-1', pubkey: KEY_A.pubkey }]
+        }
       },
       undefined,
       tagFor
@@ -1801,7 +1805,14 @@ describe('depositToVault', () => {
         revision: 2,
         createdAt: 1,
         keys: [KEY_A, KEY_B],
-        recovery: { required: true, adoptedSerials: ['A-1', 'B-1'] }
+        recovery: {
+          required: true,
+          adoptedSerials: ['A-1', 'B-1'],
+          adopted: [
+            { serial: 'A-1', pubkey: KEY_A.pubkey },
+            { serial: 'B-1', pubkey: KEY_B.pubkey }
+          ]
+        }
       },
       undefined,
       tagFor
@@ -4280,7 +4291,7 @@ describe('authenticated vault scans', () => {
       v: 6,
       vaultId: VAULT_ID,
       keys: [KEY_A, KEY_B],
-      recovery: { required: true, adoptedSerials: [] }
+      recovery: { required: true, adoptedSerials: [], adopted: [] }
     })
     const ci = decodeVaultInstructions(fixture.customInstructions)!
     expect(wallet.createHmac).toHaveBeenCalledWith(

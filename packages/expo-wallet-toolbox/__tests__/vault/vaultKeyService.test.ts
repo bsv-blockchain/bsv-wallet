@@ -62,6 +62,7 @@ import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 import { setMockDriver } from '../../core/services/vault/driver'
 import {
   computeVaultDraftAuthorityTag,
+  computeVaultMetaAuthorityTag,
   verifyVaultMetaAuthorityTag,
   type HmacCapableWallet
 } from '../../core/services/vault/metaAuthority'
@@ -1124,6 +1125,52 @@ describe('adoptVaultKey', () => {
     expect(generate).not.toHaveBeenCalled()
     expect((await mock.readVaultPublicKey('MOCK-1'))!.publicKey).toBe(before)
     await expect(vaultStore.requireKeyAdopted(enrolled.serial)).resolves.toBeUndefined()
+  })
+
+  describe('durable adoption', () => {
+    const restoreRecovered = async (enrolled: VaultKeyRecord, tagged: boolean): Promise<void> => {
+      await stageReady(rec(2))
+      await finalizeEnrollment([enrolled, rec(2)], undefined, AUTHORITY)
+      await vaultStore.clear()
+      await vaultStore.restoreVerifiedMeta(
+        { v: 6, vaultId: '11'.repeat(32), revision: 1, createdAt: 1, keys: [enrolled, rec(2)] },
+        undefined,
+        tagged ? next => computeVaultMetaAuthorityTag(FAKE_WALLET, ADMIN, next, vaultStore.getScope()!) : undefined
+      )
+    }
+
+    test('with an authority writes the adopted pair and a tag that still verifies', async () => {
+      const enrolled = await enrollKey(args())
+      await restoreRecovered(enrolled, true)
+      await adoptVaultKey({ record: enrolled, onPhase: () => {}, getPin: async () => '654321', authority: AUTHORITY })
+      const meta = (await vaultStore.getMeta())!
+      expect(meta.recovery?.adopted).toEqual([{ serial: enrolled.serial, pubkey: enrolled.pubkey }])
+      expect(meta.recovery?.adoptedSerials).toEqual([enrolled.serial])
+      await expect(
+        verifyVaultMetaAuthorityTag(FAKE_WALLET, ADMIN, meta, vaultStore.getScope()!, await vaultStore.getMetaTag())
+      ).resolves.toBe(true)
+    })
+
+    test('with an authority over a meta whose tag does not verify keeps the proof in memory only', async () => {
+      const enrolled = await enrollKey(args())
+      await restoreRecovered(enrolled, false)
+      const before = JSON.stringify(await vaultStore.getMeta())
+      await adoptVaultKey({ record: enrolled, onPhase: () => {}, getPin: async () => '654321', authority: AUTHORITY })
+      expect(JSON.stringify(await vaultStore.getMeta())).toBe(before)
+      await expect(vaultStore.requireKeyAdopted(enrolled.serial)).resolves.toBeUndefined()
+    })
+
+    test('without an authority writes nothing and the proof ends with the scope', async () => {
+      const enrolled = await enrollKey(args())
+      await restoreRecovered(enrolled, true)
+      const before = JSON.stringify(await vaultStore.getMeta())
+      await adoptVaultKey({ record: enrolled, onPhase: () => {}, getPin: async () => '654321' })
+      expect(JSON.stringify(await vaultStore.getMeta())).toBe(before)
+      const scope = vaultStore.getScope()!
+      vaultStore.clearScope()
+      vaultStore.configureScope(scope)
+      await expect(vaultStore.requireKeyAdopted(enrolled.serial)).rejects.toMatchObject({ code: 'key-not-adopted' })
+    })
   })
 
   test('rejects a different serial or public key and never generates', async () => {
