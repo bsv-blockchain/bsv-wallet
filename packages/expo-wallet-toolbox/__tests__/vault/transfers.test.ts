@@ -1778,7 +1778,7 @@ describe('depositToVault', () => {
     expect(wallet.createAction).not.toHaveBeenCalled()
   })
 
-  it('requires possession proof for at least two recovered keys before accepting net-new funds', async () => {
+  it('requires possession proof for every recovered key before accepting net-new funds', async () => {
     await vaultStore.setMeta(
       {
         v: 6,
@@ -1795,7 +1795,10 @@ describe('depositToVault', () => {
       undefined,
       tagFor
     )
-    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({ code: 'key-not-adopted' })
+    await expect(depositToVault(wallet, ADMIN, 250_000)).rejects.toMatchObject({
+      code: 'keys-unproven',
+      details: { serials: KEY_B.serial }
+    })
     expect(wallet.createAction).not.toHaveBeenCalled()
 
     await vaultStore.setMeta(
@@ -3119,6 +3122,7 @@ describe('previewVaultWithdrawal', () => {
 
     const preview = await previewVaultWithdrawal(wallet, ADMIN, 'A-1', 'all')
     expect(preview).toEqual({
+      lockPlan: { needsRelock: false, provenSerials: ['A-1', 'B-1'], unprovenSerials: [] },
       selectedTotal: 800_000, // A's two outputs, not the 1,200,000 balance
       cappedInputs: 0,
       unreachable: { count: 1, satoshis: 400_000, keys: [{ serial: 'B-1', pubkey: PUB_B }] }

@@ -73,6 +73,7 @@ import { metaFromVerifiedOutputs, VAULT_MAX_KEYS, VAULT_MIN_KEYS } from './Vault
 import { vaultStore, VaultKeyRecord, VaultMeta, type VaultScopeToken, type VaultStoreScope } from './vaultStore'
 import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
 import { requireVaultOutputKeyPossession } from './outputAuthority'
+import { planLockKeys, type LockKeyPlan } from './lockKeys'
 import { forgetSerialsNoLongerEnrolledForIdentity } from './enrolledSerialRegistry'
 import { getVaultChainLookup, lookupMarker, noteSaltFloor, saltFloorFor, type VaultChainLookup } from './markerLookup'
 
@@ -250,6 +251,13 @@ export interface VaultTransferOptions {
    * pubkey and write replacements under the remaining active keys. A durable
    * pendingRemoval tombstone must already retain the revoked key record. */
   revokePubkey?: string
+  /** Re-lock or partial-withdrawal remainder: allow the new lock to leave out
+   * keys that no tap on this phone has proven (after a clear warning). Without
+   * it such a lock is refused with `keys-unproven`. Never used by deposits. */
+  acceptDroppingUnproven?: boolean
+  /** Re-lock or remainder: serial of the staged key to commit into the new
+   * lock. Must equal `meta.staged.serial`. */
+  activateStagedKey?: string
 }
 
 export interface VaultSpendResult {
@@ -2255,10 +2263,38 @@ export async function allocateSaltIndex(args: {
   )
 }
 
+/** The record a new output is built from: the plan's keys and revision. */
+function lockMeta(
+  meta: Pick<VaultMeta, 'vaultId' | 'createdAt'>,
+  plan: LockKeyPlan
+): Pick<VaultMeta, 'vaultId' | 'revision' | 'createdAt'> & { keys: VaultKeyRecord[] } {
+  return { vaultId: meta.vaultId, createdAt: meta.createdAt, revision: plan.revision, keys: plan.lockKeys }
+}
+
+/** After a spend whose lock used a different key set than the list: one tagged
+ * write of keys and revision. Re-reads and re-authenticates meta first. */
+async function commitPlannedKeySet(
+  w: VaultWallet,
+  adminOriginator: string,
+  scopeToken: VaultScopeToken,
+  plan: LockKeyPlan
+): Promise<void> {
+  assertVaultScope(scopeToken)
+  const scope = vaultStore.getScope()
+  if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+  const currentMeta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
+  await vaultStore.commitLockKeySet(
+    { keys: plan.lockKeys, revision: plan.revision, clearStaged: plan.activated !== undefined },
+    scopeToken,
+    next => computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope),
+    currentMeta
+  )
+}
+
 async function newVaultOutput(
   w: VaultWallet,
   adminOriginator: string,
-  meta: Pick<VaultMeta, 'vaultId' | 'revision' | 'createdAt' | 'keys'>,
+  meta: Pick<VaultMeta, 'vaultId' | 'revision' | 'createdAt'> & { keys: VaultKeyRecord[] },
   satoshis: number,
   outputDescription: string,
   inventory: VaultSaltInventory,
@@ -2556,11 +2592,16 @@ export async function depositToVault(
     // XR-002: authenticate meta BEFORE it is used to build a new output.
     const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
     if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal before depositing')
-    if (meta.recovery?.required) {
-      if (vaultStore.provenKeyRecords(meta, scopeToken).length < VAULT_MIN_KEYS) {
-        throw new VaultError('key-not-adopted', 'Verify at least two recovered YubiKeys before depositing new funds')
-      }
-    }
+    // planted-key: new funds are locked only to keys a tap has proven. Refused
+    // here, before the salt lookup, any tap and createAction.
+    const depositKeySerial =
+      opts?.outputKeySerial ?? (meta.keys.find(k => k.serial === meta.lastUsedSerial) ?? meta.keys[0]).serial
+    const depositPlan = planLockKeys({
+      meta,
+      scopeToken,
+      chosenSerial: depositKeySerial,
+      purpose: 'deposit'
+    })
     await reconcileHeldVaultDeposits(w, adminOriginator, meta, scopeToken)
     const existing = await reduceVerifiedVaultOutputs(
       w,
@@ -2576,12 +2617,12 @@ export async function depositToVault(
     const output = await newVaultOutput(
       w,
       adminOriginator,
-      meta,
+      lockMeta(meta, depositPlan),
       satoshis,
       'Vault deposit',
       saltInventory,
       scopeToken,
-      opts?.outputKeySerial
+      depositKeySerial
     )
     let reference: string | undefined
     let heldTxid: string | undefined
@@ -3348,6 +3389,50 @@ function requireWithdrawalAmount(amount: number | 'all'): void {
   }
 }
 
+/** What a withdrawal's new lock would hold (see previewVaultWithdrawal). */
+export interface VaultLockPlanPreview {
+  /** A remainder at or above the floor would create a new lock. */
+  needsRelock: boolean
+  provenSerials: string[]
+  unprovenSerials: string[]
+  /** Fewer than two keys could be locked. */
+  blocked?: 'not-enough-proven-keys'
+}
+
+function previewLockPlan(
+  meta: VaultMeta,
+  scopeToken: VaultScopeToken,
+  chosenSerial: string,
+  needsRelock: boolean
+): VaultLockPlanPreview | undefined {
+  try {
+    const plan = planLockKeys({
+      meta,
+      scopeToken,
+      chosenSerial,
+      purpose: 'remainder',
+      acceptDroppingUnproven: true
+    })
+    return {
+      needsRelock,
+      provenSerials: plan.lockKeys.map(k => k.serial),
+      unprovenSerials: plan.dropped.map(k => k.serial)
+    }
+  } catch (error) {
+    if (error instanceof VaultError && error.code === 'not-enough-proven-keys') {
+      const proven = new Set(vaultStore.provenKeyRecords(meta, scopeToken).map(k => k.serial))
+      proven.add(chosenSerial)
+      return {
+        needsRelock,
+        provenSerials: meta.keys.filter(k => proven.has(k.serial)).map(k => k.serial),
+        unprovenSerials: meta.keys.filter(k => !proven.has(k.serial)).map(k => k.serial),
+        blocked: 'not-enough-proven-keys'
+      }
+    }
+    return undefined
+  }
+}
+
 /**
  * What a withdrawal with the CHOSEN key would select, without reserving,
  * tapping or signing anything (spec §4.2 step 4 needs it BEFORE the tap).
@@ -3368,7 +3453,12 @@ export async function previewVaultWithdrawal(
   adminOriginator: string,
   chosenSerial: string,
   amount: number | 'all'
-): Promise<{ selectedTotal: number; cappedInputs: number; unreachable: VaultSpendResult['unreachable'] }> {
+): Promise<{
+  selectedTotal: number
+  cappedInputs: number
+  unreachable: VaultSpendResult['unreachable']
+  lockPlan?: VaultLockPlanPreview
+}> {
   requireWithdrawalAmount(amount)
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
@@ -3377,7 +3467,13 @@ export async function previewVaultWithdrawal(
     // from a past crash is still cleaned up by the next real withdraw/re-lock
     // (see selectVaultInputs' `repair` param and the P1 fix note there).
     const sel = await selectVaultInputs(w, adminOriginator, chosenSerial, amount, undefined, scopeToken, false)
-    return { selectedTotal: sel.acc, cappedInputs: sel.cappedInputs, unreachable: sel.unreachable }
+    const needsRelock = amount !== 'all' && sel.acc - amount >= VAULT_DEPOSIT_MIN
+    return {
+      selectedTotal: sel.acc,
+      cappedInputs: sel.cappedInputs,
+      unreachable: sel.unreachable,
+      lockPlan: previewLockPlan(sel.meta, scopeToken, chosenSerial, needsRelock)
+    }
   })
 }
 
@@ -3414,6 +3510,7 @@ export async function withdrawFromVault(
     const want = amount === 'all' ? sel.acc : amount
     const remainder = sel.acc - want
     const outputs: VaultSpendPlan['outputs'] = []
+    let remainderPlan: LockKeyPlan | undefined
     if (remainder >= VAULT_DEPOSIT_MIN) {
       // A new output would be created next to a record that disagrees with
       // local meta: refuse. A full withdrawal creates none and stays open.
@@ -3435,12 +3532,21 @@ export async function withdrawFromVault(
       // blocks a plain 'all' withdrawal, whose authority is its spent outputs'
       // own real locks, never local meta (see requireAuthenticatedMeta).
       const authenticatedMeta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, sel.meta)
+      // planted-key: the remainder is a new lock. Refused before any tap.
+      remainderPlan = planLockKeys({
+        meta: authenticatedMeta,
+        scopeToken,
+        chosenSerial,
+        purpose: 'remainder',
+        activateStagedKey: opts?.activateStagedKey,
+        acceptDroppingUnproven: opts?.acceptDroppingUnproven
+      })
       await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, authenticatedMeta, scopeToken)
       outputs.push(
         ...(await newVaultOutput(
           w,
           adminOriginator,
-          authenticatedMeta,
+          lockMeta(authenticatedMeta, remainderPlan),
           remainder,
           'Vault change',
           sel.saltInventory,
@@ -3449,7 +3555,7 @@ export async function withdrawFromVault(
         ))
       )
     }
-    return await spendVaultOutputs(
+    const result = await spendVaultOutputs(
       w,
       adminOriginator,
       sel,
@@ -3463,6 +3569,8 @@ export async function withdrawFromVault(
       opts,
       scopeToken
     )
+    if (remainderPlan?.changesKeySet) await commitPlannedKeySet(w, adminOriginator, scopeToken, remainderPlan)
+    return result
   })
 }
 
@@ -3561,10 +3669,19 @@ export async function relockVault(
     if (revokePubkey && sel.meta.pendingRemoval?.key.pubkey !== revokePubkey) {
       throw new VaultError('not-enrolled', 'The key being revoked does not match the pending removal')
     }
+    // planted-key: the new lock holds only proven keys. Refused before any tap.
+    const plan = planLockKeys({
+      meta: sel.meta,
+      scopeToken,
+      chosenSerial,
+      purpose: 'relock',
+      activateStagedKey: opts?.activateStagedKey,
+      acceptDroppingUnproven: opts?.acceptDroppingUnproven
+    })
     // Before the fee estimate below, which cannot size a lock outside 2..5.
-    requireLockableKeyCount(sel.keys.length)
+    requireLockableKeyCount(plan.lockKeys.length)
     await addHistoricalVaultSaltInventory(w, adminOriginator, sel.saltInventory, sel.meta, scopeToken)
-    const fee = estimateRelockFee(sel.selected.length, R1C_LOCK_LEN(sel.keys.length))
+    const fee = estimateRelockFee(sel.selected.length, R1C_LOCK_LEN(plan.lockKeys.length))
     const relocked = sel.acc - fee
     if (relocked < VAULT_DEPOSIT_MIN) {
       throw new VaultError(
@@ -3581,7 +3698,7 @@ export async function relockVault(
         outputs: await newVaultOutput(
           w,
           adminOriginator,
-          sel.meta,
+          lockMeta(sel.meta, plan),
           relocked,
           'Vault re-lock',
           sel.saltInventory,
@@ -3612,6 +3729,7 @@ export async function relockVault(
         currentMeta
       )
     }
+    if (plan.changesKeySet) await commitPlannedKeySet(w, adminOriginator, scopeToken, plan)
     return result
   })
 }

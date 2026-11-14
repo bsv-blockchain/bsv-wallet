@@ -1323,6 +1323,64 @@ export const vaultStore = {
     })
   },
 
+  /**
+   * After a spend created a lock with a different key set than the list (a
+   * re-lock or remainder that dropped unproven keys, or activated the staged
+   * key): write `keys`, `revision`, and the pruned adoption state in ONE tagged
+   * write. The staged key leaves `staged` only when `clearStaged` is set. The
+   * adoption pairs of keys that stay (list, key being removed, staged key that
+   * stays staged) are kept; pairs of dropped keys go. The caller passes the
+   * authenticated snapshot as `expectedMeta` (same contract as addKey).
+   */
+  async commitLockKeySet(
+    args: { keys: VaultKeyRecord[]; revision: number; clearStaged: boolean },
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<VaultMeta> {
+    const token = scopeToken ?? captureScope(true)
+    return enqueueMutation(async () => {
+      const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
+      if (!Number.isSafeInteger(args.revision) || args.revision <= meta.revision) {
+        throw new VaultError('template-invalid', 'The new key set must carry a higher revision')
+      }
+      if (!args.keys.every(isVaultKeyRecord) || args.keys.length < MIN_KEYS || args.keys.length > MAX_KEYS) {
+        throw new VaultError('template-invalid', 'Invalid vault lock key set')
+      }
+      const next: VaultMeta = { ...meta, revision: args.revision, keys: args.keys.map(k => ({ ...k })) }
+      if (args.clearStaged) delete next.staged
+      // The removal's replacement output carries the new revision. keyIndex is
+      // where the removed key sat in the list; keep it within the shorter list.
+      if (next.pendingRemoval) {
+        next.pendingRemoval = {
+          ...next.pendingRemoval,
+          revision: args.revision,
+          keyIndex: Math.min(next.pendingRemoval.keyIndex, next.keys.length)
+        }
+      }
+      if (next.lastUsedSerial !== undefined && !next.keys.some(k => k.serial === next.lastUsedSerial)) {
+        delete next.lastUsedSerial
+        delete next.lastUsedAt
+      }
+      if (next.recovery) {
+        const kept = new Set(metaPairs(next).map(pairId))
+        const adopted = (next.recovery.adopted ?? []).filter(p => kept.has(pairId(p)))
+        const serials = new Set(metaPairs(next).map(k => k.serial))
+        next.recovery = {
+          required: true,
+          adoptedSerials:
+            next.recovery.adopted === undefined
+              ? next.recovery.adoptedSerials.filter(s => serials.has(s))
+              : [...new Set(adopted.map(p => p.serial))],
+          ...(next.recovery.adopted === undefined ? {} : { adopted })
+        }
+      }
+      await writeMetaAndTag(token, next, tagger)
+      return next
+    })
+  },
+
   /** Caller must establish from authenticated action history and two complete
    * output scans that no spendable lock still authorizes the removed key and
    * that no relevant action is pending before invoking. */

@@ -241,23 +241,44 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
           armSigner(mock, keys[pos].serial)
           await adoptVaultKey({ record: keys[pos], onPhase: () => {}, getPin: async () => '123456' })
 
-          // A partial amount (not 'all') leaves a remainder re-vaulted, so
-          // the withdraw-remainder path is proven again on the recovered
-          // device, and there is still something left for the re-lock check
-          // below.
+          // Hardening (planted-key): a new lock commits only keys a tap has
+          // proven, and this phone has seen ONE tap. A partial withdrawal or a
+          // re-lock would create a lock, so both refuse; neither may be allowed
+          // to hold fewer than two keys. The exit stays open: a full
+          // withdrawal creates no lock (R1).
+          await expect(
+            withdrawFromVault(
+              deviceB,
+              ADMIN,
+              200_000,
+              `Recovered partial withdrawal (key ${pos + 1})`,
+              keys[pos].serial
+            )
+          ).rejects.toMatchObject({ code: 'keys-unproven' })
+          await expect(
+            withdrawFromVault(
+              deviceB,
+              ADMIN,
+              200_000,
+              `Recovered partial withdrawal (key ${pos + 1})`,
+              keys[pos].serial,
+              {
+                acceptDroppingUnproven: true
+              }
+            )
+          ).rejects.toMatchObject({ code: 'not-enough-proven-keys' })
+          await expect(
+            relockVault(deviceB, ADMIN, 'Re-lock after recovery', keys[pos].serial, { acceptDroppingUnproven: true })
+          ).rejects.toMatchObject({ code: 'not-enough-proven-keys' })
+
           const spend = await withdrawFromVault(
             deviceB,
             ADMIN,
-            200_000,
+            'all',
             `Recovered withdrawal (key ${pos + 1})`,
             keys[pos].serial
           )
           independentlyVerifySpend(chain, spend.txid, keys[pos].pubkey)
-
-          // Recovered meta carries the full key list, so revocation
-          // (re-lock) still works after recovery.
-          const relockAfterRecovery = await relockVault(deviceB, ADMIN, 'Re-lock after recovery', keys[pos].serial)
-          independentlyVerifySpend(chain, relockAfterRecovery.txid, keys[pos].pubkey)
         })
       }
     })

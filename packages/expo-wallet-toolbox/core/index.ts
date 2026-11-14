@@ -468,6 +468,7 @@ export * from './services/vault/ceremonyHost'
 export * from './services/vault/VaultKeyService'
 export * from './services/vault/pivReset'
 export * from './services/vault/transfers'
+export * from './services/vault/lockKeys'
 export * from './services/vault/markerLookup'
 export * from './services/vault/chainRecovery'
 
