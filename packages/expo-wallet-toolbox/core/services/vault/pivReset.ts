@@ -59,6 +59,7 @@
 import { getVaultDriver } from './driver'
 import { enrolledSerialRegistry } from './enrolledSerialRegistry'
 import { withKeySession, VaultSessionGuard } from './session'
+import { isValidResetClearance, type VaultResetClearance } from './setupGate'
 import { VaultError } from './types'
 import { isVaultSerial, vaultStore, type VaultScopeToken } from './vaultStore'
 
@@ -90,6 +91,15 @@ export async function resetPivApplication(args: {
    * to no vault this device can see — an abandoned vault, or one enrolled under
    * another wallet identity. Never a way past the enrolled-serial refusal. */
   acknowledgeUnrecognizedVaultKey?: true
+  /** The result of `checkVaultCardFunds` for this serial: a complete chain scan
+   * found no Vault record that names this card. Without it, a reset needs
+   * `acknowledgeFundsLoss`. */
+  fundsClearance?: VaultResetClearance
+  /** The owner's explicit affirmation that any earlier funds this key opens are
+   * lost for good. The only way to reset without a clearance (for example when
+   * the chain check could not finish). Never a way past the enrolled-serial
+   * refusal. */
+  acknowledgeFundsLoss?: true
   scopeToken?: VaultScopeToken
   nfcMessage?: string
   onPhase?: (p: PivResetPhase) => void
@@ -103,6 +113,22 @@ export async function resetPivApplication(args: {
     throw new VaultError('template-invalid', 'Invalid YubiKey serial')
   }
   const scopeToken = args.scopeToken ?? vaultStore.captureScopeToken()
+
+  // The chain gate (reset-new-phone). The local guards below read local data
+  // only, which is empty on a restored phone. Runs first, before any card
+  // contact and before `refuse()`, and again inside the session.
+  const requireChainCheck = () => {
+    if (args.acknowledgeFundsLoss === true) return
+    if (!isValidResetClearance(args.fundsClearance, args.serial, scopeToken.storageKey)) {
+      throw new VaultError(
+        'chain-check-required',
+        'Check the chain for funds on this YubiKey before resetting it',
+        undefined,
+        { serial: args.serial }
+      )
+    }
+  }
+  requireChainCheck()
 
   const refuse = async () => {
     // Across every chain, and including a key mid-removal. See the header.
@@ -138,6 +164,8 @@ export async function resetPivApplication(args: {
           chosen: args.serial
         })
       }
+      // The clearance can expire while the user fetches the card.
+      requireChainCheck()
       // Guard 2: re-read inside the session. Meta can change between the
       // first check and the tap, and this is the last chance before an
       // irreversible destruction.

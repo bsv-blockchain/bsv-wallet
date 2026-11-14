@@ -520,6 +520,44 @@ interface VaultChainScan {
   scanned: number
 }
 
+/**
+ * A read-only scan. It never internalizes and never writes local metadata: it
+ * only reports what the chain holds for this wallet. The reset gate
+ * (setupGate.ts) uses it. `ready` is authenticated, unspent, confirmed and at
+ * or above VAULT_SCAN_MIN_SATS; `pending` is valid but not yet confirmed.
+ * Throws `chain-scan-failed` when the lookup fails persistently.
+ */
+export async function scanVaultRecords(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  gap: number = VAULT_RECOVERY_GAP_DEFAULT
+): Promise<{
+  ready: RecoverableCandidate[]
+  pending: VaultInstructionsV7[]
+  problems: VaultChainRecoveryProblem[]
+  unknownIndexes: number[]
+  scanned: number
+}> {
+  const { ready, pending, problems, unknownIndexes, scanned } = await scanVaultChain(
+    w,
+    adminOriginator,
+    lookup,
+    chain,
+    gap
+  )
+  return { ready, pending, problems, unknownIndexes, scanned }
+}
+
+/** The lineage groups of some scanned records (read-only, for display). */
+export function vaultGroupsOf(
+  ready: readonly RecoverableCandidate[],
+  pending: readonly VaultInstructionsV7[]
+): VaultRecoveryGroup[] {
+  return formGroups(ready, pending).map(g => g.group)
+}
+
 /** The scan half of recovery: find and authenticate every candidate without
  * inserting any. */
 async function scanVaultChain(
