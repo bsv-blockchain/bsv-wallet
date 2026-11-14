@@ -1173,6 +1173,31 @@ describe('enrollKey', () => {
     ])
   })
 
+  test('NFC (iOS shape): replace with a clearance for another card is refused inside the session, closes it and writes nothing', async () => {
+    const nfc = nfcMock()
+    nfc.occupySlot()
+    setMockDriver(nfc)
+    const before = compressPubkey((await nfc.readVaultPublicKey('MOCK-1'))!.publicKey)
+    jest.spyOn(nfc, 'start').mockImplementation(() => {
+      ;(nfc as unknown as { emit: (e: unknown) => void }).emit({
+        type: 'attached',
+        serial: 'MOCK-1',
+        transport: 'mock'
+      })
+    })
+    const stopSpy = jest.spyOn(nfc, 'stop')
+    const generateSpy = jest.spyOn(nfc, 'generateVaultKey')
+    const pukSpy = jest.spyOn(nfc, 'changePuk')
+    const storageKey = vaultStore.captureScopeToken().storageKey
+    await expect(
+      enrollKey(args({ replaceOccupiedVaultSlot: true, fundsClearance: issueResetClearance('MOCK-2', storageKey) }))
+    ).rejects.toMatchObject({ code: 'chain-check-required', details: { serial: 'MOCK-1' } })
+    expect(stopSpy).toHaveBeenCalledTimes(1)
+    expect(generateSpy).not.toHaveBeenCalled()
+    expect(pukSpy).not.toHaveBeenCalled()
+    expect(compressPubkey((await nfc.readVaultPublicKey('MOCK-1'))!.publicKey)).toBe(before)
+  })
+
   test('NFC: the system sheet being cancelled rejects the step with user-cancelled and closes the session', async () => {
     const nfc = nfcMock()
     setMockDriver(nfc)
