@@ -32,6 +32,7 @@ import {
 } from './metaAuthority'
 import { compressPubkey, type VaultInstructionKey, type VaultInstructions } from './r1comb'
 import { randomBytes } from './random'
+import { requireFundsGate, type VaultResetClearance } from './resetClearance'
 import { withKeySession, VaultSessionGuard } from './session'
 import { VaultError } from './types'
 import { requireMnemonicWallet } from './walletKind'
@@ -386,6 +387,12 @@ export async function enrollKey(args: {
   /** Explicit consent to destroy and replace an existing key in Vault's fixed
    * slot 0x82. Other occupied PIV slots remain a hard failure. */
   replaceOccupiedVaultSlot?: boolean
+  /** Required with `replaceOccupiedVaultSlot`: the result of `checkVaultCardFunds` for the card that will be
+   * tapped (a complete chain scan found no vault record that names it). Same meaning as in resetPivApplication. */
+  fundsClearance?: VaultResetClearance
+  /** Required with `replaceOccupiedVaultSlot` when there is no clearance: the owner's affirmation that any
+   * earlier funds this key opens are lost for good. Same meaning as in resetPivApplication. */
+  acknowledgeFundsLoss?: true
   /** XR-001: the admin-scoped wallet capability used to tag this run's
    * `ready` draft the instant it is written, so a later SecureStore-only
    * attacker cannot forge an equivalent one. */
@@ -402,6 +409,9 @@ export async function enrollKey(args: {
       'Confirm this YubiKey PIV application is factory-reset and dedicated to Vault'
     )
   }
+  // reset-new-phone: replacing the key in an occupied Vault slot destroys it, so it needs the same gate as a
+  // PIV reset. Before any card contact the serial is not known yet; it is checked again below.
+  if (args.replaceOccupiedVaultSlot === true) requireFundsGate(args, scopeToken, undefined)
 
   // The enrolled key list, read once from device-only secure storage before any user input or
   // key contact. Refused alongside pendingSerials below — across every chain
@@ -468,6 +478,7 @@ export async function enrollKey(args: {
         // The message IS the serial: the wizard resolves it to a nickname.
         throw new VaultError('key-already-enrolled', info.serial, undefined, { serial: info.serial })
       }
+      if (args.replaceOccupiedVaultSlot === true) requireFundsGate(args, scopeToken, info.serial)
       const quarantine = quarantines.find(item => item.serial === info.serial)
       if (quarantine) {
         throw new VaultEnrollmentPartialError(

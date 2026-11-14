@@ -20,27 +20,16 @@ import { VAULT_RECOVERY_GAP_DEFAULT, scanVaultRecords, vaultGroupsOf, type Vault
 import type { VaultChainLookup } from './markerLookup'
 import type { VaultSaltChain } from './r1comb'
 import type { VaultWallet } from './transfers'
+import { issueResetClearance, type VaultResetClearance } from './resetClearance'
 import { VaultError } from './types'
 import { vaultStore } from './vaultStore'
 
-/** Issued only by `checkVaultCardFunds`. */
-export interface VaultResetClearance {
-  readonly serial: string
-  readonly storageKey: string
-  readonly issuedAt: number
-}
+export { VAULT_RESET_CLEARANCE_MS, isValidResetClearance, type VaultResetClearance } from './resetClearance'
 
 export type VaultCardFunds =
   | { kind: 'clear'; serial: string; clearance: VaultResetClearance }
   | { kind: 'funds'; serial: string; deposits: number; satoshis: number; vaults: VaultRecoveryGroup[] }
   | { kind: 'unknown'; serial: string; reason: string; problems: number }
-
-/** How long a clearance stays valid. */
-export const VAULT_RESET_CLEARANCE_MS = 10 * 60 * 1000
-
-// Membership proves the object came from checkVaultCardFunds. A hand-made
-// object with the same fields is not in the set.
-const issued = new WeakSet<object>()
 
 export async function checkVaultCardFunds(
   w: VaultWallet,
@@ -80,19 +69,6 @@ export async function checkVaultCardFunds(
       vaults: vaultGroupsOf(ready, pending)
     }
   }
-  const clearance: VaultResetClearance = Object.freeze({ serial, storageKey, issuedAt: Date.now() })
-  issued.add(clearance)
+  const clearance = issueResetClearance(serial, storageKey)
   return { kind: 'clear', serial, clearance }
-}
-
-export function isValidResetClearance(
-  clearance: VaultResetClearance | undefined,
-  serial: string,
-  storageKey: string,
-  now: number = Date.now()
-): boolean {
-  if (!clearance || !issued.has(clearance)) return false
-  if (clearance.serial !== serial || clearance.storageKey !== storageKey) return false
-  const age = now - clearance.issuedAt
-  return age >= 0 && age <= VAULT_RESET_CLEARANCE_MS
 }

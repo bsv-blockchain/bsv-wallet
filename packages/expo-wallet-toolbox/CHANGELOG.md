@@ -33,6 +33,7 @@ Vault hardening: a planted key, a stale scan or a reset on a new phone can no lo
 - **The WhatsOnChain lookup uses confirmed and unconfirmed history, with paging** (up to 5 pages).
 - **`adoptVaultKey` without `authority` is a session proof.** It lasts until the app restarts.
 - **`metaFromVerifiedOutputs` no longer infers a pending removal** from an old output.
+- **`enrollKey` with `replaceOccupiedVaultSlot: true` needs the same gate as a PIV reset.** Pass `fundsClearance` (from `checkVaultCardFunds` for the card) or `acknowledgeFundsLoss: true`, else it throws `chain-check-required` before the card is changed. Without the flag nothing changes.
 
 ### Fixed
 
@@ -60,6 +61,7 @@ Every item below can break an app that built against 0.24.x.
 - **`ShareCompatibilityIssue` gains `print-mismatch`.** An exhaustive `switch` over it fails to compile. A slice may carry a print ID after its four parts.
 - **`recoverVaultMetaFromOutputs` takes an optional group** (`vaultId`, `createdAt`, `revision`, `keys`), and `vaultStore.markKeyAdopted` takes more optional arguments. Calls without them still compile.
 - **A vault scan ignores outputs below `VAULT_SCAN_MIN_SATS`** (100,000 sat), and `ignoredBelowMinimum` counts them.
+- **`enrollKey({ replaceOccupiedVaultSlot: true })` throws `chain-check-required`** unless it gets a `fundsClearance` or `acknowledgeFundsLoss: true`. The library's unpatched `EnrollWizard` passes neither, so its Replace step fails closed.
 
 ### Host changes needed
 

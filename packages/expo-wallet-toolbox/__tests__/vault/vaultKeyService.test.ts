@@ -67,6 +67,7 @@ import {
   type HmacCapableWallet
 } from '../../core/services/vault/metaAuthority'
 import { compressPubkey } from '../../core/services/vault/r1comb'
+import { issueResetClearance } from '../../core/services/vault/resetClearance'
 import { VaultError } from '../../core/services/vault/types'
 import { vaultStore, VaultKeyRecord } from '../../core/services/vault/vaultStore'
 import {
@@ -826,12 +827,110 @@ describe('enrollKey', () => {
     expect(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey)).toBe(compressPubkey(existing))
   })
 
-  test('replaces only the occupied Vault slot after explicit consent', async () => {
-    mock.occupySlot()
-    const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
-    const record = await enrollKey(args({ replaceOccupiedVaultSlot: true }))
-    expect(record.pubkey).not.toBe(compressPubkey(existing))
-    expect(record.pubkey).toBe(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey))
+  describe('replacing an occupied Vault slot (reset-new-phone gate)', () => {
+    const slotKey = async () => compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey)
+    const spies = () => ({
+      start: jest.spyOn(mock, 'start'),
+      getKeyInfo: jest.spyOn(mock, 'getKeyInfo'),
+      generateVaultKey: jest.spyOn(mock, 'generateVaultKey'),
+      changePuk: jest.spyOn(mock, 'changePuk')
+    })
+
+    test('replace without a clearance or acknowledgement refuses with chain-check-required and never touches the card', async () => {
+      mock.occupySlot()
+      const before = await slotKey()
+      const s = spies()
+      await expect(enrollKey(args({ replaceOccupiedVaultSlot: true }))).rejects.toMatchObject({
+        code: 'chain-check-required'
+      })
+      expect(s.start).not.toHaveBeenCalled()
+      expect(s.getKeyInfo).not.toHaveBeenCalled()
+      expect(s.generateVaultKey).not.toHaveBeenCalled()
+      expect(s.changePuk).not.toHaveBeenCalled()
+      expect(await slotKey()).toBe(before)
+    })
+
+    test('replace with acknowledgeFundsLoss: true replaces the key', async () => {
+      mock.occupySlot()
+      const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
+      const record = await enrollKey(args({ replaceOccupiedVaultSlot: true, acknowledgeFundsLoss: true }))
+      expect(record.pubkey).not.toBe(compressPubkey(existing))
+      expect(record.pubkey).toBe(await slotKey())
+    })
+
+    test('replace with a valid clearance for the tapped serial replaces the key', async () => {
+      mock.occupySlot()
+      const before = await slotKey()
+      const storageKey = vaultStore.captureScopeToken().storageKey
+      const record = await enrollKey(
+        args({ replaceOccupiedVaultSlot: true, fundsClearance: issueResetClearance('MOCK-1', storageKey) })
+      )
+      expect(record.pubkey).not.toBe(before)
+      expect(record.pubkey).toBe(await slotKey())
+    })
+
+    test('a clearance for another serial is refused after the card is read and before any change', async () => {
+      mock.occupySlot()
+      const before = await slotKey()
+      const storageKey = vaultStore.captureScopeToken().storageKey
+      const s = spies()
+      const err = await enrollKey(
+        args({ replaceOccupiedVaultSlot: true, fundsClearance: issueResetClearance('MOCK-2', storageKey) })
+      ).catch(e => e)
+      expect(err).toMatchObject({ code: 'chain-check-required', details: { serial: 'MOCK-1' } })
+      expect(s.getKeyInfo).toHaveBeenCalled()
+      expect(s.changePuk).not.toHaveBeenCalled()
+      expect(s.generateVaultKey).not.toHaveBeenCalled()
+      expect(await slotKey()).toBe(before)
+    })
+
+    test('an expired clearance is refused before card contact', async () => {
+      mock.occupySlot()
+      const storageKey = vaultStore.captureScopeToken().storageKey
+      const s = spies()
+      await expect(
+        enrollKey(
+          args({
+            replaceOccupiedVaultSlot: true,
+            fundsClearance: issueResetClearance('MOCK-1', storageKey, Date.now() - 11 * 60 * 1000)
+          })
+        )
+      ).rejects.toMatchObject({ code: 'chain-check-required' })
+      expect(s.start).not.toHaveBeenCalled()
+    })
+
+    test('a hand-made clearance object is refused', async () => {
+      mock.occupySlot()
+      const storageKey = vaultStore.captureScopeToken().storageKey
+      const s = spies()
+      await expect(
+        enrollKey(
+          args({
+            replaceOccupiedVaultSlot: true,
+            fundsClearance: { serial: 'MOCK-1', storageKey, issuedAt: Date.now() }
+          })
+        )
+      ).rejects.toMatchObject({ code: 'chain-check-required' })
+      expect(s.start).not.toHaveBeenCalled()
+    })
+
+    test('a clearance from another wallet scope is refused', async () => {
+      mock.occupySlot()
+      const before = await slotKey()
+      await expect(
+        enrollKey(
+          args({ replaceOccupiedVaultSlot: true, fundsClearance: issueResetClearance('MOCK-1', 'other-scope-key') })
+        )
+      ).rejects.toMatchObject({ code: 'chain-check-required' })
+      expect(await slotKey()).toBe(before)
+    })
+
+    test('without the flag nothing changes: an empty slot enrolls with no clearance, and a clearance argument is ignored', async () => {
+      const storageKey = vaultStore.captureScopeToken().storageKey
+      const record = await enrollKey(args({ fundsClearance: issueResetClearance('MOCK-9', storageKey) }))
+      expect(record.serial).toBe('MOCK-1')
+      expect(record.pubkey).toBe(await slotKey())
+    })
   })
 
   test('XR-008: an explicit slot replacement never erases a signer enrolled under another chain of the same wallet', async () => {
@@ -847,7 +946,7 @@ describe('enrollKey', () => {
     mock.occupySlot()
     const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
     const genSpy = jest.spyOn(mock, 'generateVaultKey')
-    const err = await enrollKey(args({ replaceOccupiedVaultSlot: true })).catch(e => e)
+    const err = await enrollKey(args({ replaceOccupiedVaultSlot: true, acknowledgeFundsLoss: true })).catch(e => e)
     expect(err).toMatchObject({ code: 'key-already-enrolled', details: { serial: 'MOCK-1' } })
     expect(genSpy).not.toHaveBeenCalled()
     expect(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey)).toBe(compressPubkey(existing))
@@ -862,7 +961,7 @@ describe('enrollKey', () => {
     mock.occupySlot()
     const existing = (await mock.readVaultPublicKey('MOCK-1'))!.publicKey
     const genSpy = jest.spyOn(mock, 'generateVaultKey')
-    const err = await enrollKey(args({ replaceOccupiedVaultSlot: true })).catch(e => e)
+    const err = await enrollKey(args({ replaceOccupiedVaultSlot: true, acknowledgeFundsLoss: true })).catch(e => e)
     expect(err).toMatchObject({ code: 'key-already-enrolled', details: { serial: 'MOCK-1' } })
     expect(genSpy).not.toHaveBeenCalled()
     expect(compressPubkey((await mock.readVaultPublicKey('MOCK-1'))!.publicKey)).toBe(compressPubkey(existing))
@@ -870,9 +969,11 @@ describe('enrollKey', () => {
 
   test('explicit Vault-slot replacement does not permit another occupied PIV slot', async () => {
     mock.occupyOtherPivSlot()
-    await expect(enrollKey(args({ replaceOccupiedVaultSlot: true }))).rejects.toMatchObject({
-      code: 'slot-occupied'
-    })
+    await expect(enrollKey(args({ replaceOccupiedVaultSlot: true, acknowledgeFundsLoss: true }))).rejects.toMatchObject(
+      {
+        code: 'slot-occupied'
+      }
+    )
   })
 
   // The three tests below pin the slot PROBE, not the preflight. Preflight now

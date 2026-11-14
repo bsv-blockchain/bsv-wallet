@@ -59,7 +59,7 @@
 import { getVaultDriver } from './driver'
 import { enrolledSerialRegistry } from './enrolledSerialRegistry'
 import { withKeySession, VaultSessionGuard } from './session'
-import { isValidResetClearance, type VaultResetClearance } from './setupGate'
+import { requireFundsGate, type VaultResetClearance } from './resetClearance'
 import { VaultError } from './types'
 import { isVaultSerial, vaultStore, type VaultScopeToken } from './vaultStore'
 
@@ -117,17 +117,7 @@ export async function resetPivApplication(args: {
   // The chain gate (reset-new-phone). The local guards below read local data
   // only, which is empty on a restored phone. Runs first, before any card
   // contact and before `refuse()`, and again inside the session.
-  const requireChainCheck = () => {
-    if (args.acknowledgeFundsLoss === true) return
-    if (!isValidResetClearance(args.fundsClearance, args.serial, scopeToken.storageKey)) {
-      throw new VaultError(
-        'chain-check-required',
-        'Check the chain for funds on this YubiKey before resetting it',
-        undefined,
-        { serial: args.serial }
-      )
-    }
-  }
+  const requireChainCheck = () => requireFundsGate(args, scopeToken, args.serial)
   requireChainCheck()
 
   const refuse = async () => {
