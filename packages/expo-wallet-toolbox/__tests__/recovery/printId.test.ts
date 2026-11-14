@@ -84,14 +84,13 @@ describe('print ID', () => {
   })
 
   test('generatePrintId returns 6 valid characters and two calls differ', () => {
-    const a = generatePrintId()
-    const b = generatePrintId()
-    for (const id of [a, b]) {
+    const ids = Array.from({ length: 20 }, () => generatePrintId())
+    for (const id of ids) {
       expect(id).toHaveLength(PRINT_ID_LENGTH)
       expect(isPrintId(id)).toBe(true)
       for (const ch of id) expect(PRINT_ID_ALPHABET).toContain(ch)
     }
-    expect(a).not.toBe(b)
+    expect(new Set(ids).size).toBeGreaterThan(1)
     expect(PRINT_ID_ALPHABET).toHaveLength(32)
   })
 
@@ -103,7 +102,7 @@ describe('print ID', () => {
 
   test('attachPrintId round trips through parseShare (raw equals the original share, printId equals the ID)', () => {
     const [share] = generateEntropyShares(Mnemonic.fromRandom(128).toEntropy(), 2, 3)
-    const attached = attachPrintId(share, ' 7M3Z9K'.trim())
+    const attached = attachPrintId(share, '7M3Z9K')
     expect(attached).toBe(`${share}.7M3Z9K`)
     const parsed = parseShare(attached)
     expect(parsed?.raw).toBe(share)
