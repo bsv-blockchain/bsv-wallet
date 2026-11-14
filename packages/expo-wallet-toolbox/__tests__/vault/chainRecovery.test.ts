@@ -71,9 +71,9 @@ import {
   recoverVaultFromChain,
   recoverVaultWithKey,
   VAULT_RECOVERY_GAP_DEFAULT,
-  VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS,
-  type VaultChainLookup
+  VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS
 } from '../../core/services/vault/chainRecovery'
+import type { VaultChainLookup } from '../../core/services/vault/markerLookup'
 import type { VaultWallet } from '../../core/services/vault/transfers'
 import { vaultStore } from '../../core/services/vault/vaultStore'
 import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'

@@ -94,8 +94,6 @@ export const VAULT_RECOVERY_GAP_DEFAULT = 20
  * recovery parameter. */
 export const VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS = 20
 
-export type { VaultChainLookup } from './markerLookup'
-
 export interface VaultChainRecoveryProblem {
   /** The scan index (saltKeyId) this problem was found at. */
   index: number

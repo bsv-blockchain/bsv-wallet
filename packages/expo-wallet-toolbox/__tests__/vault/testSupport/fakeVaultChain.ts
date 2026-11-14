@@ -33,7 +33,7 @@ import {
   Utils
 } from '@bsv/sdk'
 import type { VaultActionRow, VaultWallet } from '../../../core/services/vault/transfers'
-import type { VaultChainLookup } from '../../../core/services/vault/chainRecovery'
+import type { VaultChainLookup } from '../../../core/services/vault/markerLookup'
 
 /** A small fixed fee, generous relative to transfers.ts's own safety
  * ceilings (which scale with the ~45 KB R1C witness) — never the thing under
