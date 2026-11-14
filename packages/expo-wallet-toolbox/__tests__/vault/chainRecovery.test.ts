@@ -82,6 +82,7 @@ import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 import { compressPubkey } from '../../core/services/vault/r1comb'
 import { proveHeldVaultKey } from '../../core/services/vault/VaultKeyService'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
+import { tapRestore } from './testSupport/tapRestore'
 import { ADMIN, CHAIN, VAULT_ID, newMember, publishVaultTx } from './testSupport/publishVault'
 
 jest.setTimeout(60_000)
@@ -108,7 +109,7 @@ describe('recoverVaultFromChain', () => {
     await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
     await publishVaultTx(wallet, chain, 2, KEYS, 400_000)
 
-    const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+    const result = await tapRestore(wallet, fakeChainLookup(chain), CHAIN, KEYS[0])
     expect(result.found).toBe(2)
     expect(result.pendingConfirmation).toBe(0)
     expect(result.problems).toEqual([])
@@ -129,11 +130,11 @@ describe('recoverVaultFromChain', () => {
     // marker), then a real deposit at k=26 — beyond the default gap of 20.
     await publishVaultTx(wallet, chain, 26, KEYS, 250_000)
 
-    const short = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN, 20)
+    const short = await recoverVaultWithKey(wallet, ADMIN, fakeChainLookup(chain), CHAIN, async () => KEYS[0], 20)
     expect(short.found).toBe(0)
 
     wallet.wipeLocalState() // the short scan's internalizeAction calls, if any, must not linger
-    const long = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN, 30)
+    const long = await recoverVaultWithKey(wallet, ADMIN, fakeChainLookup(chain), CHAIN, async () => KEYS[0], 30)
     expect(long.found).toBe(1)
   })
 
@@ -173,7 +174,7 @@ describe('recoverVaultFromChain', () => {
     // k=2: a real, usable deposit — must still be found despite k=1's garbage.
     await publishVaultTx(wallet, chain, 2, KEYS, 400_000)
 
-    const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+    const result = await tapRestore(wallet, fakeChainLookup(chain), CHAIN, KEYS[0])
     expect(result.found).toBe(1)
     expect(result.problems).toHaveLength(1)
     expect(result.problems[0].index).toBe(1)
@@ -293,7 +294,7 @@ describe('recoverVaultFromChain', () => {
       await publishVaultTx(wallet, chain, 2, KEYS, 400_000, { createdAt: 5 })
 
       const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
-      expect(result).toMatchObject({ found: 0, unreachable: 0, problems: [], conflict: true })
+      expect(result).toMatchObject({ found: 0, unreachable: 0, problems: [], conflict: true, needsKey: true })
       expect(result.setApart).toHaveLength(2)
       expect(wallet.hasLocalVaultOutputs()).toBe(false)
       expect(await vaultStore.getMeta()).toBeNull()

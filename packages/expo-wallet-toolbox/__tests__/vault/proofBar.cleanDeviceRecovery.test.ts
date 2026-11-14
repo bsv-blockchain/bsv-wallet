@@ -96,6 +96,7 @@ import { recoverVaultFromChain } from '../../core/services/vault/chainRecovery'
 import { depositToVault, getVaultBalance, relockVault, withdrawFromVault } from '../../core/services/vault/transfers'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
 import { resetSaltFloors, setVaultChainLookup } from '../../core/services/vault/markerLookup'
+import { tapRestore } from './testSupport/tapRestore'
 import { ADMIN, armSigner, buildKeyring, seedOwnMeta } from './testSupport/vaultHarness'
 
 jest.setTimeout(300_000)
@@ -226,7 +227,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
           const deviceB = new FakeVaultWallet(primaryKey, chain)
           expect(deviceB.hasLocalVaultOutputs()).toBe(false)
 
-          const recovery = await recoverVaultFromChain(deviceB, ADMIN, fakeChainLookup(chain), 'test')
+          const recovery = await tapRestore(deviceB, fakeChainLookup(chain), 'test', keys[pos])
           expect(recovery.found).toBeGreaterThan(0)
           expect(recovery.problems).toEqual([])
 
@@ -307,6 +308,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
     const strangerWallet = new FakeVaultWallet(stranger.primaryKey, chain)
     const result = await recoverVaultFromChain(strangerWallet, ADMIN, fakeChainLookup(chain), 'test')
     expect(result.found).toBe(0)
+    expect(result.needsKey).toBe(false)
     expect(result.pendingConfirmation).toBe(0)
     expect(await vaultStore.getMeta()).toBeNull()
   })
@@ -334,7 +336,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
     vaultStore.configureScope({ identityKey, chain: 'test' })
 
     const deviceB = new FakeVaultWallet(owner.primaryKey, chain)
-    const result = await recoverVaultFromChain(deviceB, ADMIN, fakeChainLookup(chain), 'test')
+    const result = await tapRestore(deviceB, fakeChainLookup(chain), 'test', keys[0])
     expect(result.found).toBe(0)
     expect(result.pendingConfirmation).toBe(1)
     expect(result.problems).toEqual([])
@@ -375,7 +377,7 @@ describe('proof bar: clean-device recovery (I1) — INT-01/INT-06/XQ-012', () =>
     expect(await vaultStore.getMeta()).toBeNull()
 
     const deviceB = new FakeVaultWallet(owner.primaryKey, chain)
-    const recovery = await recoverVaultFromChain(deviceB, ADMIN, fakeChainLookup(chain), 'test')
+    const recovery = await tapRestore(deviceB, fakeChainLookup(chain), 'test', keys[0])
     expect(recovery.found).toBe(1)
     expect(recovery.problems).toEqual([])
     expect((await vaultStore.getMeta())?.keys).toEqual(keys)

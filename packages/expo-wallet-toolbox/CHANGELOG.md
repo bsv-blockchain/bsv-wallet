@@ -16,6 +16,7 @@ Vault hardening: a planted key, a stale scan or a reset on a new phone can no lo
 - **`activateStagedKeyWithoutOutputs` and `discardStagedVaultKey`.** Activate or drop a staged key.
 - **`forgetVaultSetup`.** Removes the local vault records of a phone stuck with conflicting or planted records. The chain is untouched.
 - **`recoverVaultFromTxids`.** Restore from transaction IDs (at most 50) when an index has too much history to read.
+- **`recoverVaultFromTxidsWithKey`** and **`VaultScanResult.needsKey`.** Restore from transaction IDs with one tapped key. `needsKey` is true when a scan saw a vault and restored none of it because no key was tapped.
 - **`checkVaultCardFunds`.** Checks the chain before a YubiKey reset: `clear`, `funds` or `unknown`.
 - **`canSetUpVault`.** Reports `no-mnemonic` for a wallet that cannot set up a vault.
 - **Print IDs on slices.** `generatePrintId`, `attachPrintId`, `isPrintId`, `PRINT_ID_ALPHABET`, `PRINT_ID_LENGTH`, and the `print-mismatch` compatibility issue, so slices from different prints do not combine.
@@ -24,7 +25,7 @@ Vault hardening: a planted key, a stale scan or a reset on a new phone can no lo
 ### Changed
 
 - **`addVaultKey` stages a key** (`meta.staged`). It joins `meta.keys` only when a re-lock signed by an existing proven key succeeds.
-- **A restore never adopts keys from a scan.** A scan only adds outputs. With more than one vault group it restores nothing and reports `conflict`.
+- **A restore needs a tapped key.** A scan (`scanVaultDeposits`, `recoverVaultFromChain`, `recoverVaultFromTxids`) never creates local vault records and never internalizes outputs on a phone that holds no vault with a checked key; it reports what it found (`groups`, `needsKey`). `recoverVaultWithKey` and `recoverVaultFromTxidsWithKey` restore. A phone that already holds a vault with a checked key still merges newly found outputs by outpoint. A tapped restore also marks the tapped key checked when nothing new was internalized.
 - **`recoverVaultWithKey` can report `conflict`**, and takes `options.groupId` and `options.vaultId` to choose a group.
 - **`resetPivApplication` needs a clearance** (`fundsClearance`) or `acknowledgeFundsLoss: true`. Without one it throws `chain-check-required`.
 - **Deposits need all keys proven.** A deposit never drops a key.
@@ -49,6 +50,7 @@ Every item below can break an app that built against 0.24.x.
 - **A deposit, a partial withdrawal and a re-lock need the chain.** Salt indexes are checked against WhatsOnChain; a failed or rate-limited check throws `lookup-unknown` before any tap. They no longer work fully offline. A full withdrawal still does not need it.
 - **Deposits throw `keys-unproven`** while any key of a restored vault is unproven. Re-lock and partial withdrawal throw it too, unless `acceptDroppingUnproven` is set, and then need two proven keys (`not-enough-proven-keys`).
 - **`recoverVaultWithKey` and `recoverVaultFromChain` can return `conflict: true` with `found: 0`** and nothing restored. The host must offer a group (`options.groupId`). A scan never adds keys or revisions to a local meta.
+- **A no-tap scan no longer restores a vault.** `scanVaultDeposits`, `recoverVaultFromChain` and `recoverVaultFromTxids` return `found: 0` and `needsKey: true` for a vault this phone does not hold. A host that shows "No vault found" for `found === 0` is wrong for that result (the library's own unpatched `VaultScreen` does). Offer a restore with a key; keep Set up hidden.
 - **`recoverVaultFromTxids` refuses `maxIndex` above 1000** (`template-invalid`). Default is 200.
 - **`wocChainLookup` reads three endpoints** (confirmed history with paging, unconfirmed history, plain history). `requestInit.headers` may be a plain object, a `Headers` instance or an array of pairs.
 - **`metaFromVerifiedOutputs` no longer returns a `pendingRemoval`.**
@@ -63,6 +65,7 @@ Every item below can break an app that built against 0.24.x.
 
 - Regenerate the app's `patches/@bsv+expo-wallet-toolbox` patch for 0.25.0.
 - Implement the screens listed in the App integration contract: scan button and incomplete state, conflict choice, staged keys, unproven keys, drop warning, card funds check before reset, transaction ID restore, forget setup, print IDs.
+- Handle `needsKey`: say that a vault was found and ask for a tap (`recoverVaultWithKey`, or `recoverVaultFromTxidsWithKey` when an index is `unknown`).
 
 ## 0.24.3
 

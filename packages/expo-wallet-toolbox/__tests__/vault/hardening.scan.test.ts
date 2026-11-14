@@ -68,6 +68,7 @@ import { VAULT_DEPOSIT_MIN, deriveVaultMarkerScript } from '../../core/services/
 import { vaultStore } from '../../core/services/vault/vaultStore'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
 import { ADMIN, CHAIN, VAULT_ID, newMember, publishVaultTx } from './testSupport/publishVault'
+import { tapRestore } from './testSupport/tapRestore'
 
 jest.setTimeout(120_000)
 
@@ -133,7 +134,7 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
           }
         }
 
-        const result = await scanVaultDeposits(wallet, ADMIN, lookup, CHAIN)
+        const result = await tapRestore(wallet, lookup, CHAIN, KEYS[0])
         expect(reversedCalls).toBe(1)
         expect(result.found).toBe(1)
         expect(result.ignoredBelowMinimum).toBe(1)
@@ -146,7 +147,7 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
     for (let n = 0; n < 55; n++) await publishMarkerDust(wallet, chain, 1, n)
     const real = await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
 
-    const result = await scanVaultDeposits(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+    const result = await tapRestore(wallet, fakeChainLookup(chain), CHAIN, KEYS[0])
     expect(result.found).toBe(1)
     expect(wallet.localVaultOutpoints()).toEqual([`${real.txid}.0`])
     // The dust rows are counted as noise, never as problems: a stranger who
@@ -165,7 +166,7 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
     chain.publish(tx)
     const real = await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
 
-    const result = await scanVaultDeposits(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+    const result = await tapRestore(wallet, fakeChainLookup(chain), CHAIN, KEYS[0])
     expect(result.found).toBe(1)
     expect(wallet.localVaultOutpoints()).toEqual([`${real.txid}.0`])
     expect(result.ignoredNonVault).toBe(1)
@@ -180,7 +181,7 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
       throw new Error('wallet is locked')
     }
     try {
-      const result = await scanVaultDeposits(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+      const result = await tapRestore(wallet, fakeChainLookup(chain), CHAIN, KEYS[0])
       expect(result.found).toBe(0)
       expect(result.ignoredNonVault).toBe(0)
       expect(result.problemCount).toBe(1)
@@ -189,7 +190,7 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
       wallet.decrypt = realDecrypt
     }
     // Positive control: once the wallet works, the same deposit is found.
-    const again = await scanVaultDeposits(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+    const again = await tapRestore(wallet, fakeChainLookup(chain), CHAIN, KEYS[0])
     expect(again.found).toBe(1)
     expect(again.status).toBe('complete')
   })
@@ -212,7 +213,7 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
     const real = await publishVaultTx(wallet, chain, 1, KEYS, 500_000)
     const copy = await publishVaultTx(wallet, chain, 1, KEYS, 100_000)
 
-    const result = await scanVaultDeposits(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+    const result = await tapRestore(wallet, fakeChainLookup(chain), CHAIN, KEYS[0])
     expect(result.found).toBe(2)
     expect(result.ignoredBelowMinimum).toBe(0)
     expect(wallet.localVaultOutpoints()).toEqual([`${real.txid}.0`, `${copy.txid}.0`].sort())
@@ -222,7 +223,7 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
     const real = await publishVaultTx(wallet, chain, 1, KEYS, 500_000)
     await publishVaultTx(wallet, chain, 1, KEYS, VAULT_SCAN_MIN_SATS - 1)
 
-    const result = await scanVaultDeposits(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+    const result = await tapRestore(wallet, fakeChainLookup(chain), CHAIN, KEYS[0])
     expect(result.found).toBe(1)
     expect(result.ignoredBelowMinimum).toBe(1)
     expect(result.problems).toEqual([])
@@ -257,7 +258,7 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
       }
     }
 
-    const result = await scanVaultDeposits(wallet, ADMIN, lookup, CHAIN)
+    const result = await tapRestore(wallet, lookup, CHAIN, KEYS[0])
     expect(result.found).toBe(1)
     expect(wallet.localVaultOutpoints()).toEqual([`${real.txid}.0`])
     expect(result.unknownIndexes).toEqual([1])
@@ -286,21 +287,21 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
       }
     }
 
-    const first = await scanVaultDeposits(wallet, ADMIN, flaky, CHAIN)
+    const first = await tapRestore(wallet, flaky, CHAIN, KEYS[0])
     expect(first.found).toBe(2)
     expect(first.status).toBe('incomplete')
     expect(first.unknownIndexes).toEqual([2])
     expect(wallet.localVaultOutpoints()).toHaveLength(2)
 
     // Same wallet, healthy lookup: merge by outpoint, only the missing one is new.
-    const second = await scanVaultDeposits(wallet, ADMIN, flaky, CHAIN)
+    const second = await tapRestore(wallet, flaky, CHAIN, KEYS[0])
     expect(second.found).toBe(1)
     expect(second.status).toBe('complete')
     expect(second.unknownIndexes).toEqual([])
     expect(wallet.localVaultOutpoints()).toHaveLength(3)
 
     // A third run changes nothing.
-    const third = await scanVaultDeposits(wallet, ADMIN, flaky, CHAIN)
+    const third = await tapRestore(wallet, flaky, CHAIN, KEYS[0])
     expect(third.found).toBe(0)
     expect(wallet.localVaultOutpoints()).toHaveLength(3)
   })
@@ -346,11 +347,10 @@ describe('hardening: scan collects every candidate (scan-shadow, scan-silent, no
     expect(saltFloorFor(storageKey)).toBe(4)
   })
 
-  it('recoverVaultFromChain is the same scan', async () => {
-    const real = await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
+  it('recoverVaultFromChain is the same report: it finds the vault and restores nothing without a tap', async () => {
+    await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
     const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
-    expect(result.found).toBe(1)
-    expect(result.status).toBe('complete')
-    expect(wallet.localVaultOutpoints()).toEqual([`${real.txid}.0`])
+    expect(result).toMatchObject({ found: 0, needsKey: true, status: 'complete' })
+    expect(wallet.localVaultOutpoints()).toEqual([])
   })
 })

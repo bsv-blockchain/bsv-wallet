@@ -77,8 +77,10 @@ import {
 } from '../../core/services/vault/transfers'
 import { metaFromVerifiedOutputs } from '../../core/services/vault/VaultKeyService'
 import { vaultStore, type VaultMeta } from '../../core/services/vault/vaultStore'
+import { computeVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
 import { ADMIN, CHAIN, VAULT_ID, newMember, publishVaultTx } from './testSupport/publishVault'
+import { tapRestore } from './testSupport/tapRestore'
 import { armSigner, buildKeyring, seedOwnMeta } from './testSupport/vaultHarness'
 import type { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 
@@ -153,6 +155,19 @@ describe('hardening: scans add outputs only, set conflicting records apart, keep
         seekPermission: false
       },
       ADMIN
+    )
+  }
+
+  /** The state a planted rev-99 {X,Y} record leaves on a phone: both outputs in the basket and an authentic
+   * but unproven (recovery.required, nothing adopted) meta that names {X,Y}. A scan can no longer produce it
+   * (planted-lockout), so it is built directly. */
+  async function plantedUnprovenMeta(published: { txid: string; customInstructions: string }[]): Promise<void> {
+    for (const p of published) await internalizeDirect(p)
+    const scope = vaultStore.getScope()!
+    await vaultStore.restoreVerifiedMeta(
+      { v: 6, vaultId: VAULT_ID, revision: 99, createdAt: 1, keys: [X, Y] },
+      undefined,
+      next => computeVaultMetaAuthorityTag(wallet, ADMIN, next, scope)
     )
   }
 
@@ -377,7 +392,7 @@ describe('hardening: scans add outputs only, set conflicting records apart, keep
     expect(await vaultStore.getMeta()).toBeNull()
     expect(await vaultStore.getMetaTag()).toBeNull()
 
-    const scan = await recoverVaultFromChain(wallet, ADMIN, lookup(), CHAIN)
+    const scan = await tapRestore(wallet, lookup(), CHAIN, A)
     expect(scan.found).toBe(2)
     const restored = (await vaultStore.getMeta())!
     expect(pubkeys(restored.keys)).toEqual(pubkeys([A, B]))
@@ -419,15 +434,21 @@ describe('hardening: scans add outputs only, set conflicting records apart, keep
     await publishVaultTx(wallet, chain, 1, [A, B], 300_000, { revision: 1 })
     await publishVaultTx(wallet, chain, 2, [X, Y], 100_000, { revision: 99 })
 
-    // No tap: one lineage, both outputs, the planted revision wins; nothing throws.
+    // No tap: the scan only reports one group; nothing is restored and no meta is written, so the planted
+    // revision cannot lock anything.
     const noTap = await recoverVaultFromChain(wallet, ADMIN, lookup(), CHAIN)
-    expect(noTap).toMatchObject({ found: 2, conflict: false, problems: [], status: 'complete' })
-    const planted = (await vaultStore.getMeta())!
-    expect(planted.revision).toBe(99)
-    expect(pubkeys(planted.keys)).toEqual(pubkeys([X, Y]))
+    expect(noTap).toMatchObject({
+      found: 0,
+      needsKey: true,
+      conflict: false,
+      problems: [],
+      status: 'complete'
+    })
+    expect(noTap.groups).toHaveLength(1)
+    expect(wallet.hasLocalVaultOutputs()).toBe(false)
+    expect(await vaultStore.getMeta()).toBeNull()
 
-    // The exit: forget the setup, then restore with the tap.
-    expect(await forgetVaultSetup(wallet, ADMIN)).toEqual({ forgottenOutputs: 2 })
+    // The tap restores the real group.
     const tapped = await recoverVaultWithKey(wallet, ADMIN, lookup(), CHAIN, proveWith(A))
     expect(tapped).toMatchObject({ found: 1, conflict: false, unreachable: 1 })
     expect(tapped.groups).toHaveLength(1)
@@ -439,12 +460,11 @@ describe('hardening: scans add outputs only, set conflicting records apart, keep
   })
 
   it('I-1: a planted rev-99 {X,Y} record in the real lineage does not wedge in-app spending; a tapped restore replaces the unproven meta with no forgetVaultSetup', async () => {
-    await publishVaultTx(wallet, chain, 1, [A, B], 300_000, { revision: 1 })
-    await publishVaultTx(wallet, chain, 2, [X, Y], 100_000, { revision: 99 })
+    const real = await publishVaultTx(wallet, chain, 1, [A, B], 300_000, { revision: 1 })
+    const plantedRecord = await publishVaultTx(wallet, chain, 2, [X, Y], 100_000, { revision: 99 })
 
-    // Vault screen load: no-tap restore writes the planted meta.
-    const noTap = await recoverVaultFromChain(wallet, ADMIN, lookup(), CHAIN)
-    expect(noTap.found).toBe(2)
+    // A phone left with the planted meta (from a 0.24.x build's no-tap restore).
+    await plantedUnprovenMeta([real, plantedRecord])
     const planted = (await vaultStore.getMeta())!
     expect(planted.revision).toBe(99)
     expect(planted.recovery?.required).toBe(true)
@@ -462,9 +482,9 @@ describe('hardening: scans add outputs only, set conflicting records apart, keep
   })
 
   it('a failed tapped restore changes nothing: the unproven planted meta and its tag stay when requireGroup throws', async () => {
-    await publishVaultTx(wallet, chain, 1, [A, B], 300_000, { revision: 1 })
-    await publishVaultTx(wallet, chain, 2, [X, Y], 100_000, { revision: 99 })
-    await recoverVaultFromChain(wallet, ADMIN, lookup(), CHAIN)
+    const real = await publishVaultTx(wallet, chain, 1, [A, B], 300_000, { revision: 1 })
+    const plantedRecord = await publishVaultTx(wallet, chain, 2, [X, Y], 100_000, { revision: 99 })
+    await plantedUnprovenMeta([real, plantedRecord])
     const metaBefore = await vaultStore.getMeta()
     const tagBefore = await vaultStore.getMetaTag()
     expect(metaBefore?.revision).toBe(99)

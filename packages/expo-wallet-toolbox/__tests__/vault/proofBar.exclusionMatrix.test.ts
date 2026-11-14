@@ -114,6 +114,7 @@ import {
   withdrawFromVault
 } from '../../core/services/vault/transfers'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
+import { tapRestore } from './testSupport/tapRestore'
 import { setVaultChainLookup } from '../../core/services/vault/markerLookup'
 
 jest.setTimeout(300_000)
@@ -262,7 +263,7 @@ beforeEach(async () => {
 
 // ─────────────────────────────────────────────────────────────────────────
 describe('I2 (a): mnemonic only, no committed key', () => {
-  it('I2: chain recovery succeeds from the mnemonic alone, but withdrawal refuses before any physical key proves possession (positive control: adopting the committed key then succeeds)', async () => {
+  it('I2: a mnemonic-only scan restores nothing and withdrawal refuses; restoring with a tap of the committed key then succeeds (positive control)', async () => {
     const { chain, primaryKey, mock, keys, identityKey } = await setupVault('a1')
 
     await AsyncStorage.clear()
@@ -271,18 +272,21 @@ describe('I2 (a): mnemonic only, no committed key', () => {
     vaultStore.configureScope({ identityKey, chain: 'test' })
 
     const deviceB = new FakeVaultWallet(primaryKey, chain)
-    const recovery = await recoverVaultFromChain(deviceB, ADMIN, fakeChainLookup(chain), 'test')
-    expect(recovery.found).toBe(1)
-    expect(recovery.problems).toEqual([])
-
-    // Negative: mnemonic-only recovery never adopts a key — no physical key
-    // has been presented — so withdrawal must refuse.
+    // Negative: a mnemonic-only scan restores nothing (no physical key has
+    // been presented), so there is no vault to spend from.
+    const scan = await recoverVaultFromChain(deviceB, ADMIN, fakeChainLookup(chain), 'test')
+    expect(scan).toMatchObject({ found: 0, needsKey: true })
+    expect(deviceB.hasLocalVaultOutputs()).toBe(false)
+    expect(await vaultStore.getMeta()).toBeNull()
     await expect(withdrawFromVault(deviceB, ADMIN, 'all', 'no card presented', keys[0].serial)).rejects.toMatchObject({
-      code: 'key-not-adopted'
+      code: 'not-enrolled'
     })
 
-    // Positive control: the SAME device, the SAME recovered vault, spends
-    // once the committed key actually proves possession.
+    // Positive control: with the committed key tapped the same device
+    // restores the vault and spends.
+    const recovery = await tapRestore(deviceB, fakeChainLookup(chain), 'test', keys[0])
+    expect(recovery.found).toBe(1)
+    expect(recovery.problems).toEqual([])
     armSigner(mock, keys[0].serial)
     await adoptVaultKey({ record: keys[0], onPhase: () => {}, getPin: async () => '123456' })
     const spend = await withdrawFromVault(deviceB, ADMIN, 'all', 'with the committed key', keys[0].serial)
@@ -298,7 +302,7 @@ describe('I2 (a): mnemonic only, no committed key', () => {
     vaultStore.configureScope({ identityKey, chain: 'test' })
 
     const deviceB = new FakeVaultWallet(primaryKey, chain)
-    const recovery = await recoverVaultFromChain(deviceB, ADMIN, fakeChainLookup(chain), 'test')
+    const recovery = await tapRestore(deviceB, fakeChainLookup(chain), 'test', keys[0])
     expect(recovery.found).toBe(1)
 
     const { outpoint, satoshis, lockingScript, ci } = await readVaultOutput(deviceB)

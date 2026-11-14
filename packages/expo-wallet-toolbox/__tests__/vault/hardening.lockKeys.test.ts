@@ -70,7 +70,6 @@ import { bakedCommitments, commitment, decodeVaultInstructionsV7 } from '../../c
 import { planLockKeys } from '../../core/services/vault/lockKeys'
 import { vaultStore, type VaultKeyRecord, type VaultMeta } from '../../core/services/vault/vaultStore'
 import { computeVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
-import { recoverVaultFromChain } from '../../core/services/vault/chainRecovery'
 import {
   deriveVaultSalt,
   depositToVault,
@@ -81,8 +80,10 @@ import {
 } from '../../core/services/vault/transfers'
 import { generateMnemonicWallet } from '../../core/mnemonicWallet'
 import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
+import { recoverVaultFromChain } from '../../core/services/vault/chainRecovery'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
 import { resetSaltFloors, setVaultChainLookup } from '../../core/services/vault/markerLookup'
+import { tapRestore } from './testSupport/tapRestore'
 import { ADMIN, armSigner, buildKeyring, seedOwnMeta } from './testSupport/vaultHarness'
 
 jest.setTimeout(300_000)
@@ -171,7 +172,7 @@ async function restoredWithPlantedKey(
 
   await wipeDevice()
   const phone = new FakeVaultWallet(world.primaryKey, world.chain)
-  const recovery = await recoverVaultFromChain(phone, ADMIN, fakeChainLookup(world.chain), 'test')
+  const recovery = await tapRestore(phone, fakeChainLookup(world.chain), 'test', world.keys[0])
   expect(recovery.found).toBe(3)
   expect(recovery.pendingConfirmation).toBe(opts.pendingPlant ? 1 : 0)
   const meta = await vaultStore.getMeta()
@@ -452,7 +453,7 @@ describe('hardening: a new lock commits only proven keys (planted-key)', () => {
     await enrolledPhone(world, [A, B, C], [500_000, 500_000])
     await wipeDevice()
     const phone = new FakeVaultWallet(world.primaryKey, world.chain)
-    await recoverVaultFromChain(phone, ADMIN, fakeChainLookup(world.chain), 'test')
+    await tapRestore(phone, fakeChainLookup(world.chain), 'test', A)
     for (const key of [B, C, A]) {
       armSigner(world.mock, key.serial)
       await adoptVaultKey({ record: key, onPhase: () => {}, getPin: async () => '123456' })

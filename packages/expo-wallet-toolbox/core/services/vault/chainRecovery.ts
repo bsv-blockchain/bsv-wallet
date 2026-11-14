@@ -11,8 +11,12 @@
  * database, SecureStore, nor any backup service is needed to find or
  * authenticate a v7 output — only the wallet root (the mnemonic), a chain
  * lookup, and — to actually SPEND it — one physically-present enrolled
- * YubiKey, through the unchanged withdraw path. The YubiKey is NOT needed to
- * restore.
+ * YubiKey, through the unchanged withdraw path. A restore needs one
+ * physically-present enrolled YubiKey: a scan alone only REPORTS what the
+ * chain holds (`needsKey`), and a tap (`recoverVaultWithKey`,
+ * `recoverVaultFromTxidsWithKey`) restores it. The one exception is a phone
+ * that already holds a vault with a checked key: there a scan merges new
+ * outputs by outpoint.
  *
  * SCOPE (deliberate, disclosed — design v7 §1.3 "rejected: rebuilding
  * zero-conf ancestor BEEF assembly"): recovery claims CONFIRMED deposits.
@@ -32,9 +36,11 @@
  * lineages (`vaultId:createdAt`) and, at a lineage's highest revision, into one
  * variant per distinct key list. With a local, authenticated meta only
  * candidates of that lineage that add no unknown key are internalized (the rest
- * are set apart). With no local meta one group is internalized; more than one
- * is a conflict: nothing is internalized and the groups are reported. A tapped
- * restore keeps only outputs whose OWN key list holds the tapped key.
+ * are set apart). With a tapped key and no local meta one group is
+ * internalized; more than one is a conflict: nothing is internalized and the
+ * groups are reported. A tapped restore keeps only outputs whose OWN key list
+ * holds the tapped key. With no tapped key and no checked local vault nothing
+ * is internalized.
  */
 import { Hash, Transaction, Utils } from '@bsv/sdk'
 import {
@@ -162,6 +168,11 @@ export interface VaultScanResult {
   conflict?: boolean
   /** Groups that were not internalized. */
   setApart?: VaultRecoveryGroup[]
+  /** True when this scan saw at least one Vault record of this wallet and restored none of it, because no key
+   * was tapped and this phone holds no vault with a checked key. Nothing was internalized and no meta was
+   * written. Not an error, not 'incomplete', not "none". The next step is a tap (recoverVaultWithKey or
+   * recoverVaultFromTxidsWithKey). */
+  needsKey?: boolean
 }
 
 /** Options that pick one group when a scan finds several. */
@@ -419,11 +430,13 @@ function formGroups(ready: readonly RecoverableCandidate[], pending: readonly Va
 
 /**
  * "Scan the blockchain for deposits": scan k = 1.. for chain-published v7
- * Vault outputs and internalize every confirmed, unspent, authenticated one
- * that is not already in 'admin vault' (merge by outpoint, so a second run is a
- * no-op for known outputs). Then rebuilds local vault metadata from the
- * now-listed outputs via the unchanged recoverVaultMetaFromOutputs (which
- * itself re-authenticates everything).
+ * Vault outputs. On a phone that holds a vault with a checked key it
+ * internalizes every confirmed, unspent, authenticated one that is not already
+ * in 'admin vault' (merge by outpoint, so a second run is a no-op for known
+ * outputs) and rebuilds local vault metadata from the now-listed outputs via
+ * the unchanged recoverVaultMetaFromOutputs (which itself re-authenticates
+ * everything). On any other phone it only REPORTS (`needsKey`): a restore needs
+ * a tap (recoverVaultWithKey).
  *
  * It works with or without local metadata, and the result says what was found
  * and what went wrong: `status` is 'incomplete' when any index had a problem
@@ -447,10 +460,10 @@ export async function scanVaultDeposits(
   return await restoreScannedDeposits(w, adminOriginator, scan, {})
 }
 
-/** The first-restore entry point, kept for existing callers: the same scan. It
- * has no tapped key, so it uses the variant rule only; with more than one group
- * it internalizes nothing and reports `conflict`. Picking a group needs the tap
- * (recoverVaultWithKey). */
+/** Kept for existing callers: the same scan. It has no tapped key, so on a
+ * phone with no checked vault it only reports (`needsKey`) and internalizes
+ * nothing; with more than one group it reports `conflict`. Restoring, and
+ * picking a group, needs the tap (recoverVaultWithKey). */
 export async function recoverVaultFromChain(
   w: VaultWallet,
   adminOriginator: string,
@@ -461,13 +474,57 @@ export async function recoverVaultFromChain(
   return await scanVaultDeposits(w, adminOriginator, lookup, chain, gap)
 }
 
+/** The tapped half of every restore: `prove` picks and proves the held key, only outputs whose OWN key list
+ * holds it are restored, and the key is marked proven whenever the stored meta holds that exact pair. */
+async function finishTappedRestore(
+  w: VaultWallet,
+  adminOriginator: string,
+  scan: VaultChainScan,
+  prove: (records: readonly VaultInstructionsV7[]) => Promise<VaultInstructionKey>,
+  options?: VaultRestoreOptions
+): Promise<VaultScanResult & { key: VaultInstructionKey }> {
+  const records = [...scan.ready.map(c => c.ci), ...scan.pending]
+  const key = await prove(records)
+  const selection: RestoreSelection = {
+    pubkey: key.pubkey,
+    groupId: options?.groupId,
+    vaultId: options?.vaultId,
+    requireGroup: true
+  }
+  const result = await restoreScannedDeposits(w, adminOriginator, scan, selection)
+  const scope = vaultStore.getScope()
+  const snapshot = scope ? await vaultStore.getMeta() : null
+  const holdsKey =
+    !!snapshot &&
+    [
+      ...snapshot.keys,
+      ...(snapshot.staged ? [snapshot.staged] : []),
+      ...(snapshot.pendingRemoval ? [snapshot.pendingRemoval.key] : [])
+    ].some(k => k.serial === key.serial && k.pubkey === key.pubkey)
+  if (scope && snapshot && holdsKey) {
+    // A durable proof re-tags the whole stored meta, so it is only written over a meta whose own tag verifies.
+    // Any other meta gets a session proof (no tagger).
+    const hmacWallet = w as unknown as HmacCapableWallet
+    const tag = await vaultStore.getMetaTag()
+    const authentic = await verifyVaultMetaAuthorityTag(hmacWallet, adminOriginator, snapshot, scope, tag)
+    await vaultStore.markKeyAdopted(
+      key,
+      undefined,
+      authentic ? next => computeVaultMetaAuthorityTag(hmacWallet, adminOriginator, next, scope) : undefined,
+      authentic ? snapshot : undefined
+    )
+  }
+  return { ...result, key }
+}
+
 /**
  * Restore with one tapped YubiKey (no local key list needed): scan the chain,
  * let `prove` pick and prove the key the card holds (proveHeldVaultKey), then
  * keep only the outputs whose OWN key list holds that key and restore the group
  * they form. More than one group and no `options.groupId`: restore nothing and
  * report `conflict` with the groups. The proven key is marked adopted, so it
- * can withdraw without a second challenge.
+ * can withdraw without a second challenge. The key is proven whenever the
+ * stored meta holds it, also when nothing new was internalized.
  */
 export async function recoverVaultWithKey(
   w: VaultWallet,
@@ -479,33 +536,7 @@ export async function recoverVaultWithKey(
   options?: VaultRestoreOptions
 ): Promise<VaultChainRecoveryResult & { key: VaultInstructionKey }> {
   const scan = await scanVaultChain(w, adminOriginator, lookup, chain, gap)
-  const records = [...scan.ready.map(c => c.ci), ...scan.pending]
-  const key = await prove(records)
-  const selection: RestoreSelection = {
-    pubkey: key.pubkey,
-    groupId: options?.groupId,
-    vaultId: options?.vaultId,
-    requireGroup: true
-  }
-  const result = await restoreScannedDeposits(w, adminOriginator, scan, selection)
-  if (result.found > 0 || selection.metaReplaced) {
-    // A durable proof re-tags the whole stored meta, so it is only written over
-    // a meta whose own tag verifies (the restore above may have left an
-    // existing meta untouched). Any other meta gets a session proof.
-    const scope = vaultStore.getScope()
-    const hmacWallet = w as unknown as HmacCapableWallet
-    const snapshot = scope ? await vaultStore.getMeta() : null
-    const tag = snapshot ? await vaultStore.getMetaTag() : null
-    const authentic =
-      !!scope && !!snapshot && (await verifyVaultMetaAuthorityTag(hmacWallet, adminOriginator, snapshot, scope, tag))
-    await vaultStore.markKeyAdopted(
-      key,
-      undefined,
-      authentic && scope ? next => computeVaultMetaAuthorityTag(hmacWallet, adminOriginator, next, scope) : undefined,
-      authentic && snapshot ? snapshot : undefined
-    )
-  }
-  return { ...result, key }
+  return await finishTappedRestore(w, adminOriginator, scan, prove, options)
 }
 
 /** Most transaction IDs one `recoverVaultFromTxids` call accepts. */
@@ -528,7 +559,9 @@ const P2PKH_PATTERN = /^76a914[0-9a-f]{40}88ac$/
  * `recoverOneCandidate` path as the scan (descriptor decrypt, lock rebuild,
  * floor, `outputStatus`). The result feeds `restoreScannedDeposits`, so the
  * same admission rules apply and it never adds keys or revisions to an
- * existing local meta. `scanned` is `maxIndex`.
+ * existing local meta. With no checked local vault it only reports
+ * (`needsKey`); use recoverVaultFromTxidsWithKey to restore. `scanned` is
+ * `maxIndex`.
  */
 export async function recoverVaultFromTxids(
   w: VaultWallet,
@@ -538,6 +571,44 @@ export async function recoverVaultFromTxids(
   txids: readonly string[],
   maxIndex: number = 200
 ): Promise<VaultScanResult> {
+  return await restoreScannedDeposits(
+    w,
+    adminOriginator,
+    await collectTxidRecords(w, adminOriginator, lookup, chain, txids, maxIndex),
+    {}
+  )
+}
+
+/** The same restore with one tapped key: `prove` picks and proves the key the card holds. When the given
+ * transactions hold no usable record, `prove` is not called (a typo in a txid must not cost a tap), `key` is
+ * absent and `problems` says why. */
+export async function recoverVaultFromTxidsWithKey(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  txids: readonly string[],
+  prove: (records: readonly VaultInstructionsV7[]) => Promise<VaultInstructionKey>,
+  maxIndex: number = 200,
+  options?: VaultRestoreOptions
+): Promise<VaultScanResult & { key?: VaultInstructionKey }> {
+  const scan = await collectTxidRecords(w, adminOriginator, lookup, chain, txids, maxIndex)
+  if (scan.ready.length + scan.pending.length === 0) {
+    // Nothing a key could open: do not present the card. Report what was seen (restoreScannedDeposits with no
+    // tap and no meta change is report-only, and with nothing found it admits nothing).
+    return await restoreScannedDeposits(w, adminOriginator, scan, {})
+  }
+  return await finishTappedRestore(w, adminOriginator, scan, prove, options)
+}
+
+async function collectTxidRecords(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  txids: readonly string[],
+  maxIndex: number
+): Promise<VaultChainScan> {
   if (!Number.isSafeInteger(maxIndex) || maxIndex < 1) {
     throw new VaultError('template-invalid', 'Vault restore index limit must be a positive integer')
   }
@@ -641,21 +712,16 @@ export async function recoverVaultFromTxids(
     }
   }
 
-  return await restoreScannedDeposits(
-    w,
-    adminOriginator,
-    {
-      ready,
-      pending,
-      problems,
-      unknownIndexes: [],
-      ignoredBelowMinimum,
-      ignoredNonVault,
-      maxUsedIndex,
-      scanned: maxIndex
-    },
-    {}
-  )
+  return {
+    ready,
+    pending,
+    problems,
+    unknownIndexes: [],
+    ignoredBelowMinimum,
+    ignoredNonVault,
+    maxUsedIndex,
+    scanned: maxIndex
+  }
 }
 
 interface VaultChainScan {
@@ -893,6 +959,32 @@ async function restoreScannedDeposits(
 
   const groups = formGroups(ready, pending)
   let meta = await authenticatedLocalMeta(w, adminOriginator)
+  // Tap-only restore (planted-lockout). Without a tapped key a scan may only report, unless this phone already
+  // holds a vault with a CHECKED key (then it merges new outputs by outpoint, as before: outputs only, never
+  // keys). A chain record alone never creates or extends trust (R2).
+  const mayAdd =
+    selection.pubkey !== undefined || (meta !== null && vaultStore.provenKeyRecords(meta, scopeToken).length > 0)
+  if (!mayAdd) {
+    const seen = groups.map(g => g.group)
+    if (maxUsedIndex > 0) noteSaltFloor(scopeToken.storageKey, maxUsedIndex)
+    return {
+      found: 0,
+      pendingConfirmation: pending.length,
+      unreachable: 0,
+      ignoredBelowMinimum,
+      ignoredNonVault,
+      problems,
+      problemCount: problems.length,
+      unknownIndexes,
+      maxUsedIndex,
+      scanned,
+      status: problems.length > 0 || unknownIndexes.length > 0 ? 'incomplete' : 'complete',
+      groups: seen,
+      conflict: seen.length > 1,
+      setApart: seen,
+      needsKey: seen.length > 0
+    }
+  }
   let replaceMeta = false
   // I-1: a tapped restore over an authentic local meta that carries no proof
   // (recovery.required, nothing adopted) and does not hold the tapped key has
@@ -1012,7 +1104,8 @@ async function restoreScannedDeposits(
     status: problems.length > 0 || unknownIndexes.length > 0 ? 'incomplete' : 'complete',
     groups: groups.map(g => g.group),
     conflict,
-    setApart
+    setApart,
+    needsKey: false
   }
 }
 

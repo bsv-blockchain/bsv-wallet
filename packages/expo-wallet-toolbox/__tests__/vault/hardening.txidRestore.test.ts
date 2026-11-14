@@ -47,7 +47,11 @@ jest.mock('expo-secure-store', () => ({
   })()
 }))
 
-import { scanVaultDeposits, recoverVaultFromTxids } from '../../core/services/vault/chainRecovery'
+import {
+  scanVaultDeposits,
+  recoverVaultFromTxids,
+  recoverVaultFromTxidsWithKey
+} from '../../core/services/vault/chainRecovery'
 import { resetSaltFloors, type MarkerHistory, type VaultChainLookup } from '../../core/services/vault/markerLookup'
 import { deriveVaultMarkerScript } from '../../core/services/vault/transfers'
 import { vaultStore } from '../../core/services/vault/vaultStore'
@@ -105,7 +109,14 @@ describe('hardening: restore from a transaction ID (scan-shadow exit)', () => {
     expect(scan.status).toBe('incomplete')
     expect(wallet.localVaultOutpoints()).toEqual([])
 
-    const result = await recoverVaultFromTxids(wallet, ADMIN, lookup, CHAIN, [real.txid.toUpperCase()])
+    const result = await recoverVaultFromTxidsWithKey(
+      wallet,
+      ADMIN,
+      lookup,
+      CHAIN,
+      [real.txid.toUpperCase()],
+      async () => KEYS[0]
+    )
     expect(result.found).toBe(1)
     expect(result.scanned).toBe(200)
     expect(result.problems).toEqual([])
@@ -187,7 +198,7 @@ describe('hardening: restore from a transaction ID (scan-shadow exit)', () => {
   it('restoring the same txid twice is a no-op the second time (merge by outpoint)', async () => {
     const real = await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
     const lookup = fakeChainLookup(chain)
-    const first = await recoverVaultFromTxids(wallet, ADMIN, lookup, CHAIN, [real.txid])
+    const first = await recoverVaultFromTxidsWithKey(wallet, ADMIN, lookup, CHAIN, [real.txid], async () => KEYS[0])
     expect(first.found).toBe(1)
     const second = await recoverVaultFromTxids(wallet, ADMIN, lookup, CHAIN, [real.txid, real.txid.toUpperCase()])
     expect(second.found).toBe(0)
