@@ -146,6 +146,34 @@ describe('wocChainLookup.markerHistory', () => {
     expect(res.txids).toHaveLength(1000)
   })
 
+  it('a server cap below the requested limit with no token is unknown/window-full (100 rows)', async () => {
+    routeFetch(u => (isUnconfirmed(u) ? { status: 404 } : { json: { result: rows(0, 100) } }))
+    const res = await wocChainLookup('main').markerHistory!(MARKER_SCRIPT_HEX)
+    expect(res.status).toBe('unknown')
+    if (res.status !== 'unknown') throw new Error('unreachable')
+    expect(res.reason).toBe('window-full')
+    expect(res.txids).toHaveLength(100)
+  })
+
+  it('a token under an unexpected field name is still followed', async () => {
+    const urls = routeFetch(u => {
+      if (isUnconfirmed(u)) return { status: 404 }
+      if (!u.includes('token=')) return { json: { result: rows(0, 100), nextToken: 'zz' } }
+      return { json: { result: rows(100, 5) } }
+    })
+    const res = await wocChainLookup('main').markerHistory!(MARKER_SCRIPT_HEX)
+    expect(res.status).toBe('found')
+    if (res.status !== 'found') throw new Error('unreachable')
+    expect(res.txids).toHaveLength(105)
+    expect(urls.filter(u => u.includes('token=zz'))).toHaveLength(1)
+  })
+
+  it('a short page with no token is complete (found, not unknown)', async () => {
+    routeFetch(u => (isUnconfirmed(u) ? { status: 404 } : { json: { result: rows(0, 99) } }))
+    const res = await wocChainLookup('main').markerHistory!(MARKER_SCRIPT_HEX)
+    expect(res.status).toBe('found')
+  })
+
   it('more than 5 pages is unknown/window-full', async () => {
     let page = 0
     const urls = routeFetch(u => {

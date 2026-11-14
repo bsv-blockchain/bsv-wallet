@@ -9,6 +9,10 @@ import type { MarkerHistory, MarkerUnknownReason, VaultChainLookup } from './mar
 
 /** Rows per confirmed-history page. */
 export const VAULT_HISTORY_PAGE = 1000
+/** Row cap of the plain /history endpoint. A confirmed page of exactly this
+ * length with no token is read as cut off (fail closed), because the live
+ * limit and token field names were not verifiable offline. */
+export const VAULT_HISTORY_LEGACY_CAP = 100
 /** Pages read before the window counts as full (5,000 confirmed rows). */
 export const VAULT_HISTORY_MAX_PAGES = 5
 
@@ -44,7 +48,7 @@ export function wocChainLookup(chain: AppChain, requestInit?: RequestInit): Vaul
   /** One page of rows from a history endpoint. `rows: undefined` with a
    * `reason` is a failure; a 404 is a page with no rows. */
   type Page = { rows: string[]; fullPage: boolean; token?: string } | { failed: MarkerUnknownReason }
-  const readPage = async (url: string, pageSize: number): Promise<Page> => {
+  const readPage = async (url: string, pageSize: number, suspectCaps: number[] = []): Promise<Page> => {
     let response: Response
     try {
       response = await doFetch(url)
@@ -62,11 +66,14 @@ export function wocChainLookup(chain: AppChain, requestInit?: RequestInit): Vaul
     }
     if (body === null || typeof body !== 'object' || !Array.isArray(body.result)) return { failed: 'malformed' }
     const rows: string[] = body.result.map((r: any) => r?.tx_hash).filter((h: unknown) => typeof h === 'string')
-    const rawToken = body.nextPageToken ?? body['next-page']
+    const token = pageTokenFrom(body)
     return {
       rows,
-      fullPage: body.result.length >= pageSize,
-      token: typeof rawToken === 'string' && rawToken.length > 0 ? rawToken : undefined
+      // A page as long as the request, or exactly as long as a server-side cap
+      // we know of (the plain /history cap of 100), with no token after it is
+      // treated as cut off, never as complete.
+      fullPage: body.result.length >= pageSize || suspectCaps.includes(body.result.length),
+      token
     }
   }
 
@@ -121,7 +128,7 @@ export function wocChainLookup(chain: AppChain, requestInit?: RequestInit): Vaul
         const url =
           `${base}/address/${address}/confirmed/history?order=asc&limit=${VAULT_HISTORY_PAGE}` +
           (token === undefined ? '' : `&token=${encodeURIComponent(token)}`)
-        const result = await readPage(url, VAULT_HISTORY_PAGE)
+        const result = await readPage(url, VAULT_HISTORY_PAGE, [VAULT_HISTORY_LEGACY_CAP])
         if ('failed' in result) {
           note(result.failed)
           break
@@ -208,6 +215,23 @@ export function wocChainLookup(chain: AppChain, requestInit?: RequestInit): Vaul
       }
     }
   }
+}
+
+/**
+ * Next-page token of a history response. The documented field name is not
+ * confirmed against the live API, so the known names come first and any other
+ * top-level string field that looks like a page token is accepted too. A
+ * missed token would read a truncated page as complete, which is the unsafe
+ * direction.
+ */
+export function pageTokenFrom(body: Record<string, unknown>): string | undefined {
+  const known = body.nextPageToken ?? body['next-page']
+  if (typeof known === 'string' && known.length > 0) return known
+  for (const [key, value] of Object.entries(body)) {
+    if (key === 'address' || key === 'script' || key === 'error' || key === 'result') continue
+    if (typeof value === 'string' && value.length > 0 && /token|next|cursor|page/i.test(key)) return value
+  }
+  return undefined
 }
 
 /** Local copy of address.ts's parseWocBeefBody signature over (ok, text)
