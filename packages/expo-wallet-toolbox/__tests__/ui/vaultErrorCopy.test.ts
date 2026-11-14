@@ -58,7 +58,12 @@ const ALL_CODES: VaultErrorCode[] = [
   'key-not-committed',
   'key-cannot-cover',
   'too-small-to-relock',
-  'bad-version'
+  'bad-version',
+  'lookup-unknown',
+  'keys-unproven',
+  'not-enough-proven-keys',
+  'chain-check-required',
+  'no-mnemonic'
 ]
 
 describe('vaultErrorCopy', () => {
@@ -161,7 +166,7 @@ describe('vaultErrorCopy', () => {
     expect(vaultErrorCopy('puk-invalid')).toBe('vault_err_puk_invalid')
   })
 
-  test('the retryable set is exactly the two tap-again codes', () => {
-    expect([...RETRYABLE_VAULT_ERRORS].sort()).toEqual(['nfc-lost', 'touch-timeout'])
+  test('the retryable set is the two tap-again codes plus an unclear chain lookup', () => {
+    expect([...RETRYABLE_VAULT_ERRORS].sort()).toEqual(['lookup-unknown', 'nfc-lost', 'touch-timeout'])
   })
 })

@@ -566,6 +566,14 @@ const resources = {
       vault_err_below_dust: 'That amount is too small to send.',
       vault_err_no_transaction: 'The transfer could not be completed. Please try again.',
       vault_err_nfc_lost: 'The connection dropped. Hold the key steady against your phone.',
+      vault_err_lookup_unknown: "Couldn't check the blockchain just now. Nothing was changed. Try again in a moment.",
+      vault_err_keys_unproven:
+        "Some keys in this vault haven't been checked on this phone yet. Hold each key to the phone to check it, or continue without the unchecked keys.",
+      vault_err_not_enough_proven_keys:
+        'A new lock needs two checked keys. Check another key, or add a new one. You can still withdraw everything.',
+      vault_err_chain_check_required: 'Check the blockchain for your earlier vault before resetting this key.',
+      vault_err_no_mnemonic:
+        'A vault needs a wallet made from a recovery phrase. This wallet was restored from older key slices.',
       vault_pin_invalid_retry: 'Wrong PIN — {{count}} attempts left. Tap Withdraw again to retry.',
       vault_pin_invalid_retry_generic: 'Wrong PIN. Tap Withdraw again to retry.',
       // disable
@@ -1769,6 +1777,11 @@ const resources = {
       vault_err_below_dust: '该金额太小，无法发送。',
       vault_err_no_transaction: '转账未能完成。请重试。',
       vault_err_nfc_lost: '连接已断开。请将密钥稳定贴在手机上。',
+      vault_err_lookup_unknown: '暂时无法检查区块链。未做任何更改。请稍后重试。',
+      vault_err_keys_unproven: '此保险库中有些密钥尚未在这部手机上验证。请将每把密钥贴近手机进行验证，或不使用未验证的密钥继续。',
+      vault_err_not_enough_proven_keys: '新的锁需要两把已验证的密钥。请验证另一把密钥，或添加一把新密钥。您仍可全部取出。',
+      vault_err_chain_check_required: '重置这把密钥之前，请先检查区块链上是否有您之前的保险库。',
+      vault_err_no_mnemonic: '保险库需要由恢复短语创建的钱包。此钱包是从旧的密钥分片恢复的。',
       vault_pin_invalid_retry: 'PIN 码错误 — 还剩 {{count}} 次机会。再次点击“提取”重试。',
       vault_pin_invalid_retry_generic: 'PIN 码错误。再次点击“提取”重试。',
       vault_disable_row: '停用保险库',
@@ -2956,6 +2969,14 @@ const resources = {
       vault_err_below_dust: 'यह राशि भेजने के लिए बहुत छोटी है।',
       vault_err_no_transaction: 'स्थानांतरण पूरा नहीं हो सका। कृपया पुनः प्रयास करें।',
       vault_err_nfc_lost: 'कनेक्शन टूट गया। कुंजी को फ़ोन पर स्थिर रखें।',
+      vault_err_lookup_unknown: 'अभी ब्लॉकचेन की जाँच नहीं हो सकी। कुछ भी नहीं बदला गया। थोड़ी देर बाद फिर कोशिश करें।',
+      vault_err_keys_unproven:
+        'इस वॉल्ट की कुछ कुंजियाँ इस फ़ोन पर अभी जाँची नहीं गई हैं। हर कुंजी को फ़ोन से छुआकर जाँचें, या बिना जाँची कुंजियों के आगे बढ़ें।',
+      vault_err_not_enough_proven_keys:
+        'नए लॉक के लिए दो जाँची हुई कुंजियाँ चाहिए। एक और कुंजी जाँचें, या नई जोड़ें। आप अभी भी सब कुछ निकाल सकते हैं।',
+      vault_err_chain_check_required: 'इस कुंजी को रीसेट करने से पहले अपने पुराने वॉल्ट के लिए ब्लॉकचेन जाँचें।',
+      vault_err_no_mnemonic:
+        'वॉल्ट के लिए रिकवरी फ़्रेज़ से बना वॉलेट चाहिए। यह वॉलेट पुराने कुंजी स्लाइस से बहाल किया गया था।',
       vault_pin_invalid_retry: 'गलत PIN — {{count}} प्रयास शेष। पुनः प्रयास के लिए फिर से निकालें दबाएँ।',
       vault_pin_invalid_retry_generic: 'गलत PIN। पुनः प्रयास के लिए फिर से निकालें दबाएँ।',
       vault_disable_row: 'वॉल्ट अक्षम करें',
@@ -4190,6 +4211,16 @@ const resources = {
       vault_err_below_dust: 'Ese importe es demasiado pequeño para enviarlo.',
       vault_err_no_transaction: 'No se pudo completar la transferencia. Inténtalo de nuevo.',
       vault_err_nfc_lost: 'Se perdió la conexión. Mantén la llave firme contra el teléfono.',
+      vault_err_lookup_unknown:
+        'No se pudo comprobar la blockchain en este momento. No se cambió nada. Inténtalo de nuevo en un momento.',
+      vault_err_keys_unproven:
+        'Algunas llaves de esta bóveda aún no se han comprobado en este teléfono. Acerca cada llave al teléfono para comprobarla, o continúa sin las llaves sin comprobar.',
+      vault_err_not_enough_proven_keys:
+        'Un bloqueo nuevo necesita dos llaves comprobadas. Comprueba otra llave o añade una nueva. Aún puedes retirarlo todo.',
+      vault_err_chain_check_required:
+        'Comprueba en la blockchain si existe tu bóveda anterior antes de restablecer esta llave.',
+      vault_err_no_mnemonic:
+        'Una bóveda necesita una cartera creada con una frase de recuperación. Esta cartera se restauró a partir de fragmentos de clave antiguos.',
       vault_pin_invalid_retry: 'PIN incorrecto — quedan {{count}} intentos. Toca Retirar de nuevo para reintentar.',
       vault_pin_invalid_retry_generic: 'PIN incorrecto. Toca Retirar de nuevo para reintentar.',
       vault_disable_row: 'Desactivar caja fuerte',
@@ -5442,6 +5473,16 @@ const resources = {
       vault_err_below_dust: 'Ce montant est trop faible pour être envoyé.',
       vault_err_no_transaction: "Le transfert n'a pas pu être effectué. Veuillez réessayer.",
       vault_err_nfc_lost: 'La connexion a été perdue. Maintenez la clé bien à plat contre votre téléphone.',
+      vault_err_lookup_unknown:
+        "Impossible de vérifier la blockchain pour le moment. Rien n'a été modifié. Réessayez dans un instant.",
+      vault_err_keys_unproven:
+        "Certaines clés de ce coffre n'ont pas encore été vérifiées sur ce téléphone. Approchez chaque clé du téléphone pour la vérifier, ou continuez sans les clés non vérifiées.",
+      vault_err_not_enough_proven_keys:
+        'Un nouveau verrou nécessite deux clés vérifiées. Vérifiez une autre clé ou ajoutez-en une nouvelle. Vous pouvez toujours tout retirer.',
+      vault_err_chain_check_required:
+        'Vérifiez la blockchain pour votre coffre précédent avant de réinitialiser cette clé.',
+      vault_err_no_mnemonic:
+        "Un coffre nécessite un portefeuille créé à partir d'une phrase de récupération. Ce portefeuille a été restauré à partir d'anciens fragments de clé.",
       vault_pin_invalid_retry:
         'Code PIN incorrect — {{count}} tentatives restantes. Touchez à nouveau Retirer pour réessayer.',
       vault_pin_invalid_retry_generic: 'Code PIN incorrect. Touchez à nouveau Retirer pour réessayer.',
@@ -6662,6 +6703,14 @@ const resources = {
       vault_err_below_dust: 'هذا المبلغ أصغر من أن يُرسل.',
       vault_err_no_transaction: 'تعذّر إتمام التحويل. يرجى المحاولة مرة أخرى.',
       vault_err_nfc_lost: 'انقطع الاتصال. أمسك المفتاح ثابتًا على الهاتف.',
+      vault_err_lookup_unknown: 'تعذّر فحص البلوكتشين الآن. لم يتم تغيير أي شيء. حاول مرة أخرى بعد قليل.',
+      vault_err_keys_unproven:
+        'لم يتم بعد فحص بعض مفاتيح هذه الخزنة على هذا الهاتف. قرّب كل مفتاح من الهاتف لفحصه، أو تابع بدون المفاتيح التي لم تُفحص.',
+      vault_err_not_enough_proven_keys:
+        'يحتاج القفل الجديد إلى مفتاحين تم فحصهما. افحص مفتاحًا آخر أو أضف مفتاحًا جديدًا. لا يزال بإمكانك سحب كل شيء.',
+      vault_err_chain_check_required: 'افحص البلوكتشين بحثًا عن خزنتك السابقة قبل إعادة ضبط هذا المفتاح.',
+      vault_err_no_mnemonic:
+        'تحتاج الخزنة إلى محفظة أُنشئت من عبارة استرداد. استُعيدت هذه المحفظة من شرائح مفاتيح أقدم.',
       vault_pin_invalid_retry: 'رمز PIN خاطئ — تبقّت {{count}} محاولات. اضغط سحب مرة أخرى للمحاولة من جديد.',
       vault_pin_invalid_retry_generic: 'رمز PIN خاطئ. اضغط سحب مرة أخرى للمحاولة من جديد.',
       vault_disable_row: 'تعطيل الخزنة',
@@ -7874,6 +7923,16 @@ const resources = {
       vault_err_below_dust: 'Esse montante é demasiado pequeno para enviar.',
       vault_err_no_transaction: 'Não foi possível concluir a transferência. Tente novamente.',
       vault_err_nfc_lost: 'A ligação caiu. Mantenha a chave firme contra o telemóvel.',
+      vault_err_lookup_unknown:
+        'Não foi possível verificar a blockchain agora. Nada foi alterado. Tente novamente em instantes.',
+      vault_err_keys_unproven:
+        'Algumas chaves deste cofre ainda não foram verificadas neste telefone. Aproxime cada chave do telefone para verificá-la, ou continue sem as chaves não verificadas.',
+      vault_err_not_enough_proven_keys:
+        'Um novo bloqueio precisa de duas chaves verificadas. Verifique outra chave ou adicione uma nova. Você ainda pode retirar tudo.',
+      vault_err_chain_check_required:
+        'Verifique a blockchain para encontrar seu cofre anterior antes de redefinir esta chave.',
+      vault_err_no_mnemonic:
+        'Um cofre precisa de uma carteira criada a partir de uma frase de recuperação. Esta carteira foi restaurada a partir de fragmentos de chave antigos.',
       vault_pin_invalid_retry:
         'PIN errado — restam {{count}} tentativas. Toque em Retirar novamente para tentar outra vez.',
       vault_pin_invalid_retry_generic: 'PIN errado. Toque em Retirar novamente para tentar outra vez.',
@@ -9107,6 +9166,14 @@ const resources = {
       vault_err_below_dust: 'এই পরিমাণ পাঠানোর জন্য খুব কম।',
       vault_err_no_transaction: 'স্থানান্তর সম্পন্ন করা যায়নি। আবার চেষ্টা করুন।',
       vault_err_nfc_lost: 'সংযোগ বিচ্ছিন্ন হয়েছে। কী-টি ফোনের সঙ্গে স্থিরভাবে ধরে রাখুন।',
+      vault_err_lookup_unknown: 'এই মুহূর্তে ব্লকচেইন যাচাই করা যায়নি। কিছুই বদলানো হয়নি। একটু পরে আবার চেষ্টা করুন।',
+      vault_err_keys_unproven:
+        'এই ভল্টের কিছু কী এখনো এই ফোনে যাচাই করা হয়নি। প্রতিটি কী ফোনের কাছে ধরে যাচাই করুন, অথবা যাচাই-না-করা কী ছাড়াই এগিয়ে যান।',
+      vault_err_not_enough_proven_keys:
+        'নতুন লকের জন্য দুটি যাচাই-করা কী লাগে। আরেকটি কী যাচাই করুন, অথবা নতুন একটি যোগ করুন। আপনি এখনো সবকিছু তুলে নিতে পারবেন।',
+      vault_err_chain_check_required: 'এই কী রিসেট করার আগে আপনার আগের ভল্টের জন্য ব্লকচেইন যাচাই করুন।',
+      vault_err_no_mnemonic:
+        'ভল্টের জন্য রিকভারি ফ্রেজ থেকে তৈরি ওয়ালেট লাগে। এই ওয়ালেট পুরনো কী স্লাইস থেকে পুনরুদ্ধার করা হয়েছিল।',
       vault_pin_invalid_retry: 'ভুল PIN — আর {{count}} বার চেষ্টা করা যাবে। আবার চেষ্টা করতে উত্তোলন চাপুন।',
       vault_pin_invalid_retry_generic: 'ভুল PIN। আবার চেষ্টা করতে উত্তোলন চাপুন।',
       vault_disable_row: 'ভল্ট নিষ্ক্রিয় করুন',
@@ -10334,6 +10401,15 @@ const resources = {
       vault_err_below_dust: 'Эта сумма слишком мала для отправки.',
       vault_err_no_transaction: 'Не удалось выполнить перевод. Попробуйте ещё раз.',
       vault_err_nfc_lost: 'Связь прервалась. Держите ключ неподвижно у телефона.',
+      vault_err_lookup_unknown: 'Не удалось проверить блокчейн. Ничего не изменено. Попробуйте ещё раз через минуту.',
+      vault_err_keys_unproven:
+        'Некоторые ключи этого хранилища ещё не проверены на этом телефоне. Приложите каждый ключ к телефону, чтобы проверить его, или продолжите без непроверенных ключей.',
+      vault_err_not_enough_proven_keys:
+        'Для новой блокировки нужны два проверенных ключа. Проверьте ещё один ключ или добавьте новый. Вы по-прежнему можете вывести всё.',
+      vault_err_chain_check_required:
+        'Прежде чем сбросить этот ключ, проверьте блокчейн на наличие вашего прежнего хранилища.',
+      vault_err_no_mnemonic:
+        'Для хранилища нужен кошелёк, созданный из фразы восстановления. Этот кошелёк восстановлен из старых фрагментов ключа.',
       vault_pin_invalid_retry:
         'Неверный PIN — осталось попыток: {{count}}. Нажмите «Вывести» ещё раз, чтобы повторить.',
       vault_pin_invalid_retry_generic: 'Неверный PIN. Нажмите «Вывести» ещё раз, чтобы повторить.',
@@ -11572,6 +11648,16 @@ const resources = {
       vault_err_below_dust: 'Jumlah itu terlalu kecil untuk dikirim.',
       vault_err_no_transaction: 'Transfer tidak dapat diselesaikan. Silakan coba lagi.',
       vault_err_nfc_lost: 'Koneksi terputus. Tahan kunci dengan stabil di ponsel Anda.',
+      vault_err_lookup_unknown:
+        'Tidak dapat memeriksa blockchain saat ini. Tidak ada yang diubah. Coba lagi sebentar lagi.',
+      vault_err_keys_unproven:
+        'Beberapa kunci di brankas ini belum diperiksa di ponsel ini. Tempelkan setiap kunci ke ponsel untuk memeriksanya, atau lanjutkan tanpa kunci yang belum diperiksa.',
+      vault_err_not_enough_proven_keys:
+        'Kunci baru membutuhkan dua kunci yang sudah diperiksa. Periksa kunci lain, atau tambahkan yang baru. Anda tetap bisa menarik semuanya.',
+      vault_err_chain_check_required:
+        'Periksa blockchain untuk brankas Anda sebelumnya sebelum mengatur ulang kunci ini.',
+      vault_err_no_mnemonic:
+        'Brankas membutuhkan dompet yang dibuat dari frasa pemulihan. Dompet ini dipulihkan dari potongan kunci lama.',
       vault_pin_invalid_retry: 'PIN salah — sisa {{count}} percobaan. Ketuk Tarik lagi untuk mencoba ulang.',
       vault_pin_invalid_retry_generic: 'PIN salah. Ketuk Tarik lagi untuk mencoba ulang.',
       vault_disable_row: 'Nonaktifkan brankas',
@@ -12807,6 +12893,11 @@ const resources = {
       vault_err_below_dust: 'この金額は少なすぎて送金できません。',
       vault_err_no_transaction: '送金を完了できませんでした。もう一度お試しください。',
       vault_err_nfc_lost: '接続が切れました。鍵をスマートフォンにしっかり当ててください。',
+      vault_err_lookup_unknown: 'いまはブロックチェーンを確認できませんでした。何も変更されていません。しばらくしてからもう一度お試しください。',
+      vault_err_keys_unproven: 'この金庫の一部のキーは、このスマートフォンでまだ確認されていません。各キーをスマートフォンにかざして確認するか、未確認のキーを除いて続けてください。',
+      vault_err_not_enough_proven_keys: '新しいロックには、確認済みのキーが2つ必要です。別のキーを確認するか、新しいキーを追加してください。全額の引き出しはいつでもできます。',
+      vault_err_chain_check_required: 'このキーをリセットする前に、以前の金庫がないかブロックチェーンを確認してください。',
+      vault_err_no_mnemonic: '金庫には、リカバリーフレーズから作成したウォレットが必要です。このウォレットは古いキーのスライスから復元されたものです。',
       vault_pin_invalid_retry: 'PIN が違います — 残り {{count}} 回。もう一度「出金」をタップしてやり直してください。',
       vault_pin_invalid_retry_generic: 'PIN が違います。もう一度「出金」をタップしてやり直してください。',
       vault_disable_row: '保管庫を無効にする',
@@ -14051,6 +14142,15 @@ const resources = {
       vault_err_below_dust: 'Ta kwota jest zbyt mała, aby ją wysłać.',
       vault_err_no_transaction: 'Nie udało się dokończyć przelewu. Spróbuj ponownie.',
       vault_err_nfc_lost: 'Połączenie zostało przerwane. Trzymaj klucz nieruchomo przy telefonie.',
+      vault_err_lookup_unknown:
+        'Nie udało się teraz sprawdzić blockchaina. Nic nie zostało zmienione. Spróbuj ponownie za chwilę.',
+      vault_err_keys_unproven:
+        'Niektóre klucze tego sejfu nie zostały jeszcze sprawdzone na tym telefonie. Przyłóż każdy klucz do telefonu, aby go sprawdzić, albo kontynuuj bez niesprawdzonych kluczy.',
+      vault_err_not_enough_proven_keys:
+        'Nowa blokada wymaga dwóch sprawdzonych kluczy. Sprawdź kolejny klucz albo dodaj nowy. Nadal możesz wypłacić wszystko.',
+      vault_err_chain_check_required: 'Przed zresetowaniem tego klucza sprawdź w blockchainie swój wcześniejszy sejf.',
+      vault_err_no_mnemonic:
+        'Sejf wymaga portfela utworzonego z frazy odzyskiwania. Ten portfel został przywrócony ze starszych fragmentów kluczy.',
       vault_pin_invalid_retry:
         'Błędny PIN — pozostało prób: {{count}}. Dotknij ponownie Wypłać, aby spróbować jeszcze raz.',
       vault_pin_invalid_retry_generic: 'Błędny PIN. Dotknij ponownie Wypłać, aby spróbować jeszcze raz.',

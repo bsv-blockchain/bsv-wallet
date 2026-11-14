@@ -118,6 +118,22 @@ export type VaultErrorCode =
    *  rather than looping forever. Distinct from 'no-transaction': nothing
    *  about a specific transfer failed, the scan itself could not complete. */
   | 'chain-scan-failed'
+  /** A chain lookup could not give a clear answer (failed, rate limited,
+   *  window full, or probe limit reached). Nothing was changed; retry later.
+   *  details: `{ reason: string, index?: number }`. */
+  | 'lookup-unknown'
+  /** A new lock would include a key that has not been checked by a tap on
+   *  this phone. details: `{ serials: string }` (comma-joined). */
+  | 'keys-unproven'
+  /** Fewer than two checked keys are available for a new lock.
+   *  details: `{ proven: number }`. */
+  | 'not-enough-proven-keys'
+  /** A destructive card reset was asked without a chain check or an explicit
+   *  loss acknowledgement. No details. */
+  | 'chain-check-required'
+  /** The wallet was restored from older key slices and has no recovery
+   *  phrase, so it cannot make a vault. No details. */
+  | 'no-mnemonic'
 
 export class VaultError extends Error {
   code: VaultErrorCode

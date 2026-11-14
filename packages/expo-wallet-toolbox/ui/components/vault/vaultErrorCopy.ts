@@ -93,7 +93,12 @@ const KEY: Record<VaultErrorCode, string> = {
   'key-cannot-cover': 'vault_err_key_cannot_cover',
   'too-small-to-relock': 'vault_err_too_small_to_relock',
   'bad-version': 'vault_err_bad_version',
-  'chain-scan-failed': 'vault_err_chain_scan_failed'
+  'chain-scan-failed': 'vault_err_chain_scan_failed',
+  'lookup-unknown': 'vault_err_lookup_unknown',
+  'keys-unproven': 'vault_err_keys_unproven',
+  'not-enough-proven-keys': 'vault_err_not_enough_proven_keys',
+  'chain-check-required': 'vault_err_chain_check_required',
+  'no-mnemonic': 'vault_err_no_mnemonic'
 }
 
 /**
@@ -107,7 +112,8 @@ const KEY: Record<VaultErrorCode, string> = {
  */
 export const RETRYABLE_VAULT_ERRORS: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>([
   'touch-timeout',
-  'nfc-lost'
+  'nfc-lost',
+  'lookup-unknown'
 ])
 
 export function vaultErrorCopy(code: VaultErrorCode | undefined, params: VaultErrorParams = {}): string {
