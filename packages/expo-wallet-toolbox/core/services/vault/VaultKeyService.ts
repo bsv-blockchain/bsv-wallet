@@ -62,10 +62,10 @@ export interface VaultWalletAuthority {
 }
 
 /** Re-verify `existing`'s own wallet-root tag before trusting it as the
- * basis for a freshly, validly tagged `next` (addKey only APPENDS to
- * `meta.keys`, so a forged `existing` would otherwise "launder" straight
- * through the moment the legitimate user adds one more, genuinely their
- * own, key — see vaultStore.addKey's laundering caveat).
+ * basis for a freshly, validly tagged `next` (stageKey builds `next` from
+ * `existing`, so a forged `existing` would otherwise "launder" straight
+ * through the moment the legitimate user stages one more, genuinely their
+ * own, key — see vaultStore.stageKey's laundering caveat).
  *
  * Unlike transfers.ts's requireAuthenticatedMeta, this has no on-chain
  * fallback: VaultKeyService has no chain-scanning capability, and inventing

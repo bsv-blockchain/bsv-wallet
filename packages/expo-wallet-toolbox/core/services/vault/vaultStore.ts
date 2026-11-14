@@ -1225,45 +1225,13 @@ export const vaultStore = {
   },
 
   /**
-   * XR-002: `next` here is built by APPENDING to `meta.keys` — never
-   * replacing it — so a forged `meta` (a substituted key set the caller
-   * never authenticated) would otherwise "launder" straight through into a
-   * freshly, validly tagged `next` merely because the user added one more,
-   * genuinely their own, key. Callers MUST verify `meta`'s own existing tag
-   * (or run it through the chain-authenticated recovery path) BEFORE calling
-   * this with a `tagger` — see VaultKeyService.addVaultKey's
-   * requireTaggedMeta call, which does exactly that.
-   */
-  async addKey(
-    k: VaultKeyRecord,
-    scopeToken?: VaultScopeToken,
-    tagger?: VaultMetaTagger,
-    expectedMeta?: VaultMeta
-  ): Promise<VaultMeta> {
-    const token = scopeToken ?? captureScope(true)
-    if (!isVaultKeyRecord(k)) throw new VaultError('template-invalid', 'Invalid vault key record')
-    return enqueueMutation(async () => {
-      const meta = await requireMeta(token)
-      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
-      if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal first')
-      if (meta.keys.length >= MAX_ACTIVE_KEYS) {
-        throw new VaultError('too-many-keys', `The vault already has ${MAX_ACTIVE_KEYS} keys`)
-      }
-      if (meta.keys.some(x => x.serial === k.serial || x.pubkey === k.pubkey)) {
-        throw new VaultError('key-already-enrolled', k.serial, undefined, { serial: k.serial })
-      }
-      const next: VaultMeta = { ...meta, revision: meta.revision + 1, keys: [...meta.keys, k] }
-      await writeMetaAndTag(token, next, tagger)
-      return next
-    })
-  },
-
-  /**
    * Stage a new key (add-key, late-key). The key is written to `meta.staged`
    * only: `keys` and `revision` do not change, so no lock can commit it. It
    * joins `keys` only through commitLockKeySet after a re-lock (or a tap proof
-   * when nothing is funded) signed by an existing key. Same laundering caveat
-   * as addKey: `expectedMeta` must be the caller's authenticated snapshot.
+   * when nothing is funded) signed by an existing key. Laundering caveat: the
+   * new meta is built from `meta`, so a forged `meta` would otherwise launder
+   * into a validly tagged `next`: `expectedMeta` must be the caller's
+   * authenticated snapshot (see VaultKeyService.addVaultKey's requireTaggedMeta).
    */
   async stageKey(
     k: VaultKeyRecord,
@@ -1292,7 +1260,7 @@ export const vaultStore = {
 
   /** Drop the staged key. It only lowers authority, so no tap is needed. The
    * adoption pair of the staged key goes with it. Same laundering caveat as
-   * addKey. */
+   * stageKey. */
   async discardStagedKey(
     scopeToken?: VaultScopeToken,
     tagger?: VaultMetaTagger,
@@ -1319,7 +1287,7 @@ export const vaultStore = {
     })
   },
 
-  /** Same laundering caveat as addKey: `meta` must already be established as
+  /** Same laundering caveat as stageKey: `meta` must already be established as
    * trustworthy by the caller (transfers.ts's beginVaultKeyRemoval gates its
    * whole flow on requireAuthenticatedMeta before reaching here) before a
    * `tagger` is supplied. */
@@ -1391,10 +1359,17 @@ export const vaultStore = {
    * write. The staged key leaves `staged` only when `clearStaged` is set. The
    * adoption pairs of keys that stay (list, key being removed, staged key that
    * stays staged) are kept; pairs of dropped keys go. The caller passes the
-   * authenticated snapshot as `expectedMeta` (same contract as addKey).
+   * authenticated snapshot as `expectedMeta` (same contract as stageKey).
    */
   async commitLockKeySet(
-    args: { keys: VaultKeyRecord[]; revision: number; clearStaged: boolean },
+    args: {
+      keys: VaultKeyRecord[]
+      revision: number
+      clearStaged: boolean
+      /** The staged key this commit activates. Counts as adopted only if it is
+       * exactly meta.staged and is in `keys`. */
+      activated?: VaultKeyRecord
+    },
     scopeToken?: VaultScopeToken,
     tagger?: VaultMetaTagger,
     expectedMeta?: VaultMeta
@@ -1426,15 +1401,33 @@ export const vaultStore = {
       }
       if (next.recovery) {
         const kept = new Set(metaPairs(next).map(pairId))
-        const adopted = (next.recovery.adopted ?? []).filter(p => kept.has(pairId(p)))
+        // The activated key passed its own live challenge and the existing-key
+        // signed re-lock named it. Only the key that was staged and is now in
+        // the committed list qualifies; nothing else gains proof here.
+        const act = args.clearStaged ? args.activated : undefined
+        const activatedPair =
+          act !== undefined &&
+          meta.staged !== undefined &&
+          pairId(act) === pairId(meta.staged) &&
+          next.keys.some(k => pairId(k) === pairId(act))
+            ? { serial: act.serial, pubkey: act.pubkey }
+            : undefined
+        const prior = next.recovery.adopted
+        // Legacy shape (serials only, `adopted` undefined) proves nothing and is
+        // left as it was.
+        const base =
+          activatedPair && prior !== undefined && !prior.some(p => pairId(p) === pairId(activatedPair))
+            ? [...prior, activatedPair]
+            : prior
+        const adopted = (base ?? []).filter(p => kept.has(pairId(p)))
         const serials = new Set(metaPairs(next).map(k => k.serial))
         next.recovery = {
           required: true,
           adoptedSerials:
-            next.recovery.adopted === undefined
+            base === undefined
               ? next.recovery.adoptedSerials.filter(s => serials.has(s))
               : [...new Set(adopted.map(p => p.serial))],
-          ...(next.recovery.adopted === undefined ? {} : { adopted })
+          ...(base === undefined ? {} : { adopted })
         }
       }
       await writeMetaAndTag(token, next, tagger)
@@ -1518,7 +1511,7 @@ export const vaultStore = {
     })
   },
 
-  /** Same laundering caveat as addKey: the caller (VaultScreen's rename
+  /** Same laundering caveat as stageKey: the caller (VaultScreen's rename
    * action) must establish `meta` is trustworthy via requireAuthenticatedMeta
    * before supplying a `tagger`. */
   async renameKey(
@@ -1597,7 +1590,7 @@ export const vaultStore = {
    * this fix shipped — or explicitly cleared). Read by
    * transfers.ts's requireAuthenticatedMeta and by every meta-mutating
    * caller that must verify `current` before trusting it as the basis for a
-   * freshly tagged `next` (see addKey/beginKeyRemoval/renameKey's laundering
+   * freshly tagged `next` (see stageKey/beginKeyRemoval/renameKey's laundering
    * caveat above). */
   async getMetaTag(scopeToken?: VaultScopeToken): Promise<string | null> {
     const token = scopeToken ?? captureScope(true)

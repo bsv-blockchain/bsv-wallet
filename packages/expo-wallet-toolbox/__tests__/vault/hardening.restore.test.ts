@@ -461,6 +461,25 @@ describe('hardening: scans add outputs only, set conflicting records apart, keep
     expect(wallet.localVaultOutpoints()).toHaveLength(1)
   })
 
+  it('a failed tapped restore changes nothing: the unproven planted meta and its tag stay when requireGroup throws', async () => {
+    await publishVaultTx(wallet, chain, 1, [A, B], 300_000, { revision: 1 })
+    await publishVaultTx(wallet, chain, 2, [X, Y], 100_000, { revision: 99 })
+    await recoverVaultFromChain(wallet, ADMIN, lookup(), CHAIN)
+    const metaBefore = await vaultStore.getMeta()
+    const tagBefore = await vaultStore.getMetaTag()
+    expect(metaBefore?.revision).toBe(99)
+
+    await expect(
+      recoverVaultWithKey(wallet, ADMIN, lookup(), CHAIN, proveWith(A), undefined, { groupId: 'nope' })
+    ).rejects.toMatchObject({ code: 'key-opens-nothing' })
+    expect(await vaultStore.getMeta()).toEqual(metaBefore)
+    expect(await vaultStore.getMetaTag()).toEqual(tagBefore)
+
+    // A later restore without the bad option still repairs it.
+    await recoverVaultWithKey(wallet, ADMIN, lookup(), CHAIN, proveWith(A))
+    expect(pubkeys((await vaultStore.getMeta())!.keys)).toEqual(pubkeys([A, B]))
+  })
+
   it('review fix 1: meta at revision 2, real output at revision 1, a planted revision-1 variant with other keys does not wedge scan or rebuild', async () => {
     await seedMeta({ revision: 2 })
     const real = await publishVaultTx(wallet, chain, 1, [A, B], 300_000, { revision: 1 })

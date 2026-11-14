@@ -203,6 +203,25 @@ describe('hardening: salt index checked against the chain (salt-reuse)', () => {
     expect(createAction).not.toHaveBeenCalled()
   })
 
+  it('a raw Error from markerHistory becomes lookup-unknown and refuses before any tap', async () => {
+    setVaultChainLookup({
+      ...fakeChainLookup(chain),
+      markerHistory: async () => {
+        throw new Error('socket hang up')
+      }
+    })
+    const createAction = jest.spyOn(wallet, 'createAction')
+    const err = await depositToVault(wallet, ADMIN, 250_000).then(
+      () => null,
+      e => e
+    )
+    expect(err).toBeInstanceOf(VaultError)
+    expect(err.code).toBe('lookup-unknown')
+    expect(err.details).toEqual({ reason: 'request-failed', index: 1 })
+    expect(requestVaultSigner).not.toHaveBeenCalled()
+    expect(createAction).not.toHaveBeenCalled()
+  })
+
   it('unknown with rows (window-full) counts as used and skips', async () => {
     const lookup: VaultChainLookup = {
       ...fakeChainLookup(chain),

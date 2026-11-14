@@ -269,14 +269,8 @@ describe('vaultStore v6', () => {
     ).rejects.toMatchObject({ code: 'template-invalid' })
   })
 
-  it('addKey increments the revision and rejects duplicate serials or pubkeys', async () => {
-    await vaultStore.setMeta(META)
-    const next = await vaultStore.addKey(key(3))
-    expect(next.revision).toBe(2)
-    expect(next.keys).toHaveLength(3)
-    await expect(vaultStore.addKey({ ...key(4), pubkey: key(1).pubkey })).rejects.toMatchObject({
-      code: 'key-already-enrolled'
-    })
+  it('S-1: vaultStore no longer exposes an addKey that appends a key without proof', () => {
+    expect((vaultStore as unknown as Record<string, unknown>).addKey).toBeUndefined()
   })
 
   it('stageKey writes meta.staged only (keys and revision unchanged); discardStagedKey drops it; the limits hold', async () => {
@@ -362,10 +356,9 @@ describe('vaultStore v6', () => {
     // A full vault holds one replacement key beyond the lock (owner rule
     // 2026-09-25) and refuses a seventh.
     await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3), key(4), key(5)] })
-    const six = await vaultStore.addKey(key(6))
-    expect(six.keys).toHaveLength(6)
+    await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3), key(4), key(5), key(6)] })
     expect((await vaultStore.getMeta())!.keys).toHaveLength(6)
-    await expect(vaultStore.addKey(key(7))).rejects.toMatchObject({ code: 'too-many-keys' })
+    await expect(vaultStore.stageKey(key(7))).rejects.toMatchObject({ code: 'too-many-keys' })
   })
 
   it('stores a six-key list, refuses seven, and removes from six back to five', async () => {
@@ -421,18 +414,18 @@ describe('vaultStore v6', () => {
 
     const note = vaultStore.noteLastUsed(key(1).serial)
     await readStarted
-    const add = vaultStore.addKey(key(3))
+    const add = vaultStore.stageKey(key(3))
     await Promise.resolve()
-    // addKey is queued behind noteLastUsed, so it cannot read the old record.
+    // stageKey is queued behind noteLastUsed, so it cannot read the old record.
     expect(getSpy).toHaveBeenCalledTimes(1)
     releaseRead(JSON.stringify(META))
     await Promise.all([note, add])
     getSpy.mockRestore()
 
     const final = await vaultStore.getMeta()
-    expect(final?.keys.map(k => k.serial)).toEqual([key(1).serial, key(2).serial, key(3).serial])
+    expect(final?.staged).toEqual(key(3))
     expect(final?.lastUsedSerial).toBe(key(1).serial)
-    expect(final?.revision).toBe(2)
+    expect(final?.revision).toBe(META.revision)
   })
 
   it('never lets a late mutation write wallet A metadata into wallet B', async () => {
@@ -451,7 +444,7 @@ describe('vaultStore v6', () => {
         })
     )
 
-    const lateAdd = vaultStore.addKey(key(3))
+    const lateAdd = vaultStore.stageKey(key(3))
     const rejected = expect(lateAdd).rejects.toMatchObject({ code: 'scope-changed' })
     await readStarted
 
@@ -486,7 +479,7 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
     expect(await vaultStore.getMetaTag()).toBeNull()
 
     const tagger = jest.fn(async () => 'tag-for-next')
-    const added = await vaultStore.addKey(key(3), undefined, tagger, META)
+    const added = await vaultStore.stageKey(key(3), undefined, tagger, META)
     expect(tagger).toHaveBeenCalledWith(added)
     expect(await vaultStore.getMetaTag()).toBe('tag-for-next')
   })
@@ -509,7 +502,7 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
     const tagger = jest.fn(async () => {
       throw new Error('wallet refused')
     })
-    await expect(vaultStore.addKey(key(3), undefined, tagger, before!)).rejects.toThrow('wallet refused')
+    await expect(vaultStore.stageKey(key(3), undefined, tagger, before!)).rejects.toThrow('wallet refused')
     expect(await vaultStore.getMeta()).toEqual(before)
     expect(await vaultStore.getMetaTag()).toBeNull()
   })
@@ -624,7 +617,7 @@ describe('authenticated mutation snapshots', () => {
         operation === 'rename'
           ? vaultStore.renameKey(key(2).serial, 'Renamed', undefined, tagger, authenticated)
           : operation === 'add'
-            ? vaultStore.addKey(key(5), undefined, tagger, authenticated)
+            ? vaultStore.stageKey(key(5), undefined, tagger, authenticated)
             : vaultStore.beginKeyRemoval(key(3).serial, undefined, tagger, authenticated)
       await expect(attempt).rejects.toMatchObject({ code: 'template-invalid' })
       expect(tagger).not.toHaveBeenCalled()

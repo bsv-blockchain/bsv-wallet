@@ -274,6 +274,21 @@ describe('wocChainLookup.markerHistory', () => {
     for (const init of seen) expect(init).toMatchObject({ headers: { 'woc-api-key': 'k' } })
   })
 
+  it.each([
+    ['a Headers instance', () => new Headers({ 'woc-api-key': 'k' })],
+    ['an array of pairs', () => [['woc-api-key', 'k']] as [string, string][]],
+    ['a plain object', () => ({ 'woc-api-key': 'k' })]
+  ])('S-3: the app key header survives when requestInit.headers is %s', async (_name, make) => {
+    const seen: RequestInit[] = []
+    global.fetch = jest.fn(async (_u: string, init?: RequestInit) => {
+      seen.push(init!)
+      return { ok: false, status: 404, json: async () => ({}), text: async () => '' } as unknown as Response
+    }) as unknown as typeof fetch
+    await wocChainLookup('main', { headers: make() }).markerHistory!(MARKER_SCRIPT_HEX)
+    expect(seen).toHaveLength(3)
+    for (const init of seen) expect(new Headers(init.headers).get('woc-api-key')).toBe('k')
+  })
+
   it('markerAddress gives the base58 address of a P2PKH script and undefined otherwise', () => {
     const l = wocChainLookup('main')
     expect(l.markerAddress!(MARKER_SCRIPT_HEX)).toBe(Utils.toBase58Check(Utils.toArray('11'.repeat(20), 'hex'), [0x00]))

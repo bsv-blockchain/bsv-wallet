@@ -37,6 +37,28 @@ Vault hardening: a planted key, a stale scan or a reset on a new phone can no lo
 
 - The audit ids `planted-key`, `planted-lockout`, `add-key`, `late-key`, `salt-reuse`, `scan-shadow`, `decoy-wedge`, `scan-silent` (library result), `no-rescan` (library entry), `reset-new-phone` (library gate), `primary-key` and `slices` (library half).
 
+### Breaking changes for the app
+
+Every item below can break an app that built against 0.24.x.
+
+- **`VaultChainLookup` left `chainRecovery.ts`.** The type was re-exported from `core/services/vault/chainRecovery`; it now lives only in `core/services/vault/markerLookup` (a deep import of the old path stops compiling). The package root still exports it, because `core/index.ts` star-exports `markerLookup`. Change `import { type VaultChainLookup } from '.../chainRecovery'` to `markerLookup` or the package root.
+- **`vaultStore.addKey` is removed.** It appended a key to `meta.keys` with no proof and had no caller. A key is added with `addVaultKey` (it stages) and activated by a re-lock or `activateStagedKeyWithoutOutputs`.
+- **`addVaultKey` no longer commits the key.** It stages it in `meta.staged`. Screens that read `meta.keys` right after it must read `meta.staged` and run the activation step. `VaultMeta` gains `staged`, and `recovery.adopted` (pairs of serial and pubkey).
+- **Five new `VaultErrorCode` values** (`lookup-unknown`, `keys-unproven`, `not-enough-proven-keys`, `chain-check-required`, `no-mnemonic`). A host `Record<VaultErrorCode, ...>` or exhaustive `switch` fails to compile until it handles them. `lookup-unknown` is not in the library's retry set.
+- **`resetPivApplication` throws `chain-check-required`** unless it gets a `fundsClearance` from `checkVaultCardFunds` or `acknowledgeFundsLoss: true`.
+- **A deposit, a partial withdrawal and a re-lock need the chain.** Salt indexes are checked against WhatsOnChain; a failed or rate-limited check throws `lookup-unknown` before any tap. They no longer work fully offline. A full withdrawal still does not need it.
+- **Deposits throw `keys-unproven`** while any key of a restored vault is unproven. Re-lock and partial withdrawal throw it too, unless `acceptDroppingUnproven` is set, and then need two proven keys (`not-enough-proven-keys`).
+- **`recoverVaultWithKey` and `recoverVaultFromChain` can return `conflict: true` with `found: 0`** and nothing restored. The host must offer a group (`options.groupId`). A scan never adds keys or revisions to a local meta.
+- **`recoverVaultFromTxids` refuses `maxIndex` above 1000** (`template-invalid`). Default is 200.
+- **`wocChainLookup` reads three endpoints** (confirmed history with paging, unconfirmed history, plain history). `requestInit.headers` may be a plain object, a `Headers` instance or an array of pairs.
+- **`metaFromVerifiedOutputs` no longer returns a `pendingRemoval`.**
+- **`adoptVaultKey` without `authority`** records a session proof only; it is lost on app restart.
+- **`wocChainLookup` moved to `core/services/vault/wocLookup`.** `chainRecovery.ts` still re-exports it, and the package root exports it once.
+- **`VaultChainRecoveryResult` is now an alias of `VaultScanResult`**, which has more fields (`status`, `problemCount`, `unknownIndexes`, `groups`, `setApart`, `conflict` and others). Code that builds such a result by hand needs them.
+- **`ShareCompatibilityIssue` gains `print-mismatch`.** An exhaustive `switch` over it fails to compile. A slice may carry a print ID after its four parts.
+- **`recoverVaultMetaFromOutputs` takes an optional group** (`vaultId`, `createdAt`, `revision`, `keys`), and `vaultStore.markKeyAdopted` takes more optional arguments. Calls without them still compile.
+- **A vault scan ignores outputs below `VAULT_SCAN_MIN_SATS`** (100,000 sat), and `ignoredBelowMinimum` counts them.
+
 ### Host changes needed
 
 - Regenerate the app's `patches/@bsv+expo-wallet-toolbox` patch for 0.25.0.

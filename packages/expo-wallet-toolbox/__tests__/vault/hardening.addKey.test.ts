@@ -277,6 +277,80 @@ describe('hardening: a new key is staged until an existing key re-locks (add-key
     expect(world.chain.tx(spend.txid)!.inputs.map(i => i.sourceTransaction!.id('hex'))).toEqual([relock.txid])
   })
 
+  it('S-2 regression: restored meta, add key C, activate by re-lock signed by A, then a deposit succeeds with no extra tap for C', async () => {
+    const world = await newWorld(3)
+    const [A, B, C] = world.keys
+    const phone = await enrolledPhone(world, [A, B], [500_000])
+    // The phone is now a restored one: both keys were tapped (adopted), nothing else.
+    const enrolled = (await vaultStore.getMeta())!
+    await seedOwnMeta(phone, {
+      ...enrolled,
+      recovery: {
+        required: true,
+        adoptedSerials: [A.serial, B.serial],
+        adopted: [A, B].map(k => ({ serial: k.serial, pubkey: k.pubkey }))
+      }
+    })
+    await addKeyThroughWizard(phone, C)
+    armSigner(world.mock, A.serial)
+    await relockVault(phone, ADMIN, 'Add key', A.serial, { activateStagedKey: C.serial })
+    const meta = (await vaultStore.getMeta())!
+    expect(serials(meta.keys)).toEqual(serials([A, B, C]))
+    expect(meta.staged).toBeUndefined()
+    expect(meta.recovery?.adopted?.map(p => p.serial).sort()).toEqual(serials([A, B, C]).sort())
+
+    // No tap of C: a deposit committing {A,B,C} works, signed by A only.
+    ;(requestVaultSigner as jest.Mock).mockClear()
+    armSigner(world.mock, A.serial)
+    const deposit = await depositToVault(phone, ADMIN, 250_000, { outputKeySerial: A.serial })
+    const lock = await newLock(phone, world, deposit.txid)
+    expect(lock.instructionSerials).toEqual(serials([A, B, C]))
+  })
+
+  it('S-2: a staged key that a re-lock did not name gains no proof; a commit naming another key adopts nothing', async () => {
+    const world = await newWorld(4)
+    const [A, B, C, X] = world.keys
+    const phone = await enrolledPhone(world, [A, B], [500_000])
+    const enrolled = (await vaultStore.getMeta())!
+    await seedOwnMeta(phone, {
+      ...enrolled,
+      recovery: {
+        required: true,
+        adoptedSerials: [A.serial, B.serial],
+        adopted: [A, B].map(k => ({ serial: k.serial, pubkey: k.pubkey }))
+      }
+    })
+    await addKeyThroughWizard(phone, X)
+    // A re-lock signed by A that does not name X leaves X staged and unproven.
+    armSigner(world.mock, A.serial)
+    await relockVault(phone, ADMIN, 'Re-lock', A.serial)
+    const after = (await vaultStore.getMeta())!
+    expect(after.staged).toEqual(X)
+    expect(serials(after.keys)).toEqual(serials([A, B]))
+    expect(after.recovery?.adopted?.some(p => p.serial === X.serial)).toBe(false)
+
+    // Direct commit that names a key other than meta.staged (X) adopts nothing.
+    await vaultStore.commitLockKeySet({ keys: [A, B, C], revision: 5, clearStaged: true, activated: C })
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.recovery?.adopted?.some(p => p.serial === C.serial)).toBe(false)
+    expect(meta.recovery?.adopted?.some(p => p.serial === X.serial)).toBe(false)
+  })
+
+  it('S-2: a legacy recovery meta (serials only) is left in its legacy shape by an activation', async () => {
+    const world = await newWorld(3)
+    const [A, B, C] = world.keys
+    const phone = await enrolledPhone(world, [A, B], [])
+    const enrolled = (await vaultStore.getMeta())!
+    await seedOwnMeta(phone, {
+      ...enrolled,
+      recovery: { required: true, adoptedSerials: [A.serial] }
+    })
+    await vaultStore.stageKey(C)
+    await vaultStore.commitLockKeySet({ keys: [A, B, C], revision: 2, clearStaged: true, activated: C })
+    const meta = (await vaultStore.getMeta())!
+    expect(meta.recovery).toEqual({ required: true, adoptedSerials: [A.serial] })
+  })
+
   it('relockVault with activateStagedKey equal to another serial refuses (not-enrolled) before any tap; the key stays staged', async () => {
     const world = await newWorld(3)
     const [A, B, C] = world.keys

@@ -510,6 +510,8 @@ export async function recoverVaultWithKey(
 
 /** Most transaction IDs one `recoverVaultFromTxids` call accepts. */
 export const VAULT_TXID_RESTORE_MAX = 50
+/** Highest `maxIndex` recoverVaultFromTxids accepts (one derivation each). */
+export const VAULT_TXID_RESTORE_MAX_INDEX = 1000
 
 const TXID_PATTERN = /^[0-9a-f]{64}$/
 const P2PKH_PATTERN = /^76a914[0-9a-f]{40}88ac$/
@@ -538,6 +540,12 @@ export async function recoverVaultFromTxids(
 ): Promise<VaultScanResult> {
   if (!Number.isSafeInteger(maxIndex) || maxIndex < 1) {
     throw new VaultError('template-invalid', 'Vault restore index limit must be a positive integer')
+  }
+  if (maxIndex > VAULT_TXID_RESTORE_MAX_INDEX) {
+    throw new VaultError(
+      'template-invalid',
+      `Vault restore index limit is at most ${VAULT_TXID_RESTORE_MAX_INDEX}, got ${maxIndex}`
+    )
   }
   const distinct: string[] = []
   for (const raw of txids) {
@@ -885,11 +893,14 @@ async function restoreScannedDeposits(
 
   const groups = formGroups(ready, pending)
   let meta = await authenticatedLocalMeta(w, adminOriginator)
+  let replaceMeta = false
   // I-1: a tapped restore over an authentic local meta that carries no proof
   // (recovery.required, nothing adopted) and does not hold the tapped key has
   // no authority: a planted lineage record can have produced it. Forget the
   // meta and its tag (outputs stay) and rebuild from the chosen group. This
-  // cannot weaken R2, because a meta with no proof gates nothing.
+  // cannot weaken R2, because a meta with no proof gates nothing. The meta is
+  // forgotten only directly before the rebuild from the chosen group (below), so a
+  // restore that throws or chooses nothing changes nothing.
   if (meta && selection.pubkey && meta.recovery?.required && (meta.recovery.adopted ?? []).length === 0) {
     const tapped = selection.pubkey
     const holdsTapped =
@@ -897,8 +908,7 @@ async function restoreScannedDeposits(
       meta.staged?.pubkey === tapped ||
       meta.pendingRemoval?.key.pubkey === tapped
     if (!holdsTapped) {
-      await vaultStore.forgetSetup(scopeToken)
-      selection.metaReplaced = true
+      replaceMeta = true
       meta = null
     }
   }
@@ -973,6 +983,12 @@ async function restoreScannedDeposits(
   // and no local meta: nothing to rebuild from, and no guessing.
   if (meta) await recoverVaultMetaFromOutputs(w, adminOriginator)
   else if (chosenGroup) {
+    // The unproven meta is dropped only now, directly before its rebuild from
+    // the chosen group; every step that can throw has already run.
+    if (replaceMeta) {
+      await vaultStore.forgetSetup(scopeToken)
+      selection.metaReplaced = true
+    }
     await recoverVaultMetaFromOutputs(w, adminOriginator, {
       vaultId: chosenGroup.vaultId,
       createdAt: chosenGroup.createdAt,

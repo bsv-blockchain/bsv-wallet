@@ -114,6 +114,17 @@ describe('hardening: restore from a transaction ID (scan-shadow exit)', () => {
     expect(wallet.localVaultOutpoints()).toEqual([`${real.txid}.0`])
   })
 
+  it('maxIndex has an upper bound: a huge value throws a clear VaultError before any derivation', async () => {
+    const lookup = fakeChainLookup(chain)
+    const tx = 'ab'.repeat(32)
+    for (const bad of [1001, 1_000_000_000, Number.MAX_SAFE_INTEGER]) {
+      await expect(recoverVaultFromTxids(wallet, ADMIN, lookup, CHAIN, [tx], bad)).rejects.toMatchObject({
+        code: 'template-invalid',
+        message: expect.stringContaining('at most 1000')
+      })
+    }
+  })
+
   it('a txid that is not a vault transaction reports a problem and internalizes nothing', async () => {
     const plain = new Transaction()
     plain.addOutput({ satoshis: 5000, lockingScript: new P2PKH().lock(Utils.toArray('d4'.repeat(20), 'hex')) })

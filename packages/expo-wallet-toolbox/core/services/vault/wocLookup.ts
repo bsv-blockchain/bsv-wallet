@@ -16,6 +16,19 @@ export const VAULT_HISTORY_LEGACY_CAP = 100
 /** Pages read before the window counts as full (5,000 confirmed rows). */
 export const VAULT_HISTORY_MAX_PAGES = 5
 
+/** Merge two HeadersInit values (plain object, Headers instance or array of
+ * pairs) into a plain object. Later names win on a clash. */
+function mergeHeaders(base?: HeadersInit, over?: HeadersInit): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const part of [base, over]) {
+    if (!part) continue
+    new Headers(part).forEach((value, name) => {
+      out[name] = value
+    })
+  }
+  return out
+}
+
 /**
  * Production VaultChainLookup over WhatsOnChain, following the exact request
  * patterns already used by core/pay/rails/address.ts (getUtxosForAddress,
@@ -41,7 +54,7 @@ export function wocChainLookup(chain: AppChain, requestInit?: RequestInit): Vaul
     return fetch(url, {
       ...requestInit,
       ...init,
-      headers: { ...(requestInit.headers as Record<string, string>), ...(init?.headers as Record<string, string>) }
+      headers: mergeHeaders(requestInit.headers, init?.headers)
     })
   }
 

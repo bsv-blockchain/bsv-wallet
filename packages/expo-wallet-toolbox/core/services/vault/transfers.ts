@@ -2242,7 +2242,19 @@ export async function allocateSaltIndex(args: {
   const start = Math.max(args.floor, saltFloorFor(storageKey)) + 1
   for (let k = start; k < start + maxProbe; k++) {
     const script = (await deriveVaultMarkerScript(w, adminOriginator, chain, String(k))).toHex()
-    const history = await lookupMarker(lookup, script)
+    let history: Awaited<ReturnType<typeof lookupMarker>>
+    try {
+      history = await lookupMarker(lookup, script)
+    } catch (e) {
+      if (e instanceof VaultError) throw e
+      // A raw lookup error is unknown, never "free": fail closed.
+      throw new VaultError(
+        'lookup-unknown',
+        `Could not check whether Vault salt index ${k} is already used (${e instanceof Error ? e.message : 'lookup failed'})`,
+        undefined,
+        { reason: 'request-failed', index: k }
+      )
+    }
     if (history.status === 'none') {
       noteSaltFloor(storageKey, k - 1)
       return k
@@ -2284,7 +2296,12 @@ async function commitPlannedKeySet(
   if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
   const currentMeta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
   await vaultStore.commitLockKeySet(
-    { keys: plan.lockKeys, revision: plan.revision, clearStaged: plan.activated !== undefined },
+    {
+      keys: plan.lockKeys,
+      revision: plan.revision,
+      clearStaged: plan.activated !== undefined,
+      ...(plan.activated ? { activated: plan.activated } : {})
+    },
     scopeToken,
     next => computeVaultMetaAuthorityTag(asHmacWallet(w), adminOriginator, next, scope),
     currentMeta
@@ -3999,7 +4016,7 @@ export async function beginVaultKeyRemoval(
     assertVaultScope(scopeToken)
     // XR-002: this is a meta-mutating write (beginKeyRemoval), not an
     // output-creating one, but its own `next` must still be tagged from an
-    // already-trustworthy `meta` — see vaultStore.addKey's laundering
+    // already-trustworthy `meta` — see vaultStore.stageKey's laundering
     // caveat, which applies identically here.
     const meta = await requireAuthenticatedMeta(w, adminOriginator, scopeToken, await requireMeta(scopeToken))
     const scope = vaultStore.getScope()
