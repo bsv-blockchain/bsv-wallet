@@ -2,10 +2,11 @@
  * Backup shares — Shamir 2-of-3 recovery paper.
  *
  * The secret being split is the MNEMONIC ENTROPY, per BRC-157, not the primary
- * key at m/0'/0'. That derivation is hardened and one-way, so shares of it can
- * restore spending authority but can never rebuild the phrase — and the vault
- * key needs the phrase. Splitting the entropy makes paper and phrase two
- * encodings of one secret.
+ * key at m/0'/0'. That derivation is hardened and one-way, so shares of the
+ * primary key restore spending authority and the wallet half of the Vault
+ * secret, but never the phrase. The Vault refuses to be set up on a wallet that
+ * has no phrase (`requireMnemonicWallet`). Splitting the entropy makes paper
+ * and phrase two encodings of one secret.
  *
  * The split payload is always exactly 32 bytes:
  *

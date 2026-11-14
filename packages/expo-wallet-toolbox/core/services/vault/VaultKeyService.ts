@@ -34,6 +34,7 @@ import { compressPubkey, type VaultInstructionKey, type VaultInstructions } from
 import { randomBytes } from './random'
 import { withKeySession, VaultSessionGuard } from './session'
 import { VaultError } from './types'
+import { requireMnemonicWallet } from './walletKind'
 import {
   isVaultKeyRecord,
   isVaultMeta,
@@ -391,6 +392,7 @@ export async function enrollKey(args: {
   wallet: HmacCapableWallet
   adminOriginator: string
 }): Promise<VaultKeyRecord> {
+  await requireMnemonicWallet()
   const driver = getVaultDriver()
   if (!driver) throw new VaultError('driver-unavailable')
   const scopeToken = args.scopeToken ?? vaultStore.captureScopeToken()
@@ -759,6 +761,7 @@ export async function resumeEnrollmentDraft(args: {
   wallet: HmacCapableWallet
   adminOriginator: string
 }): Promise<VaultKeyRecord> {
+  await requireMnemonicWallet()
   if (!isVaultKeyRecord(args.entry.record)) {
     throw new VaultError('template-invalid', 'Invalid enrollment recovery handle')
   }
@@ -1107,6 +1110,7 @@ export async function finalizeEnrollment(
   scopeToken: VaultScopeToken | undefined,
   authority: VaultWalletAuthority
 ): Promise<void> {
+  await requireMnemonicWallet()
   if (records.length < VAULT_MIN_KEYS) {
     throw new VaultError('not-enough-keys', `A vault needs at least ${VAULT_MIN_KEYS} keys; ${records.length} given`)
   }

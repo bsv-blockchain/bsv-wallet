@@ -97,7 +97,7 @@ export async function generatePrintHTML(
         <p>${
           format === 'entropy'
             ? 'Any two of these pages rebuild your twelve-word recovery phrase, and therefore your entire wallet — everyday balance and vault alike. Treat two pages together as you would the phrase itself.'
-            : 'These shares are an older format. They restore your everyday balance but cannot open a vault.'
+            : 'These shares are an older format. They restore your everyday balance. A vault can only be set up on a wallet made from a recovery phrase.'
         }</p>
         <p>To recover: In ${appName}, go to Import Existing Wallet &rarr; Scan Backup Shares.</p>
       </div>
