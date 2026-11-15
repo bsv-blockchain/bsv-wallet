@@ -27,11 +27,11 @@ const PLACEHOLDERS: Record<string, string[]> = {
   bridge_done_n_sites: ['{{n}}']
 }
 const GLYPH = '◀ Safari'
-const LOCALES = ['en', 'es', 'zh', 'hi', 'fr', 'ar', 'pt', 'bn', 'ru', 'id', 'ja', 'pl']
+const LOCALES = ['en', 'es', 'zh', 'hi', 'fr', 'ar', 'pt', 'bn', 'ru', 'id', 'ja', 'pl', 'is']
 const tr = (code: string) => (resources as Record<string, { translation: Record<string, string> }>)[code].translation
 
 describe('bridge done screen wording', () => {
-  it('covers exactly the 12 locales', () => {
+  it('covers exactly the 13 locales', () => {
     expect(Object.keys(resources).sort()).toEqual([...LOCALES].sort())
   })
 

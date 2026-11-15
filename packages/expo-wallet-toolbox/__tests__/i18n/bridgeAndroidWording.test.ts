@@ -2,11 +2,11 @@ import { resources } from '../../core/i18n/translations'
 
 // Android loopback bridge copy (spec 6.13). A key missing from a locale would render as a raw key.
 const KEYS = ['bridge_notifications_off', 'bridge_ports_exhausted', 'bridge_not_ready_android']
-const LOCALES = ['en', 'es', 'zh', 'hi', 'fr', 'ar', 'pt', 'bn', 'ru', 'id', 'ja', 'pl']
+const LOCALES = ['en', 'es', 'zh', 'hi', 'fr', 'ar', 'pt', 'bn', 'ru', 'id', 'ja', 'pl', 'is']
 const tr = (code: string) => (resources as Record<string, { translation: Record<string, string> }>)[code].translation
 
 describe('bridge Android wording', () => {
-  it('covers exactly the 12 locales', () => {
+  it('covers exactly the 13 locales', () => {
     expect(Object.keys(resources).sort()).toEqual([...LOCALES].sort())
   })
 
