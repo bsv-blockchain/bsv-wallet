@@ -15425,6 +15425,16 @@ const resources = {
       vault_err_below_dust: 'Þessi upphæð er of lítil til að senda.',
       vault_err_no_transaction: 'Ekki tókst að ljúka færslunni. Reyndu aftur.',
       vault_err_nfc_lost: 'Tengingin rofnaði. Haltu lyklinum kyrrum við símann.',
+      vault_err_lookup_unknown:
+        'Ekki tókst að athuga blokkarkeðjuna núna. Ekkert var breytt. Reyndu aftur eftir augnablik.',
+      vault_err_keys_unproven:
+        'Sumir lyklar í þessu öryggishólfi hafa ekki verið athugaðir á þessum síma enn. Haltu hverjum lykli að símanum til að athuga hann, eða haltu áfram án óathugaðra lykla.',
+      vault_err_not_enough_proven_keys:
+        'Ný læsing þarf tvo athugaða lykla. Athugaðu annan lykil eða bættu við nýjum. Þú getur áfram tekið allt út.',
+      vault_err_chain_check_required:
+        'Athugaðu blokkarkeðjuna með tilliti til eldra öryggishólfs áður en þú endurstillir þennan lykil.',
+      vault_err_no_mnemonic:
+        'Öryggishólf þarf veski sem er búið til úr endurheimtarorðum. Þetta veski var endurheimt úr eldri lykilhlutum.',
       vault_pin_invalid_retry: 'Rangt PIN — {{count}} tilraunir eftir. Smelltu aftur á Taka út til að reyna aftur.',
       vault_pin_invalid_retry_generic: 'Rangt PIN. Smelltu aftur á Taka út til að reyna aftur.',
       vault_disable_row: 'Slökkva á öryggishólfi',
@@ -15675,6 +15685,7 @@ const resources = {
       scan_shares_threshold_mismatch: 'Þröskuldurinn passar ekki við fyrri hluta',
       scan_shares_integrity_mismatch: 'Heilleikadæmið passar ekki — hlutarnir eru af mismunandi lyklum',
       scan_shares_duplicate: 'Þessi hluti hefur þegar verið skannaður',
+      scan_shares_print_mismatch: 'Þessir hlutar eru úr mismunandi prentunum og sameinast ekki',
       scan_shares_biometric_title: 'Lífkennaaðgangur þarf',
       scan_shares_biometric_message: 'Lífkennaaðgangur þarf til að vernda lykla veskisins. Reyndu aftur.',
       recovery_replace_wallet_title: 'Skipta út veskinu á þessum síma?',
@@ -15861,6 +15872,8 @@ const resources = {
       local_pay_queued: 'Vistað — því verður bætt við veskið sjálfkrafa.',
       local_pay_already_paid: 'Þessi beiðni hefur þegar verið greidd.',
       local_pay_failed: 'Greiðsla mistókst',
+      local_pay_wrong_network:
+        'Þessi kóði er fyrir veski á {{theirs}}. Veskið þitt er á {{mine}}, svo þessi greiðsla kemst ekki áleiðis. Skiptu um net, eða biddu hinn aðilann um það.',
       local_pay_network_denied:
         'Aðgangur að staðarneti er af. Kveiktu á honum í stillingum til að greiða tæki í nágrenninu.',
       local_pay_radio_fallback: 'Þráðlaus tenging ekki í boði — sýndu þessum kóða hinu tækinu í staðinn.',
