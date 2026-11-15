@@ -1,8 +1,8 @@
-import { Beef, Transaction } from '@bsv/sdk'
+import { Beef, LockingScript, MerklePath, Transaction, UnlockingScript } from '@bsv/sdk'
 import {
+  BROADCAST_PROVIDER_BUDGET_MS,
   createArcadeBroadcastService,
   createGorillaPoolBroadcastService,
-  createTaalBroadcastService,
   createWocBroadcastService,
   handleArcResponse
 } from '../../core/services/arcadeBroadcastProvider'
@@ -88,7 +88,7 @@ describe('handleArcResponse', () => {
   })
 
   it('treats missing txStatus with ok response as success when the txid matches (built-in ARC parity)', () => {
-    const result = handleArcResponse('TaalArc', { ok: true, status: 200 }, { txid: txids[0] }, txids)
+    const result = handleArcResponse('CustomArc', { ok: true, status: 200 }, { txid: txids[0] }, txids)
     expect(result.status).toBe('success')
   })
 
@@ -117,9 +117,8 @@ describe('handleArcResponse', () => {
 })
 
 describe('ARC-compatible factories post to the path each deployment serves', () => {
-  // Arcade serves POST /tx at the root. TAAL and GorillaPool are standard ARC,
-  // where POST /tx is a 404 ("no matching operation was found") and the route
-  // is POST /v1/tx — probed live 2026-09-24.
+  // Arcade serves POST /tx at the root. GorillaPool runs
+  // the same Arcade server and also serves POST /tx.
   const postOne = async (factory: { service: (beef: Beef, txids: string[]) => Promise<unknown> }) => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -138,32 +137,23 @@ describe('ARC-compatible factories post to the path each deployment serves', () 
 
   it('Arcade posts EF to /tx at the root', async () => {
     const { url, init, ef } = await postOne(
-      createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+      createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb-token')
     )
-    expect(url).toBe('https://arcade-v2-us-1.bsvblockchain.tech/tx')
+    expect(url).toBe('https://broadcast.bsvblockchain.tech/tx')
     expect(init.method).toBe('POST')
     expect(init.headers['Content-Type']).toBe('application/octet-stream')
     expect(init.headers['X-CallbackToken']).toBe('cb-token')
     expect(Array.from(init.body)).toEqual(Array.from(ef))
   })
 
-  it('TAAL posts EF to /v1/tx with its bearer key', async () => {
-    const { url, init, ef } = await postOne(createTaalBroadcastService('https://arc.taal.com', 'taal-key'))
-    expect(url).toBe('https://arc.taal.com/v1/tx')
-    expect(init.method).toBe('POST')
-    expect(init.headers['Content-Type']).toBe('application/octet-stream')
-    expect(init.headers.Authorization).toBe('Bearer taal-key')
-    expect(Array.from(init.body)).toEqual(Array.from(ef))
+  it('trims a trailing slash from a user-entered URL', async () => {
+    const { url } = await postOne(createArcadeBroadcastService('https://broadcast.bsvblockchain.tech/testnet/', 'cb'))
+    expect(url).toBe('https://broadcast.bsvblockchain.tech/testnet/tx')
   })
 
-  it('TAAL testnet posts to /v1/tx', async () => {
-    const { url } = await postOne(createTaalBroadcastService('https://arc-test.taal.com'))
-    expect(url).toBe('https://arc-test.taal.com/v1/tx')
-  })
-
-  it('GorillaPool posts EF to /v1/tx', async () => {
-    const { url, init, ef } = await postOne(createGorillaPoolBroadcastService('https://arc.gorillapool.io'))
-    expect(url).toBe('https://arc.gorillapool.io/v1/tx')
+  it('GorillaPool posts EF to /tx', async () => {
+    const { url, init, ef } = await postOne(createGorillaPoolBroadcastService('https://arcade.gorillapool.io'))
+    expect(url).toBe('https://arcade.gorillapool.io/tx')
     expect(init.method).toBe('POST')
     expect(init.headers['Content-Type']).toBe('application/octet-stream')
     expect(Array.from(init.body)).toEqual(Array.from(ef))
@@ -187,7 +177,7 @@ describe('ARC-compatible factories post to the path each deployment serves', () 
     const tx = new Transaction()
     const beef = new Beef()
     beef.mergeTransaction(tx)
-    const { service } = createTaalBroadcastService('https://arc.taal.com', 'key')
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'key')
     await service(beef, [tx.id('hex')])
     const [, loggedSnippet] = logSpy.mock.calls[0] as [string, string]
     expect(loggedSnippet.length).toBeLessThan(hugeStatus.length)
@@ -196,9 +186,9 @@ describe('ARC-compatible factories post to the path each deployment serves', () 
 })
 
 describe('createWocBroadcastService classification', () => {
-  // createWocBroadcastService returns { name, service(beef, txids) } —
-  // services/arcadeBroadcastProvider.ts:141-155. It reads the LAST tx out of
-  // the beef and POSTs its raw hex, so a minimal empty transaction suffices.
+  // createWocBroadcastService returns { name, service(beef, txids) }.
+  // Each requested txid is posted as raw hex, so a minimal empty transaction
+  // suffices for classification.
   const postOne = async (status: number, body: string) => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: status >= 200 && status < 300,
@@ -215,6 +205,18 @@ describe('createWocBroadcastService classification', () => {
   it('keeps "already in the mempool" as success (same-txid idempotent rebroadcast)', async () => {
     const r = await postOne(422, 'unexpected response code 500: 257: txn-already-in-mempool already in the mempool')
     expect(r.txidResults[0].status).toBe('success')
+    expect(r.txidResults[0].doubleSpend).toBeUndefined()
+  })
+
+  it.each([
+    'txn-already-known',
+    '257: txn-already-known already known',
+    'unexpected response code 500: Transaction already in the block chain',
+    'transaction already in blockchain'
+  ])('treats %j as success (same-txid already known or mined)', async body => {
+    const r = await postOne(422, body)
+    expect(r.txidResults[0].status).toBe('success')
+    expect(r.txidResults[0].serviceError).toBeUndefined()
     expect(r.txidResults[0].doubleSpend).toBeUndefined()
   })
 
@@ -275,7 +277,7 @@ describe('XR-060 remainder: bounds the broadcast body size itself, not just what
     const tx = new Transaction()
     const beef = new Beef()
     beef.mergeTransaction(tx)
-    const { service } = createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb-token')
     const result = await service(beef, [tx.id('hex')])
     expect(result.status).not.toBe('success')
     expect(result.txidResults[0].serviceError).toBe(true)
@@ -373,7 +375,7 @@ describe('XR-060 remainder: bounds the broadcast body size itself, not just what
  * forever — the AbortController's timer was cleared as soon as fetch()
  * resolved, before response.json()/text() ever ran. Since this provider sits
  * first in the UntilSuccess fallback chain, a stall here blocked every later
- * fallback (Taal, GorillaPool, WoC) from ever being tried.
+ * fallback (GorillaPool, WoC) from ever being tried.
  */
 describe('XR-063: a stalled body converts to a serviceError instead of hanging forever', () => {
   beforeEach(() => jest.useFakeTimers())
@@ -393,7 +395,7 @@ describe('XR-063: a stalled body converts to a serviceError instead of hanging f
       json: () => new Promise(() => {})
     }) as unknown as typeof fetch
     const { tx, beef } = txOf()
-    const { service } = createArcadeBroadcastService('https://arcade-v2-us-1.bsvblockchain.tech', 'cb-token')
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb-token')
 
     const pending = service(beef, [tx.id('hex')])
     await jest.advanceTimersByTimeAsync(30_000)
@@ -462,5 +464,310 @@ describe('XQ-011: createWocBroadcastService posts to the network table host', ()
 
   it('scaletest has no WhatsOnChain to broadcast to', () => {
     expect(NETWORKS.scaletest.woc).toBeUndefined()
+  })
+})
+
+function chainedParentChild() {
+  const parent = new Transaction()
+  parent.addOutput({ lockingScript: LockingScript.fromASM('OP_TRUE'), satoshis: 1000 })
+  const child = new Transaction()
+  child.addInput({
+    sourceTransaction: parent,
+    sourceOutputIndex: 0,
+    unlockingScript: new UnlockingScript()
+  })
+  child.addOutput({ lockingScript: LockingScript.fromASM('OP_TRUE'), satoshis: 900 })
+  const beef = new Beef()
+  beef.mergeTransaction(child)
+  return {
+    parent,
+    child,
+    beef,
+    parentId: parent.id('hex'),
+    childId: child.id('hex')
+  }
+}
+
+describe('multi-transaction BEEF', () => {
+  it('posts every txid, parent first, with one result per txid', async () => {
+    const { parent, child, beef, parentId, childId } = chainedParentChild()
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ txStatus: 'SEEN_ON_NETWORK' })
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb-token')
+    const result = await service(beef, [childId, parentId])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(Array.from(fetchMock.mock.calls[0][1].body)).toEqual(Array.from(parent.toEF()))
+    expect(Array.from(fetchMock.mock.calls[1][1].body)).toEqual(Array.from(child.toEF()))
+    expect(result.status).toBe('success')
+    expect(result.txidResults.map(r => r.txid)).toEqual([childId, parentId])
+    expect(result.txidResults.every(r => r.status === 'success')).toBe(true)
+  })
+
+  it('does not post a child whose parent was rejected, and reports it as retryable', async () => {
+    const { beef, parentId, childId } = chainedParentChild()
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ txid: parentId, txStatus: 'REJECTED' })
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb-token')
+    const result = await service(beef, [childId, parentId])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const childResult = result.txidResults.find(r => r.txid === childId)
+    expect(childResult?.status).toBe('error')
+    expect(childResult?.serviceError).toBe(true)
+    expect(childResult?.doubleSpend).toBeUndefined()
+  })
+
+  it('WhatsOnChain posts both /tx/raw bodies, parent hex then child hex', async () => {
+    const { parent, child, beef, parentId, childId } = chainedParentChild()
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => ''
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createWocBroadcastService(NETWORKS.main.woc!)
+    const result = await service(beef, [childId, parentId])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][0]).toMatch(/\/tx\/raw$/)
+    expect(fetchMock.mock.calls[1][0]).toMatch(/\/tx\/raw$/)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ txhex: parent.toHex() })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ txhex: child.toHex() })
+    expect(result.status).toBe('success')
+    expect(result.txidResults.map(r => r.txid)).toEqual([childId, parentId])
+  })
+
+  function chain(n: number) {
+    const txs: Transaction[] = []
+    for (let i = 0; i < n; i++) {
+      const tx = new Transaction()
+      if (i > 0) {
+        tx.addInput({
+          sourceTransaction: txs[i - 1],
+          sourceOutputIndex: 0,
+          unlockingScript: new UnlockingScript()
+        })
+      }
+      tx.addOutput({ lockingScript: LockingScript.fromASM('OP_TRUE'), satoshis: 1000 - i })
+      txs.push(tx)
+    }
+    const beef = new Beef()
+    beef.mergeTransaction(txs[n - 1])
+    return { txs, beef, ids: txs.map(t => t.id('hex')) }
+  }
+
+  const okFetch = () =>
+    jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ txStatus: 'SEEN_ON_NETWORK' }) })
+
+  it('posts unconfirmed ancestors that are not requested', async () => {
+    const { txs, beef, ids } = chain(3)
+    const fetchMock = okFetch()
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    const result = await service(beef, [ids[2]])
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    txs.forEach((tx, i) => {
+      expect(Array.from(fetchMock.mock.calls[i][1].body)).toEqual(Array.from(tx.toEF()))
+    })
+    expect(result.txidResults).toHaveLength(1)
+    expect(result.txidResults[0]).toMatchObject({ txid: ids[2], status: 'success' })
+  })
+
+  it('skips a proven ancestor', async () => {
+    const { txs, beef, ids } = chain(3)
+    const mp = new MerklePath(1, [
+      [
+        { offset: 0, hash: ids[0], txid: true },
+        { offset: 1, duplicate: true }
+      ]
+    ])
+    beef.mergeBump(mp)
+    const fetchMock = okFetch()
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    await service(beef, [ids[2]])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(Array.from(fetchMock.mock.calls[0][1].body)).toEqual(Array.from(txs[1].toEF()))
+  })
+
+  it('a proven requested txid is success and not posted', async () => {
+    const { beef, ids } = chain(2)
+    const mp = new MerklePath(1, [
+      [
+        { offset: 0, hash: ids[0], txid: true },
+        { offset: 1, duplicate: true }
+      ]
+    ])
+    beef.mergeBump(mp)
+    const fetchMock = okFetch()
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    const result = await service(beef, [ids[1], ids[0]])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(result.txidResults).toEqual([
+      expect.objectContaining({ txid: ids[1], status: 'success' }),
+      { txid: ids[0], status: 'success' }
+    ])
+  })
+
+  it("does not mutate the caller's beef", async () => {
+    const { beef, ids } = chain(3)
+    const before = beef.toHex()
+    global.fetch = okFetch() as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    await service(beef, [ids[2]])
+    expect(beef.toHex()).toBe(before)
+  })
+
+  it('a txid-only grandparent gives retryable errors, never throws', async () => {
+    const { beef, ids } = chain(3)
+    beef.makeTxidOnly(ids[0])
+    const fetchMock = okFetch()
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    const result = await service(beef, [ids[1], ids[2]])
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.status).toBe('error')
+    for (const r of result.txidResults) {
+      expect(r.status).toBe('error')
+      expect(r.serviceError).toBe(true)
+    }
+  })
+
+  it('stops at the budget', async () => {
+    const { beef, ids } = chain(5)
+    let now = 1_000_000
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    const fetchMock = jest.fn().mockImplementation(async () => {
+      now += 10_000
+      return { ok: true, status: 200, json: async () => ({ txStatus: 'SEEN_ON_NETWORK' }) }
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    try {
+      const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+      const result = await service(beef, [ids[4], ids[3], ids[0]])
+      expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(3)
+      const byId = new Map(result.txidResults.map(r => [r.txid, r]))
+      expect(byId.get(ids[0])?.status).toBe('success')
+      expect(byId.get(ids[3])).toMatchObject({ status: 'error', serviceError: true, data: 'broadcast budget exceeded' })
+      expect(byId.get(ids[4])).toMatchObject({ status: 'error', serviceError: true, data: 'broadcast budget exceeded' })
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it('stops starting posts well before the Services soft timeout', async () => {
+    const { beef, ids } = chain(10)
+    let now = 1_000_000
+    const t0 = now
+    const starts: number[] = []
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    const fetchMock = jest.fn().mockImplementation(async () => {
+      starts.push(now - t0)
+      now += 5_000
+      return { ok: true, status: 200, json: async () => ({ txStatus: 'SEEN_ON_NETWORK' }) }
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    try {
+      const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+      const result = await service(beef, [ids[9]])
+      expect(Math.max(...starts)).toBeLessThan(BROADCAST_PROVIDER_BUDGET_MS - 1_000)
+      expect(result.txidResults[0]).toMatchObject({
+        status: 'error',
+        serviceError: true,
+        data: 'broadcast budget exceeded'
+      })
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it('bounds an in-flight request so the walk ends before the Services soft timeout', async () => {
+    jest.useFakeTimers()
+    const { beef, ids } = chain(3)
+    const fetchMock = jest.fn().mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+        })
+    )
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    try {
+      const t0 = Date.now()
+      const pending = service(beef, [ids[2], ids[0]])
+      await jest.advanceTimersByTimeAsync(BROADCAST_PROVIDER_BUDGET_MS - 1)
+      const result = await pending
+      expect(Date.now() - t0).toBeLessThan(BROADCAST_PROVIDER_BUDGET_MS)
+      expect(result.txidResults.every(r => r.status === 'error' && r.serviceError === true)).toBe(true)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('result txid is the requested txid', async () => {
+    const { beef, ids } = chain(1)
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ txid: 'ff'.repeat(32), txStatus: 'SEEN_ON_NETWORK' })
+    })
+    global.fetch = fetchMock as unknown as typeof fetch
+    const { service } = createArcadeBroadcastService('https://broadcast.bsvblockchain.tech', 'cb')
+    const result = await service(beef, [ids[0]])
+    expect(result.txidResults[0].txid).toBe(ids[0])
+  })
+})
+
+describe('BSV Broadcaster answers', () => {
+  const id = 'aa'.repeat(32)
+  const classify = (httpStatus: number, data: Parameters<typeof handleArcResponse>[2]) =>
+    handleArcResponse('Arcade', { ok: httpStatus >= 200 && httpStatus < 300, status: httpStatus }, data, [id])
+
+  it('treats a 400 with the posted txid and ARC code 461 as a final rejection', () => {
+    const result = classify(400, { txid: id, status: 461 })
+    expect(result.status).toBe('error')
+    expect(result.serviceError).toBeUndefined()
+    expect(result.doubleSpend).toBeUndefined()
+  })
+
+  it('treats a 400 whose ARC code is the string "464" the same way', () => {
+    const result = classify(400, { txid: id, status: '464' })
+    expect(result.status).toBe('error')
+    expect(result.serviceError).toBeUndefined()
+    expect(result.doubleSpend).toBeUndefined()
+  })
+
+  it.each([460, 462, 465, 466, 476])('keeps a 400 with ARC code %s retryable', code => {
+    const result = classify(400, { txid: id, status: code })
+    expect(result.status).toBe('error')
+    expect(result.serviceError).toBe(true)
+  })
+
+  it('keeps a 400 retryable when its txid is not the posted txid', () => {
+    expect(classify(400, { txid: 'bb'.repeat(32), status: 461 }).serviceError).toBe(true)
+  })
+
+  it('keeps a 400 with no txid and no ARC code retryable', () => {
+    const result = classify(400, { error: 'unsafe callback URL' } as never)
+    expect(result.status).toBe('error')
+    expect(result.serviceError).toBe(true)
+  })
+
+  it('keeps a 503 backpressure answer retryable', () => {
+    const result = classify(503, { error: 'backpressure' } as never)
+    expect(result.status).toBe('error')
+    expect(result.serviceError).toBe(true)
+  })
+
+  it('still maps DOUBLE_SPEND_ATTEMPTED on a 202 to doubleSpend', () => {
+    const result = classify(202, { txid: id, txStatus: 'DOUBLE_SPEND_ATTEMPTED' })
+    expect(result.doubleSpend).toBe(true)
   })
 })

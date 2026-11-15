@@ -118,6 +118,35 @@ export interface Session {
    * instead would break the moment either platform grows a second transport.
    */
   os?: SessionOs
+  /**
+   * The network the payee's wallet is on: an AppChain name ('main', 'test',
+   * 'teratest', …), the same names a till's code carries. Undefined from a
+   * payee whose build predates the field — unknown, not a mismatch.
+   *
+   * A string, not AppChain, on purpose: a name this build does not know (a
+   * newer network) is kept, so the payer still sees a mismatch rather than
+   * paying into it. Without this, a testnet code decodes cleanly on a mainnet
+   * phone and the payment fails with nothing on either screen to say why.
+   * Read it through `sessionNetworkMismatch`.
+   */
+  network?: string
+}
+
+/** A network name on the wire: short, lowercase, so a QR cannot carry copy into the payer's screen. */
+const NETWORK_RE = /^[a-z0-9-]{1,32}$/
+
+/**
+ * Whether a scanned session is for another network than this wallet's.
+ * Null when they match, or when the payee did not say (an older build): an
+ * absent field is never read as a mismatch, or every pre-field payee would
+ * be refused.
+ */
+export function sessionNetworkMismatch(
+  session: Pick<Session, 'network'>,
+  mine: string
+): { theirs: string; mine: string } | null {
+  if (session.network === undefined || session.network === mine) return null
+  return { theirs: session.network, mine }
 }
 
 export function mintSession(args: {
@@ -141,8 +170,11 @@ export function mintSession(args: {
    */
   hints?: number
   os?: SessionOs
+  /** The AppChain this payee's wallet is on. Every minting screen should pass it; see Session.network. */
+  network?: string
 }): Session {
   if (args.identityKey.length !== 66) throw new CodecError('identityKey must be 66 hex chars')
+  if (args.network !== undefined && !NETWORK_RE.test(args.network)) throw new CodecError('bad network')
   // Validated at the mint too, not only at decode: an invalid figure minted
   // here would render on the payee's own screen and be echoed to the payer as
   // an authentic request before any decoder ever saw it.
@@ -193,7 +225,8 @@ export function mintSession(args: {
     ...(args.asset === undefined ? {} : { asset: assetOf(args.asset) }),
     derivationPrefix: args.derivationPrefix,
     derivationSuffix: args.derivationSuffix,
-    ...(args.os === undefined ? {} : { os: args.os })
+    ...(args.os === undefined ? {} : { os: args.os }),
+    ...(args.network === undefined ? {} : { network: args.network })
   }
 }
 
@@ -278,7 +311,10 @@ export function encodeSession(s: Session): string {
           }
         }),
     p: s.derivationPrefix,
-    x: s.derivationSuffix
+    x: s.derivationSuffix,
+    // Additive, so no version bump: a v2 decoder that predates `n` ignores
+    // unknown keys, and one that knows it reads an absent `n` as unknown.
+    ...(s.network === undefined ? {} : { n: s.network })
   })
   return 'bsvpay1:' + toB64url(new TextEncoder().encode(body))
 }
@@ -292,7 +328,7 @@ export function decodeSession(text: string): Session {
     if (e instanceof CodecError) throw e
     throw new CodecError('malformed session payload')
   }
-  const { v, c, s, k, i, a, p, x, o, t } = parsed as Record<string, unknown>
+  const { v, c, s, k, i, a, p, x, o, t, n } = parsed as Record<string, unknown>
   if (v !== SESSION_VERSION) throw new CodecError(`unsupported session version ${String(v)}`)
   if (typeof i !== 'string' || i.length !== 66) throw new CodecError('bad identityKey')
   // An ABSENT `a` is an OPEN request: the payer chooses.
@@ -331,6 +367,12 @@ export function decodeSession(text: string): Session {
   if (psk.length !== 32) throw new CodecError('bad psk length')
   // Tolerant on purpose: 'o' is advisory, from possibly-newer builds.
   const os: SessionOs | undefined = o === 'i' ? 'ios' : o === 'a' ? 'android' : undefined
+  // Not tolerant like 'o': a malformed name refuses the whole code, never
+  // drops to "unknown" — that would let the payment through to the silent
+  // failure this field exists to stop. Only a peer that breaks the codec
+  // writes one. An unfamiliar but well-formed name is kept, and flagged as a
+  // mismatch.
+  if (n !== undefined && (typeof n !== 'string' || !NETWORK_RE.test(n))) throw new CodecError('bad network')
   let asset: SessionAsset | undefined
   if (t !== undefined) {
     if (typeof t !== 'object' || t === null) throw new CodecError('bad asset block')
@@ -358,7 +400,8 @@ export function decodeSession(text: string): Session {
     ...(asset === undefined ? {} : { asset }),
     derivationPrefix: p,
     derivationSuffix: x,
-    ...(os === undefined ? {} : { os })
+    ...(os === undefined ? {} : { os }),
+    ...(n === undefined ? {} : { network: n as string })
   }
 }
 

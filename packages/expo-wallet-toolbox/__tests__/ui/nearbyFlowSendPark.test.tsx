@@ -63,6 +63,8 @@ jest.mock('../../ui/resolveIdentity', () => ({
 jest.mock('../../ui/hooks/useSpendableBalance', () => ({ useSpendableBalance: () => 50_000 }))
 
 let mockScanHandler: ((data: string) => void) | undefined
+/** The chain the mounted storage records; the payer compares networks only when it is the picker's ('main' by default). */
+let mockStorageChain: string | undefined
 jest.mock('../../ui/components/QRScanner', () => ({
   __esModule: true,
   default: (props: { onScan?: (data: string) => void }) => {
@@ -98,7 +100,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     useWalletManagers: () => ({
       managers: { permissionsManager: mockWallet() },
       adminOriginator: 'admin.test',
-      storage: { sqliteDb: {} }
+      storage: { sqliteDb: {}, chain: mockStorageChain }
     }),
     localSupportsAwdl: jest.fn(() => false),
     localSupportsBle: jest.fn(() => false),
@@ -373,5 +375,60 @@ describe('renderPayer', () => {
     })
     expect(mockAwdlSend).toHaveBeenCalledTimes(1)
     expect(mockFinalizeDelivery).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Two phones on different networks: without the check the payment fails with
+// nothing on either screen to say why.
+describe('payer network check', () => {
+  const sessionOn = (network?: string): Session =>
+    mintSession({
+      identityKey: PAYEE_IDENTITY,
+      amount: 2500,
+      derivationPrefix: 'cHJlZml4',
+      derivationSuffix: 'c3VmZml4',
+      supportsAwdl: false,
+      ...(network === undefined ? {} : { network })
+    })
+  const mountPayer = (initialSession: Session) => {
+    const confirm = jest.fn(() => null)
+    const s = wrap(
+      <NearbyFlow role="payer" initialSession={initialSession} onExit={jest.fn()} renderPayer={{ confirm }} />
+    )
+    return { s, confirm }
+  }
+  afterEach(() => {
+    mockStorageChain = undefined
+  })
+
+  it('stops a code from another network before the confirm, and names both networks', async () => {
+    mockStorageChain = 'main'
+    const { s, confirm } = mountPayer(sessionOn('test'))
+    await settle()
+    expect(s.getByText('local_pay_wrong_network:testnet|mainnet')).toBeTruthy()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(mockBuildPaymentFrame).not.toHaveBeenCalled()
+  })
+
+  it('lets a code from the same network through to the confirm', async () => {
+    mockStorageChain = 'main'
+    const { s, confirm } = mountPayer(sessionOn('main'))
+    await settle()
+    expect(confirm).toHaveBeenCalled()
+    expect(s.queryByText(/local_pay_wrong_network/)).toBeNull()
+  })
+
+  it('lets a code with no network (an older payee) through, as before', async () => {
+    mockStorageChain = 'main'
+    const { confirm } = mountPayer(sessionOn())
+    await settle()
+    expect(confirm).toHaveBeenCalled()
+  })
+
+  it('makes no comparison while storage is still the previous chain', async () => {
+    mockStorageChain = 'test'
+    const { confirm } = mountPayer(sessionOn('test'))
+    await settle()
+    expect(confirm).toHaveBeenCalled()
   })
 })

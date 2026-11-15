@@ -306,6 +306,7 @@ export * from './pay/userError'
 export * from './pay/patp'
 export * from './pay/counterparty'
 export * from './pay/rails/address'
+export * from './pay/rails/sweep'
 export * from './pay/rails/handle'
 export * from './pay/rails/direct'
 // nearby.ts is a pure re-export barrel over localpay/* (already exported above)
@@ -467,7 +468,11 @@ export * from './services/vault/ceremonyHost'
 export * from './services/vault/VaultKeyService'
 export * from './services/vault/pivReset'
 export * from './services/vault/transfers'
+export * from './services/vault/lockKeys'
+export * from './services/vault/markerLookup'
 export * from './services/vault/chainRecovery'
+export * from './services/vault/setupGate'
+export * from './services/vault/walletKind'
 
 // Connection/pairing state (QR-paired desktop sessions), the vault ceremony
 // context (React face of the ceremonyHost singleton), and the shared

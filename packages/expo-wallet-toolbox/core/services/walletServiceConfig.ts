@@ -2,6 +2,7 @@ import type { AppChain } from '../config'
 import { toWalletChain } from '../config'
 import { getServiceConfig } from '../toolboxConfig'
 import { NETWORKS } from '../networks'
+import { BROADCAST_PROVIDER_BUDGET_MS } from './arcadeBroadcastProvider'
 import { ChaintracksServiceClient, Services } from '@bsv/wallet-toolbox-mobile'
 import type { ChaintracksClientApi } from '@bsv/wallet-toolbox-mobile'
 import type { ChainTracker } from '@bsv/sdk'
@@ -74,7 +75,7 @@ export function createServiceOptions(
   }
 
   // One resolved Arcade endpoint feeds BOTH option slots. `arcUrl` is the
-  // toolbox's generic ARC slot (broadcast fallback, `services.arcTaal`).
+  // toolbox's generic ARC slot (generic ARC slot).
   // `arcadeUrl` is what makes `Services` construct its `Arcade` provider —
   // and that provider is the only `getMerklePath` source that can answer for
   // a transaction the moment Arcade sees it mined (GET /tx/{txid} carries
@@ -92,11 +93,6 @@ export function createServiceOptions(
   }
   const arcade = { arcUrl: arcadeUrl, arcConfig, arcadeUrl, arcadeConfig: arcConfig }
 
-  // XR-066: taalApiKey must never fall back to whatsOnChainApiKey. TAAL and
-  // WhatsOnChain are different origins (createTaalBroadcastService sends
-  // this key as a Bearer token to arc.taal.com et al. on every ordinary
-  // broadcast) — a host that scoped a key to WhatsOnChain must not have it
-  // silently disclosed to TAAL just because it left taalApiKey unset.
   const updateMsecs = network === 'main' ? 60 * 60 * 1000 : 60 * 60 * 1000000
   return {
     ...base,
@@ -105,7 +101,6 @@ export function createServiceOptions(
     fiatUpdateMsecs: updateMsecs,
     // A network with no WhatsOnChain gets no key: there is no host to send it to.
     whatsOnChainApiKey: NETWORKS[network].woc ? (svc.whatsOnChainApiKey ?? '') : '',
-    taalApiKey: NETWORKS[network].taalArcUrl ? (svc.taalApiKey ?? '') : '',
     chaintracks: chaintracksOverride ?? new ChaintracksServiceClient(walletChain, chaintracksUrlFor(network))
   }
 }
@@ -139,6 +134,12 @@ export function createServices(
     chaintracksOverride
   )
   const services = new Services(serviceOptions)
+  // Each provider gets one flat budget. The toolbox default (5 s + 50 ms per KB,
+  // max 30 s) is shorter than a serial walk of a long unconfirmed chain; the walk
+  // inside a provider stops at the same cap (BROADCAST_PROVIDER_BUDGET_MS).
+  services.postBeefUntilSuccessSoftTimeoutMs = BROADCAST_PROVIDER_BUDGET_MS
+  services.postBeefUntilSuccessSoftTimeoutPerKbMs = 0
+  services.postBeefUntilSuccessSoftTimeoutMaxMs = BROADCAST_PROVIDER_BUDGET_MS
   // `ChaintracksClientApi` declares `isValidRootForHeight` and `currentHeight`
   // (ChaintracksClientApi.d.ts:137-138), which is the whole of `ChainTracker`, so
   // an override is always usable as one directly.

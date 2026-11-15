@@ -11,8 +11,12 @@
  * database, SecureStore, nor any backup service is needed to find or
  * authenticate a v7 output — only the wallet root (the mnemonic), a chain
  * lookup, and — to actually SPEND it — one physically-present enrolled
- * YubiKey, through the unchanged withdraw path. The YubiKey is NOT needed to
- * restore.
+ * YubiKey, through the unchanged withdraw path. A restore needs one
+ * physically-present enrolled YubiKey: a scan alone only REPORTS what the
+ * chain holds (`needsKey`), and a tap (`recoverVaultWithKey`,
+ * `recoverVaultFromTxidsWithKey`) restores it. The one exception is a phone
+ * that already holds a vault with a checked key: there a scan merges new
+ * outputs by outpoint.
  *
  * SCOPE (deliberate, disclosed — design v7 §1.3 "rejected: rebuilding
  * zero-conf ancestor BEEF assembly"): recovery claims CONFIRMED deposits.
@@ -26,16 +30,19 @@
  * reported back as `pendingConfirmation`, never thrown and never silently
  * dropped, and does not consume a gap-scan slot.
  *
- * KEY FILTER: every setup of the same YubiKeys writes fresh PIV keys (and a
- * new vaultId), yet its deposits still authenticate here — the marker and
- * descriptor derive from the wallet root, not the keys. So a scan also finds
- * deposits from earlier setups that nothing the owner still holds can open.
- * Only candidates sharing a key with the live set are internalized: this
- * device's authenticated key list when it has one, otherwise every key of the
- * newest setup the scan found (latest createdAt). The rest are counted as
- * `unreachable`, never inserted.
+ * ADMISSION (a scan only adds outputs): the marker and descriptor derive from
+ * the wallet root, so anyone holding the mnemonic can plant a record, and
+ * earlier setups' deposits authenticate too. Candidates are grouped into
+ * lineages (`vaultId:createdAt`) and, at a lineage's highest revision, into one
+ * variant per distinct key list. With a local, authenticated meta only
+ * candidates of that lineage that add no unknown key are internalized (the rest
+ * are set apart). With a tapped key and no local meta one group is
+ * internalized; more than one is a conflict: nothing is internalized and the
+ * groups are reported. A tapped restore keeps only outputs whose OWN key list
+ * holds the tapped key. With no tapped key and no checked local vault nothing
+ * is internalized.
  */
-import { Transaction, Utils } from '@bsv/sdk'
+import { Hash, Transaction, Utils } from '@bsv/sdk'
 import {
   buildLock,
   commitment,
@@ -46,22 +53,30 @@ import {
   type VaultSaltChain
 } from './r1comb'
 import { VaultError } from './types'
-import { vaultStore } from './vaultStore'
-import { verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
+import { vaultStore, type VaultMeta } from './vaultStore'
+import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
 import {
   VAULT_BASKET,
+  introducesUnknownKey,
   liveVaultPubkeys,
   opensWithAny,
   deriveVaultMarkerScript,
   deriveVaultSalt,
   decryptVaultDescriptorPlaintext,
   parseVaultDescriptorScript,
+  listVaultBasketOutpoints,
   recoverVaultMetaFromOutputs,
   vaultChainKeyId,
   type VaultWallet
 } from './transfers'
-import { wocConfigFor, type WocConfig } from '../../pay/rails/address'
-import type { AppChain } from '../../config'
+import {
+  VAULT_SCAN_MIN_SATS,
+  lookupMarker,
+  noteSaltFloor,
+  type MarkerHistory,
+  type VaultChainLookup
+} from './markerLookup'
+import { p2pkhAddressFromScript } from './wocLookup'
 
 /** Default, caller-raisable gap: consecutive indices with NO marker history
  * (a found-but-unusable record does not count — see below) before the scan
@@ -85,87 +100,118 @@ export const VAULT_RECOVERY_GAP_DEFAULT = 20
  * recovery parameter. */
 export const VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS = 20
 
-/** Defensive cap on how many candidate transactions a single scan index will
- * inspect. A v7 marker is an ordinary P2PKH address that becomes publicly
- * visible the moment its real deposit confirms; nothing stops a stranger
- * from paying arbitrary dust to it afterward. A legitimate index has exactly
- * one real deposit history, so recovery never needs more than a handful of
- * candidates to find it — this only bounds how much free decrypt-and-discard
- * work a targeted victim's recovery can be forced to do. */
-const VAULT_RECOVERY_MAX_CANDIDATES_PER_INDEX = 50
-
-/**
- * Injected chain lookup — the only network/indexer dependency this module
- * has. Unit-tested against an in-memory fake; core/services/vault/wocChainLookup.ts
- * (see below) is the production WhatsOnChain implementation.
- */
-export interface VaultChainLookup {
-  /** Every txid whose output list includes an output with exactly this
-   * locking script — from address history and/or the current unspent set.
-   * An empty result is a genuine "no marker at this index" miss. */
-  transactionsForLockingScript(lockingScriptHex: string): Promise<string[]>
-  /** AtomicBEEF-decodable bytes for `txid` (a plain raw-tx-only BEEF is
-   * fine — recoverOneCandidate only reads `tx.outputs` from it locally; the
-   * bytes handed to `wallet.internalizeAction` are these same bytes, and
-   * ITS OWN chain-tracker validation is the actual SPV gate), plus whether
-   * this lookup can currently show the transaction as confirmed. `null`
-   * means the lookup could not produce usable bytes at all (reported as a
-   * problem, not a miss — see recoverOneCandidate). `confirmed: false` is
-   * the explicit, disclosed zero-conf boundary (see this file's docstring):
-   * recoverOneCandidate reports it as `pendingConfirmation` rather than
-   * attempting `internalizeAction`, which the toolbox's own SPV gate would
-   * otherwise throw on.
-   */
-  transactionForTxid(txid: string): Promise<{ beef: number[]; confirmed: boolean } | null>
-  /** Spent/unspent/unknown for one outpoint. 'unknown' is never trusted as
-   * unspent — see recoverOneCandidate. */
-  outputStatus(outpoint: { txid: string; vout: number }): Promise<'unspent' | 'spent' | 'unknown'>
-}
-
 export interface VaultChainRecoveryProblem {
   /** The scan index (saltKeyId) this problem was found at. */
   index: number
   reason: string
+  /** Base58 marker address of the index, set when known, so a person can look
+   * it up in a block explorer. */
+  markerAddress?: string
 }
 
-export interface VaultChainRecoveryResult {
-  /** Indices newly inserted into 'admin vault' by this run. */
+/** One lineage (`vaultId:createdAt`), or one variant of it, found by a scan. */
+export interface VaultRecoveryGroup {
+  /** '<vaultId>:<createdAt>', or for a variant '<vaultId>:<createdAt>:<16 hex>'. */
+  id: string
+  vaultId: string
+  createdAt: number
+  /** Highest revision in the group. */
+  revision: number
+  /** Key list at that revision. */
+  keys: VaultInstructionKey[]
+  /** Internalizable outputs (at or above the floor, unspent, confirmed). */
+  outputs: number
+  satoshis: number
+}
+
+/** What one scan run found. `found`, `unreachable`, `pendingConfirmation`,
+ * `problems` and `scanned` keep the meaning they always had. */
+export interface VaultScanResult {
+  /** Outputs newly internalized by this run. */
   found: number
-  /** Authenticated, unspent deposits no live key can open (an earlier setup's)
+  /** Authenticated, unspent, and no live key opens them (an earlier setup's)
    * — skipped rather than inserted. See this file's KEY FILTER note. */
   unreachable: number
-  /** Marker history existed and decrypted to a valid, unspent v7 record, but
-   * the lookup could not yet show it as confirmed — the honest zero-conf
-   * scope cut (this file's docstring). Not a miss: does not consume a
-   * gap-scan slot, and is not a "problem" (nothing is wrong; it just isn't
-   * recoverable yet). */
+  /** A valid, unspent v7 record the lookup could not yet show as confirmed —
+   * the honest zero-conf scope cut (this file's docstring). Not a miss and not
+   * a problem. */
   pendingConfirmation: number
-  /** A found-but-unusable record (bad decrypt, wrong version, index/chain
-   * mismatch, lock-rebuild mismatch, unreadable transaction bytes) — reported
-   * distinctly and does NOT count as a "no marker" miss, so a version
-   * mismatch or transient lookup hiccup at one index can never silently
-   * truncate the scan. */
+  /** Valid candidates under VAULT_SCAN_MIN_SATS: counted, never internalized,
+   * not pending and not a problem. */
+  ignoredBelowMinimum: number
+  /** Rows at a marker address that are structurally not a Vault record of
+   * ours: no marker between a vault output and a descriptor, the adjacent
+   * output is not a v7 descriptor, or the descriptor does not decrypt under
+   * this index. Anyone can pay a public marker address, so these are counted
+   * as noise: never a problem, and never a reason for status 'incomplete'. */
+  ignoredNonVault: number
+  /** A found-but-unusable record, an index whose lookup was incomplete, or a
+   * failed internalize. Reported distinctly; none of them counts as a "no
+   * marker" miss, so one bad index can never silently truncate the scan. */
   problems: VaultChainRecoveryProblem[]
+  /** = problems.length */
+  problemCount: number
+  /** Indexes whose lookup was unknown (window full, request failed, rate
+   * limited). Their rows, if any were read, were still examined. */
+  unknownIndexes: number[]
+  /** Highest index with any marker history or any recovered record; 0 if none. */
+  maxUsedIndex: number
   /** Highest index actually scanned this run — surfaced so a UI can offer
-   * "scan further" when the gap default (or a caller-raised one) turns out
-   * to be too small for a heavily re-tried enrollment. */
+   * "scan further" when the gap default turns out to be too small. */
   scanned: number
+  /** 'incomplete' when problemCount > 0 or unknownIndexes is not empty. */
+  status: 'complete' | 'incomplete'
+  /** Every group found (after the tapped-key filter, when there is one),
+   * including set-apart ones. */
+  groups?: VaultRecoveryGroup[]
+  /** True when more than one group is a candidate and nothing was internalized. */
+  conflict?: boolean
+  /** Groups that were not internalized. */
+  setApart?: VaultRecoveryGroup[]
+  /** True when this scan saw at least one Vault record of this wallet and restored none of it, because no key
+   * was tapped and this phone holds no vault with a checked key. Nothing was internalized and no meta was
+   * written. Not an error, not 'incomplete', not "none". The next step is a tap (recoverVaultWithKey or
+   * recoverVaultFromTxidsWithKey). */
+  needsKey?: boolean
 }
+
+/** Options that pick one group when a scan finds several. */
+export interface VaultRestoreOptions {
+  /** A `VaultRecoveryGroup.id`. */
+  groupId?: string
+  /** Alias for `groupId`; matches a lineage with exactly one group. */
+  vaultId?: string
+}
+
+/** Alias kept for existing callers. */
+export type VaultChainRecoveryResult = VaultScanResult
 
 /** An authenticated, unspent candidate, held until the scan ends so the key
  * filter can see every setup before anything is inserted. */
 export interface RecoverableCandidate {
   index: number
+  txid: string
   ci: VaultInstructionsV7
   beef: number[]
   vaultOutputIndex: number
+  satoshis: number
 }
 
 type CandidateOutcome =
   | ({ kind: 'ready' } & RecoverableCandidate)
   | { kind: 'pending'; ci: VaultInstructionsV7 }
   | { kind: 'spent' }
+  | { kind: 'below-minimum' }
+  | { kind: 'non-vault' }
   | { kind: 'problem'; reason: string }
+
+/** True only for the two ways a stranger-planted ciphertext fails to open
+ * under SymmetricKey.decrypt: AES-GCM authentication failure and a ciphertext
+ * too short for IV + tag. Everything else is a wallet-level failure. */
+function isForeignCiphertextError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /decryption failed|ciphertext too short/i.test(message)
+}
 
 /**
  * Locate and authenticate ONE candidate marker transaction for scan index
@@ -205,17 +251,24 @@ async function recoverOneCandidate(
   const vaultOutput = markerIndex >= 1 ? tx.outputs[markerIndex - 1] : undefined
   const descriptorOutput = markerIndex >= 0 ? tx.outputs[markerIndex + 1] : undefined
   if (!vaultOutput || !descriptorOutput) {
-    return { kind: 'problem', reason: 'marker is not immediately between a vault output and a descriptor' }
+    // Structural noise: a stranger can pay a public marker address.
+    return { kind: 'non-vault' }
   }
 
   const parsedDescriptor = parseVaultDescriptorScript(descriptorOutput.lockingScript)
-  if (!parsedDescriptor) return { kind: 'problem', reason: 'adjacent output is not a v7 descriptor' }
+  if (!parsedDescriptor) return { kind: 'non-vault' }
 
   let plaintext: string
   try {
     plaintext = await decryptVaultDescriptorPlaintext(w, adminOriginator, chain, saltKeyId, parsedDescriptor.ciphertext)
-  } catch {
-    return { kind: 'problem', reason: 'descriptor did not decrypt under this index' }
+  } catch (error) {
+    // Only an AES-GCM authentication failure (or a ciphertext too short to
+    // hold an IV and tag) proves the descriptor is not encrypted to this
+    // wallet's key for this index: a stranger can plant either. Any other
+    // throw (wallet locked, storage error, transient failure) says nothing
+    // about the record, so a real deposit must not be dropped as noise.
+    if (isForeignCiphertextError(error)) return { kind: 'non-vault' }
+    return { kind: 'problem', reason: 'could not decrypt the descriptor (wallet error)' }
   }
 
   const ci: VaultInstructionsV7 | null = decodeVaultInstructionsV7(plaintext)
@@ -249,6 +302,12 @@ async function recoverOneCandidate(
   }
 
   const vaultOutputIndex = markerIndex - 1
+  // A real Vault output is never under the frozen scan floor (every deposit,
+  // remainder and re-lock is at least VAULT_DEPOSIT_MIN). Anything smaller is
+  // a copy or dust: counted, never internalized, never pending.
+  if (vaultOutput.satoshis === undefined || vaultOutput.satoshis < VAULT_SCAN_MIN_SATS) {
+    return { kind: 'below-minimum' }
+  }
   let status: 'unspent' | 'spent' | 'unknown'
   try {
     status = await lookup.outputStatus({ txid, vout: vaultOutputIndex })
@@ -259,7 +318,7 @@ async function recoverOneCandidate(
   if (status === 'unknown') return { kind: 'problem', reason: 'could not confirm the vault output is unspent' }
 
   if (!entry.confirmed) return { kind: 'pending', ci }
-  return { kind: 'ready', index: k, ci, beef: entry.beef, vaultOutputIndex }
+  return { kind: 'ready', index: k, txid, ci, beef: entry.beef, vaultOutputIndex, satoshis: vaultOutput.satoshis }
 }
 
 async function internalizeCandidate(
@@ -293,40 +352,95 @@ async function internalizeCandidate(
   return undefined
 }
 
-/**
- * The keys a recovered deposit must share one of (KEY FILTER). A local key
- * list counts only when its authority tag verifies: a forged list would
- * otherwise hide every real deposit. Without one, the newest setup found
- * wins — an older setup's PIV keys were replaced by the reset that made it.
- */
-async function recoveryLiveKeys(
-  w: VaultWallet,
-  adminOriginator: string,
-  records: readonly VaultInstructionsV7[]
-): Promise<ReadonlySet<string>> {
+/** This device's local meta, only when its authority tag verifies: a forged
+ * record must never decide what is admitted. */
+async function authenticatedLocalMeta(w: VaultWallet, adminOriginator: string): Promise<VaultMeta | null> {
   const scopeToken = vaultStore.captureScopeToken()
   const scope = vaultStore.getScope()
   const meta = await vaultStore.getMeta(scopeToken)
-  if (meta && scope) {
-    const tag = await vaultStore.getMetaTag(scopeToken)
-    if (await verifyVaultMetaAuthorityTag(w as unknown as HmacCapableWallet, adminOriginator, meta, scope, tag)) {
-      return liveVaultPubkeys(meta)
-    }
+  if (!meta || !scope) return null
+  const tag = await vaultStore.getMetaTag(scopeToken)
+  if (await verifyVaultMetaAuthorityTag(w as unknown as HmacCapableWallet, adminOriginator, meta, scope, tag)) {
+    return meta
   }
-  if (records.length === 0) return new Set()
-  const newest = records.reduce((a, b) => (b.createdAt > a.createdAt ? b : a))
-  return new Set(
-    records
-      .filter(r => r.vaultId === newest.vaultId && r.createdAt === newest.createdAt)
-      .flatMap(r => r.keys.map(key => key.pubkey))
-  )
+  return null
+}
+
+const lineageId = (ci: Pick<VaultInstructionsV7, 'vaultId' | 'createdAt'>): string => `${ci.vaultId}:${ci.createdAt}`
+
+const sameKeyList = (a: readonly VaultInstructionKey[], b: readonly VaultInstructionKey[]): boolean =>
+  a.length === b.length && a.every((key, i) => key.serial === b[i].serial && key.pubkey === b[i].pubkey)
+
+function keyListDigest(keys: readonly VaultInstructionKey[]): string {
+  const json = JSON.stringify(keys.map(key => ({ serial: key.serial, pubkey: key.pubkey })))
+  return Utils.toHex(Hash.sha256(Utils.toArray(json, 'utf8'))).slice(0, 16)
+}
+
+/** A group with the candidates it would internalize. */
+interface InternalGroup {
+  group: VaultRecoveryGroup
+  ready: RecoverableCandidate[]
+  pending: VaultInstructionsV7[]
 }
 
 /**
- * Scan k = 1.. for chain-published v7 Vault outputs and internalize every
- * confirmed, unspent, authenticated one into 'admin vault'. Then rebuilds
- * local vault metadata from the now-listed outputs via the unchanged
- * recoverVaultMetaFromOutputs (which itself re-authenticates everything).
+ * Form the groups of a set of records: one per lineage, split at the lineage's
+ * highest revision into one per distinct key list (a variant). Outputs of a
+ * lower revision belong to every variant of their lineage.
+ */
+function formGroups(ready: readonly RecoverableCandidate[], pending: readonly VaultInstructionsV7[]): InternalGroup[] {
+  const lineages = new Map<string, { ready: RecoverableCandidate[]; pending: VaultInstructionsV7[] }>()
+  const entry = (id: string) => {
+    let e = lineages.get(id)
+    if (!e) lineages.set(id, (e = { ready: [], pending: [] }))
+    return e
+  }
+  for (const c of ready) entry(lineageId(c.ci)).ready.push(c)
+  for (const ci of pending) entry(lineageId(ci)).pending.push(ci)
+
+  const groups: InternalGroup[] = []
+  for (const [id, members] of lineages) {
+    const records = [...members.ready.map(c => c.ci), ...members.pending]
+    const revision = Math.max(...records.map(ci => ci.revision))
+    const variants: VaultInstructionKey[][] = []
+    for (const ci of records) {
+      if (ci.revision === revision && !variants.some(v => sameKeyList(v, ci.keys))) variants.push(ci.keys)
+    }
+    for (const keys of variants) {
+      const belongs = (ci: VaultInstructionsV7): boolean => ci.revision < revision || sameKeyList(keys, ci.keys)
+      const groupReady = members.ready.filter(c => belongs(c.ci))
+      const first = records[0]
+      groups.push({
+        group: {
+          id: variants.length > 1 ? `${id}:${keyListDigest(keys)}` : id,
+          vaultId: first.vaultId,
+          createdAt: first.createdAt,
+          revision,
+          keys: keys.map(key => ({ ...key })),
+          outputs: groupReady.length,
+          satoshis: groupReady.reduce((sum, c) => sum + c.satoshis, 0)
+        },
+        ready: groupReady,
+        pending: members.pending.filter(belongs)
+      })
+    }
+  }
+  return groups
+}
+
+/**
+ * "Scan the blockchain for deposits": scan k = 1.. for chain-published v7
+ * Vault outputs. On a phone that holds a vault with a checked key it
+ * internalizes every confirmed, unspent, authenticated one that is not already
+ * in 'admin vault' (merge by outpoint, so a second run is a no-op for known
+ * outputs) and rebuilds local vault metadata from the now-listed outputs via
+ * the unchanged recoverVaultMetaFromOutputs (which itself re-authenticates
+ * everything). On any other phone it only REPORTS (`needsKey`): a restore needs
+ * a tap (recoverVaultWithKey).
+ *
+ * It works with or without local metadata, and the result says what was found
+ * and what went wrong: `status` is 'incomplete' when any index had a problem
+ * or an unknown lookup, so a caller never shows a partial scan as complete.
  *
  * `wallet` need only satisfy VaultWallet (already used throughout
  * transfers.ts) — getPublicKey/encrypt/decrypt/createHmac/internalizeAction
@@ -335,6 +449,21 @@ async function recoveryLiveKeys(
  * marker, decrypt the descriptor, or derive the salt — see INT-10's fail-closed
  * claim in restoreSalt.test.ts).
  */
+export async function scanVaultDeposits(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  gap: number = VAULT_RECOVERY_GAP_DEFAULT
+): Promise<VaultScanResult> {
+  const scan = await scanVaultChain(w, adminOriginator, lookup, chain, gap)
+  return await restoreScannedDeposits(w, adminOriginator, scan, {})
+}
+
+/** Kept for existing callers: the same scan. It has no tapped key, so on a
+ * phone with no checked vault it only reports (`needsKey`) and internalizes
+ * nothing; with more than one group it reports `conflict`. Restoring, and
+ * picking a group, needs the tap (recoverVaultWithKey). */
 export async function recoverVaultFromChain(
   w: VaultWallet,
   adminOriginator: string,
@@ -342,17 +471,60 @@ export async function recoverVaultFromChain(
   chain: VaultSaltChain,
   gap: number = VAULT_RECOVERY_GAP_DEFAULT
 ): Promise<VaultChainRecoveryResult> {
-  const scan = await scanVaultChain(w, adminOriginator, lookup, chain, gap)
-  const live = await recoveryLiveKeys(w, adminOriginator, [...scan.ready.map(c => c.ci), ...scan.pending])
-  return await restoreScannedDeposits(w, adminOriginator, scan, live)
+  return await scanVaultDeposits(w, adminOriginator, lookup, chain, gap)
+}
+
+/** The tapped half of every restore: `prove` picks and proves the held key, only outputs whose OWN key list
+ * holds it are restored, and the key is marked proven whenever the stored meta holds that exact pair. */
+async function finishTappedRestore(
+  w: VaultWallet,
+  adminOriginator: string,
+  scan: VaultChainScan,
+  prove: (records: readonly VaultInstructionsV7[]) => Promise<VaultInstructionKey>,
+  options?: VaultRestoreOptions
+): Promise<VaultScanResult & { key: VaultInstructionKey }> {
+  const records = [...scan.ready.map(c => c.ci), ...scan.pending]
+  const key = await prove(records)
+  const selection: RestoreSelection = {
+    pubkey: key.pubkey,
+    groupId: options?.groupId,
+    vaultId: options?.vaultId,
+    requireGroup: true
+  }
+  const result = await restoreScannedDeposits(w, adminOriginator, scan, selection)
+  const scope = vaultStore.getScope()
+  const snapshot = scope ? await vaultStore.getMeta() : null
+  const holdsKey =
+    !!snapshot &&
+    [
+      ...snapshot.keys,
+      ...(snapshot.staged ? [snapshot.staged] : []),
+      ...(snapshot.pendingRemoval ? [snapshot.pendingRemoval.key] : [])
+    ].some(k => k.serial === key.serial && k.pubkey === key.pubkey)
+  if (scope && snapshot && holdsKey) {
+    // A durable proof re-tags the whole stored meta, so it is only written over a meta whose own tag verifies.
+    // Any other meta gets a session proof (no tagger).
+    const hmacWallet = w as unknown as HmacCapableWallet
+    const tag = await vaultStore.getMetaTag()
+    const authentic = await verifyVaultMetaAuthorityTag(hmacWallet, adminOriginator, snapshot, scope, tag)
+    await vaultStore.markKeyAdopted(
+      key,
+      undefined,
+      authentic ? next => computeVaultMetaAuthorityTag(hmacWallet, adminOriginator, next, scope) : undefined,
+      authentic ? snapshot : undefined
+    )
+  }
+  return { ...result, key }
 }
 
 /**
- * Restore with one tapped YubiKey (no local key list needed, and no guessing
- * between setups): scan the chain, let `prove` pick and prove the key the
- * card holds (proveHeldVaultKey), then restore every deposit of the setups
- * that key belongs to. The proven key is marked adopted, so it can withdraw
- * without a second challenge.
+ * Restore with one tapped YubiKey (no local key list needed): scan the chain,
+ * let `prove` pick and prove the key the card holds (proveHeldVaultKey), then
+ * keep only the outputs whose OWN key list holds that key and restore the group
+ * they form. More than one group and no `options.groupId`: restore nothing and
+ * report `conflict` with the groups. The proven key is marked adopted, so it
+ * can withdraw without a second challenge. The key is proven whenever the
+ * stored meta holds it, also when nothing new was internalized.
  */
 export async function recoverVaultWithKey(
   w: VaultWallet,
@@ -360,26 +532,245 @@ export async function recoverVaultWithKey(
   lookup: VaultChainLookup,
   chain: VaultSaltChain,
   prove: (records: readonly VaultInstructionsV7[]) => Promise<VaultInstructionKey>,
-  gap: number = VAULT_RECOVERY_GAP_DEFAULT
+  gap: number = VAULT_RECOVERY_GAP_DEFAULT,
+  options?: VaultRestoreOptions
 ): Promise<VaultChainRecoveryResult & { key: VaultInstructionKey }> {
   const scan = await scanVaultChain(w, adminOriginator, lookup, chain, gap)
-  const records = [...scan.ready.map(c => c.ci), ...scan.pending]
-  const key = await prove(records)
-  // Every key of a setup the proven key is part of, so that setup's deposits
-  // come back whole and rebuild one consistent key list.
-  const live = new Set(
-    records.filter(r => r.keys.some(k => k.pubkey === key.pubkey)).flatMap(r => r.keys.map(k => k.pubkey))
+  return await finishTappedRestore(w, adminOriginator, scan, prove, options)
+}
+
+/** Most transaction IDs one `recoverVaultFromTxids` call accepts. */
+export const VAULT_TXID_RESTORE_MAX = 50
+/** Highest `maxIndex` recoverVaultFromTxids accepts (one derivation each). */
+export const VAULT_TXID_RESTORE_MAX_INDEX = 1000
+
+const TXID_PATTERN = /^[0-9a-f]{64}$/
+const P2PKH_PATTERN = /^76a914[0-9a-f]{40}88ac$/
+
+/**
+ * Restore deposits from their transaction IDs. This is the exit for a marker
+ * address whose history is too large to read (dust can fill any window): no
+ * history is used, so nothing can hide the deposit. The txid comes from the
+ * marker address a person looks up in a block explorer
+ * (`problems[].markerAddress`).
+ *
+ * Each transaction is fetched, its P2PKH outputs are tested against the
+ * marker scripts of indexes 1..maxIndex, and a match goes through the same
+ * `recoverOneCandidate` path as the scan (descriptor decrypt, lock rebuild,
+ * floor, `outputStatus`). The result feeds `restoreScannedDeposits`, so the
+ * same admission rules apply and it never adds keys or revisions to an
+ * existing local meta. With no checked local vault it only reports
+ * (`needsKey`); use recoverVaultFromTxidsWithKey to restore. `scanned` is
+ * `maxIndex`.
+ */
+export async function recoverVaultFromTxids(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  txids: readonly string[],
+  maxIndex: number = 200
+): Promise<VaultScanResult> {
+  return await restoreScannedDeposits(
+    w,
+    adminOriginator,
+    await collectTxidRecords(w, adminOriginator, lookup, chain, txids, maxIndex),
+    {}
   )
-  const result = await restoreScannedDeposits(w, adminOriginator, scan, live)
-  if (result.found > 0) await vaultStore.markKeyAdopted(key)
-  return { ...result, key }
+}
+
+/** The same restore with one tapped key: `prove` picks and proves the key the card holds. When the given
+ * transactions hold no usable record, `prove` is not called (a typo in a txid must not cost a tap), `key` is
+ * absent and `problems` says why. */
+export async function recoverVaultFromTxidsWithKey(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  txids: readonly string[],
+  prove: (records: readonly VaultInstructionsV7[]) => Promise<VaultInstructionKey>,
+  maxIndex: number = 200,
+  options?: VaultRestoreOptions
+): Promise<VaultScanResult & { key?: VaultInstructionKey }> {
+  const scan = await collectTxidRecords(w, adminOriginator, lookup, chain, txids, maxIndex)
+  if (scan.ready.length + scan.pending.length === 0) {
+    // Nothing a key could open: do not present the card. Report what was seen (restoreScannedDeposits with no
+    // tap and no meta change is report-only, and with nothing found it admits nothing).
+    return await restoreScannedDeposits(w, adminOriginator, scan, {})
+  }
+  return await finishTappedRestore(w, adminOriginator, scan, prove, options)
+}
+
+async function collectTxidRecords(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  txids: readonly string[],
+  maxIndex: number
+): Promise<VaultChainScan> {
+  if (!Number.isSafeInteger(maxIndex) || maxIndex < 1) {
+    throw new VaultError('template-invalid', 'Vault restore index limit must be a positive integer')
+  }
+  if (maxIndex > VAULT_TXID_RESTORE_MAX_INDEX) {
+    throw new VaultError(
+      'template-invalid',
+      `Vault restore index limit is at most ${VAULT_TXID_RESTORE_MAX_INDEX}, got ${maxIndex}`
+    )
+  }
+  const distinct: string[] = []
+  for (const raw of txids) {
+    const txid = typeof raw === 'string' ? raw.toLowerCase() : ''
+    if (!TXID_PATTERN.test(txid)) {
+      throw new VaultError('template-invalid', 'A transaction ID must be 64 hexadecimal characters')
+    }
+    if (!distinct.includes(txid)) distinct.push(txid)
+  }
+  if (distinct.length > VAULT_TXID_RESTORE_MAX) {
+    throw new VaultError('template-invalid', `At most ${VAULT_TXID_RESTORE_MAX} transaction IDs per restore`)
+  }
+
+  // Derive every marker script once: script hex -> index.
+  const markerIndexByScript = new Map<string, number>()
+  for (let k = 1; k <= maxIndex; k++) {
+    markerIndexByScript.set((await deriveVaultMarkerScript(w, adminOriginator, chain, String(k))).toHex(), k)
+  }
+
+  // recoverOneCandidate fetches the bytes again; answer it from this cache.
+  const fetched = new Map<string, { beef: number[]; confirmed: boolean } | null>()
+  const cachedLookup: VaultChainLookup = {
+    ...lookup,
+    transactionForTxid: async txid => {
+      if (!fetched.has(txid)) fetched.set(txid, await lookup.transactionForTxid(txid))
+      return fetched.get(txid) ?? null
+    }
+  }
+
+  const ready: RecoverableCandidate[] = []
+  const pending: VaultInstructionsV7[] = []
+  const problems: VaultChainRecoveryProblem[] = []
+  let ignoredBelowMinimum = 0
+  let ignoredNonVault = 0
+  let maxUsedIndex = 0
+  const seenOutpoints = new Set<string>()
+
+  for (const txid of distinct) {
+    let entry: { beef: number[]; confirmed: boolean } | null
+    try {
+      entry = await cachedLookup.transactionForTxid(txid)
+    } catch {
+      problems.push({ index: 0, reason: 'chain lookup failed to fetch transaction bytes' })
+      continue
+    }
+    if (!entry) {
+      problems.push({ index: 0, reason: 'no transaction bytes available for this transaction' })
+      continue
+    }
+    let tx: Transaction
+    try {
+      try {
+        tx = Transaction.fromAtomicBEEF(entry.beef)
+      } catch {
+        tx = Transaction.fromBEEF(entry.beef)
+      }
+    } catch {
+      problems.push({ index: 0, reason: 'malformed transaction bytes' })
+      continue
+    }
+    const matches = new Map<number, string>()
+    for (const output of tx.outputs) {
+      const hex = output.lockingScript.toHex()
+      if (!P2PKH_PATTERN.test(hex)) continue
+      const k = markerIndexByScript.get(hex)
+      if (k !== undefined) matches.set(k, hex)
+    }
+    if (matches.size === 0) {
+      problems.push({ index: 0, reason: 'no vault marker found in this transaction' })
+      continue
+    }
+    for (const [k, hex] of [...matches].sort((a, b) => a[0] - b[0])) {
+      const outcome = await recoverOneCandidate(w, adminOriginator, cachedLookup, chain, k, hex, txid)
+      if (outcome.kind === 'ready') {
+        maxUsedIndex = Math.max(maxUsedIndex, k)
+        const outpoint = `${txid}.${outcome.vaultOutputIndex}`
+        if (seenOutpoints.has(outpoint)) continue
+        seenOutpoints.add(outpoint)
+        ready.push(outcome)
+      } else if (outcome.kind === 'pending') {
+        maxUsedIndex = Math.max(maxUsedIndex, k)
+        pending.push(outcome.ci)
+      } else if (outcome.kind === 'below-minimum') ignoredBelowMinimum++
+      else if (outcome.kind === 'non-vault') {
+        // The person named this transaction, so unlike a scan row it is reported.
+        ignoredNonVault++
+        problems.push({
+          index: k,
+          reason: 'this transaction pays a vault marker address but holds no vault record for this wallet'
+        })
+      } else if (outcome.kind === 'problem') problems.push({ index: k, reason: outcome.reason })
+      // 'spent': already withdrawn or re-locked, normal.
+    }
+  }
+
+  return {
+    ready,
+    pending,
+    problems,
+    unknownIndexes: [],
+    ignoredBelowMinimum,
+    ignoredNonVault,
+    maxUsedIndex,
+    scanned: maxIndex
+  }
 }
 
 interface VaultChainScan {
   ready: RecoverableCandidate[]
   pending: VaultInstructionsV7[]
   problems: VaultChainRecoveryProblem[]
+  unknownIndexes: number[]
+  ignoredBelowMinimum: number
+  ignoredNonVault: number
+  maxUsedIndex: number
   scanned: number
+}
+
+/**
+ * A read-only scan. It never internalizes and never writes local metadata: it
+ * only reports what the chain holds for this wallet. The reset gate
+ * (setupGate.ts) uses it. `ready` is authenticated, unspent, confirmed and at
+ * or above VAULT_SCAN_MIN_SATS; `pending` is valid but not yet confirmed.
+ * Throws `chain-scan-failed` when the lookup fails persistently.
+ */
+export async function scanVaultRecords(
+  w: VaultWallet,
+  adminOriginator: string,
+  lookup: VaultChainLookup,
+  chain: VaultSaltChain,
+  gap: number = VAULT_RECOVERY_GAP_DEFAULT
+): Promise<{
+  ready: RecoverableCandidate[]
+  pending: VaultInstructionsV7[]
+  problems: VaultChainRecoveryProblem[]
+  unknownIndexes: number[]
+  scanned: number
+}> {
+  const { ready, pending, problems, unknownIndexes, scanned } = await scanVaultChain(
+    w,
+    adminOriginator,
+    lookup,
+    chain,
+    gap
+  )
+  return { ready, pending, problems, unknownIndexes, scanned }
+}
+
+/** The lineage groups of some scanned records (read-only, for display). */
+export function vaultGroupsOf(
+  ready: readonly RecoverableCandidate[],
+  pending: readonly VaultInstructionsV7[]
+): VaultRecoveryGroup[] {
+  return formGroups(ready, pending).map(g => g.group)
 }
 
 /** The scan half of recovery: find and authenticate every candidate without
@@ -397,6 +788,10 @@ async function scanVaultChain(
   const ready: RecoverableCandidate[] = []
   const pending: VaultInstructionsV7[] = []
   const problems: VaultChainRecoveryProblem[] = []
+  const unknownIndexes: number[] = []
+  let ignoredBelowMinimum = 0
+  let ignoredNonVault = 0
+  let maxUsedIndex = 0
   let consecutiveMisses = 0
   // Bounds the loop independently of consecutiveMisses — see
   // VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS's doc comment. Reset on any
@@ -405,6 +800,14 @@ async function scanVaultChain(
   let consecutiveProblems = 0
   let scanned = 0
   let k = 1
+  const tooManyProblems = (): VaultError =>
+    // A plain Error here left VaultScreen (vaultErrorCopy(undefined)) showing
+    // its generic fallback copy instead of a message actually describing what
+    // happened — 'chain-scan-failed' is a code the UI already translates.
+    new VaultError(
+      'chain-scan-failed',
+      `Vault recovery scan could not complete: ${consecutiveProblems} consecutive derivation/lookup failures, most recently at index ${k}`
+    )
   while (consecutiveMisses < gap) {
     scanned = k
     const saltKeyId = String(k)
@@ -417,245 +820,293 @@ async function scanVaultChain(
       // — but still bounded, so a persistent failure fails loudly instead of
       // looping forever (INT-01/INT-06/XQ-012 availability review).
       problems.push({ index: k, reason: 'could not derive the marker key for this index' })
-      if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) {
-        // A plain Error here left VaultScreen (vaultErrorCopy(undefined))
-        // showing its generic fallback copy instead of a message actually
-        // describing what happened — 'chain-scan-failed' is a code the UI
-        // already translates.
-        throw new VaultError(
-          'chain-scan-failed',
-          `Vault recovery scan could not complete: ${consecutiveProblems} consecutive derivation/lookup failures, most recently at index ${k}`
-        )
-      }
+      if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) throw tooManyProblems()
       k++
       continue
     }
-    let txids: string[]
+    const markerAddress = markerAddressFor(lookup, markerScriptHex, chain)
+    let history: MarkerHistory
     try {
-      txids = await lookup.transactionsForLockingScript(markerScriptHex)
+      history = await lookupMarker(lookup, markerScriptHex)
     } catch {
-      problems.push({ index: k, reason: 'chain lookup failed for this marker' })
-      if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) {
-        throw new VaultError(
-          'chain-scan-failed',
-          `Vault recovery scan could not complete: ${consecutiveProblems} consecutive derivation/lookup failures, most recently at index ${k}`
-        )
-      }
-      k++
-      continue
+      history = { status: 'unknown', reason: 'request-failed', txids: [] }
     }
-    consecutiveProblems = 0
-    if (txids.length === 0) {
+    if (history.status === 'none') {
+      consecutiveProblems = 0
       consecutiveMisses++
       k++
       continue
     }
+    const rows = [...new Set(history.txids.map(txid => txid.toLowerCase()))]
+    if (history.status === 'unknown') {
+      // Never a "no funds" answer: reported, kept out of the miss count, and
+      // the rows that were read are still examined below.
+      unknownIndexes.push(k)
+      problems.push({ index: k, reason: `lookup incomplete: ${history.reason}`, markerAddress })
+      if (rows.length === 0) {
+        if (++consecutiveProblems >= VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) throw tooManyProblems()
+        k++
+        continue
+      }
+    }
+    consecutiveProblems = 0
     // Marker history exists at this index — never a "no marker" miss from
     // here on, no matter how every candidate below turns out.
     consecutiveMisses = 0
-    let inspected = 0
-    for (const txid of txids) {
-      if (inspected >= VAULT_RECOVERY_MAX_CANDIDATES_PER_INDEX) {
-        problems.push({
-          index: k,
-          reason: `stopped after ${VAULT_RECOVERY_MAX_CANDIDATES_PER_INDEX} candidates at this index`
-        })
-        break
-      }
-      inspected++
+    maxUsedIndex = Math.max(maxUsedIndex, k)
+    // Every row is examined. The window is already bounded by the lookup (at
+    // most a few thousand rows), and a valid row never hides another.
+    const seenOutpoints = new Set<string>()
+    for (const txid of rows) {
       const outcome = await recoverOneCandidate(w, adminOriginator, lookup, chain, k, markerScriptHex, txid)
       if (outcome.kind === 'ready') {
+        const outpoint = `${txid}.${outcome.vaultOutputIndex}`
+        if (seenOutpoints.has(outpoint)) continue
+        seenOutpoints.add(outpoint)
         ready.push(outcome)
-        break
-      } else if (outcome.kind === 'pending') {
-        pending.push(outcome.ci)
-        break
-      } else if (outcome.kind === 'problem') problems.push({ index: k, reason: outcome.reason })
+      } else if (outcome.kind === 'pending') pending.push(outcome.ci)
+      else if (outcome.kind === 'below-minimum') ignoredBelowMinimum++
+      else if (outcome.kind === 'non-vault') ignoredNonVault++
+      else if (outcome.kind === 'problem') problems.push({ index: k, reason: outcome.reason, markerAddress })
       // 'spent': a superseded output (already withdrawn or re-locked) —
       // entirely normal, silently skipped; keep inspecting other candidates
       // at this index.
     }
     k++
   }
-  return { ready, pending, problems, scanned }
+  return { ready, pending, problems, unknownIndexes, ignoredBelowMinimum, ignoredNonVault, maxUsedIndex, scanned }
 }
 
-/** The insert half: internalize the scanned deposits `live` can open, count
- * the rest as unreachable, then rebuild local vault metadata. */
+function markerAddressFor(
+  lookup: VaultChainLookup,
+  markerScriptHex: string,
+  chain: VaultSaltChain
+): string | undefined {
+  try {
+    return (
+      lookup.markerAddress?.(markerScriptHex) ??
+      p2pkhAddressFromScript(markerScriptHex, chain === 'main' ? 'mainnet' : 'testnet')
+    )
+  } catch {
+    return undefined
+  }
+}
+
+interface RestoreSelection {
+  /** Tapped key: keep only outputs whose own key list holds it. */
+  pubkey?: string
+  groupId?: string
+  vaultId?: string
+  /** A named group must be one of the groups found (tapped restore). */
+  requireGroup?: boolean
+  /** Output flag: set when an unproven local meta was forgotten and rebuilt
+   * from the chosen group, so the caller adopts the tapped key even if every
+   * output was already in the basket. */
+  metaReplaced?: boolean
+}
+
+/**
+ * With an authenticated local meta: which candidates a scan may internalize.
+ * Same lineage as meta, and either older than meta or adding no unknown key.
+ * Two further guards keep the later metaFromVerifiedOutputs from ever seeing a
+ * disagreement: at meta's own revision the key list must equal meta's, and above
+ * it a revision with more than one key list admits none of them.
+ */
+function admitAgainstMeta(meta: VaultMeta, ready: readonly RecoverableCandidate[]): Set<RecoverableCandidate> {
+  const admitted = ready.filter(c => {
+    const { ci } = c
+    if (ci.vaultId !== meta.vaultId || ci.createdAt !== meta.createdAt) return false
+    if (ci.revision < meta.revision) return true
+    if (introducesUnknownKey(meta, ci.keys)) return false
+    if (ci.revision === meta.revision) return sameKeyList(meta.keys, ci.keys)
+    return true
+  })
+  const above = admitted.filter(c => c.ci.revision > meta.revision)
+  if (above.length > 0) {
+    const top = Math.max(...above.map(c => c.ci.revision))
+    const atTop = above.filter(c => c.ci.revision === top)
+    if (atTop.some(c => !sameKeyList(atTop[0].ci.keys, c.ci.keys))) {
+      return new Set(admitted.filter(c => c.ci.revision !== top))
+    }
+  }
+  return new Set(admitted)
+}
+
+/** The insert half: decide which groups are admitted (see this file's
+ * ADMISSION note), internalize their candidates that are not yet in the basket,
+ * then rebuild local vault metadata. */
 async function restoreScannedDeposits(
   w: VaultWallet,
   adminOriginator: string,
   scan: VaultChainScan,
-  live: ReadonlySet<string>
-): Promise<VaultChainRecoveryResult> {
-  const { ready, pending, scanned } = scan
+  selection: RestoreSelection
+): Promise<VaultScanResult> {
+  const { scanned, unknownIndexes, ignoredBelowMinimum, ignoredNonVault } = scan
   const problems = [...scan.problems]
   let found = 0
   let pendingConfirmation = 0
   let unreachable = 0
-  for (const candidate of ready) {
-    if (!opensWithAny(candidate.ci, live)) {
-      unreachable++
-      continue
+  let maxUsedIndex = scan.maxUsedIndex
+  const scopeToken = vaultStore.captureScopeToken()
+
+  // Tapped key: an output counts only if its OWN key list holds the key.
+  const holds = (keys: readonly VaultInstructionKey[]): boolean =>
+    !selection.pubkey || keys.some(key => key.pubkey === selection.pubkey)
+  const ready = scan.ready.filter(c => holds(c.ci.keys))
+  const pending = scan.pending.filter(ci => holds(ci.keys))
+  unreachable += scan.ready.length - ready.length + (scan.pending.length - pending.length)
+  for (const candidate of scan.ready) maxUsedIndex = Math.max(maxUsedIndex, candidate.index)
+
+  const groups = formGroups(ready, pending)
+  let meta = await authenticatedLocalMeta(w, adminOriginator)
+  // Tap-only restore (planted-lockout). Without a tapped key a scan may only report, unless this phone already
+  // holds a vault with a CHECKED key (then it merges new outputs by outpoint, as before: outputs only, never
+  // keys). A chain record alone never creates or extends trust (R2).
+  const mayAdd =
+    selection.pubkey !== undefined || (meta !== null && vaultStore.provenKeyRecords(meta, scopeToken).length > 0)
+  if (!mayAdd) {
+    const seen = groups.map(g => g.group)
+    if (maxUsedIndex > 0) noteSaltFloor(scopeToken.storageKey, maxUsedIndex)
+    return {
+      found: 0,
+      pendingConfirmation: pending.length,
+      unreachable: 0,
+      ignoredBelowMinimum,
+      ignoredNonVault,
+      problems,
+      problemCount: problems.length,
+      unknownIndexes,
+      maxUsedIndex,
+      scanned,
+      status: problems.length > 0 || unknownIndexes.length > 0 ? 'incomplete' : 'complete',
+      groups: seen,
+      conflict: seen.length > 1,
+      setApart: seen,
+      needsKey: seen.length > 0
     }
+  }
+  let replaceMeta = false
+  // I-1: a tapped restore over an authentic local meta that carries no proof
+  // (recovery.required, nothing adopted) and does not hold the tapped key has
+  // no authority: a planted lineage record can have produced it. Forget the
+  // meta and its tag (outputs stay) and rebuild from the chosen group. This
+  // cannot weaken R2, because a meta with no proof gates nothing. The meta is
+  // forgotten only directly before the rebuild from the chosen group (below), so a
+  // restore that throws or chooses nothing changes nothing.
+  if (meta && selection.pubkey && meta.recovery?.required && (meta.recovery.adopted ?? []).length === 0) {
+    const tapped = selection.pubkey
+    const holdsTapped =
+      meta.keys.some(k => k.pubkey === tapped) ||
+      meta.staged?.pubkey === tapped ||
+      meta.pendingRemoval?.key.pubkey === tapped
+    if (!holdsTapped) {
+      replaceMeta = true
+      meta = null
+    }
+  }
+  const admittedReady = new Set<RecoverableCandidate>()
+  const admittedPending: VaultInstructionsV7[] = []
+  let conflict = false
+  let chosenGroup: VaultRecoveryGroup | undefined
+  let setApart: VaultRecoveryGroup[]
+
+  if (meta) {
+    const admitted = admitAgainstMeta(meta, ready)
+    for (const c of admitted) admittedReady.add(c)
+    for (const ci of pending) {
+      if (ci.vaultId === meta.vaultId && ci.createdAt === meta.createdAt && !introducesUnknownKey(meta, ci.keys)) {
+        admittedPending.push(ci)
+      }
+    }
+    // Not admitted and sharing no key with this device's list (an earlier
+    // setup's deposit): counted as unreachable, as well as set apart below.
+    const live = liveVaultPubkeys(meta)
+    unreachable += ready.filter(c => !admitted.has(c) && !opensWithAny(c.ci, live)).length
+    unreachable += pending.filter(ci => !admittedPending.includes(ci) && !opensWithAny(ci, live)).length
+    // A group is set apart when none of its outputs at its own revision were admitted.
+    setApart = groups
+      .filter(g => !g.ready.some(c => admitted.has(c) && c.ci.revision === g.group.revision))
+      .filter(g => !g.pending.some(ci => admittedPending.includes(ci) && ci.revision === g.group.revision))
+      .map(g => {
+        // A lower-revision output shared with an admitted group is not set apart.
+        const apart = g.ready.filter(c => !admitted.has(c))
+        return { ...g.group, outputs: apart.length, satoshis: apart.reduce((sum, c) => sum + c.satoshis, 0) }
+      })
+  } else {
+    const wanted = selection.groupId ?? selection.vaultId
+    let chosen: InternalGroup[]
+    if (wanted) {
+      chosen = groups.filter(g => g.group.id === wanted)
+      if (chosen.length === 0 && selection.vaultId && !selection.groupId) {
+        const byLineage = groups.filter(g => `${g.group.vaultId}` === wanted)
+        if (byLineage.length === 1) chosen = byLineage
+      }
+      if (chosen.length === 0 && selection.requireGroup) {
+        throw new VaultError('key-opens-nothing', 'No vault group found for this key matches the requested group')
+      }
+    } else if (groups.length === 1) {
+      chosen = groups
+    } else {
+      chosen = []
+      conflict = groups.length > 1
+    }
+    if (chosen.length === 1) chosenGroup = chosen[0].group
+    for (const g of chosen) {
+      for (const c of g.ready) admittedReady.add(c)
+      for (const ci of g.pending) admittedPending.push(ci)
+    }
+    setApart = groups.filter(g => !chosen.includes(g)).map(g => g.group)
+  }
+
+  // Merge by outpoint: what the basket already holds is neither re-added nor
+  // counted, so a second scan is a no-op for known outputs.
+  const known = await listVaultBasketOutpoints(w, adminOriginator, scopeToken)
+  for (const candidate of ready) {
+    if (!admittedReady.has(candidate)) continue
+    if (known.has(`${candidate.txid.toLowerCase()}.${candidate.vaultOutputIndex}`)) continue
+    known.add(`${candidate.txid.toLowerCase()}.${candidate.vaultOutputIndex}`)
     const failure = await internalizeCandidate(w, adminOriginator, candidate)
     if (failure) problems.push({ index: candidate.index, reason: failure })
     else found++
   }
-  for (const ci of pending) {
-    if (opensWithAny(ci, live)) pendingConfirmation++
-    else unreachable++
-  }
-  await recoverVaultMetaFromOutputs(w, adminOriginator)
-  return { found, pendingConfirmation, unreachable, problems, scanned }
-}
-
-// ───────────────────────── default WhatsOnChain implementation ─────────────
-
-/**
- * Production VaultChainLookup over WhatsOnChain, following the exact request
- * patterns already used by core/pay/rails/address.ts (getUtxosForAddress,
- * the `/tx/{txid}/beef` fetch, parseWocBeefBody's response-shape checks).
- *
- * Response shapes checked against live mainnet WhatsOnChain on 2026-09-27:
- * `/address/{address}/history` answers `[{tx_hash, height}]`, or 404 "Not
- * Found" for an address with no history; `/tx/{txid}/out/{index}` answers
- * 502 for every output, so spent status comes from `POST /utxos/spent`,
- * which returns one row per outpoint (see outputStatus).
- */
-export function wocChainLookup(chain: AppChain): VaultChainLookup {
-  const woc: WocConfig | undefined = wocConfigFor(chain)
-  // Vault is mainnet-only, so this only fires on a misrouted call. Refuse it
-  // rather than answer "no marker": an empty answer is a genuine miss here.
-  if (!woc) throw new Error(`Vault chain recovery needs WhatsOnChain, which ${chain} does not have`)
-  const base = `${woc.apiBase}/v1/bsv/${woc.segment}`
-
-  return {
-    async transactionsForLockingScript(lockingScriptHex: string): Promise<string[]> {
-      // The marker is always a P2PKH output; derive its address from the
-      // script's hash160 rather than adding a second WoC endpoint shape.
-      //
-      // The VaultChainLookup contract (see this file's interface doc) treats
-      // an EMPTY result as a genuine "no marker at this index" miss — so a
-      // failure to even ask the question (an unrecognizable script), a
-      // non-2xx response (rate limiting, a transient 5xx, a maintenance
-      // window) or a thrown exception (DNS failure, timeout, offline) must
-      // never collapse into that same empty array: recoverVaultFromChain's
-      // OWN catch around this call (never a miss, and now bounded — see
-      // VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS) is what has to handle these,
-      // not the miss-counting branch.
-      const address = p2pkhAddressFromScript(lockingScriptHex, woc.network)
-      if (!address) {
-        throw new Error('wocChainLookup: marker script is not a recognizable P2PKH script')
-      }
-      const response = await fetch(`${base}/address/${address}/history`)
-      // WhatsOnChain's answer for an address that has never been used: a
-      // genuine miss, not a failure.
-      if (response.status === 404) return []
-      if (!response.ok) {
-        throw new Error(`wocChainLookup: address history request failed (HTTP ${response.status})`)
-      }
-      const body = await response.json()
-      const rows = Array.isArray(body) ? body : Array.isArray(body?.result) ? body.result : []
-      const txids = rows.map((r: any) => r?.tx_hash).filter((h: unknown) => typeof h === 'string')
-      return [...new Set<string>(txids)]
-    },
-
-    async transactionForTxid(txid: string): Promise<{ beef: number[]; confirmed: boolean } | null> {
-      try {
-        const [beefResp, txResp] = await Promise.all([
-          fetch(`${base}/tx/${txid}/beef`),
-          fetch(`${base}/tx/hash/${txid}`)
-        ])
-        const beef = parseWocBeefBodyText(beefResp.ok, await beefResp.text())
-        if (!beef) return null
-        let confirmed = false
-        if (txResp.ok) {
-          const info = await txResp.json()
-          confirmed = Number.isInteger(info?.confirmations) && info.confirmations > 0
-        }
-        return { beef, confirmed }
-      } catch {
-        return null
-      }
-    },
-
-    async outputStatus(outpoint: { txid: string; vout: number }): Promise<'unspent' | 'spent' | 'unknown'> {
-      // Fail-safe default is 'unknown' (never trusted as unspent — see this
-      // file's VaultChainLookup interface doc). The row must be about this
-      // exact outpoint. Unspent is a clean row with no `spentIn`; spent is a
-      // `spentIn` naming another transaction; an unknown output comes back as
-      // `spentIn.status: "Unknown UTXO"` echoing its own txid, which is
-      // neither.
-      try {
-        const response = await fetch(`${base}/utxos/spent`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ utxos: [{ txid: outpoint.txid, vout: outpoint.vout }] })
-        })
-        if (!response.ok) return 'unknown'
-        const body = await response.json()
-        const row = Array.isArray(body) && body.length === 1 ? body[0] : undefined
-        if (row === null || typeof row !== 'object') return 'unknown'
-        if (row.utxo?.txid !== outpoint.txid || row.utxo?.vout !== outpoint.vout) return 'unknown'
-        if (row.error !== '') return 'unknown'
-        const spentIn = row.spentIn
-        if (spentIn === undefined) return 'unspent'
-        if (
-          spentIn !== null &&
-          typeof spentIn === 'object' &&
-          typeof spentIn.txid === 'string' &&
-          /^[0-9a-fA-F]{64}$/.test(spentIn.txid) &&
-          spentIn.txid.toLowerCase() !== outpoint.txid.toLowerCase() &&
-          spentIn.status !== 'Unknown UTXO'
-        ) {
-          return 'spent'
-        }
-        return 'unknown'
-      } catch {
-        return 'unknown'
-      }
+  pendingConfirmation = admittedPending.length
+  // Rebuild meta only from the records of the group just chosen (or, with an
+  // authenticated local meta, from records that agree with it). Nothing chosen
+  // and no local meta: nothing to rebuild from, and no guessing.
+  if (meta) await recoverVaultMetaFromOutputs(w, adminOriginator)
+  else if (chosenGroup) {
+    // The unproven meta is dropped only now, directly before its rebuild from
+    // the chosen group; every step that can throw has already run.
+    if (replaceMeta) {
+      await vaultStore.forgetSetup(scopeToken)
+      selection.metaReplaced = true
     }
+    await recoverVaultMetaFromOutputs(w, adminOriginator, {
+      vaultId: chosenGroup.vaultId,
+      createdAt: chosenGroup.createdAt,
+      revision: chosenGroup.revision,
+      keys: chosenGroup.keys
+    })
+  }
+  // The next salt allocation starts above every index this scan saw in use.
+  if (maxUsedIndex > 0) noteSaltFloor(scopeToken.storageKey, maxUsedIndex)
+  return {
+    found,
+    pendingConfirmation,
+    unreachable,
+    ignoredBelowMinimum,
+    ignoredNonVault,
+    problems,
+    problemCount: problems.length,
+    unknownIndexes,
+    maxUsedIndex,
+    scanned,
+    status: problems.length > 0 || unknownIndexes.length > 0 ? 'incomplete' : 'complete',
+    groups: groups.map(g => g.group),
+    conflict,
+    setApart,
+    needsKey: false
   }
 }
 
-/** Local copy of address.ts's parseWocBeefBody signature over (ok, text)
- * rather than a Response, so this module does not need to import it just to
- * reshape the call. */
-function parseWocBeefBodyText(ok: boolean, text: string): number[] | undefined {
-  if (!ok) return undefined
-  const hex = text.trim()
-  if (hex.length === 0 || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex)) return undefined
-  try {
-    return Utils.toArray(hex, 'hex') as number[]
-  } catch {
-    return undefined
-  }
-}
-
-/** hash160 out of a standard P2PKH script, re-encoded as a base58check
- * address for the WoC address-history endpoint, via @bsv/sdk's own public
- * `Utils.toBase58Check` (already imported for toHex/toArray above) — the
- * same primitive `PublicKey.prototype.toAddress()` uses internally elsewhere
- * in this codebase (core/pay/rails/address.ts). Returns undefined for
- * anything else (defensive — deriveVaultMarkerScript always builds P2PKH). */
-function p2pkhAddressFromScript(lockingScriptHex: string, network: 'mainnet' | 'testnet'): string | undefined {
-  let bytes: number[]
-  try {
-    bytes = Utils.toArray(lockingScriptHex, 'hex') as number[]
-  } catch {
-    return undefined
-  }
-  if (
-    bytes.length !== 25 ||
-    bytes[0] !== 0x76 ||
-    bytes[1] !== 0xa9 ||
-    bytes[2] !== 0x14 ||
-    bytes[23] !== 0x88 ||
-    bytes[24] !== 0xac
-  ) {
-    return undefined
-  }
-  const hash160 = bytes.slice(3, 23)
-  return Utils.toBase58Check(hash160, [network === 'mainnet' ? 0x00 : 0x6f])
-}
+export { wocChainLookup } from './wocLookup'

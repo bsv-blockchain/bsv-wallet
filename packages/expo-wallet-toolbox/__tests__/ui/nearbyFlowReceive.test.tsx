@@ -72,6 +72,8 @@ jest.mock('@bsv/sdk', () => ({
 }))
 
 let mockScanHandler: ((data: string) => void) | undefined
+/** The chain the mounted storage records; NearbyFlow tags its code only when it is the picker's ('main' by default). */
+let mockStorageChain: string | undefined
 jest.mock('../../ui/components/QRScanner', () => ({
   __esModule: true,
   default: (props: { onScan?: (data: string) => void }) => {
@@ -111,7 +113,7 @@ jest.mock('@bsv/expo-wallet-toolbox', () => {
     useWalletManagers: () => ({
       managers: { permissionsManager: mockWallet() },
       adminOriginator: 'admin.test',
-      storage: { sqliteDb: {}, getServices: () => mockStorageServices }
+      storage: { sqliteDb: {}, chain: mockStorageChain, getServices: () => mockStorageServices }
     }),
     localSupportsAwdl: jest.fn(() => false),
     localSupportsBle: jest.fn(() => false),
@@ -386,5 +388,32 @@ describe('NearbyFlow — host-drawn payment received', () => {
     expect(seen[seen.length - 1].amount).toBe(5000)
     expect(s.queryByText('local_pay_added')).toBeNull()
     expect(mockClaimAndSavePending).toHaveBeenCalledTimes(1)
+  })
+})
+
+// The payee names its network in the code, so a payer on another one is told
+// before the confirm screen (session.ts `n`, NearbyFlow's adoptSession).
+describe('NearbyFlow — payee network tag', () => {
+  const { decodeSession } = jest.requireActual(
+    '../../core/localpay/session'
+  ) as typeof import('../../core/localpay/session')
+  afterEach(() => {
+    mockStorageChain = undefined
+  })
+
+  it("writes the wallet's network into the code once storage is that network's", async () => {
+    mockStorageChain = 'main'
+    const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} />)
+    await waitFor(() => expect(s.UNSAFE_getAllByType('QRCode' as never).length).toBeGreaterThan(0))
+    const code = s.UNSAFE_getAllByType('QRCode' as never)[0].props.value as string
+    expect(decodeSession(code).network).toBe('main')
+  })
+
+  it('writes no network while storage is still the previous chain (mid-switch)', async () => {
+    mockStorageChain = 'test'
+    const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} />)
+    await waitFor(() => expect(s.UNSAFE_getAllByType('QRCode' as never).length).toBeGreaterThan(0))
+    const code = s.UNSAFE_getAllByType('QRCode' as never)[0].props.value as string
+    expect(decodeSession(code).network).toBeUndefined()
   })
 })

@@ -52,15 +52,13 @@ export interface NetworkProfile {
    * place, but no new wallet can be put on it.
    */
   available: boolean
-  /** Default Arcade origin (broadcast, SSE, and `/chaintracks/v1`). */
+  /** Default BSV Broadcaster origin (broadcast, SSE, and `/chaintracks/v1`). */
   arcadeUrl: string
   /** Default MessageBox origin. Each network has its own server. */
   messageBoxUrl: string
   /** Undefined on a network with no WhatsOnChain: address rails, WoC proofs and explorer links are off. */
   woc?: WocEndpoints
-  /** TAAL ARC broadcast fallback, where TAAL runs one. */
-  taalArcUrl?: string
-  /** GorillaPool ARC broadcast fallback, where GorillaPool runs one. */
+  /** GorillaPool's BSV Broadcaster root (posts to `/tx`), where GorillaPool runs one. */
   gorillaPoolArcUrl?: string
   /** Whether Bitails (the toolbox's built-in provider) serves this network. */
   bitails: boolean
@@ -80,11 +78,10 @@ export const NETWORKS: Record<AppChain, NetworkProfile> = {
   main: {
     available: true,
     walletChain: 'main',
-    arcadeUrl: 'https://arcade-v2-us-1.bsvblockchain.tech',
+    arcadeUrl: 'https://broadcast.bsvblockchain.tech',
     messageBoxUrl: 'https://messagebox.bsvblockchain.tech',
     woc: { apiBase: 'https://api.whatsonchain.com', segment: 'main', explorerBase: 'https://whatsonchain.com' },
-    taalArcUrl: 'https://arc.taal.com',
-    gorillaPoolArcUrl: 'https://arc.gorillapool.io',
+    gorillaPoolArcUrl: 'https://arcade.gorillapool.io',
     bitails: true,
     overlayPreset: 'mainnet',
     push: true
@@ -92,10 +89,10 @@ export const NETWORKS: Record<AppChain, NetworkProfile> = {
   test: {
     available: true,
     walletChain: 'test',
-    arcadeUrl: 'https://arcade-v2-testnet-us-1.bsvblockchain.tech',
+    arcadeUrl: 'https://broadcast.bsvblockchain.tech/testnet',
     messageBoxUrl: 'https://messagebox-testnet.bsvblockchain.tech',
     woc: { apiBase: 'https://api.whatsonchain.com', segment: 'test', explorerBase: 'https://test.whatsonchain.com' },
-    taalArcUrl: 'https://arc-test.taal.com',
+    gorillaPoolArcUrl: 'https://testnet.arcade.gorillapool.io',
     bitails: true,
     overlayPreset: 'testnet',
     push: false
@@ -103,7 +100,7 @@ export const NETWORKS: Record<AppChain, NetworkProfile> = {
   teratest: {
     available: true,
     walletChain: 'ttn',
-    arcadeUrl: 'https://arcade-v2-ttn-us-1.bsvblockchain.tech',
+    arcadeUrl: 'https://broadcast.bsvblockchain.tech/ttn',
     messageBoxUrl: 'https://messagebox-ttn.bsvblockchain.tech',
     woc: {
       apiBase: 'https://api.woc-ttn.bsvblockchain.tech',
@@ -114,8 +111,9 @@ export const NETWORKS: Record<AppChain, NetworkProfile> = {
     overlayPreset: 'teratestnet',
     push: false
   },
-  // The scaling teratestnet. Arcade, chaintracks and MessageBox only: there is
-  // no WhatsOnChain, explorer or overlay for it.
+  // The scaling teratestnet. BSV Broadcaster, chaintracks and MessageBox only:
+  // there is no WhatsOnChain, explorer or overlay for it. The `/tstn`
+  // chaintracks now reports `tstn`; `available` stays false.
   //
   // Not available yet. The deployed chain runs Teranode regtest parameters
   // (regtest genesis 0f9188f1…, bits 0x207fffff; its chaintracks reports
@@ -127,7 +125,7 @@ export const NETWORKS: Record<AppChain, NetworkProfile> = {
   scaletest: {
     walletChain: 'regtest',
     available: false,
-    arcadeUrl: 'https://arcade-tstn-us-1.bsvblockchain.tech',
+    arcadeUrl: 'https://broadcast.bsvblockchain.tech/tstn',
     messageBoxUrl: 'https://messagebox-tstn.bsvblockchain.tech',
     bitails: false,
     overlayPreset: 'local',

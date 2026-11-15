@@ -54,8 +54,8 @@ const CHECK_APP_CT = process.env.CHECK_APP_CHAINTRACKS === '1'
 const CHAINTRACKS_URL =
   process.env.CHAINTRACKS_URL ??
   (NETWORK === 'testnet'
-    ? 'https://arcade-v2-testnet-us-1.bsvblockchain.tech/chaintracks/v1'
-    : 'https://arcade-v2-us-1.bsvblockchain.tech/chaintracks/v1')
+    ? 'https://broadcast.bsvblockchain.tech/testnet/chaintracks/v1'
+    : 'https://broadcast.bsvblockchain.tech/chaintracks/v1')
 const OUT = process.env.OUT ?? 'peerpay-dump'
 
 if (!MNEMONIC) {

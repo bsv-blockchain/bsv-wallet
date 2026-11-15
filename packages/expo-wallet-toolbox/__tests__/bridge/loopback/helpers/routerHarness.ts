@@ -8,7 +8,11 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { b64uEncode } from '../../../../core/bridge/protocol/base64url'
 import type { ContinuityHandle } from '../../../../core/bridge/protocol/continuity'
-import { createBindingRegistry, type ExplicitConnectInput } from '../../../../core/bridge/bindings'
+import {
+  createBindingRegistry,
+  type BindingRegistry,
+  type ExplicitConnectInput
+} from '../../../../core/bridge/bindings'
 import type { dispatch as dispatchFn } from '../../../../core/bridge/dispatcher'
 import { helloMac } from '../../../../core/bridge/loopback/launchProof'
 import {
@@ -76,24 +80,35 @@ export interface Harness {
 }
 
 export function makeHarness(
-  opts: { routes?: Partial<Record<RouteKind, RouteHandler>>; realRegistry?: boolean; identity?: ContinuityHandle } = {}
+  opts: {
+    routes?: Partial<Record<RouteKind, RouteHandler>>
+    realRegistry?: boolean
+    /**
+     * Use this registry instead of a fresh one. Already loaded (the bridge runtime's
+     * registry is). `load()` is not called again: a second load wipes the in-memory ring.
+     */
+    registry?: BindingRegistry
+    identity?: ContinuityHandle
+  } = {}
 ): Harness {
   const identity = opts.identity ?? identityHandle
   const secrets = new Map<string, Uint8Array>()
   const origins = new Map<string, string>()
   const kv = new Map<string, string>()
-  const realRegistry = opts.realRegistry
-    ? createBindingRegistry({
-        tombstoneStorage: {
-          getItem: async k => kv.get(k) ?? null,
-          setItem: async (k, v) => void kv.set(k, v),
-          removeItem: async k => void kv.delete(k),
-          getAllKeys: async () => [...kv.keys()]
-        },
-        now: () => Date.now(),
-        onClosed: () => {}
-      })
-    : undefined
+  const realRegistry =
+    opts.registry ??
+    (opts.realRegistry
+      ? createBindingRegistry({
+          tombstoneStorage: {
+            getItem: async k => kv.get(k) ?? null,
+            setItem: async (k, v) => void kv.set(k, v),
+            removeItem: async k => void kv.delete(k),
+            getAllKeys: async () => [...kv.keys()]
+          },
+          now: () => Date.now(),
+          onClosed: () => {}
+        })
+      : undefined)
   const calls: string[] = []
   const state: Harness['state'] = {
     bound: { port: PORT, ipv4: true, ipv6: true },
@@ -216,7 +231,7 @@ export function makeHarness(
     env,
     calls,
     state,
-    ready: realRegistry ? realRegistry.load() : Promise.resolve(),
+    ready: realRegistry && opts.registry === undefined ? realRegistry.load() : Promise.resolve(),
     handle: req =>
       router.handle({
         id: 'c1',

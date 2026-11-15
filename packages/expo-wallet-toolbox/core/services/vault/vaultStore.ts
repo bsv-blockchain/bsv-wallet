@@ -83,12 +83,19 @@ export interface VaultMetaV6 {
   /** Fresh-device recovery remains locked until a restored key proves
    * possession with a live random-signature challenge. */
   recovery?: VaultRecoveryState
+  /** A key enrolled on a card but not yet part of the committed list. It is
+   * never in `keys`; a re-lock signed by an existing proven key commits it. */
+  staged?: VaultKeyRecord
   keys: VaultKeyRecord[]
 }
 
 export interface VaultRecoveryState {
   required: true
+  /** Kept for older readers; derived from `adopted`. */
   adoptedSerials: string[]
+  /** Pairs that passed a live tap. Proof is bound to serial AND pubkey.
+   * Absent in metas written before this field existed: those read as unproven. */
+  adopted?: { serial: string; pubkey: string }[]
 }
 
 export interface VaultPendingRemoval {
@@ -138,6 +145,13 @@ export type VaultMeta = VaultMetaV6
 let activeScope: VaultStoreScope | null = null
 let scopeGeneration = 0
 let mutationTail: Promise<void> = Promise.resolve()
+/** In-memory live-tap proofs, keyed by scope storageKey. Never persisted, so
+ * the stored meta and its tag stay valid. Dropped by clearScope. */
+const sessionProofs = new Map<string, Set<string>>()
+
+function pairId(p: { serial: string; pubkey: string }): string {
+  return `${p.serial}:${p.pubkey}`
+}
 
 /** INT-08: subscribers notified whenever configureScope/clearScope actually
  * runs, so a reader started before the wallet-build chain reaches
@@ -227,7 +241,7 @@ function draftTagStoreKey(token: VaultScopeToken): string {
  * refuse to trust, never as though nothing had happened.
  */
 export type VaultMetaTagger = (
-  next: Pick<VaultMeta, 'vaultId' | 'revision' | 'createdAt' | 'keys' | 'pendingRemoval'>
+  next: Pick<VaultMeta, 'vaultId' | 'revision' | 'createdAt' | 'keys' | 'pendingRemoval' | 'staged' | 'recovery'>
 ) => Promise<string>
 
 /** Match the record actually read inside the mutation queue to the snapshot
@@ -238,6 +252,20 @@ function requireAuthenticatedSnapshot(meta: VaultMeta, expected?: VaultMeta, tag
   }
   if (expected && JSON.stringify(meta) !== JSON.stringify(expected)) {
     throw new VaultError('template-invalid', 'Vault metadata changed after authentication; reload and retry')
+  }
+}
+
+/** True only when the tag on file is exactly the tag `tagger` computes over
+ * `meta` (tags are deterministic HMACs). Without a tagger, a stored tag or on
+ * any failure: false (fail closed). Used so a fresh tag is never written over
+ * adoption or staging fields that no authentic tag ever covered. */
+async function storedTagMatches(token: VaultScopeToken, meta: VaultMeta, tagger?: VaultMetaTagger): Promise<boolean> {
+  if (!tagger) return false
+  try {
+    const stored = await readMetaTag(token)
+    return !!stored && (await tagger(meta)) === stored
+  } catch {
+    return false
   }
 }
 
@@ -435,6 +463,7 @@ export function isVaultMeta(value: unknown): value is VaultMeta {
     'lastUsedSerial',
     'pendingRemoval',
     'recovery',
+    'staged',
     'keys'
   ]
   if (Object.keys(m).some(name => !allowed.includes(name))) return false
@@ -466,17 +495,46 @@ export function isVaultMeta(value: unknown): value is VaultMeta {
     if (!isSafeTime(pending.startedAt) || pending.revision !== m.revision) return false
     if (pending.state !== 'prepared' && pending.state !== 'broadcast') return false
   }
+  if (m.staged !== undefined) {
+    if (!isVaultKeyRecord(m.staged)) return false
+    const staged = m.staged as VaultKeyRecord
+    const removedKey = (m.pendingRemoval as VaultPendingRemoval | undefined)?.key
+    if (keys.some(k => k.serial === staged.serial || k.pubkey === staged.pubkey)) return false
+    if (removedKey && (removedKey.serial === staged.serial || removedKey.pubkey === staged.pubkey)) return false
+    if (keys.length + 1 > MAX_ACTIVE_KEYS) return false
+  }
   if (m.recovery !== undefined) {
     const r = m.recovery
     if (r === null || typeof r !== 'object' || Array.isArray(r)) return false
     const recovery = r as Record<string, unknown>
-    if (Object.keys(recovery).some(name => !['required', 'adoptedSerials'].includes(name))) return false
+    if (Object.keys(recovery).some(name => !['required', 'adoptedSerials', 'adopted'].includes(name))) return false
     if (recovery.required !== true || !Array.isArray(recovery.adoptedSerials)) return false
     if (!recovery.adoptedSerials.every(isVaultSerial)) return false
     if (new Set(recovery.adoptedSerials as string[]).size !== recovery.adoptedSerials.length) return false
     const known = new Set(keys.map(k => k.serial))
     if (m.pendingRemoval) known.add((m.pendingRemoval as VaultPendingRemoval).key.serial)
+    if (m.staged) known.add((m.staged as VaultKeyRecord).serial)
     if (!(recovery.adoptedSerials as string[]).every(serial => known.has(serial))) return false
+    if (recovery.adopted !== undefined) {
+      if (!Array.isArray(recovery.adopted)) return false
+      const knownPairs = new Set(
+        [
+          ...keys,
+          ...(m.pendingRemoval ? [(m.pendingRemoval as VaultPendingRemoval).key] : []),
+          ...(m.staged ? [m.staged as VaultKeyRecord] : [])
+        ].map(pairId)
+      )
+      const seen = new Set<string>()
+      for (const entry of recovery.adopted as unknown[]) {
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return false
+        const e = entry as Record<string, unknown>
+        if (Object.keys(e).some(name => name !== 'serial' && name !== 'pubkey')) return false
+        if (typeof e.serial !== 'string' || typeof e.pubkey !== 'string') return false
+        const id = pairId(e as { serial: string; pubkey: string })
+        if (!knownPairs.has(id) || seen.has(id)) return false
+        seen.add(id)
+      }
+    }
   }
   return true
 }
@@ -598,6 +656,23 @@ function mergePendingRemoval(
   }
 }
 
+/** Every key pair of `meta` a tap can prove: the list, the key being removed
+ * and the staged key. */
+function metaPairs(meta: VaultMeta): VaultKeyRecord[] {
+  return [...meta.keys, ...(meta.pendingRemoval ? [meta.pendingRemoval.key] : []), ...(meta.staged ? [meta.staged] : [])]
+}
+
+/** Pairs of `meta` proven by a durable record or a session proof of this scope.
+ * A meta enrolled on this phone (no recovery state) proves all its pairs: each
+ * passed the enrollment challenge. A legacy recovery meta (serials only) proves
+ * none. */
+function provenPairRecords(meta: VaultMeta, token: VaultScopeToken | null): VaultKeyRecord[] {
+  if (!meta.recovery?.required) return metaPairs(meta)
+  const durable = new Set((meta.recovery.adopted ?? []).map(pairId))
+  const session = token ? sessionProofs.get(token.storageKey) : undefined
+  return metaPairs(meta).filter(k => durable.has(pairId(k)) || session?.has(pairId(k)) === true)
+}
+
 export const vaultStore = {
   /** Select the only wallet+chain namespace subsequent calls may access. */
   configureScope(scope: VaultStoreScope): void {
@@ -609,6 +684,7 @@ export const vaultStore = {
   /** Drop the in-memory authority during logout, wallet rebuild or teardown. */
   clearScope(): void {
     activeScope = null
+    sessionProofs.clear()
     scopeGeneration++
     notifyScopeChange()
   },
@@ -624,6 +700,30 @@ export const vaultStore = {
 
   getScope(): VaultStoreScope | null {
     return activeScope ? { ...activeScope } : null
+  },
+
+  /**
+   * The keys of `meta` that a live tap proved: the one definition every new
+   * lock is built from. Synchronous. A chain record alone never proves a key,
+   * and proof is bound to serial AND pubkey, so a planted record that reuses a
+   * real serial inherits nothing.
+   */
+  provenKeyRecords(meta: VaultMeta, scopeToken?: VaultScopeToken): VaultKeyRecord[] {
+    const proven = new Set(provenPairRecords(meta, scopeToken ?? captureScope(false)).map(pairId))
+    return meta.keys.filter(k => proven.has(pairId(k)))
+  },
+
+  /** Remember a live-tap proof in memory only (nothing is written, so the
+   * stored meta and its tag stay valid). Dropped by clearScope. */
+  noteSessionProof(record: Pick<VaultKeyRecord, 'serial' | 'pubkey'>, scopeToken?: VaultScopeToken): void {
+    const token = scopeToken ?? captureScope(true)
+    assertScope(token)
+    let set = sessionProofs.get(token.storageKey)
+    if (!set) {
+      set = new Set()
+      sessionProofs.set(token.storageKey, set)
+    }
+    set.add(pairId(record))
   },
 
   /** Capture the current wallet+chain epoch before starting async work. */
@@ -970,9 +1070,12 @@ export const vaultStore = {
    * ONLY after the equality check just above already proved them identical
    * to `checked` — itself independently authenticated against a real,
    * chain-verified R1C lock by the caller; in the higher-revision branch
-   * they are taken from `checked` directly, never from `current`. Either
-   * way `current`'s own (possibly forged, possibly absent) tag never
-   * "launders" into the fresh one. */
+   * they are taken from `checked` directly, never from `current`.
+   *
+   * The tag-covered recovery.adopted and staged fields are NOT proven by the
+   * chain, so they are kept from `current` only when `current`'s own tag
+   * verifies (storedTagMatches); otherwise adopted becomes [] and staged is
+   * dropped. A forged adoption therefore never launders into the fresh tag. */
   async restoreVerifiedMeta(
     meta: VaultMeta,
     scopeToken?: VaultScopeToken,
@@ -1007,24 +1110,51 @@ export const vaultStore = {
       if (current && checked.revision === current.revision) {
         const pendingRemoval = mergePendingRemoval(current.pendingRemoval, checked.pendingRemoval)
         const restored: VaultMeta = { ...current }
+        // adopted and staged decide which keys a new lock commits. Keep them
+        // only when current's own tag verifies; otherwise a store-only edit
+        // would be blessed by the fresh tag below. With no tagger no tag is
+        // written, so nothing is blessed and current stays as it is.
+        if (tagger && !(await storedTagMatches(token, current, tagger))) {
+          restored.recovery = { required: true, adoptedSerials: [], adopted: [] }
+          delete restored.staged
+        }
         if (pendingRemoval) restored.pendingRemoval = pendingRemoval
         else delete restored.pendingRemoval
         await writeMetaAndTag(token, restored, tagger)
         return restored
       }
 
-      const knownSerials = new Set([
-        ...checked.keys.map(key => key.serial),
-        ...(checked.pendingRemoval ? [checked.pendingRemoval.key.serial] : [])
-      ])
       const activeSerials = new Set(checked.keys.map(key => key.serial))
+      // Adoption carries over by serial AND pubkey. A device with no recovery
+      // state proved all its keys at enrollment; a legacy recovery meta proved
+      // none. The staged key passed its own live challenge as a ready draft.
+      const checkedPairs = new Set(
+        [...checked.keys, ...(checked.pendingRemoval ? [checked.pendingRemoval.key] : [])].map(pairId)
+      )
+      // current's adoption state counts only when its own tag verifies: a
+      // store-only attacker may have edited adopted or stripped recovery.
+      const currentTrusted = current ? await storedTagMatches(token, current, tagger) : false
+      const currentProven = current && currentTrusted
+        ? current.recovery?.required
+          ? metaPairs(current).filter(k =>
+              (current.recovery!.adopted ?? []).some(p => p.serial === k.serial && p.pubkey === k.pubkey)
+            )
+          : metaPairs(current)
+        : []
+      const stagedPair = current?.staged && currentTrusted ? [current.staged] : []
+      const carried: { serial: string; pubkey: string }[] = []
+      for (const k of [...currentProven, ...stagedPair]) {
+        const pair = { serial: k.serial, pubkey: k.pubkey }
+        if (checkedPairs.has(pairId(pair)) && !carried.some(c => pairId(c) === pairId(pair))) carried.push(pair)
+      }
       const restored: VaultMeta = {
         ...checked,
         // last-use and adoption status are device-local facts, never output
         // instructions supplied by a recovery caller.
         recovery: {
           required: true,
-          adoptedSerials: (current?.recovery?.adoptedSerials ?? []).filter(serial => knownSerials.has(serial))
+          adoptedSerials: carried.map(p => p.serial),
+          adopted: carried
         }
       }
       delete restored.lastUsedAt
@@ -1038,42 +1168,72 @@ export const vaultStore = {
     })
   },
 
-  async markKeyAdopted(record: Pick<VaultKeyRecord, 'serial' | 'pubkey'>, scopeToken?: VaultScopeToken): Promise<void> {
+  /**
+   * Record that a live tap proved `record`. The pair must match a key of the
+   * list, the key being removed or the staged key. With a `tagger` the pair is
+   * written (meta and tag together). Without one it is a session proof only:
+   * nothing is written, so the stored tag stays valid. A meta enrolled on this
+   * phone (no recovery state) needs neither: it is a no-op.
+   *
+   * Caller contract (laundering): with a `tagger`, the caller must have
+   * established that the stored meta is authentic (adoptVaultKey verifies its
+   * tag first and passes that snapshot as `expectedMeta`), because the fresh
+   * tag covers the whole stored meta.
+   */
+  async markKeyAdopted(
+    record: Pick<VaultKeyRecord, 'serial' | 'pubkey'>,
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<void> {
     const token = scopeToken ?? captureScope(true)
     return enqueueMutation(async () => {
       const meta = await readMeta(token)
       if (!meta) throw new VaultError('not-enrolled', 'Vault is not set up')
-      const known = [...meta.keys, ...(meta.pendingRemoval ? [meta.pendingRemoval.key] : [])]
-      if (!known.some(k => k.serial === record.serial && k.pubkey === record.pubkey)) {
+      if (tagger || expectedMeta) requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
+      if (!metaPairs(meta).some(k => k.serial === record.serial && k.pubkey === record.pubkey)) {
         throw new VaultError('wrong-key', 'Challenged key does not match restored vault metadata')
       }
-      if (!meta.recovery || meta.recovery.adoptedSerials.includes(record.serial)) return
-      await writeMeta(token, {
-        ...meta,
-        recovery: { required: true, adoptedSerials: [...meta.recovery.adoptedSerials, record.serial] }
-      })
+      if (!meta.recovery) return
+      if (!tagger) {
+        this.noteSessionProof(record, token)
+        return
+      }
+      const adopted = meta.recovery.adopted ?? []
+      if (adopted.some(p => p.serial === record.serial && p.pubkey === record.pubkey)) return
+      const pair = { serial: record.serial, pubkey: record.pubkey }
+      const adoptedSerials = meta.recovery.adoptedSerials.includes(record.serial)
+        ? meta.recovery.adoptedSerials
+        : [...meta.recovery.adoptedSerials, record.serial]
+      await writeMetaAndTag(
+        token,
+        { ...meta, recovery: { required: true, adoptedSerials, adopted: [...adopted, pair] } },
+        tagger
+      )
     })
   },
 
+  /** Withdrawals need the tapped key proven: a durable pair or a session proof
+   * that matches the stored serial AND pubkey (the key being removed counts, so
+   * a half-finished removal never strands its funds). */
   async requireKeyAdopted(serial: string, scopeToken?: VaultScopeToken): Promise<void> {
     const token = scopeToken ?? captureScope(true)
     const meta = await requireMeta(token)
-    if (meta.recovery?.required && !meta.recovery.adoptedSerials.includes(serial)) {
+    if (meta.recovery?.required && !provenPairRecords(meta, token).some(k => k.serial === serial)) {
       throw new VaultError('key-not-adopted', 'Prove possession of this restored YubiKey before withdrawing')
     }
   },
 
   /**
-   * XR-002: `next` here is built by APPENDING to `meta.keys` — never
-   * replacing it — so a forged `meta` (a substituted key set the caller
-   * never authenticated) would otherwise "launder" straight through into a
-   * freshly, validly tagged `next` merely because the user added one more,
-   * genuinely their own, key. Callers MUST verify `meta`'s own existing tag
-   * (or run it through the chain-authenticated recovery path) BEFORE calling
-   * this with a `tagger` — see VaultKeyService.addVaultKey's
-   * requireTaggedMeta call, which does exactly that.
+   * Stage a new key (add-key, late-key). The key is written to `meta.staged`
+   * only: `keys` and `revision` do not change, so no lock can commit it. It
+   * joins `keys` only through commitLockKeySet after a re-lock (or a tap proof
+   * when nothing is funded) signed by an existing key. Laundering caveat: the
+   * new meta is built from `meta`, so a forged `meta` would otherwise launder
+   * into a validly tagged `next`: `expectedMeta` must be the caller's
+   * authenticated snapshot (see VaultKeyService.addVaultKey's requireTaggedMeta).
    */
-  async addKey(
+  async stageKey(
     k: VaultKeyRecord,
     scopeToken?: VaultScopeToken,
     tagger?: VaultMetaTagger,
@@ -1085,19 +1245,49 @@ export const vaultStore = {
       const meta = await requireMeta(token)
       requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
       if (meta.pendingRemoval) throw new VaultError('relock-required', 'Finish the pending key removal first')
-      if (meta.keys.length >= MAX_ACTIVE_KEYS) {
-        throw new VaultError('too-many-keys', `The vault already has ${MAX_ACTIVE_KEYS} keys`)
+      if (meta.staged) throw new VaultError('relock-required', 'Finish adding the previous key first')
+      if (meta.keys.length + 1 > MAX_ACTIVE_KEYS) {
+        throw new VaultError('too-many-keys', `The vault already has ${meta.keys.length} keys`)
       }
       if (meta.keys.some(x => x.serial === k.serial || x.pubkey === k.pubkey)) {
         throw new VaultError('key-already-enrolled', k.serial, undefined, { serial: k.serial })
       }
-      const next: VaultMeta = { ...meta, revision: meta.revision + 1, keys: [...meta.keys, k] }
+      const next: VaultMeta = { ...meta, staged: { ...k } }
       await writeMetaAndTag(token, next, tagger)
       return next
     })
   },
 
-  /** Same laundering caveat as addKey: `meta` must already be established as
+  /** Drop the staged key. It only lowers authority, so no tap is needed. The
+   * adoption pair of the staged key goes with it. Same laundering caveat as
+   * stageKey. */
+  async discardStagedKey(
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<VaultMeta> {
+    const token = scopeToken ?? captureScope(true)
+    return enqueueMutation(async () => {
+      const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
+      const staged = meta.staged
+      if (!staged) throw new VaultError('not-enrolled', 'No key is waiting to be added')
+      const next: VaultMeta = { ...meta }
+      delete next.staged
+      if (next.recovery) {
+        const adopted = (next.recovery.adopted ?? []).filter(p => pairId(p) !== pairId(staged))
+        next.recovery = {
+          required: true,
+          adoptedSerials: next.recovery.adoptedSerials.filter(s => s !== staged.serial),
+          ...(next.recovery.adopted === undefined ? {} : { adopted })
+        }
+      }
+      await writeMetaAndTag(token, next, tagger)
+      return next
+    })
+  },
+
+  /** Same laundering caveat as stageKey: `meta` must already be established as
    * trustworthy by the caller (transfers.ts's beginVaultKeyRemoval gates its
    * whole flow on requireAuthenticatedMeta before reaching here) before a
    * `tagger` is supplied. */
@@ -1156,6 +1346,89 @@ export const vaultStore = {
       const next: VaultMeta = {
         ...meta,
         pendingRemoval: { ...pending, state: 'broadcast' }
+      }
+      await writeMetaAndTag(token, next, tagger)
+      return next
+    })
+  },
+
+  /**
+   * After a spend created a lock with a different key set than the list (a
+   * re-lock or remainder that dropped unproven keys, or activated the staged
+   * key): write `keys`, `revision`, and the pruned adoption state in ONE tagged
+   * write. The staged key leaves `staged` only when `clearStaged` is set. The
+   * adoption pairs of keys that stay (list, key being removed, staged key that
+   * stays staged) are kept; pairs of dropped keys go. The caller passes the
+   * authenticated snapshot as `expectedMeta` (same contract as stageKey).
+   */
+  async commitLockKeySet(
+    args: {
+      keys: VaultKeyRecord[]
+      revision: number
+      clearStaged: boolean
+      /** The staged key this commit activates. Counts as adopted only if it is
+       * exactly meta.staged and is in `keys`. */
+      activated?: VaultKeyRecord
+    },
+    scopeToken?: VaultScopeToken,
+    tagger?: VaultMetaTagger,
+    expectedMeta?: VaultMeta
+  ): Promise<VaultMeta> {
+    const token = scopeToken ?? captureScope(true)
+    return enqueueMutation(async () => {
+      const meta = await requireMeta(token)
+      requireAuthenticatedSnapshot(meta, expectedMeta, tagger)
+      if (!Number.isSafeInteger(args.revision) || args.revision <= meta.revision) {
+        throw new VaultError('template-invalid', 'The new key set must carry a higher revision')
+      }
+      if (!args.keys.every(isVaultKeyRecord) || args.keys.length < MIN_KEYS || args.keys.length > MAX_KEYS) {
+        throw new VaultError('template-invalid', 'Invalid vault lock key set')
+      }
+      const next: VaultMeta = { ...meta, revision: args.revision, keys: args.keys.map(k => ({ ...k })) }
+      if (args.clearStaged) delete next.staged
+      // The removal's replacement output carries the new revision. keyIndex is
+      // where the removed key sat in the list; keep it within the shorter list.
+      if (next.pendingRemoval) {
+        next.pendingRemoval = {
+          ...next.pendingRemoval,
+          revision: args.revision,
+          keyIndex: Math.min(next.pendingRemoval.keyIndex, next.keys.length)
+        }
+      }
+      if (next.lastUsedSerial !== undefined && !next.keys.some(k => k.serial === next.lastUsedSerial)) {
+        delete next.lastUsedSerial
+        delete next.lastUsedAt
+      }
+      if (next.recovery) {
+        const kept = new Set(metaPairs(next).map(pairId))
+        // The activated key passed its own live challenge and the existing-key
+        // signed re-lock named it. Only the key that was staged and is now in
+        // the committed list qualifies; nothing else gains proof here.
+        const act = args.clearStaged ? args.activated : undefined
+        const activatedPair =
+          act !== undefined &&
+          meta.staged !== undefined &&
+          pairId(act) === pairId(meta.staged) &&
+          next.keys.some(k => pairId(k) === pairId(act))
+            ? { serial: act.serial, pubkey: act.pubkey }
+            : undefined
+        const prior = next.recovery.adopted
+        // Legacy shape (serials only, `adopted` undefined) proves nothing and is
+        // left as it was.
+        const base =
+          activatedPair && prior !== undefined && !prior.some(p => pairId(p) === pairId(activatedPair))
+            ? [...prior, activatedPair]
+            : prior
+        const adopted = (base ?? []).filter(p => kept.has(pairId(p)))
+        const serials = new Set(metaPairs(next).map(k => k.serial))
+        next.recovery = {
+          required: true,
+          adoptedSerials:
+            base === undefined
+              ? next.recovery.adoptedSerials.filter(s => serials.has(s))
+              : [...new Set(adopted.map(p => p.serial))],
+          ...(base === undefined ? {} : { adopted })
+        }
       }
       await writeMetaAndTag(token, next, tagger)
       return next
@@ -1238,7 +1511,7 @@ export const vaultStore = {
     })
   },
 
-  /** Same laundering caveat as addKey: the caller (VaultScreen's rename
+  /** Same laundering caveat as stageKey: the caller (VaultScreen's rename
    * action) must establish `meta` is trustworthy via requireAuthenticatedMeta
    * before supplying a `tagger`. */
   async renameKey(
@@ -1295,12 +1568,29 @@ export const vaultStore = {
     })
   },
 
+  /**
+   * Forget the local setup of the active scope: the meta item, its authority
+   * tag and the in-memory session proofs. Unlike `clear` it works with no meta,
+   * with a corrupt one and with a pendingRemoval, and it keeps enrollment
+   * drafts. It does not touch the chain; the caller relinquishes local outputs.
+   */
+  async forgetSetup(scopeToken?: VaultScopeToken): Promise<void> {
+    const token = scopeToken ?? captureScope(true)
+    return enqueueMutation(async () => {
+      assertScope(token)
+      await SecureStore.deleteItemAsync(token.storageKey, SECURE_OPTIONS)
+      await clearMetaTag(token)
+      sessionProofs.delete(token.storageKey)
+      assertScope(token)
+    })
+  },
+
   /** XR-002: the wallet-root authority tag on file for this scope's VaultMeta,
    * or null if none exists (never tagged — every enrollment created before
    * this fix shipped — or explicitly cleared). Read by
    * transfers.ts's requireAuthenticatedMeta and by every meta-mutating
    * caller that must verify `current` before trusting it as the basis for a
-   * freshly tagged `next` (see addKey/beginKeyRemoval/renameKey's laundering
+   * freshly tagged `next` (see stageKey/beginKeyRemoval/renameKey's laundering
    * caveat above). */
   async getMetaTag(scopeToken?: VaultScopeToken): Promise<string | null> {
     const token = scopeToken ?? captureScope(true)

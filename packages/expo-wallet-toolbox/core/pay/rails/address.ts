@@ -181,7 +181,8 @@ export function wocRequestInit(woc: WocConfig): { headers: Record<string, string
   return woc.apiKey ? { headers: { 'woc-api-key': woc.apiKey } } : undefined
 }
 
-async function wocFetch(woc: WocConfig, url: string): Promise<Response> {
+/** A WhatsOnChain GET that turns a 429 into WocRateLimited. Shared with pay/rails/sweep.ts. */
+export async function wocFetch(woc: WocConfig, url: string): Promise<Response> {
   const init = wocRequestInit(woc)
   const response = init ? await fetch(url, init) : await fetch(url)
   if (response.status === 429) throw new WocRateLimited()
