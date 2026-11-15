@@ -15456,6 +15456,16 @@ const resources = {
       vault_err_below_dust: 'Dieser Betrag ist zu klein zum Senden.',
       vault_err_no_transaction: 'Die Übertragung konnte nicht abgeschlossen werden. Bitte versuch es noch einmal.',
       vault_err_nfc_lost: 'Die Verbindung ist abgerissen. Halte den Schlüssel ruhig an dein Telefon.',
+      vault_err_lookup_unknown:
+        'Die Blockchain ließ sich gerade nicht prüfen. Nichts wurde geändert. Versuch es gleich noch einmal.',
+      vault_err_keys_unproven:
+        'Einige Schlüssel in diesem Tresor wurden auf diesem Telefon noch nicht geprüft. Halte jeden Schlüssel an das Telefon, um ihn zu prüfen, oder mach ohne die ungeprüften Schlüssel weiter.',
+      vault_err_not_enough_proven_keys:
+        'Eine neue Sperre braucht zwei geprüfte Schlüssel. Prüfe einen weiteren Schlüssel oder füge einen neuen hinzu. Alles auszahlen kannst du weiterhin.',
+      vault_err_chain_check_required:
+        'Prüfe die Blockchain auf deinen früheren Tresor, bevor du diesen Schlüssel zurücksetzt.',
+      vault_err_no_mnemonic:
+        'Ein Tresor braucht ein Wallet, das aus einer Wiederherstellungsphrase erzeugt wurde. Dieses Wallet wurde aus älteren Schlüsselteilen wiederhergestellt.',
       vault_pin_invalid_retry:
         'Falsche PIN — noch {{count}} Versuche. Tippe erneut auf Auszahlen, um es noch einmal zu versuchen.',
       vault_pin_invalid_retry_generic: 'Falsche PIN. Tippe erneut auf Auszahlen, um es noch einmal zu versuchen.',
@@ -15714,6 +15724,8 @@ const resources = {
       scan_shares_integrity_mismatch:
         'Der Integritätshash passt nicht — die Anteile stammen von verschiedenen Schlüsseln',
       scan_shares_duplicate: 'Dieser Anteil wurde schon gescannt',
+      scan_shares_print_mismatch:
+        'Diese Streifen stammen von verschiedenen Ausdrucken und lassen sich nicht zusammenfügen',
       scan_shares_biometric_title: 'Biometrischer Zugriff nötig',
       scan_shares_biometric_message:
         'Biometrischer Zugriff ist nötig, um die Schlüssel deines Wallets zu schützen. Bitte versuch es noch einmal.',
@@ -15906,6 +15918,8 @@ const resources = {
       local_pay_queued: 'Gespeichert — es wird automatisch zu deinem Wallet hinzugefügt.',
       local_pay_already_paid: 'Diese Anfrage wurde schon bezahlt.',
       local_pay_failed: 'Zahlung fehlgeschlagen',
+      local_pay_wrong_network:
+        'Dieser Code gilt für ein Wallet auf {{theirs}}. Dein Wallet ist auf {{mine}}, deshalb geht diese Zahlung nicht. Wechsle das Netzwerk, oder bitte die andere Person darum.',
       local_pay_network_denied:
         'Der Zugriff auf das lokale Netzwerk ist aus. Aktiviere ihn in den Einstellungen, um Geräte in der Nähe zu bezahlen.',
       local_pay_radio_fallback: 'Funkverbindung nicht verfügbar — zeig diesen Code stattdessen dem anderen Gerät.',
