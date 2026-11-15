@@ -2,6 +2,253 @@
 
 ## Unreleased
 
+## 0.25.0
+
+Vault hardening: a planted key, a stale scan or a reset on a new phone can no longer cost funds or add a key. No native change: hosts do not rebuild.
+
+### Added
+
+- **`scanVaultDeposits` and `VaultScanResult`.** A permanent, idempotent scan of the blockchain for deposits. The result carries `status` (`complete` or `incomplete`), `problemCount`, `unknownIndexes`, `maxUsedIndex`, `ignoredBelowMinimum`, and, on a conflict, `groups` and `setApart`. `VaultChainRecoveryResult` stays as an alias.
+- **`markerHistory`, `MarkerHistory` and `lookupMarker`.** One chain lookup with three results: found, none, unknown. A failed lookup, a rate limit or a full history window is `unknown` and never reads as "no funds". `wocChainLookup` takes an optional `requestInit`.
+- **`VAULT_SCAN_MIN_SATS`.** A frozen scan floor of 100,000 sat. No path creates a smaller vault output.
+- **`allocateSaltIndex`.** Salt indexes come from the chain as well as from local history.
+- **`provenKeyRecords` and `planLockKeys`.** One definition of a proven key (a live tap, bound to serial and pubkey), and one rule for the key set of every new lock.
+- **`activateStagedKeyWithoutOutputs` and `discardStagedVaultKey`.** Activate or drop a staged key.
+- **`forgetVaultSetup`.** Removes the local vault records of a phone stuck with conflicting or planted records. The chain is untouched.
+- **`recoverVaultFromTxids`.** Restore from transaction IDs (at most 50) when an index has too much history to read.
+- **`recoverVaultFromTxidsWithKey`** and **`VaultScanResult.needsKey`.** Restore from transaction IDs with one tapped key. `needsKey` is true when a scan saw a vault and restored none of it because no key was tapped.
+- **`checkVaultCardFunds`.** Checks the chain before a YubiKey reset: `clear`, `funds` or `unknown`.
+- **`canSetUpVault`.** Reports `no-mnemonic` for a wallet that cannot set up a vault.
+- **Print IDs on slices.** `generatePrintId`, `attachPrintId`, `isPrintId`, `PRINT_ID_ALPHABET`, `PRINT_ID_LENGTH`, and the `print-mismatch` compatibility issue, so slices from different prints do not combine.
+- **Five error codes:** `lookup-unknown`, `keys-unproven`, `not-enough-proven-keys`, `chain-check-required`, `no-mnemonic`, with copy in 12 locales.
+
+### Changed
+
+- **`addVaultKey` stages a key** (`meta.staged`). It joins `meta.keys` only when a re-lock signed by an existing proven key succeeds.
+- **A restore needs a tapped key.** A scan (`scanVaultDeposits`, `recoverVaultFromChain`, `recoverVaultFromTxids`) never creates local vault records and never internalizes outputs on a phone that holds no vault with a checked key; it reports what it found (`groups`, `needsKey`). `recoverVaultWithKey` and `recoverVaultFromTxidsWithKey` restore. A phone that already holds a vault with a checked key still merges newly found outputs by outpoint. A tapped restore also marks the tapped key checked when nothing new was internalized.
+- **`recoverVaultWithKey` can report `conflict`**, and takes `options.groupId` and `options.vaultId` to choose a group.
+- **`resetPivApplication` needs a clearance** (`fundsClearance`) or `acknowledgeFundsLoss: true`. Without one it throws `chain-check-required`.
+- **Deposits need all keys proven.** A deposit never drops a key.
+- **Re-lock and partial withdrawal drop unproven keys only with `acceptDroppingUnproven`.** A new lock needs at least two proven keys. A full withdrawal is never gated. `previewVaultWithdrawal` returns a `lockPlan`.
+- **The WhatsOnChain lookup uses confirmed and unconfirmed history, with paging** (up to 5 pages).
+- **`adoptVaultKey` without `authority` is a session proof.** It lasts until the app restarts.
+- **`metaFromVerifiedOutputs` no longer infers a pending removal** from an old output.
+- **`enrollKey` with `replaceOccupiedVaultSlot: true` needs the same gate as a PIV reset.** Pass `fundsClearance` (from `checkVaultCardFunds` for the card) or `acknowledgeFundsLoss: true`, else it throws `chain-check-required` before the card is changed. Without the flag nothing changes.
+
+### Fixed
+
+- The audit ids `planted-key`, `planted-lockout`, `add-key`, `late-key`, `salt-reuse`, `scan-shadow`, `decoy-wedge`, `scan-silent` (library result), `no-rescan` (library entry), `reset-new-phone` (library gate), `primary-key` and `slices` (library half).
+
+### Breaking changes for the app
+
+Every item below can break an app that built against 0.24.x.
+
+- **`VaultChainLookup` left `chainRecovery.ts`.** The type was re-exported from `core/services/vault/chainRecovery`; it now lives only in `core/services/vault/markerLookup` (a deep import of the old path stops compiling). The package root still exports it, because `core/index.ts` star-exports `markerLookup`. Change `import { type VaultChainLookup } from '.../chainRecovery'` to `markerLookup` or the package root.
+- **`vaultStore.addKey` is removed.** It appended a key to `meta.keys` with no proof and had no caller. A key is added with `addVaultKey` (it stages) and activated by a re-lock or `activateStagedKeyWithoutOutputs`.
+- **`addVaultKey` no longer commits the key.** It stages it in `meta.staged`. Screens that read `meta.keys` right after it must read `meta.staged` and run the activation step. `VaultMeta` gains `staged`, and `recovery.adopted` (pairs of serial and pubkey).
+- **Five new `VaultErrorCode` values** (`lookup-unknown`, `keys-unproven`, `not-enough-proven-keys`, `chain-check-required`, `no-mnemonic`). A host `Record<VaultErrorCode, ...>` or exhaustive `switch` fails to compile until it handles them. `lookup-unknown` is not in the library's retry set.
+- **`resetPivApplication` throws `chain-check-required`** unless it gets a `fundsClearance` from `checkVaultCardFunds` or `acknowledgeFundsLoss: true`.
+- **A deposit, a partial withdrawal and a re-lock need the chain.** Salt indexes are checked against WhatsOnChain; a failed or rate-limited check throws `lookup-unknown` before any tap. They no longer work fully offline. A full withdrawal still does not need it.
+- **Deposits throw `keys-unproven`** while any key of a restored vault is unproven. Re-lock and partial withdrawal throw it too, unless `acceptDroppingUnproven` is set, and then need two proven keys (`not-enough-proven-keys`).
+- **`recoverVaultWithKey` and `recoverVaultFromChain` can return `conflict: true` with `found: 0`** and nothing restored. The host must offer a group (`options.groupId`). A scan never adds keys or revisions to a local meta.
+- **A no-tap scan no longer restores a vault.** `scanVaultDeposits`, `recoverVaultFromChain` and `recoverVaultFromTxids` return `found: 0` and `needsKey: true` for a vault this phone does not hold. A host that shows "No vault found" for `found === 0` is wrong for that result (the library's own unpatched `VaultScreen` does). Offer a restore with a key; keep Set up hidden.
+- **`recoverVaultFromTxids` refuses `maxIndex` above 1000** (`template-invalid`). Default is 200.
+- **`wocChainLookup` reads three endpoints** (confirmed history with paging, unconfirmed history, plain history). `requestInit.headers` may be a plain object, a `Headers` instance or an array of pairs.
+- **`metaFromVerifiedOutputs` no longer returns a `pendingRemoval`.**
+- **`adoptVaultKey` without `authority`** records a session proof only; it is lost on app restart.
+- **`wocChainLookup` moved to `core/services/vault/wocLookup`.** `chainRecovery.ts` still re-exports it, and the package root exports it once.
+- **`VaultChainRecoveryResult` is now an alias of `VaultScanResult`**, which has more fields (`status`, `problemCount`, `unknownIndexes`, `groups`, `setApart`, `conflict` and others). Code that builds such a result by hand needs them.
+- **`ShareCompatibilityIssue` gains `print-mismatch`.** An exhaustive `switch` over it fails to compile. A slice may carry a print ID after its four parts.
+- **`recoverVaultMetaFromOutputs` takes an optional group** (`vaultId`, `createdAt`, `revision`, `keys`), and `vaultStore.markKeyAdopted` takes more optional arguments. Calls without them still compile.
+- **A vault scan ignores outputs below `VAULT_SCAN_MIN_SATS`** (100,000 sat), and `ignoredBelowMinimum` counts them.
+- **`enrollKey({ replaceOccupiedVaultSlot: true })` throws `chain-check-required`** unless it gets a `fundsClearance` or `acknowledgeFundsLoss: true`. The library's unpatched `EnrollWizard` passes neither, so its Replace step fails closed.
+
+### Host changes needed
+
+- Regenerate the app's `patches/@bsv+expo-wallet-toolbox` patch for 0.25.0.
+- Implement the screens listed in the App integration contract: scan button and incomplete state, conflict choice, staged keys, unproven keys, drop warning, card funds check before reset, transaction ID restore, forget setup, print IDs.
+- Handle `needsKey`: say that a vault was found and ask for a tap (`recoverVaultWithKey`, or `recoverVaultFromTxidsWithKey` when an index is `unknown`).
+
+## 0.24.3
+
+The nearby session QR names the payee's network. No native change: hosts do not rebuild.
+
+### Added
+
+- **`n` in the `bsvpay1:` session QR, and `sessionNetworkMismatch`.** Two phones
+  on different networks (mainnet and testnet) paired with no warning, and the
+  payment failed with nothing on either screen to say why. The payee now mints
+  its network (an AppChain name, as a till's code carries) into the session.
+  `NearbyFlow` checks it on the payer before the confirm screen and fails with
+  `local_pay_wrong_network`, which names both networks (12 locales). The key is
+  additive: `SESSION_VERSION` stays at 2, an older decoder ignores it, and a
+  code without it is read as unknown, never as a mismatch. Both sides use the
+  network only once the mounted storage belongs to it, so a network switch in
+  progress never tags or refuses wrongly. Only the payer sees the warning, and
+  only when both phones run this version or later.
+
+## 0.24.2
+
+Progress events for the sweep rail. No native change: hosts do not rebuild.
+
+### Added
+
+- **`onProgress` on `scanMnemonic`, `decideMnemonicImport`, `sweepWif` and
+  `sweepMnemonic`.** A scan of a recovery phrase takes a request or two per
+  address, paced, so a host had nothing to show for a long time. The listener
+  gets a `SweepProgress` event for the backup check, for each address about to
+  be checked (path name, chain path and index), for coins found, for each
+  finished path, and before and after each sweep transaction. Events carry
+  derivation paths and totals, never an address or a key. A listener that
+  throws does not stop the scan or the sweep.
+
+## 0.24.1
+
+One fix: the iOS native fetch. Hosts must rebuild their native apps.
+
+### Fixed
+
+- **iOS: `BsvBoundedFetch` refused every request** with `ERR_INVALID_REQUEST`
+  ("Invalid bounded HTTPS request"). The module read `maxBytes` from an untyped
+  dictionary with `as? Int`; over JSI the value is a Swift `Double`, and that
+  cast is always nil. Backup, handle registry and trust-list requests all go
+  through this module, so none of them worked on iOS in 0.24.0. The value is
+  now read as a whole number from either representation. Android was not
+  affected (it uses a typed record).
+
+## 0.24.0
+
+BSV Broadcaster as the broadcast path (#97), sweep of external keys (#93), the
+security review fixes (#72 to #92) and an end-to-end harness mode (#67). Hosts
+must rebuild their native apps: the package now ships a native module.
+
+### Breaking / host action
+
+- **The package ships a native Expo module, `BsvBoundedFetch` (#72, #79).**
+  `android/`, `ios/` and `expo-module.config.json` are now published, and
+  `expo-modules-core` ~57.0.0 is a new peer. Expo autolinking picks the module
+  up; hosts must rebuild the native apps (a JS-only update is not enough).
+  Backup, handle registry and trust-list requests go through it so that the
+  response size is capped in native code before JS sees a byte. There is no
+  fallback to the global `fetch`: without the module those requests throw.
+  Redirects are returned as 3xx and are not followed.
+- **Taal is removed** (#97): `taalArcUrl`, `taalApiKey` and
+  `createTaalBroadcastService`. See Removed.
+- **Wallet guard** (#77): `revealCounterpartyKeyLinkage` is refused for every
+  originator but the admin, and the wallet database export protocol is a
+  reserved namespace that only the admin may use.
+- **Vault deposits need a hardware key** (#83). Before a new vault output is
+  funded, one enrolled key must sign a challenge bound to that output
+  (`requireVaultOutputKeyPossession`). A deposit with no key present fails
+  with `VaultError` `not-enrolled` or `wrong-key`.
+- **Imported databases hold their outgoing PeerPay payments** (#92).
+  `importDatabases` quarantines the imported outbox; nothing is sent again
+  until the user approves each payment in `UniversalSend`
+  (`ImportedOutboxApproval`). Approval is bound to the signed recipient output.
+- **Legacy secret migration refuses to overwrite an existing wallet** (#84).
+  The result can now be `{ outcome: 'failed', stage: 'existing-identity' }`,
+  `retryable: true` when the store could not be read and `false` when an
+  envelope identity or KEK is already there.
+
+### Security
+
+- **Backup** (#72, #73): response bytes are capped in the native receiver.
+  Writers now produce v2 envelopes that authenticate the log position (device,
+  generation, sequence, predecessor digest) and the snapshot head inside the
+  AEAD. Legacy entries still decode, but they cannot prove that a recovery
+  snapshot is complete.
+- **Headers** (#81, #85): linked headers are checked for difficulty
+  transitions and accumulated work, an interrupted branch replacement is
+  recovered, and a remote payment root is accepted only when its header is an
+  anchored member of the validated chain.
+- **Wallet connections** (#78, #80, #87, #88): the replay floor survives
+  pairing a topic again; revocation cancels pairing attempts that are still in
+  progress (`usePairingAttempt`); in-flight wallet requests are revoked when
+  the relay socket closes; and the session response must match the approved
+  topic, backend identity key and protocol at the claimed HTTPS origin.
+  `parseRelayResponse(raw, expected?)` takes the expected tuple.
+- **Database import** (#82): every `sqlite_master` object is compared with the
+  reference schema. Names that start with `sqlite` are no longer exempt.
+- **Secrets** (#86): a biometric upgrade reads the new key back through its
+  access control before the session unlocks.
+- **Vault** (#91): metadata mutations (rename, key removal, recovery) are
+  bound to the authenticated snapshot.
+- **Safari bridge inbox** (#74): queue limits are enforced in the native
+  store, results are kept under queue pressure and pending calls are closed on
+  disposal.
+- **Nearby payments** (#76): a received description is cut at a complete
+  UTF-8 boundary, so it stays within its byte limit.
+
+### Added: end-to-end harness mode (#67)
+
+- `configureToolbox({ e2e: { broadcasterUrl } })`, for test builds only. It
+  locks the wallet off mainnet, stores keys without a biometric prompt and
+  points Pay at a mock broadcaster on a loopback or private address.
+  `configureToolbox` throws when an E2E config also has a backup URL, the
+  vault, a push adapter or mainnet services. Never set it in a build that can
+  hold funds.
+- Exports `isE2eBuild`, `getE2eBroadcasterUrl` and `e2eSafeChain`. Pay and
+  Home controls gained `testID`s for Maestro.
+
+### Changed
+
+- BSV Broadcaster (`broadcast.bsvblockchain.tech`) is now the primary
+  broadcast, SSE and chaintracks endpoint on all 4 networks (main, test,
+  teratest, scaletest).
+- Broadcast provider order: BSV Broadcaster, GorillaPool, WhatsOnChain,
+  Bitails. Each is registered only where the network table says it serves
+  that network.
+- Each provider gets a flat 30 s budget (`postBeefUntilSuccessSoftTimeoutMs`
+  30000, per-KB 0, max 30000). The walk inside a provider ends 2 s earlier
+  (28 s), so its results arrive before the soft timeout; a post does not
+  start with less than 1 s left. Transactions not reached get retryable
+  errors.
+- Every unconfirmed transaction of a BEEF is posted as EF, parents first.
+  An ancestor that cannot be built as EF gets a retryable error, as do its
+  descendants.
+- Only BSV Broadcaster validator answers HTTP 400 with the posted txid and
+  ARC code 461 or 464 (number or string) are final rejections. Every other
+  non-success answer is retryable.
+
+### Removed
+
+- Taal: `taalArcUrl`, `taalApiKey` and `createTaalBroadcastService`. Hosts
+  that pass `taalApiKey` must drop it.
+
+### Added: sweep external keys (`core/pay/rails/sweep.ts`)
+
+Move coins that an external key controls into this wallet. Each sweep has a
+preview step (WhatsOnChain reads only) and an execute step.
+
+- **WIF:** `parseWif` / `isWif` (mainnet and testnet, compressed and
+  uncompressed), `planWifSweep` (preview), `sweepWif` (execute).
+- **Recovery phrase:** `scanMnemonic` (preview: gap-limit scan of each path's
+  receive chain; the change chain only when the receive chain shows use),
+  `sweepMnemonic` (execute, with per-path totals). The path list
+  (`paths`, default `DEFAULT_SWEEP_PATHS`, a placeholder) and the gap limit
+  (`gapLimit`, default 20) are parameters.
+- **Import decision:** `decideMnemonicImport` returns `restore` (backup cache
+  hit), `sweep` (no backup, coins found) or `empty` (restore as this wallet's
+  root). A failed cache lookup throws; it never falls through to a sweep.
+- The spend is the wallet's own `createAction` with the external outpoints as
+  inputs and no outputs, then `signAction` with locally signed inputs. The
+  wallet sets the fee, adds change to the default basket and broadcasts.
+  Batches of at most `maxInputsPerTx` (default 100) inputs per transaction.
+- Never spent: 1-sat outputs (`token`), outputs below their own input fee
+  (`dust`), outputs whose real script is not plain P2PKH (`nonstandard`). All
+  are reported in `skipped`. A batch is aborted when the wallet adds an input
+  of its own or the fee rate exceeds `maxFeeRate` (default 1000 sat/kB).
+- `wocFetch` in `pay/rails/address.ts` is now exported.
+
+### Fixed
+
+- **The ARC and WhatsOnChain broadcasters now post every transaction in a multi-transaction BEEF.** They previously
+  converted the BEEF to a single transaction (`Transaction.fromBEEF` returns the last one) and returned one result, so in
+  a `sendWith` batch of chained transactions only the last was posted, and the earlier ones reached the network only if
+  a later provider in the chain posted the whole BEEF. Each requested
+  txid is now posted on its own, parents first (`Beef.sortTxs`), with one result per txid in the caller's order. A
+  child whose parent was not accepted is not posted and is reported as a retryable service error.
+
 ## 0.23.0
 
 Peer floors raised to the latest `@bsv` releases, the browser wallet bridge

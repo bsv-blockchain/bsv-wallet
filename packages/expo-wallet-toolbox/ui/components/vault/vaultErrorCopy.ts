@@ -93,7 +93,12 @@ const KEY: Record<VaultErrorCode, string> = {
   'key-cannot-cover': 'vault_err_key_cannot_cover',
   'too-small-to-relock': 'vault_err_too_small_to_relock',
   'bad-version': 'vault_err_bad_version',
-  'chain-scan-failed': 'vault_err_chain_scan_failed'
+  'chain-scan-failed': 'vault_err_chain_scan_failed',
+  'lookup-unknown': 'vault_err_lookup_unknown',
+  'keys-unproven': 'vault_err_keys_unproven',
+  'not-enough-proven-keys': 'vault_err_not_enough_proven_keys',
+  'chain-check-required': 'vault_err_chain_check_required',
+  'no-mnemonic': 'vault_err_no_mnemonic'
 }
 
 /**
@@ -103,7 +108,9 @@ const KEY: Record<VaultErrorCode, string> = {
  * the button renders but does nothing. 'key-removed-mid-op' is deliberately
  * excluded even though the signing loop can produce it, because it can ALSO
  * arrive from a moment the loop does not cover (waiting-for-key), where retry
- * would be a dead button.
+ * would be a dead button. 'lookup-unknown' is excluded too: the ceremony has
+ * no retry waiter for it, so a Retry button would do nothing. Callers that
+ * throw it outside a ceremony show their own retry.
  */
 export const RETRYABLE_VAULT_ERRORS: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>([
   'touch-timeout',

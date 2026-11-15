@@ -1,9 +1,9 @@
 {
   "name": "@bsv/expo-wallet-toolbox",
-  "version": "0.23.0",
+  "version": "0.25.0",
   "private": false,
   "description": "Wallet screens and P2P local-payment backend for Expo/React Native apps, extracted from BSV Wallet.",
-  "license": "SEE LICENSE IN LICENSE.txt",
+  "license": "Apache-2.0",
   "author": "BSV Association",
   "repository": {
     "type": "git",
@@ -22,7 +22,13 @@
   ],
   "main": "core/index.ts",
   "types": "core/index.ts",
+  "scripts": {
+    "prepack": "node -e \"const fs=require('fs');for(const f of ['NOTICE','PATENTS'])fs.copyFileSync('../../'+f,f)\""
+  },
   "files": [
+    "LICENSE",
+    "PATENTS",
+    "NOTICE",
     "core",
     "ui",
     "assets",

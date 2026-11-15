@@ -9,12 +9,14 @@ describe('NETWORKS', () => {
     expect(APP_CHAINS.map(toWalletChain)).toEqual(['main', 'test', 'ttn', 'regtest'])
   })
 
-  it('gives every network its own Arcade and MessageBox server, over https', () => {
+  it('gives every network its own BSV Broadcaster path and MessageBox server, over https', () => {
     const arcades = APP_CHAINS.map(c => NETWORKS[c].arcadeUrl)
     const boxes = APP_CHAINS.map(c => NETWORKS[c].messageBoxUrl)
     expect(new Set(arcades).size).toBe(APP_CHAINS.length)
     expect(new Set(boxes).size).toBe(APP_CHAINS.length)
-    for (const url of [...arcades, ...boxes]) expect(url).toMatch(/^https:\/\/[^/]+$/)
+    // BSV Broadcaster's front door serves the non-main networks under a path prefix.
+    for (const url of arcades) expect(url).toMatch(/^https:\/\/[^/]+(\/[a-z]+)?$/)
+    for (const url of boxes) expect(url).toMatch(/^https:\/\/[^/]+$/)
   })
 
   it('has WhatsOnChain everywhere except the scaling teratestnet', () => {

@@ -32,8 +32,10 @@ import {
 } from './metaAuthority'
 import { compressPubkey, type VaultInstructionKey, type VaultInstructions } from './r1comb'
 import { randomBytes } from './random'
+import { requireFundsGate, type VaultResetClearance } from './resetClearance'
 import { withKeySession, VaultSessionGuard } from './session'
 import { VaultError } from './types'
+import { requireMnemonicWallet } from './walletKind'
 import {
   isVaultKeyRecord,
   isVaultMeta,
@@ -61,10 +63,10 @@ export interface VaultWalletAuthority {
 }
 
 /** Re-verify `existing`'s own wallet-root tag before trusting it as the
- * basis for a freshly, validly tagged `next` (addKey only APPENDS to
- * `meta.keys`, so a forged `existing` would otherwise "launder" straight
- * through the moment the legitimate user adds one more, genuinely their
- * own, key — see vaultStore.addKey's laundering caveat).
+ * basis for a freshly, validly tagged `next` (stageKey builds `next` from
+ * `existing`, so a forged `existing` would otherwise "launder" straight
+ * through the moment the legitimate user stages one more, genuinely their
+ * own, key — see vaultStore.stageKey's laundering caveat).
  *
  * Unlike transfers.ts's requireAuthenticatedMeta, this has no on-chain
  * fallback: VaultKeyService has no chain-scanning capability, and inventing
@@ -385,12 +387,19 @@ export async function enrollKey(args: {
   /** Explicit consent to destroy and replace an existing key in Vault's fixed
    * slot 0x82. Other occupied PIV slots remain a hard failure. */
   replaceOccupiedVaultSlot?: boolean
+  /** Required with `replaceOccupiedVaultSlot`: the result of `checkVaultCardFunds` for the card that will be
+   * tapped (a complete chain scan found no vault record that names it). Same meaning as in resetPivApplication. */
+  fundsClearance?: VaultResetClearance
+  /** Required with `replaceOccupiedVaultSlot` when there is no clearance: the owner's affirmation that any
+   * earlier funds this key opens are lost for good. Same meaning as in resetPivApplication. */
+  acknowledgeFundsLoss?: true
   /** XR-001: the admin-scoped wallet capability used to tag this run's
    * `ready` draft the instant it is written, so a later SecureStore-only
    * attacker cannot forge an equivalent one. */
   wallet: HmacCapableWallet
   adminOriginator: string
 }): Promise<VaultKeyRecord> {
+  await requireMnemonicWallet()
   const driver = getVaultDriver()
   if (!driver) throw new VaultError('driver-unavailable')
   const scopeToken = args.scopeToken ?? vaultStore.captureScopeToken()
@@ -400,6 +409,9 @@ export async function enrollKey(args: {
       'Confirm this YubiKey PIV application is factory-reset and dedicated to Vault'
     )
   }
+  // reset-new-phone: replacing the key in an occupied Vault slot destroys it, so it needs the same gate as a
+  // PIV reset. Before any card contact the serial is not known yet; it is checked again below.
+  if (args.replaceOccupiedVaultSlot === true) requireFundsGate(args, scopeToken, undefined)
 
   // The enrolled key list, read once from device-only secure storage before any user input or
   // key contact. Refused alongside pendingSerials below — across every chain
@@ -466,6 +478,7 @@ export async function enrollKey(args: {
         // The message IS the serial: the wizard resolves it to a nickname.
         throw new VaultError('key-already-enrolled', info.serial, undefined, { serial: info.serial })
       }
+      if (args.replaceOccupiedVaultSlot === true) requireFundsGate(args, scopeToken, info.serial)
       const quarantine = quarantines.find(item => item.serial === info.serial)
       if (quarantine) {
         throw new VaultEnrollmentPartialError(
@@ -759,6 +772,7 @@ export async function resumeEnrollmentDraft(args: {
   wallet: HmacCapableWallet
   adminOriginator: string
 }): Promise<VaultKeyRecord> {
+  await requireMnemonicWallet()
   if (!isVaultKeyRecord(args.entry.record)) {
     throw new VaultError('template-invalid', 'Invalid enrollment recovery handle')
   }
@@ -867,6 +881,9 @@ export async function adoptVaultKey(args: {
   getPin: () => Promise<string>
   nfcMessage?: string
   scopeToken?: VaultScopeToken
+  /** With the wallet authority the proof is written durably (and tagged).
+   * Without it, the proof lasts for this session only. */
+  authority?: VaultWalletAuthority
 }): Promise<VaultKeyRecord> {
   if (!isVaultKeyRecord(args.record)) throw new VaultError('template-invalid', 'Invalid recovered vault key record')
   const driver = getVaultDriver()
@@ -915,7 +932,29 @@ export async function adoptVaultKey(args: {
     { nfcMessage: args.nfcMessage }
   )
 
-  await vaultStore.markKeyAdopted(args.record, scopeToken)
+  // The fresh tag covers the whole stored meta, so a durable write is only
+  // allowed over a meta whose own tag verifies (see markKeyAdopted). Any
+  // other meta gets a session proof: nothing is written and nothing is blessed.
+  const authority = args.authority
+  const scope = vaultStore.getScope()
+  let durable: { authority: VaultWalletAuthority; snapshot: VaultMeta } | undefined
+  if (authority && scope) {
+    const snapshot = await vaultStore.getMeta(scopeToken)
+    if (snapshot) {
+      const tag = await vaultStore.getMetaTag(scopeToken)
+      if (await verifyVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, snapshot, scope, tag)) {
+        durable = { authority, snapshot }
+      }
+    }
+  }
+  await vaultStore.markKeyAdopted(
+    args.record,
+    scopeToken,
+    durable && scope
+      ? next => computeVaultMetaAuthorityTag(durable.authority.wallet, durable.authority.adminOriginator, next, scope)
+      : undefined,
+    durable?.snapshot
+  )
   args.onPhase('done')
   return { ...args.record }
 }
@@ -990,7 +1029,9 @@ export interface VerifiedVaultRecoveryOutput {
  * Reconstruct one current enrollment from authoritative spendable R1C outputs.
  * The transfer layer owns pagination and lock verification; this function owns
  * conflict detection and version selection. It never accepts a mixture of
- * enrollment ids or two different key sets at the same revision. A mixed
+ * enrollment ids or two different key sets at the same revision, and it never
+ * infers a pendingRemoval (callers pre-filter by lineage and variant, see
+ * chainRecovery.ts). A mixed
  * v6+v7 output set reduces to one VaultMeta the same way a same-version
  * mixture does — version is not part of the conflict/version-selection
  * identity here, only vaultId/createdAt/revision/keys are.
@@ -1013,29 +1054,9 @@ export function metaFromVerifiedOutputs(outputs: readonly VerifiedVaultRecoveryO
     throw new VaultError('template-invalid', 'Conflicting vault key sets share the latest revision')
   }
   const keys = current[0].instructions.keys.map(k => ({ ...k }))
-  const currentPubkeys = new Set(keys.map(k => k.pubkey))
-  const removed = new Map<string, { key: VaultKeyRecord; index: number }>()
-  for (const { instructions } of outputs) {
-    if (instructions.revision >= revision) continue
-    instructions.keys.forEach((key, index) => {
-      if (!currentPubkeys.has(key.pubkey)) removed.set(key.pubkey, { key: { ...key }, index })
-    })
-  }
-  if (removed.size > 1) {
-    throw new VaultError('template-invalid', 'Multiple incomplete key removals are present')
-  }
-
+  // A scan never infers a removal from older outputs (decoy-wedge): anyone can
+  // plant a copy of an old record. A real removal lives in local meta only.
   const meta: VaultMeta = { v: 6, vaultId, revision, createdAt, keys }
-  const tombstone = [...removed.values()][0]
-  if (tombstone) {
-    meta.pendingRemoval = {
-      key: tombstone.key,
-      keyIndex: Math.min(tombstone.index, keys.length),
-      startedAt: Date.now(),
-      revision,
-      state: 'broadcast'
-    }
-  }
   if (!isVaultMeta(meta)) throw new VaultError('template-invalid', 'Recovered vault metadata is invalid')
   return meta
 }
@@ -1100,6 +1121,7 @@ export async function finalizeEnrollment(
   scopeToken: VaultScopeToken | undefined,
   authority: VaultWalletAuthority
 ): Promise<void> {
+  await requireMnemonicWallet()
   if (records.length < VAULT_MIN_KEYS) {
     throw new VaultError('not-enough-keys', `A vault needs at least ${VAULT_MIN_KEYS} keys; ${records.length} given`)
   }
@@ -1155,8 +1177,12 @@ export async function finalizeEnrollment(
   }
 }
 
-/** Append one key to an enrolled vault (spec §3.4 "Add key"). vaultStore
- * enforces the duplicate-serial and VAULT_MAX_ACTIVE_KEYS rules. */
+/** Stage one key for an enrolled vault (spec §3.4 "Add key"; hardening:
+ * add-key, late-key). The key goes into `meta.staged`; `keys` and `revision`
+ * do not change, so no lock commits it. It becomes part of the key list only
+ * when a re-lock signed by an existing key activates it (relockVault with
+ * `activateStagedKey`, or activateStagedKeyWithoutOutputs when nothing is
+ * funded). No tap is asked here. */
 export async function addVaultKey(
   record: VaultKeyRecord,
   scopeToken: VaultScopeToken | undefined,
@@ -1166,11 +1192,16 @@ export async function addVaultKey(
   const token = scopeToken ?? vaultStore.captureScopeToken()
   const existing = await vaultStore.getMeta(token)
   if (!existing) throw new VaultError('not-enrolled', 'Vault is not set up')
-  if (existing.keys.length >= VAULT_MAX_ACTIVE_KEYS) {
-    throw new VaultError('too-many-keys', `The vault already has ${VAULT_MAX_ACTIVE_KEYS} keys`)
+  // Five keys plus the staged one is the most a vault holds (a lock commits
+  // at most VAULT_MAX_KEYS).
+  if (existing.keys.length + 1 > VAULT_MAX_ACTIVE_KEYS) {
+    throw new VaultError('too-many-keys', `The vault already has ${existing.keys.length} keys`)
   }
   if (existing.keys.some(key => key.serial === record.serial || key.pubkey === record.pubkey)) {
     throw new VaultError('key-already-enrolled', record.serial, undefined, { serial: record.serial })
+  }
+  if (existing.staged) {
+    throw new VaultError('relock-required', 'Finish adding the previous key first')
   }
   // XR-002: verify `existing`'s own tag BEFORE trusting it as the basis for
   // a freshly tagged `next` — see requireTaggedMeta's laundering caveat.
@@ -1180,7 +1211,7 @@ export async function addVaultKey(
   await requireReadyEnrollmentDrafts([record], token, authority)
   const scope = vaultStore.getScope()
   if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
-  const meta = await vaultStore.addKey(
+  const meta = await vaultStore.stageKey(
     record,
     token,
     next => computeVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, next, scope),
@@ -1193,6 +1224,30 @@ export async function addVaultKey(
   } catch (error) {
     if (error instanceof VaultError && error.code === 'scope-changed') throw error
   }
+  return meta
+}
+
+/** Drop the staged key (add-key, late-key). It only lowers authority, so no
+ * tap is asked. The serial leaves the device-wide registry unless another
+ * chain of this identity still holds it. */
+export async function discardStagedVaultKey(
+  scopeToken: VaultScopeToken | undefined,
+  authority: VaultWalletAuthority
+): Promise<VaultMeta> {
+  const token = scopeToken ?? vaultStore.captureScopeToken()
+  const existing = await vaultStore.getMeta(token)
+  if (!existing) throw new VaultError('not-enrolled', 'Vault is not set up')
+  if (!existing.staged) throw new VaultError('not-enrolled', 'No key is waiting to be added')
+  await requireTaggedMeta(authority, existing, token)
+  const scope = vaultStore.getScope()
+  if (!scope) throw new VaultError('not-enrolled', 'Wallet vault scope is not configured')
+  const serial = existing.staged.serial
+  const meta = await vaultStore.discardStagedKey(
+    token,
+    next => computeVaultMetaAuthorityTag(authority.wallet, authority.adminOriginator, next, scope),
+    existing
+  )
+  await forgetSerialsNoLongerEnrolledForIdentity([serial], () => vaultStore.enrolledSerialsAcrossChains(token))
   return meta
 }
 

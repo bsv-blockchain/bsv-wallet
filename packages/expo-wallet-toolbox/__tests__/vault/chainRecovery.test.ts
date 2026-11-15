@@ -71,94 +71,25 @@ import {
   recoverVaultFromChain,
   recoverVaultWithKey,
   VAULT_RECOVERY_GAP_DEFAULT,
-  VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS,
-  type VaultChainLookup
+  VAULT_RECOVERY_MAX_CONSECUTIVE_PROBLEMS
 } from '../../core/services/vault/chainRecovery'
+import type { VaultChainLookup } from '../../core/services/vault/markerLookup'
 import type { VaultWallet } from '../../core/services/vault/transfers'
 import { vaultStore } from '../../core/services/vault/vaultStore'
-import { computeVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
+import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag } from '../../core/services/vault/metaAuthority'
 import { setMockDriver } from '../../core/services/vault/driver'
 import { MockYubiKey } from '../../core/services/vault/mockYubiKey'
 import { compressPubkey } from '../../core/services/vault/r1comb'
 import { proveHeldVaultKey } from '../../core/services/vault/VaultKeyService'
 import { FakeChain, FakeVaultWallet, fakeChainLookup } from './testSupport/fakeVaultChain'
+import { tapRestore } from './testSupport/tapRestore'
+import { ADMIN, CHAIN, VAULT_ID, newMember, publishVaultTx } from './testSupport/publishVault'
 
 jest.setTimeout(60_000)
 
-const ADMIN = 'admin.com'
-const CHAIN = 'test' as const
-const VAULT_ID = 'ab'.repeat(32)
 const SCOPE_IDENTITY = `02${'33'.repeat(32)}`
 
-function newMember(nickname: string, enrolledAt: number): VaultInstructionKey {
-  const priv = p256.utils.randomSecretKey()
-  return {
-    serial: `YK-${nickname}`,
-    slot: 0x82,
-    pubkey: Utils.toHex(Array.from(p256.getPublicKey(priv, true))),
-    nickname,
-    enrolledAt
-  }
-}
-
 const KEYS = [newMember('Primary', 1), newMember('Backup', 2)]
-
-/** Build and publish (or withhold) one v7 [vault, marker, descriptor]
- * triple at index k, replicating newVaultOutput's construction directly
- * against the exported building blocks — this file's whole point is testing
- * chainRecovery.ts's SCAN logic, not re-testing output creation (transfers.test.ts
- * already does that). */
-async function publishVaultTx(
-  wallet: FakeVaultWallet,
-  chain: FakeChain,
-  k: number,
-  keys: VaultInstructionKey[],
-  satoshis: number,
-  opts: { confirmed?: boolean; vaultId?: string; createdAt?: number } = {}
-): Promise<{ txid: string; vaultOutputIndex: number }> {
-  const saltKeyId = String(k)
-  const salt = await deriveVaultSalt(
-    wallet,
-    ADMIN,
-    saltKeyId,
-    keys.map(key => key.serial)
-  )
-  const lockingScript = buildLock({ commitments: keys.map(key => commitment(key.pubkey, salt)), saltHex64: salt })
-  const v7: VaultInstructionsV7 = {
-    v: 7,
-    type: 'R1C',
-    saltKeyId,
-    chain: CHAIN,
-    vaultId: opts.vaultId ?? VAULT_ID,
-    revision: 1,
-    createdAt: opts.createdAt ?? 1,
-    keys
-  }
-  const customInstructions = encodeVaultInstructionsV7(v7)
-  const markerScript = await deriveVaultMarkerScript(wallet, ADMIN, CHAIN, saltKeyId)
-  const ciphertext = await encryptVaultDescriptorPlaintext(wallet, ADMIN, CHAIN, saltKeyId, customInstructions)
-  const descriptorScript = buildVaultDescriptorScript(ciphertext)
-
-  const fund = new Transaction()
-  fund.addOutput({
-    satoshis: satoshis + 10_000,
-    lockingScript: new P2PKH().lock(Utils.toArray('e2'.repeat(20), 'hex'))
-  })
-  const tx = new Transaction(1)
-  tx.addInput({
-    sourceTransaction: fund,
-    sourceOutputIndex: 0,
-    sequence: 0xffffffff,
-    unlockingScript: new UnlockingScript([])
-  })
-  tx.addOutput({ satoshis, lockingScript })
-  tx.addOutput({ satoshis: 1, lockingScript: markerScript })
-  tx.addOutput({ satoshis: 0, lockingScript: descriptorScript })
-  tx.addOutput({ satoshis: 9_500, lockingScript: new P2PKH().lock(Utils.toArray('e3'.repeat(20), 'hex')) })
-
-  const txid = chain.publish(tx, opts)
-  return { txid, vaultOutputIndex: 0 }
-}
 
 describe('recoverVaultFromChain', () => {
   let chain: FakeChain
@@ -178,7 +109,7 @@ describe('recoverVaultFromChain', () => {
     await publishVaultTx(wallet, chain, 1, KEYS, 300_000)
     await publishVaultTx(wallet, chain, 2, KEYS, 400_000)
 
-    const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+    const result = await tapRestore(wallet, fakeChainLookup(chain), CHAIN, KEYS[0])
     expect(result.found).toBe(2)
     expect(result.pendingConfirmation).toBe(0)
     expect(result.problems).toEqual([])
@@ -199,11 +130,11 @@ describe('recoverVaultFromChain', () => {
     // marker), then a real deposit at k=26 — beyond the default gap of 20.
     await publishVaultTx(wallet, chain, 26, KEYS, 250_000)
 
-    const short = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN, 20)
+    const short = await recoverVaultWithKey(wallet, ADMIN, fakeChainLookup(chain), CHAIN, async () => KEYS[0], 20)
     expect(short.found).toBe(0)
 
     wallet.wipeLocalState() // the short scan's internalizeAction calls, if any, must not linger
-    const long = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN, 30)
+    const long = await recoverVaultWithKey(wallet, ADMIN, fakeChainLookup(chain), CHAIN, async () => KEYS[0], 30)
     expect(long.found).toBe(1)
   })
 
@@ -243,7 +174,7 @@ describe('recoverVaultFromChain', () => {
     // k=2: a real, usable deposit — must still be found despite k=1's garbage.
     await publishVaultTx(wallet, chain, 2, KEYS, 400_000)
 
-    const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
+    const result = await tapRestore(wallet, fakeChainLookup(chain), CHAIN, KEYS[0])
     expect(result.found).toBe(1)
     expect(result.problems).toHaveLength(1)
     expect(result.problems[0].index).toBe(1)
@@ -358,14 +289,15 @@ describe('recoverVaultFromChain', () => {
       expect(wallet.localVaultOutpoints()).toEqual([`${current.txid}.0`])
     })
 
-    it('with no key list on this device, restores the newest setup and skips older ones', async () => {
+    it('with no key list on this device, two setups are a conflict: nothing is restored and both groups are reported', async () => {
       await publishVaultTx(wallet, chain, 1, OLD_KEYS, 300_000, { vaultId: OLD_VAULT, createdAt: 1 })
-      const current = await publishVaultTx(wallet, chain, 2, KEYS, 400_000, { createdAt: 5 })
+      await publishVaultTx(wallet, chain, 2, KEYS, 400_000, { createdAt: 5 })
 
       const result = await recoverVaultFromChain(wallet, ADMIN, fakeChainLookup(chain), CHAIN)
-      expect(result).toMatchObject({ found: 1, unreachable: 1, problems: [] })
-      expect(wallet.localVaultOutpoints()).toEqual([`${current.txid}.0`])
-      expect((await vaultStore.getMeta())?.vaultId).toBe(VAULT_ID)
+      expect(result).toMatchObject({ found: 0, unreachable: 0, problems: [], conflict: true, needsKey: true })
+      expect(result.setApart).toHaveLength(2)
+      expect(wallet.hasLocalVaultOutputs()).toBe(false)
+      expect(await vaultStore.getMeta()).toBeNull()
     })
 
     it("never reports an earlier setup's unconfirmed deposit as pending", async () => {
@@ -418,6 +350,37 @@ describe('recoverVaultFromChain', () => {
       const meta = await vaultStore.getMeta()
       expect(meta?.vaultId).toBe(OLD_VAULT)
       expect(meta?.recovery?.adoptedSerials).toEqual(['YK-1'])
+      expect(meta?.recovery?.adopted).toEqual([{ serial: 'YK-1', pubkey: held.pubkey }])
+    })
+
+    it('does not write a fresh tag over a stored meta it cannot authenticate: the tapped key becomes a session proof only', async () => {
+      const held = await heldKey('YK-1', 'Primary', 1)
+      const backup = newMember('Backup', 2)
+      await publishVaultTx(wallet, chain, 1, [held, backup], 300_000, { vaultId: OLD_VAULT, createdAt: 1 })
+      mock.insertKey('YK-1')
+      // Store-only attacker: same authority fields, forged adoption, no valid tag.
+      // recoverVaultMetaFromOutputs keeps this meta (not superseded).
+      await vaultStore.setMeta({
+        v: 6,
+        vaultId: OLD_VAULT,
+        revision: 1,
+        createdAt: 1,
+        keys: [held, backup],
+        recovery: {
+          required: true,
+          adoptedSerials: [backup.serial],
+          adopted: [{ serial: backup.serial, pubkey: backup.pubkey }]
+        }
+      })
+
+      const before = JSON.stringify(await vaultStore.getMeta())
+      await recoverVaultWithKey(wallet, ADMIN, fakeChainLookup(chain), CHAIN, prove)
+      // Nothing was written: no tag blesses the forged adoption, and the tap is in memory only.
+      expect(JSON.stringify(await vaultStore.getMeta())).toBe(before)
+      const meta = (await vaultStore.getMeta())!
+      expect(
+        await verifyVaultMetaAuthorityTag(wallet, ADMIN, meta, vaultStore.getScope()!, await vaultStore.getMetaTag())
+      ).toBe(false)
     })
 
     it('reports key-opens-nothing when the card holds a key no deposit names, and restores nothing', async () => {
@@ -525,9 +488,10 @@ describe('recoverVaultFromChain', () => {
   })
 
   // Regression lens (griefing): once a marker address is on-chain, a stranger
-  // can pay it dust indefinitely. Without a cap, a single scan index could be
-  // forced to inspect an unbounded number of candidates.
-  it('caps how many candidates one scan index inspects', async () => {
+  // can pay it dust indefinitely. The old scan stopped after 50 candidates, so
+  // 50 junk rows ahead of the real deposit hid it. Now the lookup bounds the
+  // window (see wocLookup) and the scan examines every row it is given.
+  it('examines every candidate at one scan index and reports the unusable ones', async () => {
     let markerCalls = 0
     let candidateCalls = 0
     const manyCandidates: VaultChainLookup = {
@@ -550,8 +514,10 @@ describe('recoverVaultFromChain', () => {
     }
 
     const result = await recoverVaultFromChain(wallet, ADMIN, manyCandidates, CHAIN)
-    expect(candidateCalls).toBeGreaterThan(0)
-    expect(candidateCalls).toBeLessThan(500)
+    expect(candidateCalls).toBe(500)
     expect(result.found).toBe(0)
+    expect(result.problems).toHaveLength(500)
+    expect(result.problemCount).toBe(500)
+    expect(result.status).toBe('incomplete')
   })
 })

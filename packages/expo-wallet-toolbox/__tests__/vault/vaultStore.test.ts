@@ -195,7 +195,7 @@ describe('vaultStore v6', () => {
     await vaultStore.restoreVerifiedMeta(newer)
     expect(await vaultStore.getMeta()).toEqual({
       ...newer,
-      recovery: { required: true, adoptedSerials: [] }
+      recovery: { required: true, adoptedSerials: [], adopted: [] }
     })
     await expect(vaultStore.restoreVerifiedMeta(META)).rejects.toMatchObject({ code: 'template-invalid' })
     await expect(vaultStore.restoreVerifiedMeta({ ...newer, vaultId: '22'.repeat(32) })).rejects.toMatchObject({
@@ -269,14 +269,26 @@ describe('vaultStore v6', () => {
     ).rejects.toMatchObject({ code: 'template-invalid' })
   })
 
-  it('addKey increments the revision and rejects duplicate serials or pubkeys', async () => {
+  it('S-1: vaultStore no longer exposes an addKey that appends a key without proof', () => {
+    expect((vaultStore as unknown as Record<string, unknown>).addKey).toBeUndefined()
+  })
+
+  it('stageKey writes meta.staged only (keys and revision unchanged); discardStagedKey drops it; the limits hold', async () => {
     await vaultStore.setMeta(META)
-    const next = await vaultStore.addKey(key(3))
-    expect(next.revision).toBe(2)
-    expect(next.keys).toHaveLength(3)
-    await expect(vaultStore.addKey({ ...key(4), pubkey: key(1).pubkey })).rejects.toMatchObject({
+    const staged = await vaultStore.stageKey(key(3))
+    expect(staged.staged).toEqual(key(3))
+    expect(staged.revision).toBe(META.revision)
+    expect(staged.keys).toEqual(META.keys)
+    await expect(vaultStore.stageKey(key(4))).rejects.toMatchObject({ code: 'relock-required' })
+    const discarded = await vaultStore.discardStagedKey()
+    expect(discarded.staged).toBeUndefined()
+    expect((await vaultStore.getMeta())!.staged).toBeUndefined()
+    await expect(vaultStore.discardStagedKey()).rejects.toMatchObject({ code: 'not-enrolled' })
+    await expect(vaultStore.stageKey({ ...key(4), pubkey: key(1).pubkey })).rejects.toMatchObject({
       code: 'key-already-enrolled'
     })
+    await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3), key(4), key(5), key(6)] })
+    await expect(vaultStore.stageKey(key(7))).rejects.toMatchObject({ code: 'too-many-keys' })
   })
 
   it('begins removal by excluding the key and retaining a durable tombstone', async () => {
@@ -344,10 +356,9 @@ describe('vaultStore v6', () => {
     // A full vault holds one replacement key beyond the lock (owner rule
     // 2026-09-25) and refuses a seventh.
     await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3), key(4), key(5)] })
-    const six = await vaultStore.addKey(key(6))
-    expect(six.keys).toHaveLength(6)
+    await vaultStore.setMeta({ ...META, keys: [key(1), key(2), key(3), key(4), key(5), key(6)] })
     expect((await vaultStore.getMeta())!.keys).toHaveLength(6)
-    await expect(vaultStore.addKey(key(7))).rejects.toMatchObject({ code: 'too-many-keys' })
+    await expect(vaultStore.stageKey(key(7))).rejects.toMatchObject({ code: 'too-many-keys' })
   })
 
   it('stores a six-key list, refuses seven, and removes from six back to five', async () => {
@@ -403,18 +414,18 @@ describe('vaultStore v6', () => {
 
     const note = vaultStore.noteLastUsed(key(1).serial)
     await readStarted
-    const add = vaultStore.addKey(key(3))
+    const add = vaultStore.stageKey(key(3))
     await Promise.resolve()
-    // addKey is queued behind noteLastUsed, so it cannot read the old record.
+    // stageKey is queued behind noteLastUsed, so it cannot read the old record.
     expect(getSpy).toHaveBeenCalledTimes(1)
     releaseRead(JSON.stringify(META))
     await Promise.all([note, add])
     getSpy.mockRestore()
 
     const final = await vaultStore.getMeta()
-    expect(final?.keys.map(k => k.serial)).toEqual([key(1).serial, key(2).serial, key(3).serial])
+    expect(final?.staged).toEqual(key(3))
     expect(final?.lastUsedSerial).toBe(key(1).serial)
-    expect(final?.revision).toBe(2)
+    expect(final?.revision).toBe(META.revision)
   })
 
   it('never lets a late mutation write wallet A metadata into wallet B', async () => {
@@ -433,7 +444,7 @@ describe('vaultStore v6', () => {
         })
     )
 
-    const lateAdd = vaultStore.addKey(key(3))
+    const lateAdd = vaultStore.stageKey(key(3))
     const rejected = expect(lateAdd).rejects.toMatchObject({ code: 'scope-changed' })
     await readStarted
 
@@ -468,7 +479,7 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
     expect(await vaultStore.getMetaTag()).toBeNull()
 
     const tagger = jest.fn(async () => 'tag-for-next')
-    const added = await vaultStore.addKey(key(3), undefined, tagger, META)
+    const added = await vaultStore.stageKey(key(3), undefined, tagger, META)
     expect(tagger).toHaveBeenCalledWith(added)
     expect(await vaultStore.getMetaTag()).toBe('tag-for-next')
   })
@@ -491,7 +502,7 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
     const tagger = jest.fn(async () => {
       throw new Error('wallet refused')
     })
-    await expect(vaultStore.addKey(key(3), undefined, tagger, before!)).rejects.toThrow('wallet refused')
+    await expect(vaultStore.stageKey(key(3), undefined, tagger, before!)).rejects.toThrow('wallet refused')
     expect(await vaultStore.getMeta()).toEqual(before)
     expect(await vaultStore.getMetaTag()).toBeNull()
   })
@@ -543,15 +554,27 @@ describe('vaultStore v6 — authority tag storage (XR-002 / XR-001)', () => {
 describe('authenticated mutation snapshots', () => {
   it.each([1, 2])('returns the exact signed restoration snapshot at revision %s', async revision => {
     const current = { ...META, lastUsedSerial: key(1).serial, lastUsedAt: 123 }
-    await vaultStore.setMeta(current)
+    // current carries a valid tag, so its adoption state may be carried over
+    const tagOf = async (n: { vaultId: string; revision: number }) => `tag:${n.vaultId}:${n.revision}`
+    await vaultStore.setMeta(current, undefined, tagOf)
     const verified = { ...META, revision }
-    const tagger = jest.fn(async () => 'restored-tag')
+    const tagger = jest.fn(tagOf)
     const restored = await vaultStore.restoreVerifiedMeta(verified, undefined, tagger)
     const stored = await vaultStore.getMeta()
     expect(restored).toEqual(stored)
     expect(tagger).toHaveBeenCalledWith(restored)
     expect(restored).toMatchObject({ revision, lastUsedSerial: key(1).serial, lastUsedAt: 123 })
-    if (revision === 2) expect(restored?.recovery).toEqual({ required: true, adoptedSerials: [] })
+    // a phone that enrolled the vault itself proved every key at enrollment
+    if (revision === 2) {
+      expect(restored?.recovery).toEqual({
+        required: true,
+        adoptedSerials: [key(1).serial, key(2).serial],
+        adopted: [
+          { serial: key(1).serial, pubkey: key(1).pubkey },
+          { serial: key(2).serial, pubkey: key(2).pubkey }
+        ]
+      })
+    }
   })
 
   it.each([
@@ -594,7 +617,7 @@ describe('authenticated mutation snapshots', () => {
         operation === 'rename'
           ? vaultStore.renameKey(key(2).serial, 'Renamed', undefined, tagger, authenticated)
           : operation === 'add'
-            ? vaultStore.addKey(key(5), undefined, tagger, authenticated)
+            ? vaultStore.stageKey(key(5), undefined, tagger, authenticated)
             : vaultStore.beginKeyRemoval(key(3).serial, undefined, tagger, authenticated)
       await expect(attempt).rejects.toMatchObject({ code: 'template-invalid' })
       expect(tagger).not.toHaveBeenCalled()

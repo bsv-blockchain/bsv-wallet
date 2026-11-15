@@ -148,7 +148,7 @@ test('resets a used key and clears its enrollment draft', async () => {
   await vaultStore.preserveEnrollmentDraft({ record: rec(SERIAL), assurance: 'ready' }, scope)
   expect(await vaultStore.getEnrollmentDrafts()).toHaveLength(1)
 
-  await resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })
+  await resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
 
   expect(mock.isFactory(SERIAL)).toBe(true)
   expect(await vaultStore.getEnrollmentDrafts()).toEqual([])
@@ -161,7 +161,7 @@ test('clears the crash quarantine marker the reset just made meaningless', async
   await vaultStore.preserveEnrollmentQuarantine(SERIAL, 'generation-uncertain', scope)
   expect(await vaultStore.getEnrollmentQuarantines()).toHaveLength(1)
 
-  await resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })
+  await resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
 
   expect(mock.isFactory(SERIAL)).toBe(true)
   expect(await vaultStore.getEnrollmentQuarantines()).toEqual([])
@@ -181,7 +181,11 @@ test('refuses a serial that is already an enrolled vault key, before touching th
   mock.personalise('998877', '11112222')
   const spies = cardContact()
 
-  const err = await resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true }).catch(e => e)
+  const err = await resetPivApplication({
+    serial: SERIAL,
+    acknowledgeDestroysAllCredentials: true,
+    acknowledgeFundsLoss: true
+  }).catch(e => e)
   expect(err).toMatchObject({ code: 'key-already-enrolled' })
   expect(err.message).toBe(SERIAL) // the wizard names the key from this
   expect(err.details).toEqual({ serial: SERIAL })
@@ -204,7 +208,9 @@ test('refuses a key that is mid-removal, before touching the card', async () => 
   mock.personalise('998877', '11112222')
   const spies = cardContact()
 
-  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+  await expect(
+    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
+  ).rejects.toMatchObject({
     code: 'key-already-enrolled',
     details: { serial: SERIAL }
   })
@@ -223,7 +229,9 @@ test('refuses a key enrolled under another chain of the same wallet, before touc
   mock.personalise('998877', '11112222')
   const spies = cardContact()
 
-  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+  await expect(
+    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
+  ).rejects.toMatchObject({
     code: 'key-already-enrolled',
     details: { serial: SERIAL }
   })
@@ -240,7 +248,9 @@ test('refuses a key mid-removal on another chain too', async () => {
   vaultStore.configureScope(active)
   const spies = cardContact()
 
-  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+  await expect(
+    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
+  ).rejects.toMatchObject({
     code: 'key-already-enrolled'
   })
   expectUntouched(spies)
@@ -250,7 +260,9 @@ test('a corrupt key list on any chain fails closed rather than reporting an empt
   await SecureStore.setItemAsync(`vault_meta_v6_test_${IDENTITY}`, 'not json at all')
   const spies = cardContact()
 
-  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+  await expect(
+    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
+  ).rejects.toMatchObject({
     code: 'template-invalid'
   })
   expectUntouched(spies)
@@ -279,7 +291,9 @@ test('XQ-014: a serial committed under a DIFFERENT wallet identity is refused de
   await enrolledSerialRegistry.record(SERIAL)
   const spies = cardContact()
 
-  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+  await expect(
+    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
+  ).rejects.toMatchObject({
     code: 'key-already-enrolled',
     details: { serial: SERIAL }
   })
@@ -294,6 +308,7 @@ test('XQ-014: acknowledgeUnrecognizedVaultKey cannot override a device-wide regi
     resetPivApplication({
       serial: SERIAL,
       acknowledgeDestroysAllCredentials: true,
+      acknowledgeFundsLoss: true,
       acknowledgeUnrecognizedVaultKey: true
     })
   ).rejects.toMatchObject({ code: 'key-already-enrolled' })
@@ -307,6 +322,7 @@ test('XQ-014: a serial not in the device-wide registry (or already forgotten) is
   await resetPivApplication({
     serial: SERIAL,
     acknowledgeDestroysAllCredentials: true,
+    acknowledgeFundsLoss: true,
     acknowledgeUnrecognizedVaultKey: true
   })
   expect(await mock.readVaultPublicKey(SERIAL)).toBeNull()
@@ -320,7 +336,8 @@ test('refuses a serial listed in refuseSerials, before touching the card', async
     resetPivApplication({
       serial: SERIAL,
       refuseSerials: [SERIAL],
-      acknowledgeDestroysAllCredentials: true
+      acknowledgeDestroysAllCredentials: true,
+      acknowledgeFundsLoss: true
     })
   ).rejects.toMatchObject({ code: 'key-already-enrolled', details: { serial: SERIAL } })
 
@@ -336,6 +353,7 @@ test('no caller flag can override the enrolled-serial refusal', async () => {
     resetPivApplication({
       serial: SERIAL,
       acknowledgeDestroysAllCredentials: true,
+      acknowledgeFundsLoss: true,
       // Flags a future caller might reach for, including the one real consent
       // seam this service does have. None of them is a way past an enrolled
       // serial: that refusal is unconditional.
@@ -353,7 +371,9 @@ test('refuses a card whose Vault slot already holds an unrecognized key', async 
   const held = (await mock.readVaultPublicKey(SERIAL))!.publicKey
   const reset = jest.spyOn(mock, 'resetPivApplication')
 
-  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+  await expect(
+    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
+  ).rejects.toMatchObject({
     code: 'slot-occupied',
     details: { serial: SERIAL }
   })
@@ -367,6 +387,7 @@ test('an explicit acknowledgement consents to wiping that unrecognized key', asy
   await resetPivApplication({
     serial: SERIAL,
     acknowledgeDestroysAllCredentials: true,
+    acknowledgeFundsLoss: true,
     acknowledgeUnrecognizedVaultKey: true
   })
   expect(await mock.readVaultPublicKey(SERIAL)).toBeNull()
@@ -386,7 +407,9 @@ test('the occupied-slot refusal holds on a driver that cannot read the slot key'
   jest.spyOn(mock, 'readVaultPublicKey').mockResolvedValue(null)
   const reset = jest.spyOn(mock, 'resetPivApplication')
 
-  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+  await expect(
+    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
+  ).rejects.toMatchObject({
     code: 'slot-occupied',
     details: { serial: SERIAL }
   })
@@ -407,13 +430,16 @@ test('a slot the card cannot prove empty is refused, and the consent still gets 
   expect(await mock.readVaultPublicKey(SERIAL)).toBeNull()
   const occupied = jest.spyOn(mock, 'isVaultSlotOccupied').mockResolvedValue({ occupied: true })
 
-  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+  await expect(
+    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
+  ).rejects.toMatchObject({
     code: 'slot-occupied'
   })
 
   await resetPivApplication({
     serial: SERIAL,
     acknowledgeDestroysAllCredentials: true,
+    acknowledgeFundsLoss: true,
     acknowledgeUnrecognizedVaultKey: true
   })
   expect(mock.isFactory(SERIAL)).toBe(true)
@@ -428,7 +454,9 @@ test('refuses when a different card is presented for the reset tap', async () =>
   mock.insertKey(OTHER)
   const spy = jest.spyOn(mock, 'resetPivApplication')
 
-  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+  await expect(
+    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
+  ).rejects.toMatchObject({
     code: 'serial-mismatch',
     details: { tapped: OTHER, chosen: SERIAL }
   })
@@ -440,7 +468,9 @@ test('refuses when a different card is presented for the reset tap', async () =>
 
 test('refuses a structurally invalid serial', async () => {
   const spies = cardContact()
-  await expect(resetPivApplication({ serial: '', acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+  await expect(
+    resetPivApplication({ serial: '', acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
+  ).rejects.toMatchObject({
     code: 'template-invalid'
   })
   expectUntouched(spies)
@@ -458,7 +488,9 @@ test('re-reads the stored key list inside the session and refuses a key enrolled
     return realInfo()
   })
 
-  await expect(resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true })).rejects.toMatchObject({
+  await expect(
+    resetPivApplication({ serial: SERIAL, acknowledgeDestroysAllCredentials: true, acknowledgeFundsLoss: true })
+  ).rejects.toMatchObject({
     code: 'key-already-enrolled',
     details: { serial: SERIAL }
   })
@@ -476,6 +508,7 @@ test('reports its phases in order and forwards the NFC alert text', async () => 
   await resetPivApplication({
     serial: SERIAL,
     acknowledgeDestroysAllCredentials: true,
+    acknowledgeFundsLoss: true,
     nfcMessage: 'Hold your YubiKey here to reset it',
     onPhase: p => phases.push(p)
   })
@@ -490,6 +523,7 @@ test('a persistent reader has no tap to wait for, so only the resetting phase is
   await resetPivApplication({
     serial: SERIAL,
     acknowledgeDestroysAllCredentials: true,
+    acknowledgeFundsLoss: true,
     onPhase: p => phases.push(p)
   })
   expect(phases).toEqual(['resetting'])

@@ -17,6 +17,7 @@ import {
   HINT_NFC,
   RUNG_MASK,
   isRequestableUnits,
+  sessionNetworkMismatch,
   type SessionAsset
 } from '../../core/localpay/session'
 import { CodecError } from '../../core/localpay/codec'
@@ -571,5 +572,86 @@ describe('session asset block', () => {
     raw.c = (raw.c ?? 0) | CAP_BLE
     const forged = 'bsvpay1:' + bytesToB64url(new TextEncoder().encode(JSON.stringify(raw)))
     expect(decodeSession(forged).caps & CAP_BLE).toBe(CAP_BLE)
+  })
+})
+
+/**
+ * The payee's network (`n`). Without it a testnet code decodes cleanly on a
+ * mainnet phone and the payment fails with nothing to say why, so the payer
+ * checks it before the confirm screen (NearbyFlow's adoptSession).
+ */
+describe('session network', () => {
+  it('round-trips the network the payee minted on', () => {
+    const s = mintSession({ ...args, network: 'test' })
+    expect(s.network).toBe('test')
+    const back = decodeSession(encodeSession(s))
+    expect(back.network).toBe('test')
+    expect(sessionNetworkMismatch(back, 'test')).toBeNull()
+  })
+
+  it('omits n for a session minted without a network, and decodes it as unknown', () => {
+    const s = mintSession(args)
+    expect(s.network).toBeUndefined()
+    const b64 = encodeSession(s).slice('bsvpay1:'.length).replace(/-/g, '+').replace(/_/g, '/')
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
+    const body = JSON.parse(new TextDecoder().decode(Uint8Array.from(globalThis.atob(padded), c => c.charCodeAt(0))))
+    expect('n' in body).toBe(false)
+    const back = decodeSession(encodeSession(s))
+    expect(back.network).toBeUndefined()
+  })
+
+  it('does not flag a session from an older payee that sends no network', () => {
+    const back = decodeSession(encodeSession(mintSession(args)))
+    expect(sessionNetworkMismatch(back, 'main')).toBeNull()
+  })
+
+  it('flags a payee on another network', () => {
+    const back = decodeSession(encodeSession(mintSession({ ...args, network: 'test' })))
+    expect(sessionNetworkMismatch(back, 'main')).toEqual({ theirs: 'test', mine: 'main' })
+  })
+
+  it('tells test and teratest apart', () => {
+    const back = decodeSession(encodeSession(mintSession({ ...args, network: 'teratest' })))
+    expect(sessionNetworkMismatch(back, 'test')).toEqual({ theirs: 'teratest', mine: 'test' })
+  })
+
+  it('keeps a network name it does not know, so a newer payee is still flagged, not read as no code', () => {
+    const s = mintSession(args)
+    const qr = encodeCustomQR({
+      v: SESSION_VERSION,
+      c: s.caps,
+      s: 'AAAAAAAAAAAAAAAAAAAAAA',
+      k: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      i: s.identityKey,
+      a: 5000,
+      p: s.derivationPrefix,
+      x: s.derivationSuffix,
+      n: 'futurenet'
+    })
+    const back = decodeSession(qr)
+    expect(back.network).toBe('futurenet')
+    expect(sessionNetworkMismatch(back, 'main')).toEqual({ theirs: 'futurenet', mine: 'main' })
+  })
+
+  it('refuses a network that is not a short lowercase name', () => {
+    const s = mintSession(args)
+    const base = {
+      v: SESSION_VERSION,
+      c: s.caps,
+      s: 'AAAAAAAAAAAAAAAAAAAAAA',
+      k: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      i: s.identityKey,
+      a: 5000,
+      p: s.derivationPrefix,
+      x: s.derivationSuffix
+    }
+    for (const n of [1, null, '', 'Main', 'x'.repeat(33), 'main net', {}]) {
+      expect(() => decodeSession(encodeCustomQR({ ...base, n }))).toThrow(CodecError)
+    }
+  })
+
+  it('refuses a bad network at mint', () => {
+    expect(() => mintSession({ ...args, network: 'Main' })).toThrow(CodecError)
+    expect(() => mintSession({ ...args, network: '' })).toThrow(CodecError)
   })
 })
