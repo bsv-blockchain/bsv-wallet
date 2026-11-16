@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.25.1
+
+WhatsOnChain rate limit. No native change: hosts do not rebuild.
+
 ### Fixed
 
 - **WhatsOnChain requests no longer exceed the anonymous rate limit.** WhatsOnChain answers more than 3 requests per second with no API key with HTTP 429. The Vault chain scan sent 3 history requests per index back to back, so an empty gap of 20 indexes was 60 requests in one burst, and indexes failed as `rate-limited`. All WhatsOnChain calls now go through one shared limiter: the Vault lookup, address sweeps, BEEF repair, proof refresh, the merkle-path service, the spendability check, broadcast and the exchange rate. It sends at most 2.5 requests per second per API origin, pauses a lane for 1.5 s after a 429, and sends a GET or HEAD once more after a 429. Requests with a `woc-api-key` header use a lane of their own with the same spacing. An empty Vault scan of 20 indexes now takes about 25 s.
