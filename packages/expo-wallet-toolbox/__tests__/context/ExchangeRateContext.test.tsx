@@ -3,6 +3,7 @@ import { create, act } from 'react-test-renderer'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { ExchangeRateContext, ExchangeRateContextProvider } from '../../core/context/ExchangeRateContext'
 import { CACHE_KEY, FALLBACK_RATE } from '../../core/services/exchangeRate'
+import { resetWocLimiter } from '../../core/net/wocLimiter'
 
 const SATS_PER_BSV = 100_000_000
 
@@ -17,6 +18,8 @@ describe('ExchangeRateContextProvider', () => {
   let errorSpy: jest.SpyInstance
 
   beforeEach(async () => {
+    // Each test starts on an idle WhatsOnChain lane, so the refresh is not held.
+    resetWocLimiter()
     await AsyncStorage.clear()
     errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     global.fetch = jest.fn(async () => {

@@ -71,6 +71,7 @@ jest.mock('expo-secure-store', () => ({
 
 import { P2PKH, Utils } from '@bsv/sdk'
 import { wocChainLookup } from '../../core/services/vault/chainRecovery'
+import { configureWocLimiter, resetWocLimiter, WOC_ANON_INTERVAL_MS } from '../../core/net/wocLimiter'
 
 function mockFetchOnce(
   handler: (url: string, init?: RequestInit) => { json?: unknown; text?: string; ok?: boolean; status?: number }
@@ -223,5 +224,38 @@ describe('wocChainLookup address derivation (exclusion-crypto review: no hand-ro
 
     // mainnet and testnet addresses for the same hash160 must differ.
     expect(mainUrl).not.toBe(testUrl)
+  })
+})
+
+// A scan index sends 3 history requests back to back (confirmed, unconfirmed,
+// legacy). With no pacing, an empty gap of 20 indices was 60 requests in a
+// burst, and WhatsOnChain answered 429 past 3 per second.
+describe('wocChainLookup pacing (shared WhatsOnChain limiter)', () => {
+  let sleeps: number[]
+  beforeEach(() => {
+    let t = 5_000_000
+    sleeps = []
+    configureWocLimiter({
+      now: () => t,
+      sleep: async ms => {
+        const start = t
+        sleeps.push(ms)
+        await Promise.resolve()
+        t = Math.max(t, start + ms)
+      }
+    })
+    mockFetchOnce(() => ({ ok: false, status: 404, text: 'Not Found' }))
+  })
+  afterEach(() => resetWocLimiter())
+
+  it.each([
+    ['with no key', undefined],
+    ['with the app key header', { headers: { 'woc-api-key': 'k' } }]
+  ])('spaces the requests of one scan index %s', async (_label, init) => {
+    const lookup = wocChainLookup('main', init as RequestInit | undefined)
+    await lookup.markerHistory!(MARKER_SCRIPT_HEX)
+    await lookup.markerHistory!(MARKER_SCRIPT_HEX)
+    expect((global.fetch as jest.Mock).mock.calls).toHaveLength(6)
+    expect(sleeps).toEqual(Array(5).fill(WOC_ANON_INTERVAL_MS))
   })
 })
