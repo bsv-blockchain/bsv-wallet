@@ -37,6 +37,14 @@ export { TaskCreditInbox } from './monitor/TaskCreditInbox'
 export { TaskDrainOutbox, drainUnsentEntries } from './monitor/TaskDrainOutbox'
 export { getOnline, subscribeOnline, probeOnline } from './net/online'
 export { validateArcUrl } from './net/validateArcUrl'
+export {
+  configureWocLimiter,
+  resetWocLimiter,
+  wocLimitedFetch,
+  WOC_ANON_INTERVAL_MS,
+  WOC_RATE_LIMIT_PAUSE_MS,
+  type WocLimiterOptions
+} from './net/wocLimiter'
 export * from './logging'
 export * from './diskSpace'
 export type { AppChain, WalletChain } from './config'

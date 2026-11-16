@@ -1,6 +1,7 @@
 import { Beef, Transaction } from '@bsv/sdk'
 import type { NetworkProfile, WocEndpoints } from '../networks'
 import { trimTrailingSlashes } from '../net/trimTrailingSlashes'
+import { reserveWocSlot, waitWocSlot, wocRateLimited } from '../net/wocLimiter'
 import type { PostBeefResult, PostTxResultForTxid } from '../toolboxTypes'
 
 const BROADCAST_TIMEOUT_MS = 30_000
@@ -483,6 +484,10 @@ export function createWocBroadcastService(woc: WocEndpoints, apiKey?: string) {
             Accept: 'text/plain'
           }
           if (apiKey) headers['woc-api-key'] = apiKey
+          // The limiter wait comes before the deadline starts, so time in the
+          // queue never counts against this request's timeout.
+          const wait = reserveWocSlot(baseUrl, !!apiKey)
+          if (wait > 0) await waitWocSlot(wait)
           const response = await fetchWithBodyDeadline(
             `${baseUrl}/tx/raw`,
             {
@@ -492,6 +497,7 @@ export function createWocBroadcastService(woc: WocEndpoints, apiKey?: string) {
             },
             timeoutMs
           )
+          if (response.status === 429) wocRateLimited(baseUrl, !!apiKey)
           const body = await response.text()
           console.log(`[${name}] POST /tx/raw ${response.status}`, loggableSnippet(body))
           const txResult: PostTxResultForTxid = {

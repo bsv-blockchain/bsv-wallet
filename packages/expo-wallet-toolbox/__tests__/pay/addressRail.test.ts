@@ -25,6 +25,12 @@ import {
   FROM_ADDRESS_LABEL_PREFIX,
   TO_ADDRESS_LABEL_PREFIX
 } from '../../core/pay/counterparty'
+import { configureWocLimiter, resetWocLimiter } from '../../core/net/wocLimiter'
+
+// These tests are about the sweep, not the pacing: the shared WhatsOnChain
+// limiter is tested in __tests__/net/wocLimiter.test.ts.
+beforeAll(() => configureWocLimiter({ intervalMs: 0, pauseMs: 0 }))
+afterAll(() => resetWocLimiter())
 
 const woc = wocConfigFor('main')!
 const ADDRESS = '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2'
