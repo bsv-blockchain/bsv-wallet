@@ -22,6 +22,8 @@ const allowedUntranslated: Record<string, string[]> = {
   notifications: ['fr'],
   note: ['fr'],
   tx_action_refresh_short: ['id', 'pl'],
+  // Icelandic past participle of senda is the same spelling.
+  tx_status_sent: ['is'],
   contacts: ['fr'],
   pay_step_contacts: ['fr'],
   pay_review_note: ['fr'],
