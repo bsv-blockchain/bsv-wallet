@@ -761,9 +761,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({
           acknowledgeDedicatedPivApplication: true,
           pendingSerials: known,
           nickname: t('vault_name_default', { k }),
-          // TEMP DIAG: the phase stream says how far the card session got.
           onPhase: p => {
-            if (__DEV__) console.log(`[vault][diag] phase=${p}`)
             setPhase(p)
           },
           // The intro's whole-PIV acknowledgement already asserts a
@@ -786,27 +784,6 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({
         await saveKey(record)
       } catch (e) {
         haptics.error()
-        // TEMP DIAG: the real error behind whatever copy the screen shows.
-        if (__DEV__) {
-          const ve = e instanceof VaultError ? e : undefined
-          console.log(
-            `[vault][diag] enrollKey threw code=${ve?.code ?? '(not VaultError)'} name=${
-              (e as Error)?.name
-            } msg=${JSON.stringify((e as Error)?.message)} details=${JSON.stringify(ve?.details)} cause=${JSON.stringify(
-              (() => {
-                const c = (e as { cause?: unknown })?.cause
-                if (!c) return null
-                const cv = c instanceof VaultError ? c : undefined
-                return {
-                  code: cv?.code,
-                  name: (c as Error)?.name,
-                  message: (c as Error)?.message,
-                  retriesLeft: cv?.retriesLeft
-                }
-              })()
-            )}`
-          )
-        }
         try {
           vaultStore.assertScopeToken(scopeToken)
         } catch {
@@ -1095,14 +1072,6 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({
     } catch (e) {
       haptics.error()
       const err = e instanceof VaultError ? e : undefined
-      // TEMP DIAG: the real error behind the reset failure.
-      if (__DEV__) {
-        console.log(
-          `[vault][diag] resetPivApplication threw code=${err?.code ?? '(not VaultError)'} msg=${JSON.stringify(
-            (e as Error)?.message
-          )} details=${JSON.stringify(err?.details)}`
-        )
-      }
       if (err?.code === 'scope-changed') {
         clearKeyInputs()
         // Not the usual scope-changed line. This assertion also runs AFTER the
@@ -1341,31 +1310,6 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({
             <BalancedText style={[styles.warn, { color: colors.warning }]}>
               {t('vault_enrollment_state_uncertain')}
             </BalancedText>
-          )}
-          {/* TEMP DIAG (remove before commit): a quarantine is cleared only by a
-              successful in-app pivReset, so a card reset with `ykman piv reset`
-              stays locked out with no in-app escape. That is a real gap worth
-              fixing properly; this is the debugging shortcut in the meantime. */}
-          {__DEV__ && blockedDrafts.length > 0 && (
-            <ActionButton
-              label="DEV: clear stored quarantine"
-              variant="outline"
-              onPress={() => {
-                void (async () => {
-                  for (const item of blockedDrafts) {
-                    const serial = 'record' in item ? item.record.serial : item.serial
-                    try {
-                      await vaultStore.discardEnrollmentDraft(serial, scopeToken)
-                      await vaultStore.discardEnrollmentQuarantine(serial, scopeToken)
-                      console.log(`[vault][diag] DEV cleared quarantine + draft for ${serial}`)
-                    } catch (e) {
-                      console.log(`[vault][diag] DEV clear failed: ${JSON.stringify((e as Error)?.message)}`)
-                    }
-                  }
-                  await reloadDraftLists()
-                })()
-              }}
-            />
           )}
           <ActionButton label={t('vault_continue')} enabled={pivAck && pinChosen && !busy} onPress={advance} />
           {leaveLink}

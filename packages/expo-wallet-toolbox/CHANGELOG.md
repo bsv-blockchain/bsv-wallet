@@ -8,10 +8,8 @@ The BSV Wallet app's launch changes, upstreamed from its patch of 0.25.1: one ke
 
 ### Breaking / host action
 
-- **`lucide-react-native` ^1.27.0 is a new peer.** The UI draws its glyphs with lucide instead of `@expo/vector-icons`. Install it next to `react-native-svg`. A Jest host maps `^lucide-react-native# Changelog
-
-to `lucide-react-native/dist/cjs/lucide-react-native.js`, because Jest resolves its ESM entry otherwise.
-
+- **`lucide-react-native` ^1.27.0 is a new peer.** The UI draws its glyphs with lucide instead of `@expo/vector-icons`. Install it next to `react-native-svg`. A Jest host maps `^lucide-react-native$` to `lucide-react-native/dist/cjs/lucide-react-native.js`, because Jest resolves its ESM entry otherwise.
+- **The typography tokens name a font family, `Nunito`.** Every ramp in `typography` now sets `fontFamily: 'Nunito'`, so the toolbox screens match a host that embeds Nunito 400, 600 and 700 (for example with the `expo-font` config plugin). A host that does not embed it gets the platform fallback face, and must embed Nunito or override `fontFamily`.
 - **`HandleRegistryClient` has two new required methods, `resolveHandle` and `acceptKey`.** A host with its own client implementation adds them. `createHandleRegistryClient` already has them.
 - **`search()` can return a row with `changedFrom`.** For a complete address (`handle@domain`) whose certificate is valid but whose key is not the one pinned on this device (XR-071), the row comes back flagged with the pinned key instead of being dropped, so the caller can warn. The pin does not move until `acceptKey`. A partial query still drops such a row. A host that shows search rows must check `changedFrom` before it pays. `UniversalSend` drops these rows, as before.
 
@@ -21,6 +19,7 @@ to `lucide-react-native/dist/cjs/lucide-react-native.js`, because Jest resolves 
 - **`failedVaultSpendBlocksRemoval`.** A failed Vault spend now holds a pending key removal open only when it has a transaction ID and began at or after the removal started. Before, any failed spend in the history blocked the removal for good. A spend with no readable time still blocks.
 - **`groupSpendingLimit` and `clampGroupSpending`.** A site's one-time group grant may spend at most the auto-approve threshold each month. A threshold of 0 removes the spending part of the grant.
 - **`resolveHandle` (`found`, `changed`, `none`, `failed`) and `acceptKey`** on the handle registry client. A one-character handle is now looked up as a complete address (`r@domain`).
+- **`HardwareKeyArtComponent`** type, exported with `EnrollWizard`.
 - **Paid handle claims.** `putCertificate` takes an App Store or Google Play purchase (`StorePurchase`) and a fallback certificate. A refused claim whose reclaim is also refused returns `notRestored` with the handle that did not come back.
 - **15 strings** for the Vault card check and the spending limit, in all 12 locales.
 
