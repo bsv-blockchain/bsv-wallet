@@ -170,9 +170,14 @@ async function beginEnroll() {
   return { screen, onDone, onCancel }
 }
 
-/** From the pin sub-state: choose and confirm a PIN, then advance to the PUK page. */
+/**
+ * From the pin sub-state: choose a PIN, advance to the confirm page (the patched
+ * wizard asks for the confirmation on its own page, not beside the first field)
+ * and retype it. Stops there; the next Continue reaches the PUK page.
+ */
 function choosePin(screen: ReturnType<typeof render>, pin = '654321') {
   fireEvent.changeText(screen.getByLabelText('vault_pin_choose_title'), pin)
+  fireEvent.press(screen.getByText('vault_continue'))
   fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), pin)
 }
 
@@ -192,6 +197,16 @@ async function enrolOneKey(screen: ReturnType<typeof render>) {
   await settle()
 }
 
+/**
+ * The reset page's own tick plus the chain-check one the patched wizard adds
+ * (no `cardGate` prop here, so the check is "unknown" and the person must
+ * affirm that earlier funds on the card are lost for good).
+ */
+function ackReset(screen: ReturnType<typeof render>) {
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  fireEvent.press(screen.getByText('vault_card_loss_ack'))
+}
+
 test('Begin is inert until both the recovery and whole-PIV acknowledgements are ticked', async () => {
   const screen = render(<EnrollWizard mode="enroll" onDone={jest.fn()} onCancel={jest.fn()} />)
   await settle()
@@ -208,18 +223,28 @@ test('Begin is inert until both the recovery and whole-PIV acknowledgements are 
 
 test('the PIN page shows step 1 of 3 and no PUK fields', async () => {
   const { screen } = await beginEnroll()
-  expect(screen.getByText('vault_setup_step:{"n":1,"total":3}')).toBeTruthy()
+  expect(screen.getByText('vault_setup_step:{"n":1,"total":4}')).toBeTruthy()
   expect(screen.queryByLabelText('vault_enter_puk')).toBeNull()
   expect(screen.queryByLabelText('vault_set_new_puk')).toBeNull()
 })
 
-test('Continue stays inert until both PIN fields match a valid non-default code', async () => {
+test('Continue stays inert until the PIN is valid and non-default, then until the retyped PIN matches', async () => {
+  // Changed: the confirmation is now its own page (choose -> confirm), so the
+  // two gates are exercised one page at a time.
   const { screen } = await beginEnroll()
   const cont = () => screen.getByText('vault_continue')
 
+  await act(async () => fireEvent.press(cont()))
+  expect(screen.queryByLabelText('vault_pin_confirm_label')).toBeNull()
+
   fireEvent.changeText(screen.getByLabelText('vault_pin_choose_title'), '654321')
   await act(async () => fireEvent.press(cont()))
+  expect(screen.getByLabelText('vault_pin_confirm_label')).toBeTruthy()
+
+  // Nothing typed yet: no PUK page, and no mismatch shout either.
+  await act(async () => fireEvent.press(cont()))
   expect(screen.queryByText('vault_puk_title')).toBeNull()
+  expect(screen.queryByText('vault_pin_mismatch')).toBeNull()
 
   fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), '654322')
   await act(async () => fireEvent.press(cont()))
@@ -232,23 +257,25 @@ test('Continue stays inert until both PIN fields match a valid non-default code'
   expect(screen.getByText('vault_puk_title')).toBeTruthy()
 })
 
-test('a too-short PIN says why instead of leaving Continue silently inert', async () => {
+test('a too-short PIN leaves Continue inert and the length rule stays on screen', async () => {
   const { screen } = await beginEnroll()
   fireEvent.changeText(screen.getByLabelText('vault_pin_choose_title'), '1234')
-  fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), '1234')
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
-  // The length rule doubles as the error, so it is on screen twice: the hint
-  // under the field, and the message under the pair.
-  expect(screen.getAllByText('vault_pin_choose_sub')).toHaveLength(2)
+  // Changed: the patched pin page has only the hint (no separate error message
+  // under a pair of fields), and Continue does not advance to the confirm page.
+  expect(screen.getAllByText('vault_pin_choose_sub')).toHaveLength(1)
+  expect(screen.queryByLabelText('vault_pin_confirm_label')).toBeNull()
   expect(screen.queryByText('vault_puk_title')).toBeNull()
 })
 
 test('the factory PIN is refused as a choice', async () => {
   const { screen } = await beginEnroll()
   fireEvent.changeText(screen.getByLabelText('vault_pin_choose_title'), '123456')
-  fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), '123456')
-  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  // Changed: the refusal is shown as it is typed, and Continue never reaches
+  // the confirm page.
   expect(screen.getByText('vault_pin_not_default')).toBeTruthy()
+  await act(async () => fireEvent.press(screen.getByText('vault_continue')))
+  expect(screen.queryByLabelText('vault_pin_confirm_label')).toBeNull()
   expect(screen.queryByText('vault_puk_title')).toBeNull()
 })
 
@@ -339,7 +366,7 @@ test('a tap on a quarantined card reaches a reset bound to that exact serial', a
 
   fireEvent.press(screen.getByText('vault_reset_offer'))
   await settle()
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_reset_confirm')))
   await settle()
 
@@ -549,7 +576,10 @@ test('a blocked PIN keeps the pending keys and is never offered a dead Retry', a
 })
 
 test('an occupied Vault slot requires explicit replacement and retries with consent', async () => {
-  mockEnrollKey.mockRejectedValueOnce(new VaultError('slot-occupied')).mockResolvedValueOnce(record('12340001', 'b'))
+  // Changed: like the real service (withSerial), the failure names its card; the
+  // chain check that gates Replace is bound to that serial and cannot run without one.
+  const occupied = Object.assign(new VaultError('slot-occupied'), { details: { serial: '12340001' } })
+  mockEnrollKey.mockRejectedValueOnce(occupied).mockResolvedValueOnce(record('12340001', 'b'))
   const { screen } = await beginEnroll()
   enterCredentials(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
@@ -557,6 +587,10 @@ test('an occupied Vault slot requires explicit replacement and retries with cons
 
   expect(screen.getByText('vault_replace_key_warning')).toBeTruthy()
   expect(mockEnrollKey.mock.calls[0][0].replaceOccupiedVaultSlot).toBe(false)
+  // Changed: replacing also needs the chain-check affirmation, and is inert without it.
+  await act(async () => fireEvent.press(screen.getByText('vault_replace_key_confirm')))
+  expect(mockEnrollKey).toHaveBeenCalledTimes(1)
+  fireEvent.press(screen.getByText('vault_card_loss_ack'))
   await act(async () => fireEvent.press(screen.getByText('vault_replace_key_confirm')))
   await settle()
 
@@ -581,14 +615,14 @@ test('a card whose PIV PIN is not the factory one is sent away, never retried', 
   expect(mockEnrollKey).toHaveBeenCalledTimes(1)
 })
 
-test('the recovery code page shows step 2 of 3 and gates Continue on the acknowledgement', async () => {
+test('the recovery code page shows step 3 of 4 and gates Continue on the acknowledgement', async () => {
   const { screen } = await beginEnroll()
   choosePin(screen)
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
 
   expect(screen.getByText('vault_puk_title')).toBeTruthy()
-  expect(screen.getByText('vault_setup_step:{"n":2,"total":3}')).toBeTruthy()
+  expect(screen.getByText('vault_setup_step:{"n":3,"total":4}')).toBeTruthy()
 
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   expect(mockEnrollKey).not.toHaveBeenCalled()
@@ -638,7 +672,10 @@ test('going back and forward again keeps the code the user was told to write dow
   await settle()
   const first = screen.getByTestId('vault-recovery-code').props.children as string
 
-  await act(async () => fireEvent.press(screen.getByText('vault_back')))
+  // Changed: the pages have no Back button any more; back is the host chevron /
+  // hardware back, one page at a time (puk -> confirm, whose retyped PIN is kept).
+  await pressBack()
+  expect(screen.getByLabelText('vault_pin_confirm_label')).toBeTruthy()
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
   expect(screen.getByTestId('vault-recovery-code').props.children).toBe(first)
@@ -653,8 +690,11 @@ test('a PIN changed to equal the shown code draws a fresh code instead of dead-e
   await settle()
   const first = screen.getByTestId('vault-recovery-code').props.children as string
 
-  await act(async () => fireEvent.press(screen.getByText('vault_back')))
+  // Back twice (puk -> confirm -> pin); see the note above on the Back button.
+  await pressBack()
+  await pressBack()
   fireEvent.changeText(screen.getByLabelText('vault_pin_choose_title'), first)
+  fireEvent.press(screen.getByText('vault_continue'))
   fireEvent.changeText(screen.getByLabelText('vault_pin_confirm_label'), first)
   await act(async () => fireEvent.press(screen.getByText('vault_continue')))
   await settle()
@@ -915,6 +955,16 @@ test('a card with a known serial gets both the reset and a way past it', async (
   expect(screen.getByText('vault_key_use_different')).toBeTruthy()
 })
 
+test('the reset is refused without the chain-check affirmation, even with the reset tick', async () => {
+  // New with the patch: with no cardGate the card is "unknown", so erasing it
+  // also needs the person to affirm that earlier funds on it are lost for good.
+  const { screen } = await openResetPage()
+  fireEvent.press(screen.getByText('vault_reset_ack'))
+  await act(async () => fireEvent.press(screen.getByText('vault_reset_confirm')))
+  await settle()
+  expect(mockResetPiv).not.toHaveBeenCalled()
+})
+
 test('the reset page gates the destructive button on the acknowledgement', async () => {
   const { screen } = await openResetPage()
 
@@ -924,7 +974,7 @@ test('the reset page gates the destructive button on the acknowledgement', async
   await pressConfirm(screen)
   expect(mockResetPiv).not.toHaveBeenCalled()
 
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   expect(confirmDisabled(screen)).toBe(false)
   await pressConfirm(screen)
   expect(mockResetPiv).toHaveBeenCalledWith(
@@ -941,7 +991,7 @@ test('a successful reset waits for the user to start the next tap, and never re-
   // Queued after the failing tap so it is the RE-tap that succeeds.
   mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a'))
 
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   await pressConfirm(screen)
 
   // NOT straight back into a tap: CoreNFC refuses a new reader session while the
@@ -980,7 +1030,7 @@ test('the reset passes stored AND pending serials so a vault key can never be er
 
   fireEvent.press(screen.getByText('vault_reset_offer'))
   await settle()
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   await pressConfirm(screen)
 
   const args = mockResetPiv.mock.calls[0][0]
@@ -997,7 +1047,7 @@ test('an unrecognized vault key on the card takes its own second consent', async
   const { screen } = await openResetPage()
   mockEnrollKey.mockResolvedValueOnce(record('12340001', 'a'))
 
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   await pressConfirm(screen)
   // The "erases everything" tick is NOT consent to wiping a vault key this
   // device cannot account for. The first attempt must never pre-suppose it.
@@ -1020,7 +1070,7 @@ test('the refused first attempt reports that nothing was erased', async () => {
   mockResetPiv.mockRejectedValueOnce(new VaultError('slot-occupied', undefined, undefined, { serial: '12340001' }))
   const { screen } = await openResetPage()
 
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   await pressConfirm(screen)
 
   expect(screen.getByText('vault_reset_nothing_erased')).toBeTruthy()
@@ -1036,7 +1086,7 @@ test('a key holding this device’s own draft is not called an unrecognized vaul
   mockResetPiv.mockRejectedValueOnce(new VaultError('slot-occupied', undefined, undefined, { serial: '12340001' }))
   const { screen } = await openResetPage()
 
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   await pressConfirm(screen)
 
   expect(screen.getByText('vault_reset_own_draft_ack')).toBeTruthy()
@@ -1087,7 +1137,7 @@ test('a reset drops the Resume button for the key it just erased', async () => {
   // is how the PIN page — where Resume lives — becomes reachable again.
   mockEnrollKey.mockRejectedValueOnce(new VaultError('attestation-invalid'))
 
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   mockDrafts = []
   await pressConfirm(screen)
 
@@ -1105,7 +1155,7 @@ test('unreadable vault records refuse the reset before any card contact, and say
   mockAcrossChains.mockReset().mockRejectedValue(new VaultError('template-invalid', 'corrupt (teratest)'))
   const { screen } = await openResetPage()
 
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   await pressConfirm(screen)
 
   expect(mockResetPiv).not.toHaveBeenCalled()
@@ -1119,7 +1169,7 @@ test('an interrupted reset never claims the key was left untouched', async () =>
   mockResetPiv.mockRejectedValueOnce(new VaultError('key-removed-mid-op'))
   const { screen } = await openResetPage()
 
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   await pressConfirm(screen)
 
   expect(screen.getByText('vault_reset_uncertain')).toBeTruthy()
@@ -1135,7 +1185,7 @@ test('a bare driver failure warns rather than promising the key was untouched', 
   mockResetPiv.mockRejectedValueOnce(new VaultError('driver-unavailable', 'bridge died'))
   const { screen } = await openResetPage()
 
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   await pressConfirm(screen)
 
   expect(screen.getByText('vault_reset_uncertain')).toBeTruthy()
@@ -1146,7 +1196,7 @@ test('a reset refused as an enrolled key says which mistake was prevented', asyn
   mockResetPiv.mockRejectedValueOnce(new VaultError('key-already-enrolled', '12340001'))
   const { screen } = await openResetPage()
 
-  fireEvent.press(screen.getByText('vault_reset_ack'))
+  ackReset(screen)
   await pressConfirm(screen)
 
   expect(screen.getByText('vault_err_reset_enrolled')).toBeTruthy()

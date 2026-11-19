@@ -293,6 +293,7 @@ const resources = {
       vault_restore_found: 'Found {{count}} vault deposit(s) on the blockchain.',
       vault_restore_pending: '{{count}} deposit(s) found, awaiting their first confirmation — try again shortly.',
       vault_restore_none_found: 'No vault deposits were found on the blockchain for this wallet.',
+      vault_restore_needs_key: 'Vault found. Tap one of its keys to restore it.',
       vault_balance_label: 'Vault holds',
       vault_key_section: 'Security keys ({{count}} of 5)',
       vault_manage_section: 'Manage',
@@ -338,6 +339,18 @@ const resources = {
       vault_reset_body:
         'This key has been used before. Resetting erases every certificate and key in its PIV application, not only the vault slot. Anything that relies on this key stops working.',
       vault_reset_ack: 'I understand this erases everything on this key',
+      vault_card_checking: 'Checking the blockchain for a vault this key opens…',
+      vault_card_funds_title: 'This key opens a vault',
+      vault_card_funds_body_one:
+        '1 deposit ({{amount}}) can be opened with this key. Restore the vault instead of resetting the key.',
+      vault_card_funds_body_other:
+        '{{count}} deposits ({{amount}}) can be opened with this key. Restore the vault instead of resetting the key.',
+      vault_card_restore: 'Restore this vault',
+      vault_card_unknown_title: 'Couldn’t check the blockchain',
+      vault_card_unknown_body:
+        'The key was not changed. Try again. If you reset it without checking, any vault it opens is lost for good.',
+      vault_card_retry: 'Try again',
+      vault_card_loss_ack: 'Any funds in a vault that uses this key are lost for good if you reset it.',
       vault_reset_unknown_ack:
         "This device cannot confirm whether this key still secures a different profile's vault. I understand erasing it may destroy that key for good.",
       vault_reset_own_draft_ack:
@@ -382,8 +395,8 @@ const resources = {
       vault_done_cta: 'Done',
       vault_add_key_row: 'Add key',
       vault_add_key_done:
-        '{{nickname}} can open deposits made from now on. Re-lock the vault so it can open everything.',
-      vault_key_added_toast: 'Key added',
+        '{{nickname}} is saved but not active yet. It opens this vault only after you confirm it with one of your other keys.',
+      vault_key_added_toast: 'Key saved. It is not active yet.',
       vault_recovery_verified: 'Recovered key verified on this device',
       vault_relock_row: 'Re-lock vault',
       vault_relock_now: 'Re-lock now',
@@ -398,7 +411,7 @@ const resources = {
         'The vault locks to at most five keys. Remove one before depositing, re-locking or withdrawing part of the balance.',
       vault_key_section_over_limit: 'Security keys ({{count}}, remove one)',
       vault_add_key_done_over_limit:
-        '{{nickname}} is added. The vault locks to at most five keys, so remove the key this one replaces, then re-lock once.',
+        '{{nickname}} is saved but not active yet. The vault locks to at most five keys, so remove the key this one replaces. Removing it also makes {{nickname}} active.',
       vault_relock_done: 'Vault re-locked to your current keys',
       vault_relock_capped: '{{count}} more deposits remain — re-lock again to move them.',
       vault_relock_unreachable:
@@ -790,6 +803,8 @@ const resources = {
       authorize: 'Authorize',
       renewal: 'Renewal',
       spending_section: 'Spending',
+      spending_up_to: 'Up to',
+      spending_each_month: 'each month, until you remove it',
       protocols_section: 'Protocols',
       baskets_section: 'Baskets',
       certificates_section: 'Certificates',
@@ -1534,6 +1549,7 @@ const resources = {
       vault_restore_found: '在区块链上找到 {{count}} 笔保险库存款。',
       vault_restore_pending: '找到 {{count}} 笔存款，正在等待首次确认——请稍后重试。',
       vault_restore_none_found: '未在区块链上找到此钱包的保险库存款。',
+      vault_restore_needs_key: '已找到保险库。请轻触其中一把密钥来恢复它。',
       vault_balance_label: '保险库存有',
       vault_key_section: '安全密钥（{{count}} / 5）',
       vault_manage_section: '管理',
@@ -1578,6 +1594,15 @@ const resources = {
       vault_reset_body:
         '此密钥曾被使用过。重置会抹除其 PIV 应用中的所有证书和密钥，而不仅仅是保险库槽位。任何依赖此密钥的功能都将失效。',
       vault_reset_ack: '我明白这会抹除此密钥上的所有内容',
+      vault_card_checking: '正在区块链上查找此密钥可打开的保险库…',
+      vault_card_funds_title: '此密钥可打开一个保险库',
+      vault_card_funds_body_one: '此密钥可以打开 1 笔存入（{{amount}}）。请恢复该保险库，而不是重置密钥。',
+      vault_card_funds_body_other: '此密钥可以打开 {{count}} 笔存入（{{amount}}）。请恢复该保险库，而不是重置密钥。',
+      vault_card_restore: '恢复此保险库',
+      vault_card_unknown_title: '无法检查区块链',
+      vault_card_unknown_body: '密钥未被更改。请重试。如果不检查就重置，它所打开的任何保险库都将永久丢失。',
+      vault_card_retry: '重试',
+      vault_card_loss_ack: '如果重置，使用此密钥的保险库中的任何资金都将永久丢失。',
       vault_reset_unknown_ack:
         '本设备无法确认这把密钥是否仍在为另一个身份的保险库提供保护。我明白抹除它可能会永久销毁那把密钥。',
       vault_reset_own_draft_ack:
@@ -1617,8 +1642,8 @@ const resources = {
       vault_done_body: '{{count}} 把密钥可以打开这个保险库。只有这些密钥能打开它 — 您的恢复助记词不能。',
       vault_done_cta: '完成',
       vault_add_key_row: '添加密钥',
-      vault_add_key_done: '{{nickname}} 可以打开从现在起的存入。重新锁定保险库后，它就能打开全部资金。',
-      vault_key_added_toast: '密钥已添加',
+      vault_add_key_done: '{{nickname}} 已保存，但尚未生效。只有在您用另一把密钥确认后，它才能打开此保险库。',
+      vault_key_added_toast: '密钥已保存，尚未生效。',
       vault_recovery_verified: '已在此设备上验证恢复的密钥',
       vault_relock_row: '重新锁定保险库',
       vault_relock_now: '立即重新锁定',
@@ -1632,7 +1657,7 @@ const resources = {
       vault_err_too_many_active_keys: '保险库最多锁定到五把密钥。请先移除一把，再存入、重新锁定或提取部分余额。',
       vault_key_section_over_limit: '安全密钥（{{count}}，请移除一把）',
       vault_add_key_done_over_limit:
-        '已添加 {{nickname}}。保险库最多锁定到五把密钥，请移除它所替换的那把，然后重新锁定一次。',
+        '{{nickname}} 已保存，但尚未生效。保险库最多锁定到五把密钥，因此请移除这把密钥所替代的那一把。移除后，{{nickname}} 也会随之生效。',
       vault_relock_done: '保险库已重新锁定到当前密钥',
       vault_relock_capped: '还剩 {{count}} 笔存入 — 再次重新锁定以移动它们。',
       vault_relock_unreachable: '{{count}} 笔存入只能由 {{names}} 打开。请用其中一把密钥再次重新锁定。',
@@ -1978,6 +2003,8 @@ const resources = {
       authorize: '授权',
       renewal: '续订',
       spending_section: '消费',
+      spending_up_to: '最多',
+      spending_each_month: '每月，直到你移除为止',
       protocols_section: '协议',
       baskets_section: '篮子',
       certificates_section: '证书',
@@ -2707,6 +2734,7 @@ const resources = {
       vault_restore_found: 'ब्लॉकचेन पर {{count}} वॉल्ट जमा मिले।',
       vault_restore_pending: '{{count}} जमा मिले, पहली पुष्टि की प्रतीक्षा में — कृपया थोड़ी देर बाद पुनः प्रयास करें।',
       vault_restore_none_found: 'इस वॉलेट के लिए ब्लॉकचेन पर कोई वॉल्ट जमा नहीं मिला।',
+      vault_restore_needs_key: 'वॉल्ट मिल गया। उसे पुनर्स्थापित करने के लिए उसकी किसी एक कुंजी को टैप करें।',
       vault_balance_label: 'वॉल्ट में है',
       vault_key_section: 'सुरक्षा कुंजियाँ ({{count}}/5)',
       vault_manage_section: 'प्रबंधित करें',
@@ -2753,6 +2781,19 @@ const resources = {
       vault_reset_body:
         'यह कुंजी पहले इस्तेमाल हो चुकी है। रीसेट करने पर इसके PIV ऐप्लिकेशन का हर प्रमाणपत्र और कुंजी मिट जाएगी, सिर्फ़ वॉल्ट स्लॉट नहीं। इस कुंजी पर निर्भर सब कुछ काम करना बंद कर देगा।',
       vault_reset_ack: 'मैं समझता हूँ कि इससे इस कुंजी का सब कुछ मिट जाएगा',
+      vault_card_checking: 'ब्लॉकचेन पर ऐसा वॉल्ट खोजा जा रहा है जिसे यह कुंजी खोलती है…',
+      vault_card_funds_title: 'यह कुंजी एक वॉल्ट खोलती है',
+      vault_card_funds_body_one:
+        'इस कुंजी से 1 जमा ({{amount}}) खोली जा सकती है। कुंजी रीसेट करने के बजाय वॉल्ट पुनर्स्थापित करें।',
+      vault_card_funds_body_other:
+        'इस कुंजी से {{count}} जमा ({{amount}}) खोली जा सकती हैं। कुंजी रीसेट करने के बजाय वॉल्ट पुनर्स्थापित करें।',
+      vault_card_restore: 'इस वॉल्ट को पुनर्स्थापित करें',
+      vault_card_unknown_title: 'ब्लॉकचेन की जाँच नहीं हो सकी',
+      vault_card_unknown_body:
+        'कुंजी में कोई बदलाव नहीं हुआ। दोबारा कोशिश करें। अगर आप जाँचे बिना इसे रीसेट करते हैं, तो इससे खुलने वाला कोई भी वॉल्ट हमेशा के लिए खो जाएगा।',
+      vault_card_retry: 'पुनः प्रयास',
+      vault_card_loss_ack:
+        'अगर आप इसे रीसेट करते हैं, तो इस कुंजी का उपयोग करने वाले वॉल्ट में मौजूद सारे फ़ंड हमेशा के लिए खो जाएँगे।',
       vault_reset_unknown_ack:
         'यह डिवाइस पुष्टि नहीं कर सकता कि यह कुंजी किसी दूसरे प्रोफ़ाइल के वॉल्ट को अभी भी सुरक्षित कर रही है या नहीं। मैं समझता हूँ कि इसे मिटाने से वह कुंजी हमेशा के लिए नष्ट हो सकती है।',
       vault_reset_own_draft_ack:
@@ -2797,8 +2838,9 @@ const resources = {
         '{{count}} कुंजियाँ यह वॉल्ट खोल सकती हैं। केवल ये कुंजियाँ इसे खोलती हैं — आपका रिकवरी फ़्रेज़ नहीं।',
       vault_done_cta: 'हो गया',
       vault_add_key_row: 'कुंजी जोड़ें',
-      vault_add_key_done: '{{nickname}} अब से की गई जमाओं को खोल सकती है। वॉल्ट को री-लॉक करें ताकि यह सब कुछ खोल सके।',
-      vault_key_added_toast: 'कुंजी जोड़ी गई',
+      vault_add_key_done:
+        '{{nickname}} सहेज ली गई है, लेकिन अभी सक्रिय नहीं है। यह इस वॉल्ट को तभी खोलेगी जब आप इसे अपनी किसी दूसरी कुंजी से पुष्टि करेंगे।',
+      vault_key_added_toast: 'कुंजी सहेज ली गई। यह अभी सक्रिय नहीं है।',
       vault_recovery_verified: 'पुनर्प्राप्त कुंजी इस डिवाइस पर सत्यापित हुई',
       vault_relock_row: 'वॉल्ट री-लॉक करें',
       vault_relock_now: 'अभी री-लॉक करें',
@@ -2815,7 +2857,7 @@ const resources = {
         'वॉल्ट अधिकतम पाँच कुंजियों पर लॉक होता है। जमा करने, री-लॉक करने या शेष राशि का कुछ हिस्सा निकालने से पहले एक कुंजी हटाएँ।',
       vault_key_section_over_limit: 'सुरक्षा कुंजियाँ ({{count}}, एक हटाएँ)',
       vault_add_key_done_over_limit:
-        '{{nickname}} जोड़ दी गई। वॉल्ट अधिकतम पाँच कुंजियों पर लॉक होता है, इसलिए जिस कुंजी की जगह यह आई है उसे हटाएँ, फिर एक बार री-लॉक करें।',
+        '{{nickname}} सहेज ली गई है, लेकिन अभी सक्रिय नहीं है। वॉल्ट अधिकतम पाँच कुंजियों पर लॉक होता है, इसलिए वह कुंजी हटाएँ जिसकी जगह यह ले रही है। उसे हटाने पर {{nickname}} भी सक्रिय हो जाएगी।',
       vault_relock_done: 'वॉल्ट आपकी वर्तमान कुंजियों पर री-लॉक हो गया',
       vault_relock_capped: '{{count}} और जमा बाकी हैं — उन्हें ले जाने के लिए फिर री-लॉक करें।',
       vault_relock_unreachable:
@@ -3182,6 +3224,8 @@ const resources = {
       authorize: 'अधिकृत करें',
       renewal: 'नवीनीकरण',
       spending_section: 'खर्च',
+      spending_up_to: 'अधिकतम',
+      spending_each_month: 'हर महीने, जब तक आप इसे हटा नहीं देते',
       protocols_section: 'प्रोटोकॉल',
       baskets_section: 'बास्केट',
       certificates_section: 'प्रमाणपत्र',
@@ -3941,6 +3985,7 @@ const resources = {
       vault_restore_pending:
         'Se encontraron {{count}} depósito(s), a la espera de su primera confirmación — inténtalo de nuevo en breve.',
       vault_restore_none_found: 'No se encontraron depósitos de la caja fuerte en la blockchain para esta billetera.',
+      vault_restore_needs_key: 'Caja fuerte encontrada. Toca una de sus llaves para restaurarla.',
       vault_balance_label: 'la caja fuerte tiene',
       vault_key_section: 'Llaves de seguridad ({{count}} de 5)',
       vault_manage_section: 'Gestionar',
@@ -3988,6 +4033,19 @@ const resources = {
       vault_reset_body:
         'Esta llave ya se ha usado antes. Restablecerla borra todos los certificados y claves de su aplicación PIV, no solo la ranura de la caja fuerte. Todo lo que dependa de ella dejará de funcionar.',
       vault_reset_ack: 'Entiendo que esto borra todo lo que hay en esta llave',
+      vault_card_checking: 'Buscando en la blockchain una caja fuerte que abra esta llave…',
+      vault_card_funds_title: 'Esta llave abre una caja fuerte',
+      vault_card_funds_body_one:
+        'Esta llave puede abrir 1 depósito ({{amount}}). Restaura la caja fuerte en lugar de restablecer la llave.',
+      vault_card_funds_body_other:
+        'Esta llave puede abrir {{count}} depósitos ({{amount}}). Restaura la caja fuerte en lugar de restablecer la llave.',
+      vault_card_restore: 'Restaurar esta caja fuerte',
+      vault_card_unknown_title: 'No se pudo consultar la blockchain',
+      vault_card_unknown_body:
+        'La llave no se modificó. Inténtalo de nuevo. Si la restableces sin comprobarlo, cualquier caja fuerte que abra se perderá para siempre.',
+      vault_card_retry: 'Reintentar',
+      vault_card_loss_ack:
+        'Si la restableces, cualquier fondo de una caja fuerte que use esta llave se perderá para siempre.',
       vault_reset_unknown_ack:
         'Este dispositivo no puede confirmar si esta llave todavía protege la caja fuerte de otro perfil. Entiendo que borrarla puede destruir esa clave para siempre.',
       vault_reset_own_draft_ack:
@@ -4034,8 +4092,8 @@ const resources = {
       vault_done_cta: 'Listo',
       vault_add_key_row: 'Añadir llave',
       vault_add_key_done:
-        '{{nickname}} puede abrir los depósitos hechos a partir de ahora. Vuelve a bloquear la caja fuerte para que pueda abrirlo todo.',
-      vault_key_added_toast: 'Llave añadida',
+        '{{nickname}} está guardada, pero aún no está activa. Solo abrirá esta caja fuerte cuando la confirmes con una de tus otras llaves.',
+      vault_key_added_toast: 'Llave guardada. Aún no está activa.',
       vault_recovery_verified: 'Llave recuperada verificada en este dispositivo',
       vault_relock_row: 'Volver a bloquear la caja fuerte',
       vault_relock_now: 'Volver a bloquear ahora',
@@ -4052,7 +4110,7 @@ const resources = {
         'La caja fuerte se bloquea con cinco llaves como máximo. Quita una antes de depositar, volver a bloquear o retirar parte del saldo.',
       vault_key_section_over_limit: 'Llaves de seguridad ({{count}}, quita una)',
       vault_add_key_done_over_limit:
-        '{{nickname}} se ha añadido. La caja fuerte se bloquea con cinco llaves como máximo: quita la llave a la que sustituye y vuelve a bloquear una vez.',
+        '{{nickname}} está guardada, pero aún no está activa. La caja fuerte se bloquea con cinco llaves como máximo, así que quita la llave a la que sustituye esta. Al quitarla, {{nickname}} también pasa a estar activa.',
       vault_relock_done: 'Caja fuerte bloqueada de nuevo con tus llaves actuales',
       vault_relock_capped: 'Quedan {{count}} depósitos más: vuelve a bloquear otra vez para moverlos.',
       vault_relock_unreachable:
@@ -4428,6 +4486,8 @@ const resources = {
       authorize: 'Autorizar',
       renewal: 'Renovación',
       spending_section: 'Gasto',
+      spending_up_to: 'Hasta',
+      spending_each_month: 'al mes, hasta que lo quites',
       protocols_section: 'Protocolos',
       baskets_section: 'Cestas',
       certificates_section: 'Certificados',
@@ -5206,6 +5266,7 @@ const resources = {
       vault_restore_pending:
         '{{count}} dépôt(s) trouvé(s), en attente de leur première confirmation — réessayez bientôt.',
       vault_restore_none_found: "Aucun dépôt du coffre n'a été trouvé sur la blockchain pour ce portefeuille.",
+      vault_restore_needs_key: 'Coffre trouvé. Approchez l’une de ses clés pour le restaurer.',
       vault_balance_label: 'le coffre contient',
       vault_key_section: 'Clés de sécurité ({{count}} sur 5)',
       vault_manage_section: 'Gérer',
@@ -5253,6 +5314,19 @@ const resources = {
       vault_reset_body:
         'Cette clé a déjà servi. La réinitialiser efface tous les certificats et toutes les clés de son application PIV, pas seulement l’emplacement du coffre. Tout ce qui en dépend cessera de fonctionner.',
       vault_reset_ack: 'Je comprends que cela efface tout sur cette clé',
+      vault_card_checking: 'Recherche sur la blockchain d’un coffre ouvert par cette clé…',
+      vault_card_funds_title: 'Cette clé ouvre un coffre',
+      vault_card_funds_body_one:
+        'Cette clé peut ouvrir 1 dépôt ({{amount}}). Restaurez le coffre au lieu de réinitialiser la clé.',
+      vault_card_funds_body_other:
+        'Cette clé peut ouvrir {{count}} dépôts ({{amount}}). Restaurez le coffre au lieu de réinitialiser la clé.',
+      vault_card_restore: 'Restaurer ce coffre',
+      vault_card_unknown_title: 'Impossible de vérifier la blockchain',
+      vault_card_unknown_body:
+        'La clé n’a pas été modifiée. Réessayez. Si vous la réinitialisez sans vérifier, tout coffre qu’elle ouvre sera perdu définitivement.',
+      vault_card_retry: 'Réessayer',
+      vault_card_loss_ack:
+        'Si vous la réinitialisez, tous les fonds d’un coffre qui utilise cette clé seront perdus définitivement.',
       vault_reset_unknown_ack:
         "Cet appareil ne peut pas confirmer si cette clé protège encore le coffre d'un autre profil. Je comprends que l'effacer peut détruire cette clé définitivement.",
       vault_reset_own_draft_ack:
@@ -5298,8 +5372,8 @@ const resources = {
       vault_done_cta: 'Terminé',
       vault_add_key_row: 'Ajouter une clé',
       vault_add_key_done:
-        '{{nickname}} peut ouvrir les dépôts effectués à partir de maintenant. Reverrouillez le coffre pour qu’elle puisse tout ouvrir.',
-      vault_key_added_toast: 'Clé ajoutée',
+        '{{nickname}} est enregistrée, mais pas encore active. Elle n’ouvrira ce coffre qu’après que vous l’aurez confirmée avec l’une de vos autres clés.',
+      vault_key_added_toast: 'Clé enregistrée. Elle n’est pas encore active.',
       vault_recovery_verified: 'Clé récupérée vérifiée sur cet appareil',
       vault_relock_row: 'Reverrouiller le coffre',
       vault_relock_now: 'Reverrouiller maintenant',
@@ -5317,7 +5391,7 @@ const resources = {
         'Le coffre se verrouille avec cinq clés au plus. Retirez-en une avant de déposer, de reverrouiller ou de retirer une partie du solde.',
       vault_key_section_over_limit: 'Clés de sécurité ({{count}}, retirez-en une)',
       vault_add_key_done_over_limit:
-        '{{nickname}} a été ajoutée. Le coffre se verrouille avec cinq clés au plus : retirez la clé qu’elle remplace, puis reverrouillez une fois.',
+        '{{nickname}} est enregistrée, mais pas encore active. Le coffre se verrouille avec cinq clés au plus ; retirez donc la clé que celle-ci remplace. En la retirant, vous activez aussi {{nickname}}.',
       vault_relock_done: 'Coffre reverrouillé avec vos clés actuelles',
       vault_relock_capped: 'Il reste {{count}} dépôts — reverrouillez à nouveau pour les déplacer.',
       vault_relock_unreachable:
@@ -5693,6 +5767,8 @@ const resources = {
       authorize: 'Autoriser',
       renewal: 'Renouvellement',
       spending_section: 'Dépenses',
+      spending_up_to: 'Jusqu’à',
+      spending_each_month: 'par mois, jusqu’à ce que vous le retiriez',
       protocols_section: 'Protocoles',
       baskets_section: 'Paniers',
       certificates_section: 'Certificats',
@@ -6457,6 +6533,7 @@ const resources = {
       vault_restore_found: 'تم العثور على {{count}} إيداع (إيداعات) للخزنة على البلوكتشين.',
       vault_restore_pending: 'تم العثور على {{count}} إيداع (إيداعات)، بانتظار أول تأكيد لها — أعد المحاولة قريبًا.',
       vault_restore_none_found: 'لم يتم العثور على أي إيداعات للخزنة على البلوكتشين لهذه المحفظة.',
+      vault_restore_needs_key: 'تم العثور على الخزنة. المس أحد مفاتيحها لاستعادتها.',
       vault_balance_label: 'الخزنة تحتوي على',
       vault_key_section: 'مفاتيح الأمان ({{count}} من 5)',
       vault_manage_section: 'إدارة',
@@ -6502,6 +6579,18 @@ const resources = {
       vault_reset_body:
         'استُخدم هذا المفتاح من قبل. إعادة الضبط تمحو كل شهادة ومفتاح في تطبيق PIV الخاص به، وليس خانة الخزنة وحدها. كل ما يعتمد على هذا المفتاح سيتوقف عن العمل.',
       vault_reset_ack: 'أفهم أن هذا يمحو كل شيء على هذا المفتاح',
+      vault_card_checking: 'جارٍ البحث في البلوكتشين عن خزنة يفتحها هذا المفتاح…',
+      vault_card_funds_title: 'هذا المفتاح يفتح خزنة',
+      vault_card_funds_body_one:
+        'يمكن لهذا المفتاح فتح إيداع واحد ({{amount}}). استعد الخزنة بدلًا من إعادة ضبط المفتاح.',
+      vault_card_funds_body_other:
+        'يمكن لهذا المفتاح فتح {{count}} إيداعًا ({{amount}}). استعد الخزنة بدلًا من إعادة ضبط المفتاح.',
+      vault_card_restore: 'استعادة هذه الخزنة',
+      vault_card_unknown_title: 'تعذّر فحص البلوكتشين',
+      vault_card_unknown_body:
+        'لم يتم تغيير المفتاح. حاول مرة أخرى. إذا أعدت ضبطه دون فحص، فستضيع أي خزنة يفتحها إلى الأبد.',
+      vault_card_retry: 'إعادة المحاولة',
+      vault_card_loss_ack: 'ستضيع إلى الأبد أي أموال في خزنة تستخدم هذا المفتاح إذا أعدت ضبطه.',
       vault_reset_unknown_ack:
         'لا يمكن لهذا الجهاز التأكد مما إذا كان هذا المفتاح لا يزال يؤمّن خزنة ملف شخصي آخر. أفهم أن محوه قد يدمّر ذلك المفتاح نهائيًا.',
       vault_reset_own_draft_ack:
@@ -6542,8 +6631,9 @@ const resources = {
       vault_done_body: '{{count}} مفاتيح يمكنها فتح هذه الخزنة. هذه المفاتيح فقط تفتحها — وليس عبارة الاسترداد.',
       vault_done_cta: 'تم',
       vault_add_key_row: 'إضافة مفتاح',
-      vault_add_key_done: 'يمكن لـ {{nickname}} فتح الإيداعات التي تُجرى من الآن. أعد قفل الخزنة ليتمكن من فتح كل شيء.',
-      vault_key_added_toast: 'تمت إضافة المفتاح',
+      vault_add_key_done:
+        'تم حفظ {{nickname}} لكنه غير نشط بعد. لن يفتح هذه الخزنة إلا بعد أن تؤكده بأحد مفاتيحك الأخرى.',
+      vault_key_added_toast: 'تم حفظ المفتاح. وهو غير نشط بعد.',
       vault_recovery_verified: 'تم التحقق من المفتاح المستعاد على هذا الجهاز',
       vault_relock_row: 'إعادة قفل الخزنة',
       vault_relock_now: 'إعادة القفل الآن',
@@ -6558,7 +6648,7 @@ const resources = {
         'تُقفل الخزنة بخمسة مفاتيح كحدّ أقصى. أزل مفتاحًا قبل الإيداع أو إعادة القفل أو سحب جزء من الرصيد.',
       vault_key_section_over_limit: 'مفاتيح الأمان ({{count}}، أزل واحدًا)',
       vault_add_key_done_over_limit:
-        'أُضيف {{nickname}}. تُقفل الخزنة بخمسة مفاتيح كحدّ أقصى، لذا أزل المفتاح الذي يحلّ هذا محلّه، ثم أعد القفل مرة واحدة.',
+        'تم حفظ {{nickname}} لكنه غير نشط بعد. تُقفل الخزنة بخمسة مفاتيح كحدّ أقصى، لذا أزل المفتاح الذي يحلّ هذا محلّه. وإزالته تجعل {{nickname}} نشطًا أيضًا.',
       vault_relock_done: 'أُعيد قفل الخزنة على مفاتيحك الحالية',
       vault_relock_capped: 'بقي {{count}} إيداعًا — أعد القفل مجددًا لنقلها.',
       vault_relock_unreachable: '{{count}} إيداعًا لا يفتحها سوى {{names}}. أعد القفل مجددًا بأحد تلك المفاتيح.',
@@ -6919,6 +7009,8 @@ const resources = {
       authorize: 'تفويض',
       renewal: 'تجديد',
       spending_section: 'الإنفاق',
+      spending_up_to: 'حتى',
+      spending_each_month: 'كل شهر، إلى أن تزيله',
       protocols_section: 'البروتوكولات',
       baskets_section: 'السلال',
       certificates_section: 'الشهادات',
@@ -7663,6 +7755,7 @@ const resources = {
       vault_restore_pending:
         '{{count}} depósito(s) encontrado(s), aguardando a primeira confirmação — tente novamente em breve.',
       vault_restore_none_found: 'Nenhum depósito do cofre foi encontrado na blockchain para esta carteira.',
+      vault_restore_needs_key: 'Cofre encontrado. Encoste uma das chaves dele para restaurá-lo.',
       vault_balance_label: 'o cofre tem',
       vault_key_section: 'Chaves de segurança ({{count}} de 5)',
       vault_manage_section: 'Gerenciar',
@@ -7710,6 +7803,18 @@ const resources = {
       vault_reset_body:
         'Esta chave já foi usada. Repô-la apaga todos os certificados e chaves da sua aplicação PIV, não apenas a ranhura do cofre. Tudo o que depende desta chave deixa de funcionar.',
       vault_reset_ack: 'Compreendo que isto apaga tudo nesta chave',
+      vault_card_checking: 'Verificando na blockchain se esta chave abre algum cofre…',
+      vault_card_funds_title: 'Esta chave abre um cofre',
+      vault_card_funds_body_one:
+        'Esta chave pode abrir 1 depósito ({{amount}}). Restaure o cofre em vez de repor a chave.',
+      vault_card_funds_body_other:
+        'Esta chave pode abrir {{count}} depósitos ({{amount}}). Restaure o cofre em vez de repor a chave.',
+      vault_card_restore: 'Restaurar este cofre',
+      vault_card_unknown_title: 'Não foi possível verificar a blockchain',
+      vault_card_unknown_body:
+        'A chave não foi alterada. Tente novamente. Se a repuser sem verificar, qualquer cofre que ela abra será perdido para sempre.',
+      vault_card_retry: 'Tentar novamente',
+      vault_card_loss_ack: 'Se repuser esta chave, qualquer fundo num cofre que a use será perdido para sempre.',
       vault_reset_unknown_ack:
         'Este dispositivo não pode confirmar se esta chave ainda protege o cofre de outro perfil. Compreendo que apagá-la pode destruir essa chave para sempre.',
       vault_reset_own_draft_ack:
@@ -7755,8 +7860,8 @@ const resources = {
       vault_done_cta: 'Concluído',
       vault_add_key_row: 'Adicionar chave',
       vault_add_key_done:
-        '{{nickname}} pode abrir os depósitos feitos a partir de agora. Retranque o cofre para que ela possa abrir tudo.',
-      vault_key_added_toast: 'Chave adicionada',
+        'A chave {{nickname}} foi guardada, mas ainda não está ativa. Só abrirá este cofre depois de a confirmar com uma das suas outras chaves.',
+      vault_key_added_toast: 'Chave guardada. Ainda não está ativa.',
       vault_recovery_verified: 'Chave recuperada verificada neste dispositivo',
       vault_relock_row: 'Retrancar o cofre',
       vault_relock_now: 'Retrancar agora',
@@ -7773,7 +7878,7 @@ const resources = {
         'O cofre é bloqueado com no máximo cinco chaves. Remova uma antes de depositar, bloquear novamente ou retirar parte do saldo.',
       vault_key_section_over_limit: 'Chaves de segurança ({{count}}, remova uma)',
       vault_add_key_done_over_limit:
-        '{{nickname}} foi adicionada. O cofre é bloqueado com no máximo cinco chaves: remova a chave que ela substitui e bloqueie novamente uma vez.',
+        'A chave {{nickname}} foi guardada, mas ainda não está ativa. O cofre é bloqueado com no máximo cinco chaves, por isso remova a chave que esta substitui. Ao removê-la, {{nickname}} também fica ativa.',
       vault_relock_done: 'Cofre retrancado com as suas chaves atuais',
       vault_relock_capped: 'Restam {{count}} depósitos — retranque de novo para movê-los.',
       vault_relock_unreachable:
@@ -8147,6 +8252,8 @@ const resources = {
       authorize: 'Autorizar',
       renewal: 'Renovação',
       spending_section: 'Gastos',
+      spending_up_to: 'Até',
+      spending_each_month: 'por mês, até o remover',
       protocols_section: 'Protocolos',
       baskets_section: 'Cestas',
       certificates_section: 'Certificados',
@@ -8920,6 +9027,7 @@ const resources = {
       vault_restore_found: 'ব্লকচেইনে {{count}}টি ভল্ট জমা পাওয়া গেছে।',
       vault_restore_pending: '{{count}}টি জমা পাওয়া গেছে, প্রথম নিশ্চিতকরণের অপেক্ষায় — শীঘ্রই আবার চেষ্টা করুন।',
       vault_restore_none_found: 'এই ওয়ালেটের জন্য ব্লকচেইনে কোনো ভল্ট জমা পাওয়া যায়নি।',
+      vault_restore_needs_key: 'ভল্ট পাওয়া গেছে। এটি পুনরুদ্ধার করতে এর যেকোনো একটি কী ট্যাপ করুন।',
       vault_balance_label: 'ভল্টে আছে',
       vault_key_section: 'সিকিউরিটি কী ({{count}}/৫)',
       vault_manage_section: 'পরিচালনা',
@@ -8965,6 +9073,17 @@ const resources = {
       vault_reset_body:
         'এই কী আগে ব্যবহার হয়েছে। রিসেট করলে এর PIV অ্যাপ্লিকেশনের প্রতিটি সার্টিফিকেট ও কী মুছে যাবে, শুধু ভল্ট স্লট নয়। এই কীর উপর নির্ভরশীল সবকিছু কাজ করা বন্ধ করবে।',
       vault_reset_ack: 'আমি বুঝেছি এতে এই কীর সবকিছু মুছে যাবে',
+      vault_card_checking: 'এই কী যে ভল্ট খোলে তার জন্য ব্লকচেইন যাচাই করা হচ্ছে…',
+      vault_card_funds_title: 'এই কী একটি ভল্ট খোলে',
+      vault_card_funds_body_one: 'এই কী দিয়ে 1টি জমা ({{amount}}) খোলা যায়। কী রিসেট না করে ভল্ট পুনরুদ্ধার করুন।',
+      vault_card_funds_body_other:
+        'এই কী দিয়ে {{count}}টি জমা ({{amount}}) খোলা যায়। কী রিসেট না করে ভল্ট পুনরুদ্ধার করুন।',
+      vault_card_restore: 'এই ভল্ট পুনরুদ্ধার করুন',
+      vault_card_unknown_title: 'ব্লকচেইন যাচাই করা যায়নি',
+      vault_card_unknown_body:
+        'কী পরিবর্তন করা হয়নি। আবার চেষ্টা করুন। যাচাই না করে রিসেট করলে এই কী যে ভল্ট খোলে তা চিরতরে হারিয়ে যাবে।',
+      vault_card_retry: 'পুনরায় চেষ্টা',
+      vault_card_loss_ack: 'রিসেট করলে এই কী ব্যবহার করা ভল্টের সব ফান্ড চিরতরে হারিয়ে যাবে।',
       vault_reset_unknown_ack:
         'এই ডিভাইসটি নিশ্চিত করতে পারে না যে এই কীটি অন্য কোনো প্রোফাইলের ভল্ট এখনও সুরক্ষিত করছে কিনা। আমি বুঝেছি এটি মুছে ফেললে ওই কী চিরতরে নষ্ট হতে পারে।',
       vault_reset_own_draft_ack:
@@ -9005,8 +9124,9 @@ const resources = {
       vault_done_body: '{{count}}টি কী এই ভল্ট খুলতে পারে। কেবল এই কী-গুলিই এটি খোলে — আপনার রিকভারি ফ্রেজ নয়।',
       vault_done_cta: 'সম্পন্ন',
       vault_add_key_row: 'কী যোগ করুন',
-      vault_add_key_done: '{{nickname}} এখন থেকে করা জমা খুলতে পারবে। ভল্ট পুনরায় লক করুন যাতে এটি সবকিছু খুলতে পারে।',
-      vault_key_added_toast: 'কী যোগ করা হয়েছে',
+      vault_add_key_done:
+        '{{nickname}} সংরক্ষিত হয়েছে, কিন্তু এখনও সক্রিয় নয়। আপনার অন্য কোনো কী দিয়ে নিশ্চিত করার পরেই এটি এই ভল্ট খুলবে।',
+      vault_key_added_toast: 'কী সংরক্ষিত হয়েছে। এটি এখনও সক্রিয় নয়।',
       vault_recovery_verified: 'উদ্ধার করা কী এই ডিভাইসে যাচাই হয়েছে',
       vault_relock_row: 'ভল্ট পুনরায় লক করুন',
       vault_relock_now: 'এখনই পুনরায় লক করুন',
@@ -9021,7 +9141,7 @@ const resources = {
         'ভল্ট সর্বোচ্চ পাঁচটি কী দিয়ে লক হয়। জমা, পুনরায় লক বা ব্যালান্সের কিছু অংশ উত্তোলনের আগে একটি কী সরান।',
       vault_key_section_over_limit: 'সিকিউরিটি কী ({{count}}, একটি সরান)',
       vault_add_key_done_over_limit:
-        '{{nickname}} যোগ করা হয়েছে। ভল্ট সর্বোচ্চ পাঁচটি কী দিয়ে লক হয়, তাই এটি যে কী-এর জায়গা নিচ্ছে সেটি সরান, তারপর একবার পুনরায় লক করুন।',
+        '{{nickname}} সংরক্ষিত হয়েছে, কিন্তু এখনও সক্রিয় নয়। ভল্ট সর্বোচ্চ পাঁচটি কী দিয়ে লক হয়, তাই এটি যে কীর জায়গা নিচ্ছে সেটি সরান। সেটি সরালে {{nickname}}ও সক্রিয় হবে।',
       vault_relock_done: 'ভল্ট আপনার বর্তমান কী-গুলিতে পুনরায় লক হয়েছে',
       vault_relock_capped: 'আরও {{count}}টি জমা বাকি — সরাতে আবার পুনরায় লক করুন।',
       vault_relock_unreachable:
@@ -9387,6 +9507,8 @@ const resources = {
       authorize: 'অনুমোদন করুন',
       renewal: 'নবায়ন',
       spending_section: 'ব্যয়',
+      spending_up_to: 'সর্বোচ্চ',
+      spending_each_month: 'প্রতি মাসে, আপনি না সরানো পর্যন্ত',
       protocols_section: 'প্রোটোকল',
       baskets_section: 'বাস্কেট',
       certificates_section: 'সার্টিফিকেট',
@@ -10148,6 +10270,7 @@ const resources = {
       vault_restore_pending:
         'Найдено {{count}} депозит(ов), ожидающих первого подтверждения — повторите попытку позже.',
       vault_restore_none_found: 'Депозиты хранилища для этого кошелька на блокчейне не найдены.',
+      vault_restore_needs_key: 'Хранилище найдено. Приложите один из его ключей, чтобы восстановить его.',
       vault_balance_label: 'в хранилище',
       vault_key_section: 'Ключи безопасности ({{count}} из 5)',
       vault_manage_section: 'Управление',
@@ -10195,6 +10318,19 @@ const resources = {
       vault_reset_body:
         'Этот ключ уже использовался. Сброс стирает все сертификаты и ключи в его PIV-приложении, а не только слот хранилища. Всё, что на него опирается, перестанет работать.',
       vault_reset_ack: 'Я понимаю, что это сотрёт с ключа всё',
+      vault_card_checking: 'Ищем в блокчейне хранилище, которое открывает этот ключ…',
+      vault_card_funds_title: 'Этот ключ открывает хранилище',
+      vault_card_funds_body_one:
+        'Этим ключом можно открыть 1 депозит ({{amount}}). Восстановите хранилище, а не сбрасывайте ключ.',
+      vault_card_funds_body_other:
+        'Этим ключом можно открыть депозитов: {{count}} ({{amount}}). Восстановите хранилище, а не сбрасывайте ключ.',
+      vault_card_restore: 'Восстановить это хранилище',
+      vault_card_unknown_title: 'Не удалось проверить блокчейн',
+      vault_card_unknown_body:
+        'Ключ не изменён. Повторите попытку. Если сбросить его без проверки, любое хранилище, которое он открывает, будет потеряно безвозвратно.',
+      vault_card_retry: 'Повторить',
+      vault_card_loss_ack:
+        'Если сбросить ключ, все средства в хранилище, использующем этот ключ, будут потеряны безвозвратно.',
       vault_reset_unknown_ack:
         'Это устройство не может подтвердить, защищает ли этот ключ хранилище другого профиля. Я понимаю, что стирание может уничтожить его безвозвратно.',
       vault_reset_own_draft_ack:
@@ -10239,8 +10375,8 @@ const resources = {
       vault_done_cta: 'Готово',
       vault_add_key_row: 'Добавить ключ',
       vault_add_key_done:
-        '{{nickname}} может открывать пополнения, сделанные с этого момента. Перезапирайте хранилище, чтобы он мог открыть всё.',
-      vault_key_added_toast: 'Ключ добавлен',
+        'Ключ {{nickname}} сохранён, но пока не активен. Он откроет это хранилище только после того, как вы подтвердите его другим своим ключом.',
+      vault_key_added_toast: 'Ключ сохранён. Он пока не активен.',
       vault_recovery_verified: 'Восстановленный ключ проверен на этом устройстве',
       vault_relock_row: 'Перезапереть хранилище',
       vault_relock_now: 'Перезапереть сейчас',
@@ -10256,7 +10392,7 @@ const resources = {
         'Хранилище запирается не более чем пятью ключами. Удалите один, прежде чем пополнять, перезапирать или выводить часть баланса.',
       vault_key_section_over_limit: 'Ключи безопасности ({{count}}, удалите один)',
       vault_add_key_done_over_limit:
-        '{{nickname}} добавлен. Хранилище запирается не более чем пятью ключами: удалите ключ, который он заменяет, затем перезаприте один раз.',
+        'Ключ {{nickname}} сохранён, но пока не активен. Хранилище запирается не более чем пятью ключами, поэтому удалите ключ, который заменяет этот. После его удаления {{nickname}} тоже станет активным.',
       vault_relock_done: 'Хранилище перезаперто на текущие ключи',
       vault_relock_capped: 'Осталось ещё {{count}} пополнений — перезапирайте снова, чтобы перенести их.',
       vault_relock_unreachable:
@@ -10628,6 +10764,8 @@ const resources = {
       authorize: 'Авторизовать',
       renewal: 'Продление',
       spending_section: 'Расходы',
+      spending_up_to: 'До',
+      spending_each_month: 'в месяц, пока вы его не удалите',
       protocols_section: 'Протоколы',
       baskets_section: 'Корзины',
       certificates_section: 'Сертификаты',
@@ -11395,6 +11533,7 @@ const resources = {
       vault_restore_found: 'Ditemukan {{count}} setoran brankas di blockchain.',
       vault_restore_pending: '{{count}} setoran ditemukan, menunggu konfirmasi pertamanya — coba lagi sebentar lagi.',
       vault_restore_none_found: 'Tidak ada setoran brankas yang ditemukan di blockchain untuk dompet ini.',
+      vault_restore_needs_key: 'Brankas ditemukan. Ketuk salah satu kuncinya untuk memulihkannya.',
       vault_balance_label: 'Brankas berisi',
       vault_key_section: 'Kunci keamanan ({{count}} dari 5)',
       vault_manage_section: 'Kelola',
@@ -11442,6 +11581,19 @@ const resources = {
       vault_reset_body:
         'Kunci ini pernah dipakai. Menyetel ulang menghapus setiap sertifikat dan kunci di aplikasi PIV-nya, bukan hanya slot brankas. Semua yang bergantung padanya berhenti berfungsi.',
       vault_reset_ack: 'Saya paham ini menghapus semua isi kunci ini',
+      vault_card_checking: 'Memeriksa blockchain untuk brankas yang dibuka kunci ini…',
+      vault_card_funds_title: 'Kunci ini membuka sebuah brankas',
+      vault_card_funds_body_one:
+        'Kunci ini dapat membuka 1 setoran ({{amount}}). Pulihkan brankas, jangan setel ulang kunci.',
+      vault_card_funds_body_other:
+        'Kunci ini dapat membuka {{count}} setoran ({{amount}}). Pulihkan brankas, jangan setel ulang kunci.',
+      vault_card_restore: 'Pulihkan brankas ini',
+      vault_card_unknown_title: 'Tidak dapat memeriksa blockchain',
+      vault_card_unknown_body:
+        'Kunci tidak diubah. Coba lagi. Jika Anda menyetel ulang tanpa memeriksa, brankas apa pun yang dibukanya hilang selamanya.',
+      vault_card_retry: 'Coba lagi',
+      vault_card_loss_ack:
+        'Dana apa pun di brankas yang memakai kunci ini hilang selamanya jika Anda menyetel ulangnya.',
       vault_reset_unknown_ack:
         'Perangkat ini tidak dapat memastikan apakah kunci ini masih mengamankan brankas profil lain. Saya paham menghapusnya berpotensi memusnahkan kunci itu selamanya.',
       vault_reset_own_draft_ack:
@@ -11487,8 +11639,8 @@ const resources = {
       vault_done_cta: 'Selesai',
       vault_add_key_row: 'Tambah kunci',
       vault_add_key_done:
-        '{{nickname}} dapat membuka setoran yang dibuat mulai sekarang. Kunci ulang brankas agar ia bisa membuka semuanya.',
-      vault_key_added_toast: 'Kunci ditambahkan',
+        '{{nickname}} sudah disimpan tetapi belum aktif. Kunci ini baru membuka brankas ini setelah Anda mengonfirmasinya dengan salah satu kunci Anda yang lain.',
+      vault_key_added_toast: 'Kunci disimpan. Belum aktif.',
       vault_recovery_verified: 'Kunci yang dipulihkan telah diverifikasi di perangkat ini',
       vault_relock_row: 'Kunci ulang brankas',
       vault_relock_now: 'Kunci ulang sekarang',
@@ -11506,7 +11658,7 @@ const resources = {
         'Brankas dikunci dengan paling banyak lima kunci. Hapus satu sebelum menyetor, mengunci ulang, atau menarik sebagian saldo.',
       vault_key_section_over_limit: 'Kunci keamanan ({{count}}, hapus satu)',
       vault_add_key_done_over_limit:
-        '{{nickname}} ditambahkan. Brankas dikunci dengan paling banyak lima kunci, jadi hapus kunci yang digantikannya, lalu kunci ulang sekali.',
+        '{{nickname}} sudah disimpan tetapi belum aktif. Brankas dikunci dengan paling banyak lima kunci, jadi hapus kunci yang digantikan kunci ini. Setelah dihapus, {{nickname}} ikut aktif.',
       vault_relock_done: 'Brankas dikunci ulang ke kunci Anda saat ini',
       vault_relock_capped: '{{count}} setoran lagi tersisa — kunci ulang lagi untuk memindahkannya.',
       vault_relock_unreachable:
@@ -11875,6 +12027,8 @@ const resources = {
       authorize: 'Otorisasi',
       renewal: 'Pembaruan',
       spending_section: 'Pengeluaran',
+      spending_up_to: 'Hingga',
+      spending_each_month: 'per bulan, sampai Anda menghapusnya',
       protocols_section: 'Protokol',
       baskets_section: 'Keranjang',
       certificates_section: 'Sertifikat',
@@ -12646,6 +12800,7 @@ const resources = {
       vault_restore_pending:
         '{{count}} 件の入金が見つかりましたが、初回承認待ちです。しばらくしてから再試行してください。',
       vault_restore_none_found: 'このウォレットの保管庫の入金はブロックチェーン上に見つかりませんでした。',
+      vault_restore_needs_key: '保管庫が見つかりました。復元するには、その鍵のいずれかをかざしてください。',
       vault_balance_label: '保管庫の保有額',
       vault_key_section: 'セキュリティキー（{{count}}/5）',
       vault_manage_section: '管理',
@@ -12693,6 +12848,18 @@ const resources = {
       vault_reset_body:
         'このキーは以前に使われています。リセットすると、保管庫スロットだけでなく PIV アプリケーション内のすべての証明書と鍵が消去されます。このキーに依存しているものは動作しなくなります。',
       vault_reset_ack: 'このキーの内容がすべて消えることを理解しました',
+      vault_card_checking: 'この鍵で開く保管庫をブロックチェーンで確認しています…',
+      vault_card_funds_title: 'この鍵は保管庫を開きます',
+      vault_card_funds_body_one:
+        'この鍵で 1 件の入金（{{amount}}）を開けます。鍵をリセットせず、保管庫を復元してください。',
+      vault_card_funds_body_other:
+        'この鍵で {{count}} 件の入金（{{amount}}）を開けます。鍵をリセットせず、保管庫を復元してください。',
+      vault_card_restore: 'この保管庫を復元',
+      vault_card_unknown_title: 'ブロックチェーンを確認できませんでした',
+      vault_card_unknown_body:
+        '鍵は変更されていません。もう一度お試しください。確認せずにリセットすると、この鍵で開く保管庫は永久に失われます。',
+      vault_card_retry: '再試行',
+      vault_card_loss_ack: 'この鍵を使う保管庫の資金は、リセットすると永久に失われます。',
       vault_reset_unknown_ack:
         'このデバイスでは、このキーが別のプロファイルの保管庫を保護しているかどうかを確認できません。消去するとその鍵が永久に失われる可能性があることを理解しました。',
       vault_reset_own_draft_ack:
@@ -12737,8 +12904,8 @@ const resources = {
       vault_done_cta: '完了',
       vault_add_key_row: '鍵を追加',
       vault_add_key_done:
-        '{{nickname}} は今後の入金を開けられます。すべてを開けられるように保管庫を再ロックしてください。',
-      vault_key_added_toast: '鍵を追加しました',
+        '{{nickname}} は保存されましたが、まだ有効ではありません。ほかの鍵のいずれかで確認すると、初めてこの保管庫を開けるようになります。',
+      vault_key_added_toast: '鍵を保存しました。まだ有効ではありません。',
       vault_recovery_verified: '復元した鍵をこのデバイスで確認しました',
       vault_relock_row: '保管庫を再ロック',
       vault_relock_now: '今すぐ再ロック',
@@ -12753,7 +12920,7 @@ const resources = {
         '保管庫をロックできる鍵は最大 5 本です。入金、再ロック、残高の一部の出金の前に、鍵を 1 本削除してください。',
       vault_key_section_over_limit: 'セキュリティキー（{{count}}、1 本削除してください）',
       vault_add_key_done_over_limit:
-        '{{nickname}} を追加しました。保管庫をロックできる鍵は最大 5 本なので、この鍵で置き換える鍵を削除してから、再ロックを 1 回行ってください。',
+        '{{nickname}} は保存されましたが、まだ有効ではありません。保管庫をロックできる鍵は最大 5 本のため、この鍵が置き換える鍵を削除してください。削除すると {{nickname}} も有効になります。',
       vault_relock_done: '保管庫を現在の鍵に再ロックしました',
       vault_relock_capped: 'あと {{count}} 件の入金が残っています — 移動するには再度再ロックしてください。',
       vault_relock_unreachable:
@@ -13131,6 +13298,8 @@ const resources = {
       authorize: '承認',
       renewal: '更新',
       spending_section: '支出',
+      spending_up_to: '最大',
+      spending_each_month: '毎月、削除するまで',
       protocols_section: 'プロトコル',
       baskets_section: 'バスケット',
       certificates_section: '証明書',
@@ -13900,6 +14069,7 @@ const resources = {
       vault_restore_pending:
         'Znaleziono {{count}} depozyt(ów), oczekujących na pierwsze potwierdzenie — spróbuj ponownie za chwilę.',
       vault_restore_none_found: 'Nie znaleziono żadnych depozytów sejfu w blockchainie dla tego portfela.',
+      vault_restore_needs_key: 'Znaleziono sejf. Przyłóż jeden z jego kluczy, aby go przywrócić.',
       vault_balance_label: 'sejf zawiera',
       vault_key_section: 'Klucze bezpieczeństwa ({{count}} z 5)',
       vault_manage_section: 'Zarządzaj',
@@ -13947,6 +14117,19 @@ const resources = {
       vault_reset_body:
         'Ten klucz był już używany. Reset kasuje każdy certyfikat i klucz w jego aplikacji PIV, nie tylko gniazdo sejfu. Wszystko, co na nim polega, przestanie działać.',
       vault_reset_ack: 'Rozumiem, że to skasuje całą zawartość tego klucza',
+      vault_card_checking: 'Sprawdzanie w blockchainie, czy ten klucz otwiera jakiś sejf…',
+      vault_card_funds_title: 'Ten klucz otwiera sejf',
+      vault_card_funds_body_one:
+        'Tym kluczem można otworzyć 1 depozyt ({{amount}}). Przywróć sejf zamiast resetować klucz.',
+      vault_card_funds_body_other:
+        'Liczba depozytów do otwarcia tym kluczem: {{count}} ({{amount}}). Przywróć sejf zamiast resetować klucz.',
+      vault_card_restore: 'Przywróć ten sejf',
+      vault_card_unknown_title: 'Nie udało się sprawdzić blockchaina',
+      vault_card_unknown_body:
+        'Klucz nie został zmieniony. Spróbuj ponownie. Jeśli zresetujesz go bez sprawdzenia, każdy sejf, który otwiera, przepadnie na zawsze.',
+      vault_card_retry: 'Spróbuj ponownie',
+      vault_card_loss_ack:
+        'Jeśli zresetujesz ten klucz, wszystkie środki w sejfie używającym tego klucza przepadną na zawsze.',
       vault_reset_unknown_ack:
         'To urządzenie nie może potwierdzić, czy ten klucz nadal zabezpiecza sejf innego profilu. Rozumiem, że skasowanie może zniszczyć ten klucz na zawsze.',
       vault_reset_own_draft_ack:
@@ -13991,8 +14174,8 @@ const resources = {
       vault_done_cta: 'Gotowe',
       vault_add_key_row: 'Dodaj klucz',
       vault_add_key_done:
-        '{{nickname}} może otwierać wpłaty dokonane od teraz. Zablokuj sejf ponownie, aby mógł otworzyć wszystko.',
-      vault_key_added_toast: 'Klucz dodany',
+        'Klucz {{nickname}} został zapisany, ale nie jest jeszcze aktywny. Otworzy ten sejf dopiero po potwierdzeniu go innym z Twoich kluczy.',
+      vault_key_added_toast: 'Klucz zapisany. Nie jest jeszcze aktywny.',
       vault_recovery_verified: 'Odzyskany klucz zweryfikowano na tym urządzeniu',
       vault_relock_row: 'Zablokuj sejf ponownie',
       vault_relock_now: 'Zablokuj ponownie teraz',
@@ -14008,7 +14191,7 @@ const resources = {
         'Sejf można zablokować najwyżej pięcioma kluczami. Usuń jeden, zanim wpłacisz, zablokujesz ponownie lub wypłacisz część salda.',
       vault_key_section_over_limit: 'Klucze bezpieczeństwa ({{count}}, usuń jeden)',
       vault_add_key_done_over_limit:
-        'Dodano {{nickname}}. Sejf można zablokować najwyżej pięcioma kluczami, więc usuń klucz, który zastępuje, a potem zablokuj ponownie raz.',
+        'Klucz {{nickname}} został zapisany, ale nie jest jeszcze aktywny. Sejf można zablokować najwyżej pięcioma kluczami, więc usuń klucz, który ten zastępuje. Po jego usunięciu {{nickname}} również stanie się aktywny.',
       vault_relock_done: 'Sejf zablokowany ponownie na obecne klucze',
       vault_relock_capped: 'Pozostało jeszcze {{count}} wpłat — zablokuj ponownie, aby je przenieść.',
       vault_relock_unreachable:
@@ -14388,6 +14571,8 @@ const resources = {
       authorize: 'Autoryzuj',
       renewal: 'Odnowienie',
       spending_section: 'Wydatki',
+      spending_up_to: 'Do',
+      spending_each_month: 'miesięcznie, dopóki tego nie usuniesz',
       protocols_section: 'Protokoły',
       baskets_section: 'Koszyki',
       certificates_section: 'Certyfikaty',

@@ -1,7 +1,7 @@
 /**
  * Vault enrollment wizard — spec §3.3.
  *
- *   enroll mode:  intro → key (× k; sub-states pin · puk · tap · save · error) → more → done
+ *   enroll mode:  intro → key (× k; sub-states pin · confirm · puk · tap · save · error) → more → done
  *   add-key mode: key → done
  *
  * Public, non-authoritative recovery handles are persisted in wallet-scoped
@@ -19,11 +19,13 @@
  * time, and a text field between a finished card and a saved key is one more
  * thing to get wrong mid-ceremony.
  *
- * The host screen hides its own back chevron while this is mounted: leaving
- * goes through `leave()` — the leave-confirm alert when at least one key is
- * unsaved — which is also wired to Android's hardware back button. On the
- * `done` step back completes the wizard (`onDone`) instead, and while a card
- * session is open it is swallowed: the tap's outcome must land somewhere.
+ * The host screen points its own back chevron at `onBackChange` while this is
+ * mounted (there is no Back button on the pages, which the keyboard would
+ * cover). Back is one page inside a key where there is one, and otherwise
+ * `leave()` — the leave-confirm alert when at least one key is unsaved — which
+ * Android's hardware back button gets too. On the `done` step back completes
+ * the wizard (`onDone`) instead, and while a card session is open it is
+ * swallowed: the tap's outcome must land somewhere.
  *
  * Whatever meta is stored is loaded in BOTH modes and its serials are always
  * passed to `enrollKey` as `pendingSerials` (spec §3.3 step 2). The service
@@ -33,7 +35,28 @@
  * Finish replaces whatever is stored.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator, BackHandler, Platform } from 'react-native'
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  ScrollView,
+  KeyboardAvoidingView,
+  ActivityIndicator,
+  BackHandler,
+  Platform
+} from 'react-native'
+import {
+  CircleAlert,
+  CircleCheck,
+  CloudUpload,
+  KeyRound,
+  MapPin,
+  Square,
+  SquareCheckBig,
+  TriangleAlert,
+  type LucideIcon
+} from 'lucide-react-native'
 import PressableScale from '../ui/PressableScale'
 import { showAlert } from '../ui/AlertCard'
 import { showToast } from '../ui/Toast'
@@ -64,36 +87,33 @@ import {
   type VaultScopeToken,
   type VaultErrorCode,
   type EnrollPhase,
-  type VaultWalletAuthority
+  type VaultCardFunds,
+  type VaultResetClearance,
+  type VaultWalletAuthority,
+  VAULT_RESET_CLEARANCE_MS
 } from '@bsv/expo-wallet-toolbox'
+import { BalancedText } from '../ui/BalancedText'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Loaded lazily, only when actually rendering, same pattern as this
- * package's other native-module-boundary fixes.
+ * lucide, the family this app draws every other glyph from (its settings rows,
+ * its headers, its sheets). Imported at module scope, unlike
+ * @expo/vector-icons: lucide-react-native ships a CJS entry for `require`, so
+ * it needs no transform and reaches no native module at import time, which is
+ * what this package's lazy icon loads exist to avoid.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
 
 type Step = 'intro' | 'key' | 'more' | 'done'
-type KeySub = 'pin' | 'puk' | 'tap' | 'save' | 'reset' | 'error'
+type KeySub = 'pin' | 'confirm' | 'puk' | 'tap' | 'save' | 'reset' | 'error'
 
 /** Pages a single key's setup walks through, for the progress indicator. The
  * count is per key, not per wizard: the number of keys is chosen during the
  * run (2 to 5), so a whole-wizard bar would move at a rate nobody can predict.
- * `save` is not one of them: it is a write, not a page the user works through. */
-const KEY_STEPS: readonly KeySub[] = ['pin', 'puk', 'tap']
+ * `save` is not one of them: it is a write, not a page the user works through.
+ * The PIN is chosen and confirmed on two of them: one field per page is what
+ * keeps Continue clear of the number pad (see KeyboardPage). */
+const KEY_STEPS: readonly KeySub[] = ['pin', 'confirm', 'puk', 'tap']
 
 /** The PIV factory codes. The intro's whole-PIV acknowledgement asserts a
  * factory-reset (or Vault-dedicated) PIV application, so these are supplied to
@@ -246,18 +266,75 @@ const RESET_BEFORE_ERASE: ReadonlySet<VaultErrorCode> = new Set<VaultErrorCode>(
   'key-already-enrolled',
   'slot-occupied',
   'serial-mismatch',
-  'user-cancelled'
+  'user-cancelled',
+  // the chain-check clearance ran out (it lasts ten minutes) before the reset: nothing was erased
+  'chain-check-required'
 ])
+
+/**
+ * A hardware-key illustration supplied by the host app, drawn at the moments
+ * this flow asks the user to touch their key. The package has no artwork of
+ * its own, and the host's is the one the rest of its vault pages already show,
+ * so it is taken as a prop rather than duplicated here. Given none, these
+ * screens fall back to what they drew before: a spinner, or the phase glyph.
+ *
+ * `waiting` is the blink: the drawing is expected to draw attention to the
+ * key's touch contact while it is true.
+ */
+export type HardwareKeyArtComponent = React.ComponentType<{ waiting?: boolean; size?: number }>
 
 export interface EnrollWizardProps {
   mode: 'enroll' | 'add-key'
   onDone: () => void
   onCancel: () => void
+  keyArt?: HardwareKeyArtComponent
+  /**
+   * Drops the intro step's own title. The wizard names itself because the
+   * package's Vault screen opens it under a header that only says "Vault";
+   * a host that mounts it under a header already reading "Set up your vault"
+   * would otherwise print that line twice, one above the other. Only the
+   * intro is affected -- the later steps' titles say which key and which
+   * step, which no page header can.
+   */
+  hideIntroTitle?: boolean
+  /**
+   * The host's own back control, told what back means on the page showing now.
+   *
+   * Called with a new function whenever that changes. A host that wires its
+   * header chevron to it gets the step-back inside a key and the leave-confirm
+   * everywhere else, which is the point: a chevron of the host's own is a
+   * second, quieter way out of a wizard holding unsaved keys, and the one that
+   * skips the question about them.
+   */
+  onBackChange?: (back: () => void) => void
+  /**
+   * The chain check that runs before a card is reset or its Vault slot replaced (audit: reset-new-phone).
+   * `check` is checkVaultCardFunds for this card; `args` turns its answer (and the person's affirmation) into the
+   * arguments resetPivApplication takes, or null while the reset must not go ahead. Without it the wizard cannot
+   * tell whether the card opens a vault: it treats that as "unknown" and a reset needs the affirmation.
+   */
+  cardGate?: {
+    check: (serial: string) => Promise<VaultCardFunds>
+    args: (
+      result: VaultCardFunds | null,
+      affirmed: boolean
+    ) => { fundsClearance: VaultResetClearance } | { acknowledgeFundsLoss: true } | null
+  }
+  /** The key on the card opens a vault: leave the wizard and restore it (adopt the key on the card). */
+  onRestoreVault?: (serial: string) => void
 }
 
-export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCancel }) => {
+export const EnrollWizard: React.FC<EnrollWizardProps> = ({
+  mode,
+  onDone,
+  onCancel,
+  keyArt: KeyArt,
+  hideIntroTitle = false,
+  onBackChange,
+  cardGate,
+  onRestoreVault
+}) => {
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
   // Every public record collected in this wizard belongs to the wallet/chain
   // scope that opened it. Holding one token for the whole lifetime prevents a
   // late enrollment result from being persisted after logout or a network
@@ -320,6 +397,11 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   /** The separate consent that unknown key may be destroyed. */
   const [resetUnknownAck, setResetUnknownAck] = useState(false)
   const [resetting, setResetting] = useState(false)
+  /** The chain check for the card on the reset page or the slot-occupied page. null while it runs. */
+  const [cardCheck, setCardCheck] = useState<VaultCardFunds | null>(null)
+  const [checkRound, setCheckRound] = useState(0)
+  /** "Any funds in a vault that uses this key are lost for good if you reset it." */
+  const [lossAck, setLossAck] = useState(false)
   /** A write (finalizeEnrollment / addVaultKey) is in flight. */
   const [busy, setBusy] = useState(false)
   const [stepError, setStepError] = useState<string | null>(null)
@@ -328,8 +410,9 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   const tapInFlight = useRef(false)
   /** One leave-confirm at a time. */
   const leaving = useRef(false)
-  /** The PIN field, focused on a delay below instead of via `autoFocus`. */
+  /** The PIN fields, each focused on a delay below instead of via `autoFocus`. */
   const pinInputRef = useRef<TextInput>(null)
+  const confirmInputRef = useRef<TextInput>(null)
 
   /** Stored keys that count toward the ordinal and the 5-key cap: all of them
    * when adding to a vault, none while enrolling one (Finish overwrites). */
@@ -349,6 +432,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
    * cannot go stale — see KeyStepError.)
    */
   const clearResetConsent = () => {
+    setLossAck(false)
     setResetAck(false)
     setResetUnknownSlot(false)
     setResetUnknownAck(false)
@@ -365,6 +449,39 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     setFresh(null)
     clearResetConsent()
   }
+
+  // ── the chain check before a reset or a replace (audit: reset-new-phone) ─────────────────────────────────
+  // A card that already opens a vault must not be wiped on this phone's say-so: this phone may know nothing
+  // of it. The check runs when the reset page or the slot-occupied page shows. Plain path: a complete scan
+  // found nothing. Otherwise the person restores the vault, or affirms that earlier funds are lost for good.
+  const gateSerial =
+    sub === 'reset' || (sub === 'error' && keyError?.code === 'slot-occupied') ? keyError?.resetSerial : undefined
+  useEffect(() => {
+    setCardCheck(null)
+    // a new check starts: the sentence ticked for an earlier result is not carried over to this one
+    setLossAck(false)
+    if (!gateSerial) return
+    let live = true
+    const unknown = (reason: string): VaultCardFunds => ({ kind: 'unknown', serial: gateSerial, reason, problems: 0 })
+    if (!cardGate) {
+      setCardCheck(unknown('no-check'))
+      return
+    }
+    cardGate.check(gateSerial).then(
+      result => live && setCardCheck(result),
+      () => live && setCardCheck(unknown('check-failed'))
+    )
+    return () => {
+      live = false
+    }
+  }, [gateSerial, cardGate, checkRound])
+  /** What resetPivApplication takes, or null while the card may not be reset or replaced. */
+  const gateArgs: { fundsClearance: VaultResetClearance } | { acknowledgeFundsLoss: true } | null = cardGate
+    ? cardGate.args(cardCheck, lossAck)
+    : cardCheck && lossAck
+      ? { acknowledgeFundsLoss: true }
+      : null
+  const bsvAmount = (sats: number) => `${Number((sats / 100_000_000).toFixed(8))} BSV`
 
   // ── saving a finished key ───────────────────────────────────────────
   /**
@@ -522,20 +639,53 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     }
   }, [step, busy, unsaved, onCancel, onDone])
 
+  /**
+   * Back, on the page showing now: one page back inside a key where there is
+   * one, the leave-confirm everywhere else. The pages the keyboard covers have
+   * no Back button of their own, so this is the only step-back there is —
+   * which is also why it is the same function the hardware button gets.
+   */
+  const back = useCallback(() => {
+    if (step === 'key' && sub === 'confirm') return setSub('pin')
+    if (step === 'key' && sub === 'puk') return setSub('confirm')
+    void leave()
+  }, [step, sub, leave])
+
+  /**
+   * The host is handed one function, once, which asks for the current one when
+   * it is pressed.
+   *
+   * A fresh closure on every page would re-render any host that keeps it in
+   * state, and a host whose `onDone`/`onCancel` is an inline arrow — both of
+   * ours — re-renders this, which rebuilds the closure, which hands over
+   * again: a loop React only stops by throwing "Maximum update depth
+   * exceeded". The indirection makes the handover happen once, at mount.
+   */
+  const backNow = useRef(back)
+  useEffect(() => {
+    backNow.current = back
+  }, [back])
+  const handOverBack = useCallback(() => backNow.current(), [])
+  useEffect(() => {
+    onBackChange?.(handOverBack)
+  }, [onBackChange, handOverBack])
+
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      void leave()
+      back()
       return true
     })
     return () => subscription.remove()
-  }, [leave])
+  }, [back])
 
   // Focus the PIN field on a delay rather than via `autoFocus`, which grabs
   // focus before this step's mount/layout settles and drops the first
   // keystroke (see the matching fix + comment in VaultCeremonySheet).
   useEffect(() => {
-    if (step !== 'key' || sub !== 'pin') return
-    const timer = setTimeout(() => pinInputRef.current?.focus(), 150)
+    if (step !== 'key') return
+    const field = sub === 'pin' ? pinInputRef : sub === 'confirm' ? confirmInputRef : null
+    if (!field) return
+    const timer = setTimeout(() => field.current?.focus(), 150)
     return () => clearTimeout(timer)
   }, [step, sub])
 
@@ -582,6 +732,19 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   const runTap = useCallback(
     async (replaceOccupiedVaultSlot = false) => {
       if (tapInFlight.current || !pivAck) return
+      // replacing the Vault slot destroys the key in it: the same chain check as a reset
+      if (replaceOccupiedVaultSlot && gateArgs === null) return
+      // the toolbox checks the clearance for a replace too, but only after the card is presented: the ten minutes are
+      // kept here so an older 'clear' is checked again before the slot is opened
+      if (
+        replaceOccupiedVaultSlot &&
+        gateArgs &&
+        'fundsClearance' in gateArgs &&
+        Date.now() - gateArgs.fundsClearance.issuedAt > VAULT_RESET_CLEARANCE_MS
+      ) {
+        setCheckRound(round => round + 1)
+        return
+      }
       tapInFlight.current = true
       setSub('tap')
       setPhase(null)
@@ -615,7 +778,9 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           // withKeySession → driver.start). Omitting it would fall back to the
           // native default wording.
           nfcMessage: t('vault_nfc_enroll_message'),
-          replaceOccupiedVaultSlot
+          replaceOccupiedVaultSlot,
+          // Replace destroys the key in the slot: the toolbox wants the same gate as a reset
+          ...(replaceOccupiedVaultSlot && gateArgs ? gateArgs : {})
         })
         haptics.success()
         await saveKey(record)
@@ -656,6 +821,19 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         // recovery-code one, so Continue can simply be pressed again.
         if (err?.code === 'user-cancelled') {
           setSub('puk')
+          return
+        }
+        if (replaceOccupiedVaultSlot && err?.code === 'chain-check-required') {
+          // the toolbox refused the replace before it changed the card (the clearance ran out, or another key was
+          // tapped): nothing was erased. Back to the Replace page, with a new chain check for the card that was tapped.
+          setKeyError({
+            code: 'slot-occupied',
+            copy: vaultErrorCopy('slot-occupied'),
+            mustUseDifferent: false,
+            resetSerial: duplicateSerial(err) ?? gateSerial
+          })
+          setCheckRound(round => round + 1)
+          setSub('error')
           return
         }
         // Every partial personalization result is represented by a durable
@@ -722,7 +900,21 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         tapInFlight.current = false
       }
     },
-    [k, metaKeys, pending, newPin, newPuk, onCancel, pivAck, saveKey, scopeToken, reloadDraftLists, requireAuthority]
+    [
+      k,
+      metaKeys,
+      pending,
+      newPin,
+      newPuk,
+      onCancel,
+      pivAck,
+      saveKey,
+      scopeToken,
+      reloadDraftLists,
+      requireAuthority,
+      gateArgs,
+      gateSerial
+    ]
   )
 
   /** Resume only the non-mutating possession challenge for a protected draft.
@@ -853,6 +1045,9 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     const resetSerial = keyError?.resetSerial
     if (!resetSerial || !resetAck || resetting || tapInFlight.current) return
     if (resetUnknownSlot && !resetUnknownAck) return
+    // the chain check (or the person's affirmation) decides what the reset may pass; nothing yet means no reset
+    const gate = gateArgs
+    if (!gate) return
     setResetting(true)
     // A card session is open: hardware back is swallowed until its outcome
     // lands, the same invariant the enrollment tap holds — more so here,
@@ -892,6 +1087,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         refuseSerials: [...acrossChains, ...metaKeys.map(r => r.serial), ...pending.map(r => r.serial)],
         acknowledgeDestroysAllCredentials: true,
         ...(resetUnknownAck ? { acknowledgeUnrecognizedVaultKey: true as const } : {}),
+        ...gate,
         scopeToken,
         nfcMessage: t('vault_nfc_enroll_message')
       })
@@ -927,6 +1123,10 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         setResetUnknownSlot(true)
         setStepError(t('vault_reset_nothing_erased'))
         return
+      }
+      if (err?.code === 'chain-check-required') {
+        // the clearance ran out, or was never given: nothing was erased, so check the chain again
+        setCheckRound(round => round + 1)
       }
       setStepError(
         err?.code === 'key-already-enrolled'
@@ -972,8 +1172,58 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     scopeToken,
     onCancel,
     runTap,
-    reloadDraftLists
+    reloadDraftLists,
+    gateArgs
   ])
+
+  /** Under the reset page and the slot-occupied page: what the chain check found, and what the person may do. */
+  const cardGateBlock = (
+    <>
+      {cardCheck === null && (
+        <BalancedText style={[styles.p, { color: colors.textSecondary }]}>{t('vault_card_checking')}</BalancedText>
+      )}
+      {cardCheck?.kind === 'funds' && (
+        <>
+          <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_card_funds_title')}</Text>
+          <BalancedText style={[styles.p, { color: colors.textSecondary }]}>
+            {t('vault_card_funds_body', { count: cardCheck.deposits, amount: bsvAmount(cardCheck.satoshis) })}
+          </BalancedText>
+          {onRestoreVault && (
+            <ActionButton label={t('vault_card_restore')} onPress={() => onRestoreVault(cardCheck.serial)} />
+          )}
+        </>
+      )}
+      {cardCheck?.kind === 'unknown' && (
+        <>
+          <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_card_unknown_title')}</Text>
+          <BalancedText style={[styles.p, { color: colors.textSecondary }]}>{t('vault_card_unknown_body')}</BalancedText>
+          {cardGate && (
+            <ActionButton
+              label={t('vault_card_retry')}
+              variant="outline"
+              onPress={() => setCheckRound(round => round + 1)}
+            />
+          )}
+        </>
+      )}
+      {cardCheck && cardCheck.kind !== 'clear' && (
+        <PressableScale
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: lossAck }}
+          haptic="tap"
+          onPress={() => setLossAck(value => !value)}
+          style={[styles.ackRow, { borderColor: lossAck ? colors.error : colors.separator }]}
+        >
+          {lossAck ? (
+            <SquareCheckBig size={20} color={colors.error} />
+          ) : (
+            <Square size={20} color={colors.textTertiary} />
+          )}
+          <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_card_loss_ack')}</Text>
+        </PressableScale>
+      )}
+    </>
+  )
 
   const leaveLink = (
     <PressableScale onPress={() => void leave()} style={styles.secondary}>
@@ -991,11 +1241,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       onPress={() => setPivAck(value => !value)}
       style={[styles.ackRow, { borderColor: pivAck ? colors.accent : colors.separator }]}
     >
-      <Ionicons
-        name={pivAck ? 'checkbox' : 'square-outline'}
-        size={24}
-        color={pivAck ? colors.accent : colors.textTertiary}
-      />
+      {pivAck ? <SquareCheckBig size={20} color={colors.accent} /> : <Square size={20} color={colors.textTertiary} />}
       <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_intro_piv_ack')}</Text>
     </PressableScale>
   )
@@ -1004,12 +1250,12 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   if (step === 'intro') {
     return (
       <ScrollView contentContainerStyle={styles.body}>
-        <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_intro_title')}</Text>
-        <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_intro_what')}</Text>
+        {!hideIntroTitle && <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_intro_title')}</Text>}
+        <BalancedText style={[styles.p, { color: colors.textSecondary }]}>{t('vault_intro_what')}</BalancedText>
         <View style={[styles.bullets, { borderColor: colors.separator }]}>
-          <Bullet icon="key-outline" text={t('vault_intro_two_keys')} />
-          <Bullet icon="location-outline" text={t('vault_intro_apart')} />
-          <Bullet icon="cloud-upload-outline" text={t('vault_intro_backup')} />
+          <Bullet icon={KeyRound} text={t('vault_intro_two_keys')} />
+          <Bullet icon={MapPin} text={t('vault_intro_apart')} />
+          <Bullet icon={CloudUpload} text={t('vault_intro_backup')} />
         </View>
         <PressableScale
           accessibilityRole="checkbox"
@@ -1018,11 +1264,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           onPress={() => setAck(a => !a)}
           style={[styles.ackRow, { borderColor: ack ? colors.accent : colors.separator }]}
         >
-          <Ionicons
-            name={ack ? 'checkbox' : 'square-outline'}
-            size={24}
-            color={ack ? colors.accent : colors.textTertiary}
-          />
+          {ack ? <SquareCheckBig size={20} color={colors.accent} /> : <Square size={20} color={colors.textTertiary} />}
           <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_intro_ack')}</Text>
         </PressableScale>
         {pivAcknowledgement}
@@ -1031,7 +1273,9 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             before the card is touched — so this banner cannot claim the key is
             non-factory. It also names no key, because none is in hand here. */}
         {blockedDrafts.length > 0 && (
-          <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_enrollment_state_uncertain')}</Text>
+          <BalancedText style={[styles.warn, { color: colors.warning }]}>
+            {t('vault_enrollment_state_uncertain')}
+          </BalancedText>
         )}
         <ActionButton label={t('vault_intro_begin')} enabled={ack && pivAck} busy={busy} onPress={() => void begin()} />
         <PressableScale onPress={onCancel} style={styles.secondary}>
@@ -1045,32 +1289,19 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   if (step === 'key') {
     if (sub === 'pin') {
       const advance = () => {
-        if (!pivAck || busy) return
-        if (!pinChosen) {
-          // Never leave this silent: Continue is live so that pressing it is
-          // what produces the message, and a cleared error would read as the
-          // button simply not working.
-          setPinError(newPin === DEFAULT_PIV_PIN ? t('vault_pin_not_default') : t('vault_pin_choose_sub'))
-          return
-        }
-        if (confirmPin !== newPin) {
-          setPinError(t('vault_pin_mismatch'))
-          return
-        }
+        if (!pivAck || busy || !pinChosen) return
         setPinError(null)
-        // Generated once per visit to the PUK page, so going back and forward
-        // does not silently hand the user a different code to write down. The
-        // one exception is a PIN that now equals the code: the service refuses
-        // that pair (validatePukChange) before the session opens, and the error
-        // page offers only a Retry that would fail identically forever.
-        if (!newPuk || newPuk === newPin) setNewPuk(generateRecoveryCode(newPin))
-        setSub('puk')
+        setSub('confirm')
       }
+      // The one refusal a disabled Continue cannot account for by itself: six
+      // well-formed digits, refused anyway. Said while it is typed, because
+      // there is no longer a press for it to be said on.
+      const problem = pinError ?? (newPin === DEFAULT_PIV_PIN ? t('vault_pin_not_default') : null)
       return (
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+        <KeyboardPage>
           <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_key_step_title', { k })}</Text>
           <StepProgress sub={sub} />
-          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_key_step_replace')}</Text>
+          <BalancedText style={[styles.p, { color: colors.textSecondary }]}>{t('vault_key_step_replace')}</BalancedText>
           {mode === 'add-key' && pivAcknowledgement}
 
           <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_pin_choose_title')}</Text>
@@ -1083,6 +1314,9 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             onChangeText={text => {
               setPinError(null)
               setNewPin(text)
+              // The confirmation is only ever a copy of this; a kept one would
+              // make an edited PIN look confirmed on the next page.
+              setConfirmPin('')
             }}
             placeholder="••••••"
             placeholderTextColor={colors.textTertiary}
@@ -1092,25 +1326,8 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             secureTextEntry
             maxLength={PIN_MAX}
           />
-
-          <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_pin_confirm_label')}</Text>
-          <TextInput
-            accessibilityLabel={t('vault_pin_confirm_label')}
-            style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
-            value={confirmPin}
-            onChangeText={text => {
-              setPinError(null)
-              setConfirmPin(text)
-            }}
-            placeholder="••••••"
-            placeholderTextColor={colors.textTertiary}
-            keyboardType="number-pad"
-            secureTextEntry
-            maxLength={PIN_MAX}
-          />
-
-          {pinError && <Text style={[styles.err, { color: colors.error }]}>{pinError}</Text>}
-          {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+          {problem && <BalancedText style={[styles.err, { color: colors.error }]}>{problem}</BalancedText>}
+          {stepError && <BalancedText style={[styles.err, { color: colors.error }]}>{stepError}</BalancedText>}
           {/* This page says "Choose a PIN", but resuming sends what is typed
               here to a card that already carries the PIN an earlier run set.
               A fresh choice is a guess, and three guesses lock a card holding
@@ -1119,18 +1336,11 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           {recoverableDrafts.length > 0 && (
             <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_enrollment_resume_pin_hint')}</Text>
           )}
-          {recoverableDrafts.map(entry => (
-            <ActionButton
-              key={entry.record.serial}
-              label={`${t('vault_enrollment_resume')} · …${entry.record.serial.slice(-4)}`}
-              variant="outline"
-              enabled={pivAck && pinOk && !busy}
-              onPress={() => void resumeDraft(entry)}
-            />
-          ))}
           {/* Same hedge as the intro banner, and for the same reason. */}
           {blockedDrafts.length > 0 && (
-            <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_enrollment_state_uncertain')}</Text>
+            <BalancedText style={[styles.warn, { color: colors.warning }]}>
+              {t('vault_enrollment_state_uncertain')}
+            </BalancedText>
           )}
           {/* TEMP DIAG (remove before commit): a quarantine is cleared only by a
               successful in-app pivReset, so a card reset with `ykman piv reset`
@@ -1157,17 +1367,67 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
               }}
             />
           )}
-          {/* NFC only: a brand-new YubiKey ships in restricted NFC mode (Yubico's
-              anti-scan-in-transit policy) and stays that way until it is plugged
-              into USB-C for a few seconds — a one-time, per-key step done outside
-              this app. Shown on every key here since we cannot tell a fresh card
-              from a already-activated one before the tap. */}
-          {Platform.OS === 'ios' && (
-            <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_nfc_activation_hint')}</Text>
-          )}
-          <ActionButton label={t('vault_continue')} enabled={pivAck && !busy} onPress={advance} />
+          <ActionButton label={t('vault_continue')} enabled={pivAck && pinChosen && !busy} onPress={advance} />
           {leaveLink}
-        </ScrollView>
+        </KeyboardPage>
+      )
+    }
+
+    if (sub === 'confirm') {
+      const advance = () => {
+        if (!pivAck || busy || !pinOk) return
+        setPinError(null)
+        // Generated once per visit to the PUK page, so going back and forward
+        // does not silently hand the user a different code to write down. The
+        // one exception is a PIN that now equals the code: the service refuses
+        // that pair (validatePukChange) before the session opens, and the error
+        // page offers only a Retry that would fail identically forever.
+        if (!newPuk || newPuk === newPin) setNewPuk(generateRecoveryCode(newPin))
+        setSub('puk')
+      }
+      // Typed far enough to be a whole PIN and still a different one. The
+      // button is dead until these agree, so the page says why rather than
+      // letting that read as a button that does nothing.
+      const problem =
+        pinError ?? (confirmPin.length >= newPin.length && confirmPin !== newPin ? t('vault_pin_mismatch') : null)
+      return (
+        <KeyboardPage>
+          <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_key_step_title', { k })}</Text>
+          <StepProgress sub={sub} />
+          <Text style={[styles.label, { color: colors.textPrimary }]}>{t('vault_pin_confirm_label')}</Text>
+          <TextInput
+            ref={confirmInputRef}
+            accessibilityLabel={t('vault_pin_confirm_label')}
+            style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
+            value={confirmPin}
+            onChangeText={text => {
+              setPinError(null)
+              setConfirmPin(text)
+            }}
+            placeholder="••••••"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType="number-pad"
+            secureTextEntry
+            maxLength={PIN_MAX}
+          />
+          {problem && <BalancedText style={[styles.err, { color: colors.error }]}>{problem}</BalancedText>}
+          {stepError && <BalancedText style={[styles.err, { color: colors.error }]}>{stepError}</BalancedText>}
+          {/* The hint about which PIN a resume wants is on the page that asks
+              for it; the buttons are here because a resume spends that PIN on
+              a card that locks after three wrong tries, and only a PIN typed
+              twice the same is known to be the one meant. */}
+          {recoverableDrafts.map(entry => (
+            <ActionButton
+              key={entry.record.serial}
+              label={`${t('vault_enrollment_resume')} · …${entry.record.serial.slice(-4)}`}
+              variant="outline"
+              enabled={pivAck && pinOk && !busy}
+              onPress={() => void resumeDraft(entry)}
+            />
+          ))}
+          <ActionButton label={t('vault_continue')} enabled={pivAck && pinOk && !busy} onPress={advance} />
+          {leaveLink}
+        </KeyboardPage>
       )
     }
 
@@ -1195,7 +1455,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           >
             {newPuk}
           </Text>
-          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_puk_body')}</Text>
+          <BalancedText style={[styles.p, { color: colors.textSecondary }]}>{t('vault_puk_body')}</BalancedText>
           <PressableScale
             accessibilityRole="checkbox"
             accessibilityState={{ checked: pukAck }}
@@ -1203,16 +1463,25 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             onPress={() => setPukAck(value => !value)}
             style={[styles.ackRow, { borderColor: pukAck ? colors.accent : colors.separator }]}
           >
-            <Ionicons
-              name={pukAck ? 'checkbox' : 'square-outline'}
-              size={24}
-              color={pukAck ? colors.accent : colors.textTertiary}
-            />
+            {pukAck ? (
+              <SquareCheckBig size={20} color={colors.accent} />
+            ) : (
+              <Square size={20} color={colors.textTertiary} />
+            )}
             <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_puk_ack')}</Text>
           </PressableScale>
-          {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+          {stepError && <BalancedText style={[styles.err, { color: colors.error }]}>{stepError}</BalancedText>}
+          {/* NFC only: a brand-new YubiKey ships in restricted NFC mode (Yubico's
+              anti-scan-in-transit policy) and stays that way until it is plugged
+              into USB-C for a few seconds — a one-time, per-key step done outside
+              this app. Shown on every key here since we cannot tell a fresh card
+              from a already-activated one before the tap. This is the last page
+              before it, and the only one of the three the keyboard leaves room
+              on. */}
+          {Platform.OS === 'ios' && (
+            <Text style={[styles.hint, { color: colors.textSecondary }]}>{t('vault_nfc_activation_hint')}</Text>
+          )}
           <ActionButton label={t('vault_continue')} enabled={pukAck && pinOk && !busy} onPress={() => void runTap()} />
-          <ActionButton label={t('vault_back')} variant="outline" onPress={() => setSub('pin')} />
           {leaveLink}
         </ScrollView>
       )
@@ -1221,12 +1490,20 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     if (sub === 'tap') {
       return (
         <View style={styles.body}>
-          <ActivityIndicator color={colors.textPrimary} size="large" style={styles.hero} />
+          {KeyArt ? (
+            <View style={styles.keyArt}>
+              <KeyArt waiting size={176} />
+            </View>
+          ) : (
+            <ActivityIndicator color={colors.textPrimary} size="large" style={styles.hero} />
+          )}
           <StepProgress sub={sub} />
           <Text style={[styles.h1, { color: colors.textPrimary }]}>
             {phase ? t(`vault_enroll_phase_${phase.replace(/-/g, '_')}`) : t('vault_reading_key')}
           </Text>
-          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_touch_when_blinks')}</Text>
+          <BalancedText style={[styles.p, { color: colors.textSecondary }]}>
+            {t('vault_touch_when_blinks')}
+          </BalancedText>
         </View>
       )
     }
@@ -1240,7 +1517,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         <View style={styles.body}>
           {stepError ? (
             <>
-              <Ionicons name="alert-circle-outline" size={48} color={colors.error} style={styles.hero} />
+              <CircleAlert size={48} color={colors.error} style={styles.hero} />
               <Text style={[styles.h1, { color: colors.textPrimary }]}>{stepError}</Text>
               <ActionButton
                 label={t('vault_retry')}
@@ -1276,12 +1553,12 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
       const resumableDraft = recoverableDrafts.find(entry => entry.record.serial === resetSerial)
       return (
         <ScrollView contentContainerStyle={styles.body}>
-          <Ionicons name="warning-outline" size={48} color={colors.warning} style={styles.hero} />
+          <TriangleAlert size={48} color={colors.warning} style={styles.hero} />
           <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_reset_title')}</Text>
-          <Text style={[styles.p, { color: colors.textSecondary }]}>
+          <BalancedText style={[styles.p, { color: colors.textSecondary }]}>
             {resetSerial ? `…${resetSerial.slice(-4)}` : ''}
-          </Text>
-          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_reset_body')}</Text>
+          </BalancedText>
+          <BalancedText style={[styles.p, { color: colors.textSecondary }]}>{t('vault_reset_body')}</BalancedText>
           <PressableScale
             accessibilityRole="checkbox"
             accessibilityState={{ checked: resetAck }}
@@ -1289,18 +1566,19 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
             onPress={() => setResetAck(value => !value)}
             style={[styles.ackRow, { borderColor: resetAck ? colors.error : colors.separator }]}
           >
-            <Ionicons
-              name={resetAck ? 'checkbox' : 'square-outline'}
-              size={24}
-              color={resetAck ? colors.error : colors.textTertiary}
-            />
+            {resetAck ? (
+              <SquareCheckBig size={20} color={colors.error} />
+            ) : (
+              <Square size={20} color={colors.textTertiary} />
+            )}
             <Text style={[styles.ackText, { color: colors.textPrimary }]}>{t('vault_reset_ack')}</Text>
           </PressableScale>
+          {cardGateBlock}
           {/* Directly above the question it explains. On `slot-occupied` this
               is the pre-erase line: the user pressed a destructive button and
               watched a card session open and close, and needs to be told the
               erase did not happen before being asked anything else. */}
-          {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+          {stepError && <BalancedText style={[styles.err, { color: colors.error }]}>{stepError}</BalancedText>}
           {/* Shown only once the card itself has reported an occupied Vault
               slot. A separate question, because it is a separate loss — and
               which loss it is depends on whether this device knows the key in
@@ -1313,11 +1591,11 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
               onPress={() => setResetUnknownAck(value => !value)}
               style={[styles.ackRow, { borderColor: resetUnknownAck ? colors.error : colors.separator }]}
             >
-              <Ionicons
-                name={resetUnknownAck ? 'checkbox' : 'square-outline'}
-                size={24}
-                color={resetUnknownAck ? colors.error : colors.textTertiary}
-              />
+              {resetUnknownAck ? (
+                <SquareCheckBig size={20} color={colors.error} />
+              ) : (
+                <Square size={20} color={colors.textTertiary} />
+              )}
               <Text style={[styles.ackText, { color: colors.textPrimary }]}>
                 {knownDraft ? t('vault_reset_own_draft_ack') : t('vault_reset_unknown_ack')}
               </Text>
@@ -1342,7 +1620,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
           )}
           <ActionButton
             label={resetting ? t('vault_resetting') : t('vault_reset_confirm')}
-            enabled={resetAck && (!resetUnknownSlot || resetUnknownAck) && !resetting}
+            enabled={resetAck && (!resetUnknownSlot || resetUnknownAck) && !resetting && gateArgs !== null}
             onPress={() => void runReset()}
           />
           <ActionButton
@@ -1362,7 +1640,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     const code = keyError?.code
     return (
       <View style={styles.body}>
-        <Ionicons name="alert-circle-outline" size={48} color={colors.error} style={styles.hero} />
+        <CircleAlert size={48} color={colors.error} style={styles.hero} />
         <Text style={[styles.h1, { color: colors.textPrimary }]}>{keyError?.copy ?? t('vault_err_generic')}</Text>
         {/* Set only for a card whose failure a factory reset can actually fix
             (RESETTABLE minus NEVER_RESETTABLE), and only when the failure named
@@ -1380,8 +1658,15 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
         ) : null}
         {code === 'slot-occupied' ? (
           <>
-            <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_replace_key_warning')}</Text>
-            <ActionButton label={t('vault_replace_key_confirm')} onPress={() => void runTap(true)} />
+            <BalancedText style={[styles.p, { color: colors.textSecondary }]}>
+              {t('vault_replace_key_warning')}
+            </BalancedText>
+            {cardGateBlock}
+            <ActionButton
+              label={t('vault_replace_key_confirm')}
+              enabled={gateArgs !== null}
+              onPress={() => void runTap(true)}
+            />
             <ActionButton label={t('vault_key_use_different')} variant="outline" onPress={chooseDifferentKey} />
           </>
         ) : code === 'key-already-enrolled' || code === 'puk-locked' || keyError?.mustUseDifferent ? (
@@ -1413,7 +1698,7 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
     return (
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_more_title')}</Text>
-        <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_more_body')}</Text>
+        <BalancedText style={[styles.p, { color: colors.textSecondary }]}>{t('vault_more_body')}</BalancedText>
         <View style={[styles.list, { backgroundColor: colors.backgroundElevated, borderColor: colors.separator }]}>
           {pending.map((p, i) => (
             <View
@@ -1426,15 +1711,17 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
                 }
               ]}
             >
-              <Ionicons name="key-outline" size={20} color={colors.success} />
+              <KeyRound size={16} color={colors.success} />
               <Text style={[styles.listLabel, { color: colors.textPrimary }]} numberOfLines={1}>
                 {vaultKeyLabel(p)}
               </Text>
             </View>
           ))}
         </View>
-        {!canFinish && <Text style={[styles.warn, { color: colors.warning }]}>{t('vault_more_need_two')}</Text>}
-        {stepError && <Text style={[styles.err, { color: colors.error }]}>{stepError}</Text>}
+        {!canFinish && (
+          <BalancedText style={[styles.warn, { color: colors.warning }]}>{t('vault_more_need_two')}</BalancedText>
+        )}
+        {stepError && <BalancedText style={[styles.err, { color: colors.error }]}>{stepError}</BalancedText>}
         {/* The filled button is whichever moves the user forward: Add while a
             second key is still required, Finish once there are enough. */}
         {canAdd && (
@@ -1457,15 +1744,15 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
   const overLockLimit = mode === 'add-key' && enrolledCount + 1 > VAULT_MAX_KEYS
   return (
     <View style={[styles.body, styles.doneBody]}>
-      <Ionicons name="checkmark-circle" size={56} color={colors.success} style={styles.hero} />
+      <CircleCheck size={56} color={colors.success} style={styles.hero} />
       <Text style={[styles.h1, { color: colors.textPrimary }]}>
         {mode === 'enroll' ? t('vault_enrolled_toast') : t('vault_key_added_toast')}
       </Text>
-      <Text style={[styles.p, { color: colors.textSecondary }]}>
+      <BalancedText style={[styles.p, { color: colors.textSecondary }]}>
         {mode === 'enroll'
           ? t('vault_done_body', { count: pending.length })
           : t(overLockLimit ? 'vault_add_key_done_over_limit' : 'vault_add_key_done', { nickname: addedNickname })}
-      </Text>
+      </BalancedText>
       <ActionButton
         label={mode === 'enroll' || overLockLimit ? t('vault_done_cta') : t('vault_relock_now')}
         onPress={onDone}
@@ -1475,8 +1762,26 @@ export const EnrollWizard: React.FC<EnrollWizardProps> = ({ mode, onDone, onCanc
 }
 
 /**
- * Where this key's setup has got to. Per key, three steps: choose a PIN, note
- * the recovery code, tap.
+ * A page whose Continue sits under a field the keyboard covers.
+ *
+ * The number pad takes about two-fifths of the screen, so the PIN is asked for
+ * one field at a time and the scrolling area is lifted clear of the keyboard
+ * rather than left behind it: `padding` shrinks this view by the keyboard's
+ * height, which is what gives the page inside it a bottom the user can reach.
+ * Android resizes the window itself (adjustResize) and would otherwise be
+ * padded twice over.
+ */
+const KeyboardPage: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <ScrollView style={styles.flex} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      {children}
+    </ScrollView>
+  </KeyboardAvoidingView>
+)
+
+/**
+ * Where this key's setup has got to. Per key, four steps: choose a PIN,
+ * confirm it, note the recovery code, tap.
  */
 const StepProgress: React.FC<{ sub: KeySub }> = ({ sub }) => {
   const { colors } = useTheme()
@@ -1495,12 +1800,11 @@ const StepProgress: React.FC<{ sub: KeySub }> = ({ sub }) => {
 }
 
 /** One intro bullet: glyph + line. */
-const Bullet: React.FC<{ icon: React.ComponentProps<IoniconsComponent>['name']; text: string }> = ({ icon, text }) => {
+const Bullet: React.FC<{ icon: LucideIcon; text: string }> = ({ icon: Icon, text }) => {
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
   return (
     <View style={styles.bulletRow}>
-      <Ionicons name={icon} size={18} color={colors.info} />
+      <Icon size={16} color={colors.info} />
       <Text style={[styles.bulletText, { color: colors.textPrimary }]}>{text}</Text>
     </View>
   )
@@ -1554,9 +1858,11 @@ const ActionButton: React.FC<{
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   body: { padding: spacing.xl, gap: spacing.lg },
   doneBody: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
   hero: { marginTop: spacing.lg, alignSelf: 'center' },
+  keyArt: { alignSelf: 'center', marginTop: spacing.sm, marginBottom: spacing.sm },
   h1: { ...typography.title2, textAlign: 'center' },
   p: { ...typography.subhead, textAlign: 'center' },
   label: { ...typography.headline },

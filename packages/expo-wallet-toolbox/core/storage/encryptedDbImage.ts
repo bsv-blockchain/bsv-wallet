@@ -147,9 +147,18 @@ function nativeCrypto(): NativeCrypto {
   return backend
 }
 
-/** quick-crypto hands back ArrayBuffers and wants Buffers in; Node wants Buffers too. */
+/**
+ * quick-crypto hands back ArrayBuffers and wants Buffers in; Node wants Buffers too.
+ *
+ * The result is always a PLAIN Uint8Array. quick-crypto's getAuthTag (and all of
+ * Node's crypto) answers with a Buffer, which is a Uint8Array subclass. A sink
+ * such as expo-file-system's writeBytes finds the array kind from
+ * `constructor.name` and ends the app on a name it does not know ("Buffer").
+ * The view shares the same memory: nothing is copied.
+ */
 function toU8(x: ArrayBuffer | Uint8Array): Uint8Array {
-  return x instanceof Uint8Array ? x : new Uint8Array(x)
+  if (!(x instanceof Uint8Array)) return new Uint8Array(x)
+  return x.constructor === Uint8Array ? x : new Uint8Array(x.buffer, x.byteOffset, x.byteLength)
 }
 function toBuf(x: Uint8Array): Uint8Array {
   const B = (globalThis as { Buffer?: { from(b: ArrayBufferLike, o: number, l: number): Uint8Array } }).Buffer

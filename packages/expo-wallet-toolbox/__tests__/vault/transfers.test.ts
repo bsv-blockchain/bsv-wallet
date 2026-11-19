@@ -96,10 +96,22 @@ jest.mock('expo-secure-store', () => ({
 
 // The ceremony is a process singleton wired to the native driver; here it is a
 // jest.fn the withdraw suites arm with a software P-256 key (see armWith).
-jest.mock('../../core/services/vault/ceremonyHost', () => ({
-  requestVaultSigner: jest.fn(),
-  noteVaultProgress: jest.fn()
-}))
+jest.mock('../../core/services/vault/ceremonyHost', () => {
+  const requestVaultSigner = jest.fn()
+  // The real one-tap session over the mocked ceremony: the signer stays armed
+  // for the whole spend, as when no timeout or detach ends it.
+  const { openVaultSignerSession } = jest.requireActual('../../core/services/vault/ceremonyHost')
+  return {
+    requestVaultSigner,
+    noteVaultProgress: jest.fn(),
+    openVaultSignerSession: () =>
+      openVaultSignerSession({
+        request: (reason: string, serial: string) => requestVaultSigner(reason, serial),
+        holds: () => true,
+        cancelled: () => false
+      })
+  }
+})
 // The two default gates. transfers.ts reads them only when opts omit the
 // injected ones; both are asserted below, so they are mocked rather than left
 // to configureToolbox / AsyncStorage state.
@@ -2533,9 +2545,10 @@ describe('withdrawFromVault', () => {
     await expect(withdrawFromVault(wallet, ADMIN, 600_000, 'Withdraw', 'A-1')).rejects.toMatchObject({
       code: 'no-transaction'
     })
-    expect(
-      (requestVaultSigner as jest.Mock).mock.calls.filter(([reason]) => reason !== 'Verify vault key for new funds')
-    ).toHaveLength(0)
+    // The remainder's possession proof is the one signature: the proof and
+    // the inputs share one key session, so the reason no longer tells them
+    // apart. No input digest reached the key.
+    expect(signCalls).toHaveLength(1)
   }, 60_000)
 
   it('rejects a toolbox-injected funding input before the YubiKey signs', async () => {
@@ -2543,9 +2556,8 @@ describe('withdrawFromVault', () => {
     await seedVault(fx, [KEY_A, KEY_B], { fundingFirst: true })
     await expect(withdrawAll()).rejects.toMatchObject({ code: 'no-transaction' })
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
-    expect(
-      (requestVaultSigner as jest.Mock).mock.calls.filter(([reason]) => reason !== 'Verify vault key for new funds')
-    ).toHaveLength(0)
+    // No remainder, so no possession proof: the key signed nothing.
+    expect(signCalls).toHaveLength(0)
     expect(wallet.signAction).not.toHaveBeenCalled()
   }, 60_000)
 
@@ -2671,9 +2683,8 @@ describe('withdrawFromVault', () => {
     expect(err).toMatchObject({ code: 'template-invalid' })
     expect(err.message).toContain(liar.outpoint)
     expect(wallet.createAction).not.toHaveBeenCalled()
-    expect(
-      (requestVaultSigner as jest.Mock).mock.calls.filter(([reason]) => reason !== 'Verify vault key for new funds')
-    ).toHaveLength(0)
+    // No remainder, so no possession proof: the key signed nothing.
+    expect(signCalls).toHaveLength(0)
   })
 
   it('key-not-committed when no output is committed to the chosen key at all', async () => {
@@ -2953,9 +2964,10 @@ describe('withdrawFromVault', () => {
         code: 'no-transaction'
       })
       expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
-      expect(
-        (requestVaultSigner as jest.Mock).mock.calls.filter(([reason]) => reason !== 'Verify vault key for new funds')
-      ).toHaveLength(0)
+      // The remainder's possession proof is the one signature: the proof and
+      // the inputs share one key session, so the reason no longer tells them
+      // apart. No input digest reached the key.
+      expect(signCalls).toHaveLength(1)
       expect(wallet.signAction).not.toHaveBeenCalled()
     })
   })
@@ -3043,7 +3055,16 @@ describe('withdrawFromVault', () => {
       sign: async () => {
         throw new VaultError('user-cancelled')
       },
-      release: signerRelease
+      // Idempotent, as the real VaultSigner.release() is: the spend and the
+      // key session's close may both release it.
+      release: (() => {
+        let done = false
+        return () => {
+          if (done) return
+          done = true
+          signerRelease()
+        }
+      })()
     }))
     await expect(withdrawAll()).rejects.toMatchObject({ code: 'user-cancelled' })
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, ADMIN)
@@ -3072,7 +3093,16 @@ describe('withdrawFromVault', () => {
       serial: 'B-1',
       pubkey: PUB_B,
       sign,
-      release: signerRelease
+      // Idempotent, as the real VaultSigner.release() is: the spend and the
+      // key session's close may both release it.
+      release: (() => {
+        let done = false
+        return () => {
+          if (done) return
+          done = true
+          signerRelease()
+        }
+      })()
     }))
     const err = await withdrawAll().catch(e => e)
     expect(err).toMatchObject({ code: 'serial-mismatch' })

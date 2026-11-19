@@ -24,6 +24,7 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { ArrowLeft } from 'lucide-react-native'
 import { AmountInput, SEND_MAX_VALUE } from '../components/wallet/AmountInput'
 import PressableScale from '../components/ui/PressableScale'
 import AmountDisplay from '../components/wallet/AmountDisplay'
@@ -64,25 +65,17 @@ import {
   sounds,
   i18n
 } from '@bsv/expo-wallet-toolbox'
+import { BalancedText } from '../components/ui/BalancedText'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Ionicons is loaded lazily, only when actually rendering, same pattern as
- * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, the family this app draws every other glyph from (its settings rows,
+ * its headers, its sheets). Imported at module scope, unlike
+ * @expo/vector-icons: lucide-react-native ships a CJS entry for `require`, so
+ * it needs no transform and reaches no native module at import time, which is
+ * what this package's lazy icon loads exist to avoid.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -128,7 +121,6 @@ export function VaultTransferScreen() {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const { router, useLocalSearchParams } = loadExpoRouter()
-  const Ionicons = loadIonicons()
   const { direction } = useLocalSearchParams<{ direction?: string }>()
   const { managers, adminOriginator, selectedNetwork, storage, settings, activeProfile, profiles } = useWallet()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
@@ -484,7 +476,9 @@ export function VaultTransferScreen() {
       <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
         <View style={[styles.header, { borderBottomColor: colors.separator }]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
-            <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
+            <View style={[styles.headerBackWell, { backgroundColor: colors.surfaceSunken }]}>
+              <ArrowLeft size={16} color={colors.textPrimary} />
+            </View>
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>{t('vault_title')}</Text>
           <View style={styles.iconBtn} />
@@ -504,7 +498,9 @@ export function VaultTransferScreen() {
     <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
       <View style={[styles.header, { borderBottomColor: colors.separator }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
-          <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
+          <View style={[styles.headerBackWell, { backgroundColor: colors.surfaceSunken }]}>
+            <ArrowLeft size={16} color={colors.textPrimary} />
+          </View>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
           {isDeposit ? t('vault_deposit_title') : t('vault_withdraw_title')}
@@ -525,9 +521,9 @@ export function VaultTransferScreen() {
           )}
         </View>
 
-        <Text style={[styles.sub, { color: colors.textSecondary }]}>
+        <BalancedText style={[styles.sub, { color: colors.textSecondary }]}>
           {isDeposit ? t('vault_deposit_sub') : t('vault_withdraw_sub')}
-        </Text>
+        </BalancedText>
 
         {keys.length > 0 && (
           <View style={styles.chooser}>
@@ -547,38 +543,42 @@ export function VaultTransferScreen() {
         {isDeposit && <AvailableBalance />}
 
         {isDeposit && (
-          <Text style={[styles.floor, { color: colors.textSecondary }]}>
+          <BalancedText style={[styles.floor, { color: colors.textSecondary }]}>
             {t('vault_floor_line', {
               floorDisplay: fmt(VAULT_DEPOSIT_MIN),
               floorSats: VAULT_DEPOSIT_MIN.toLocaleString('en-US'),
               feeDisplay: fmt(depositFee)
             })}
-          </Text>
+          </BalancedText>
         )}
 
         {isDeposit && !released && (
-          <Text style={[styles.floor, { color: colors.textSecondary }]}>{t(unavailableCopy)}</Text>
+          <BalancedText style={[styles.floor, { color: colors.textSecondary }]}>{t(unavailableCopy)}</BalancedText>
         )}
 
         {transfersBlocked && (
-          <Text style={[styles.floor, { color: colors.warning }]}>
+          <BalancedText style={[styles.floor, { color: colors.warning }]}>
             {t(
               meta?.pendingRemoval?.state === 'broadcast'
                 ? 'vault_removal_awaiting_network'
                 : 'vault_err_relock_required'
             )}
-          </Text>
+          </BalancedText>
         )}
 
         {isDeposit && overLockLimit && !transfersBlocked && (
-          <Text style={[styles.floor, { color: colors.warning }]}>{t('vault_err_too_many_active_keys')}</Text>
+          <BalancedText style={[styles.floor, { color: colors.warning }]}>
+            {t('vault_err_too_many_active_keys')}
+          </BalancedText>
         )}
 
         {!isDeposit && meta?.recovery?.required && keys.length === 0 && (
-          <Text style={[styles.floor, { color: colors.warning }]}>{t('vault_err_key_not_adopted')}</Text>
+          <BalancedText style={[styles.floor, { color: colors.warning }]}>
+            {t('vault_err_key_not_adopted')}
+          </BalancedText>
         )}
 
-        {error && <Text style={[styles.err, { color: colors.error }]}>{error}</Text>}
+        {error && <BalancedText style={[styles.err, { color: colors.error }]}>{error}</BalancedText>}
 
         <PressableScale
           haptic="confirm"
@@ -603,6 +603,13 @@ export function VaultTransferScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerBackWell: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   container: { flex: 1 },
   header: {
     flexDirection: 'row',

@@ -52,10 +52,22 @@ jest.mock('expo-secure-store', () => ({
     }
   })()
 }))
-jest.mock('../../core/services/vault/ceremonyHost', () => ({
-  requestVaultSigner: jest.fn(),
-  noteVaultProgress: jest.fn()
-}))
+jest.mock('../../core/services/vault/ceremonyHost', () => {
+  const requestVaultSigner = jest.fn()
+  // The real one-tap session over the mocked ceremony: the signer stays armed
+  // for the whole spend, as when no timeout or detach ends it.
+  const { openVaultSignerSession } = jest.requireActual('../../core/services/vault/ceremonyHost')
+  return {
+    requestVaultSigner,
+    noteVaultProgress: jest.fn(),
+    openVaultSignerSession: () =>
+      openVaultSignerSession({
+        request: (reason: string, serial: string) => requestVaultSigner(reason, serial),
+        holds: () => true,
+        cancelled: () => false
+      })
+  }
+})
 jest.mock('../../core/toolboxConfig', () => ({
   getBackupUrl: jest.fn(() => 'https://backup.example'),
   isVaultEnabled: jest.fn(() => true),

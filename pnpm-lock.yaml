@@ -224,6 +224,9 @@ importers:
       idb:
         specifier: ^8.0.3
         version: 8.0.3
+      lucide-react-native:
+        specifier: 1.27.0
+        version: 1.27.0(react-native-svg@15.15.4(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
       mobx:
         specifier: ^6.13.7
         version: 6.15.0
@@ -368,7 +371,7 @@ importers:
     dependencies:
       '@bsv/expo-wallet-toolbox':
         specifier: ^0.23.0
-        version: link:../expo-wallet-toolbox
+        version: 0.23.0(e5adfa3ed2a8028416c0ae67df87c6bf)
       '@bsv/sdk':
         specifier: ^4.0.1
         version: 4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4)
@@ -399,7 +402,7 @@ importers:
         version: 5.0.0(expo@57.0.30)(typescript@6.0.3)
       '@bsv/expo-wallet-toolbox':
         specifier: ^0.23.0
-        version: link:../expo-wallet-toolbox
+        version: 0.23.0(e5adfa3ed2a8028416c0ae67df87c6bf)
       '@bsv/sdk':
         specifier: ^4.0.1
         version: 4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4)
@@ -526,6 +529,9 @@ importers:
       i18next:
         specifier: ^25.2.1
         version: 25.10.10(typescript@6.0.3)
+      lucide-react-native:
+        specifier: ^1.27.0
+        version: 1.27.0(react-native-svg@15.15.4(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
       mobx:
         specifier: ^6.13.7
         version: 6.15.0
@@ -1132,6 +1138,69 @@ packages:
     peerDependencies:
       '@bsv/sdk': ^4.0.1
       '@bsv/wallet-toolbox-client': ^2.15.0
+
+  '@bsv/expo-wallet-toolbox@0.23.0':
+    resolution: {integrity: sha512-kf63CNg1vGtIIodT0++FlVxSL5H1MWp9RYGp8rmZbUMNyPaU9LaXwnHdibgwxAk9XRggsLeq4ih6mWoYQD44Tg==}
+    peerDependencies:
+      '@bsv/air-gap': ^0.1.3
+      '@bsv/backup-cache-client': ^0.1.0
+      '@bsv/btms-permission-module': ^1.2.4
+      '@bsv/color-permission-module': ^0.2.0
+      '@bsv/mandala': ^0.5.0
+      '@bsv/message-box-client': ^2.7.0
+      '@bsv/react-native-localpay-transport': '*'
+      '@bsv/sdk': ^4.0.1
+      '@bsv/templates': ^2.2.0
+      '@bsv/wallet-toolbox-mobile': ^2.15.1
+      '@bsv/webrtpay': ^0.2.3
+      '@expo/vector-icons': ^15.0.3
+      '@noble/curves': ^2.3.0
+      '@react-native-async-storage/async-storage': ^2.2.0
+      '@react-native-clipboard/clipboard': ^1.16.2
+      '@react-native-community/netinfo': ^12.0.1
+      '@urbit/sigil-js': ^2.2.0
+      date-fns: ^4.1.0
+      expo-audio: ~57.0.5
+      expo-blur: ~57.0.3
+      expo-camera: ~57.0.5
+      expo-clipboard: ~57.0.2
+      expo-crypto: ~57.0.3
+      expo-device: ~57.0.2
+      expo-document-picker: ~57.0.2
+      expo-file-system: ~57.0.7
+      expo-haptics: ~57.0.3
+      expo-image: ~57.0.5
+      expo-local-authentication: ~57.0.3
+      expo-localization: ~57.0.2
+      expo-print: ~57.0.2
+      expo-router: ~57.0.21
+      expo-secure-store: ~57.0.4
+      expo-sharing: ~57.0.19
+      expo-sqlite: ~57.0.3
+      expo-status-bar: ~57.0.1
+      i18next: ^25.2.1
+      mobx: ^6.13.7
+      mobx-react-lite: ^4.1.0
+      qrcode: ^1.5.4
+      react: ^19.2.0
+      react-i18next: ^16.6.6
+      react-native: 0.86.3
+      react-native-engine-native: '*'
+      react-native-gesture-handler: ~2.32.0
+      react-native-localize: ^3.4.1
+      react-native-nitro-modules: ^0.35.2
+      react-native-qrcode-svg: ^6.3.15
+      react-native-reanimated: ^4.2.1
+      react-native-safe-area-context: ~5.7.0
+      react-native-secp-native: '*'
+      react-native-sse: ^1.2.1
+      react-native-svg: ^15.15.3
+      react-native-yubikey: '*'
+    peerDependenciesMeta:
+      '@bsv/webrtpay':
+        optional: true
+      react-native-yubikey:
+        optional: true
 
   '@bsv/mandala@0.5.0':
     resolution: {integrity: sha512-MBtqUY73TrEOnXNsG0Xc5+rAVkig15oBNH8sSJMpO1m4WMopsQBBGFb+l5KY66q71lJWNOAw8/AxFJO1rhArHQ==}
@@ -5028,6 +5097,13 @@ packages:
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
+  lucide-react-native@1.27.0:
+    resolution: {integrity: sha512-oM+KhoXYdHlpYCXvww4Qm8XiJBe3IihC9S9VhgpgXkEDLi3zgDEWpJtdmt3k+wRAJs82NW78c5ncoJYJvcIWrg==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-native: 0.86.3
+      react-native-svg: ^12.0.0 || ^13.0.0 || ^14.0.0 || ^15.0.0
+
   make-dir@4.0.0:
     resolution: {integrity: sha512-hXdUTZYIVOt1Ex//jAQi+wTZZpUpwBj/0QsOzqegb3rGMMeJiSEu5xLHnYfBrRV4RH2+OCSOO95Is/7x1WJ4bw==}
     engines: {node: '>=10'}
@@ -7415,6 +7491,64 @@ snapshots:
       '@bsv/sdk': 4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4)
       '@bsv/templates': 2.2.0(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))
       '@bsv/wallet-toolbox-client': '@bsv/wallet-toolbox-mobile@2.15.1(patch_hash=311a1be159a57ec780125f5a266eeaaadc9188cfbd53f01eab6ff79a01855e98)(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))'
+
+  '@bsv/expo-wallet-toolbox@0.23.0(e5adfa3ed2a8028416c0ae67df87c6bf)':
+    dependencies:
+      '@bsv/air-gap': 0.1.3
+      '@bsv/backup-cache-client': 0.1.0(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))
+      '@bsv/btms-permission-module': 1.2.4(@bsv/btms@1.2.6(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4)))(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))(@bsv/wallet-toolbox-mobile@2.15.1(patch_hash=311a1be159a57ec780125f5a266eeaaadc9188cfbd53f01eab6ff79a01855e98)(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4)))
+      '@bsv/color-permission-module': 0.2.0(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))(@bsv/wallet-toolbox-mobile@2.15.1(patch_hash=311a1be159a57ec780125f5a266eeaaadc9188cfbd53f01eab6ff79a01855e98)(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4)))
+      '@bsv/mandala': 0.5.0(@bsv/color-permission-module@0.2.0(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))(@bsv/wallet-toolbox-mobile@2.15.1(patch_hash=311a1be159a57ec780125f5a266eeaaadc9188cfbd53f01eab6ff79a01855e98)(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))))(@bsv/message-box-client@2.7.0(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4)))(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))(@bsv/templates@2.2.0(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4)))
+      '@bsv/message-box-client': 2.7.0(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))
+      '@bsv/react-native-localpay-transport': link:packages/react-native-localpay-transport
+      '@bsv/sdk': 4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4)
+      '@bsv/templates': 2.2.0(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))
+      '@bsv/wallet-toolbox-mobile': 2.15.1(patch_hash=311a1be159a57ec780125f5a266eeaaadc9188cfbd53f01eab6ff79a01855e98)(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))
+      '@expo/vector-icons': 15.0.3(expo-font@57.0.4)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      '@noble/curves': 2.4.0
+      '@react-native-async-storage/async-storage': 2.2.0(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))
+      '@react-native-clipboard/clipboard': 1.16.3(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      '@react-native-community/netinfo': 12.0.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      '@urbit/sigil-js': 2.2.0
+      date-fns: 4.1.0
+      expo-audio: 57.0.5(expo-asset@57.0.20(expo@57.0.30)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)(typescript@6.0.3))(expo@57.0.30)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      expo-blur: 57.0.3(expo@57.0.30)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      expo-camera: 57.0.5(@types/emscripten@1.41.5)(expo@57.0.30)(react-native-web@0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      expo-clipboard: 57.0.2(expo@57.0.30)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      expo-crypto: 57.0.3(expo@57.0.30)
+      expo-device: 57.0.2(expo@57.0.30)
+      expo-document-picker: 57.0.2(expo@57.0.30)
+      expo-file-system: 57.0.7(expo@57.0.30)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))
+      expo-haptics: 57.0.3(expo@57.0.30)
+      expo-image: 57.0.5(expo@57.0.30)(react-native-web@0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      expo-local-authentication: 57.0.3(expo@57.0.30)
+      expo-localization: 57.0.2(expo@57.0.30)(react@19.2.3)
+      expo-print: 57.0.2(expo@57.0.30)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))
+      expo-router: 57.0.21(149a5b5c401dcf39d185d15ddc183e2a)
+      expo-secure-store: 57.0.4(expo@57.0.30)
+      expo-sharing: 57.0.19(expo@57.0.30)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
+      expo-sqlite: 57.0.3(expo@57.0.30)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      expo-status-bar: 57.0.1(expo@57.0.30)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      i18next: 25.10.10(typescript@6.0.3)
+      mobx: 6.15.0
+      mobx-react-lite: 4.1.1(mobx@6.15.0)(react-dom@19.2.3(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      qrcode: 1.5.4
+      react: 19.2.3
+      react-i18next: 16.6.6(i18next@25.10.10(typescript@6.0.3))(react-dom@19.2.3(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
+      react-native: 0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3)
+      react-native-engine-native: link:packages/react-native-engine-native
+      react-native-gesture-handler: 2.32.0(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      react-native-localize: 3.6.0(@expo/config-plugins@57.0.10(typescript@6.0.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      react-native-nitro-modules: 0.35.10(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      react-native-qrcode-svg: 6.3.20(react-native-svg@15.15.4(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      react-native-reanimated: 4.5.1(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      react-native-safe-area-context: 5.7.0(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      react-native-secp-native: link:packages/react-native-secp-native
+      react-native-sse: 1.2.1
+      react-native-svg: 15.15.4(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+    optionalDependencies:
+      '@bsv/webrtpay': 0.2.3(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))
+      react-native-yubikey: link:packages/react-native-yubikey
 
   '@bsv/mandala@0.5.0(@bsv/color-permission-module@0.2.0(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))(@bsv/wallet-toolbox-mobile@2.15.1(patch_hash=311a1be159a57ec780125f5a266eeaaadc9188cfbd53f01eab6ff79a01855e98)(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))))(@bsv/message-box-client@2.7.0(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4)))(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4))(@bsv/templates@2.2.0(@bsv/sdk@4.0.1(patch_hash=6bfeec41799e24eb6a6ee19583c2468daf764a3a3ee09abc2d112127123c9eb4)))':
     dependencies:
@@ -12250,6 +12384,12 @@ snapshots:
   lru-cache@5.1.1:
     dependencies:
       yallist: 3.1.1
+
+  lucide-react-native@1.27.0(react-native-svg@15.15.4(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3):
+    dependencies:
+      react: 19.2.3
+      react-native: 0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3)
+      react-native-svg: 15.15.4(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
 
   make-dir@4.0.0:
     dependencies:

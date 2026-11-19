@@ -196,20 +196,49 @@ import type { AmountInputAsset } from '../wallet/AmountInput'
 import type { DismissTarget } from '../../dismissTarget'
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Ionicons is loaded lazily, only when actually rendering, same pattern as
- * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ * Every glyph this flow draws comes from lucide, as the rest of this app does
+ * (src/settings/Rows.tsx, the headers, the sheets). Two icon families in one
+ * flow is visible at a glance: Ionicons' filled-corner, closed shapes next to
+ * lucide's open 2px strokes read as two apps.
+ *
+ * Imported at module scope rather than behind a lazy loader. What had to be
+ * deferred is @expo/vector-icons' index barrel, which re-exports every icon
+ * set and so reaches expo-font -> expo-asset as untransformed ESM; nothing
+ * here pulls that barrel in any more. lucide publishes both module formats
+ * and Jest resolves the ESM one, so the app pins this name to lucide's CJS
+ * entry in jest.moduleNameMapper (package.json), as it already does for its
+ * other ESM-only dependencies. Only the glyph-name type below still refers to
+ * @expo/vector-icons, and a `typeof import(...)` type is erased at compile
+ * time.
+ *
+ * The button props stay Ionicons names, because that is what every call site
+ * in this file passes; this maps each one to its nearest lucide counterpart.
  */
+import {
+  ArrowUp,
+  CircleAlert,
+  CircleCheckBig,
+  Clock,
+  CloudOff,
+  Info,
+  QrCode,
+  RefreshCw,
+  ScanLine,
+  Settings,
+  Wallet,
+  Wrench,
+  type LucideIcon
+} from 'lucide-react-native'
+
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
+
+const LUCIDE: Record<string, LucideIcon> = {
+  'arrow-up': ArrowUp,
+  construct: Wrench,
+  'qr-code-outline': QrCode,
+  refresh: RefreshCw,
+  'scan-outline': ScanLine,
+  'settings-outline': Settings
 }
 
 /**
@@ -364,10 +393,10 @@ const FLOOR_KEYS: Record<Exclude<FloorReason, 'none'>, string> = {
   cross_os_no_ble: 'local_pay_floor_cross_os'
 }
 
-const NOTICE_ICONS: Record<NoticeTone, keyof IoniconsComponent['glyphMap']> = {
-  success: 'wallet',
-  info: 'time-outline',
-  warning: 'cloud-offline-outline'
+const NOTICE_ICONS: Record<NoticeTone, LucideIcon> = {
+  success: Wallet,
+  info: Clock,
+  warning: CloudOff
 }
 
 // ── Helpers ──
@@ -635,8 +664,13 @@ export interface NearbyFlowProps {
    * `onBusy` reports when a payment is in hand (the payer's-code scanner,
    * saving, the paid overlay, a failure): the host must not remount or
    * unmount the flow then — no new amount, no switching away.
+   *
+   * `renderQr` draws the pairing code in the host's own style (its card, a
+   * mark in the middle) in place of the built-in one. It is handed the code's
+   * text and must render it at `qrSize` with error correction that survives
+   * whatever it draws over it.
    */
-  embedded?: { qrSize?: number; onBusy?: (busy: boolean) => void }
+  embedded?: { qrSize?: number; onBusy?: (busy: boolean) => void; renderQr?: (value: string) => React.ReactNode }
   /**
    * Payer only: draw these steps yourself, in the host's own style. Each is
    * optional; a step without one shows the built-in screen. The logic stays
@@ -668,7 +702,6 @@ function NearbyFlow({
 }: NearbyFlowProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
   const QRCode = loadQRCode()
   const StatusBar = loadStatusBar()
   const { router, useFocusEffect, useNavigation } = loadExpoRouter()
@@ -2821,7 +2854,7 @@ function NearbyFlow({
         ]}
         accessibilityRole="text"
       >
-        <Ionicons name={NOTICE_ICONS[n.tone]} size={16} color={tint} />
+        {React.createElement(NOTICE_ICONS[n.tone], { size: 16, color: tint })}
         <Text style={[styles.noticeText, { color: n.tone === 'info' ? colors.textSecondary : tint }]}>{n.text}</Text>
       </Animated.View>
     )
@@ -2842,7 +2875,7 @@ function NearbyFlow({
       {phase === 'entry' && initialRole === 'payer' && (
         <Animated.View entering={settleIn} style={styles.stage}>
           <View style={[styles.heroCircle, { backgroundColor: colors.fillTertiary }]}>
-            <Ionicons name="qr-code-outline" size={44} color={colors.textSecondary} />
+            <QrCode size={44} color={colors.textSecondary} />
           </View>
           <View style={styles.gapLg} />
           {phaseTitle(t('local_pay_scan_qr'))}
@@ -2973,7 +3006,7 @@ function NearbyFlow({
               style={[styles.qrError, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
               accessibilityRole="alert"
             >
-              <Ionicons name="alert-circle-outline" size={28} color={colors.error} />
+              <CircleAlert size={28} color={colors.error} />
               <View style={styles.gapSm} />
               <Text style={[styles.support, { color: colors.textSecondary }]}>{t('local_pay_qr_unavailable')}</Text>
             </View>
@@ -3000,7 +3033,7 @@ function NearbyFlow({
                   style={[styles.notice, { backgroundColor: colors.error + '15', borderColor: colors.error + '40' }]}
                   accessibilityRole="alert"
                 >
-                  <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
+                  <CircleAlert size={16} color={colors.error} />
                   <Text style={[styles.noticeText, { color: colors.error }]}>{t('local_pay_wrong_session')}</Text>
                 </Animated.View>
               )}
@@ -3017,7 +3050,7 @@ function NearbyFlow({
                 entering={fadeIn}
                 style={[styles.notice, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
               >
-                <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
+                <Info size={16} color={colors.textSecondary} />
                 <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
                   {err.networkDenied
                     ? t('local_pay_network_denied')
@@ -3268,7 +3301,7 @@ function NearbyFlow({
             saw a second payment — so nothing here is at display scale. */}
       {phase === 'already_paid' && (
         <Animated.View entering={settleIn} style={styles.stage}>
-          <Ionicons name="checkmark-done-circle-outline" size={56} color={colors.textSecondary} />
+          <CircleCheckBig size={56} color={colors.textSecondary} />
           <View style={styles.gapLg} />
           {phaseTitle(t('local_pay_already_paid'))}
           {supportText(t('local_pay_queued'))}
@@ -3285,7 +3318,7 @@ function NearbyFlow({
       {phase === 'failed' && (
         <Animated.View entering={settleIn} style={styles.stage} accessibilityRole="alert">
           <View style={[styles.heroCircle, { backgroundColor: colors.error + '15' }]}>
-            <Ionicons name="alert-circle-outline" size={40} color={colors.error} />
+            <CircleAlert size={40} color={colors.error} />
           </View>
           <View style={styles.gapLg} />
           {phaseTitle(t('local_pay_failed'))}
@@ -3385,7 +3418,9 @@ function NearbyFlow({
 
   const inlineBody = (
     <View style={styles.embedded}>
-      {phase === 'receive_wait' && hostedSession && sessionQr && !sessionQrBroken ? (
+      {phase === 'receive_wait' && hostedSession && sessionQr && !sessionQrBroken && embedded?.renderQr ? (
+        embedded.renderQr(sessionQr)
+      ) : phase === 'receive_wait' && hostedSession && sessionQr && !sessionQrBroken ? (
         <View style={[styles.qrCard, { shadowColor: colors.textPrimary }]}>
           <View style={styles.qrPlate}>
             <QRCode
@@ -3411,7 +3446,7 @@ function NearbyFlow({
           ]}
           accessibilityRole="alert"
         >
-          <Ionicons name="alert-circle-outline" size={28} color={colors.error} />
+          <CircleAlert size={28} color={colors.error} />
           <View style={styles.gapSm} />
           <Text style={[styles.support, { color: colors.textSecondary }]}>{t('local_pay_qr_unavailable')}</Text>
         </View>
@@ -3442,7 +3477,7 @@ function NearbyFlow({
               style={[styles.notice, { backgroundColor: colors.error + '15', borderColor: colors.error + '40' }]}
               accessibilityRole="alert"
             >
-              <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
+              <CircleAlert size={16} color={colors.error} />
               <Text style={[styles.noticeText, { color: colors.error }]}>{t('local_pay_wrong_session')}</Text>
             </View>
           )}
@@ -3453,7 +3488,7 @@ function NearbyFlow({
           <React.Fragment key={kind}>
             <View style={styles.gapMd} />
             <View style={[styles.notice, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
-              <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
+              <Info size={16} color={colors.textSecondary} />
               <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
                 {err.networkDenied
                   ? t('local_pay_network_denied')
@@ -3487,7 +3522,7 @@ function NearbyFlow({
             accessibilityRole="button"
             accessibilityLabel={t('local_pay_scan_payer_qr')}
           >
-            <Ionicons name="scan-outline" size={16} color={colors.textSecondary} />
+            <ScanLine size={16} color={colors.textSecondary} />
             <Text style={[styles.embeddedScanText, { color: colors.textSecondary }]}>
               {t('local_pay_scan_payer_qr')}
             </Text>
@@ -3746,7 +3781,6 @@ function PrimaryButton({
   onPress: () => void
   disabled?: boolean
 }) {
-  const Ionicons = loadIonicons()
   return (
     <PressableScale
       onPress={onPress}
@@ -3757,7 +3791,9 @@ function PrimaryButton({
       accessibilityLabel={label}
       accessibilityState={{ disabled: !!disabled }}
     >
-      {!!icon && <Ionicons name={icon} size={20} color={disabled ? colors.textTertiary : colors.textOnAccent} />}
+      {!!icon &&
+        !!LUCIDE[icon] &&
+        React.createElement(LUCIDE[icon], { size: 20, color: disabled ? colors.textTertiary : colors.textOnAccent })}
       <Text style={[styles.buttonText, { color: disabled ? colors.textTertiary : colors.textOnAccent }]}>{label}</Text>
     </PressableScale>
   )
@@ -3778,7 +3814,6 @@ function SecondaryButton({
   onPress: () => void
   disabled?: boolean
 }) {
-  const Ionicons = loadIonicons()
   return (
     <PressableScale
       onPress={onPress}
@@ -3789,7 +3824,9 @@ function SecondaryButton({
       accessibilityLabel={label}
       accessibilityState={{ disabled: !!disabled }}
     >
-      {!!icon && <Ionicons name={icon} size={18} color={disabled ? colors.textTertiary : colors.accent} />}
+      {!!icon &&
+        !!LUCIDE[icon] &&
+        React.createElement(LUCIDE[icon], { size: 18, color: disabled ? colors.textTertiary : colors.accent })}
       <Text style={[styles.buttonText, { color: disabled ? colors.textTertiary : colors.accent }]}>{label}</Text>
     </PressableScale>
   )
@@ -3839,7 +3876,7 @@ function makeStyles() {
     embedded: { alignItems: 'center', alignSelf: 'stretch' },
     embeddedPending: { alignItems: 'center', justifyContent: 'center' },
     embeddedScan: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12 },
-    embeddedScanText: { fontSize: 13, lineHeight: 18 },
+    embeddedScanText: { fontFamily: 'Nunito', fontSize: 13, lineHeight: 18 },
     header: {
       flexDirection: 'row',
       alignItems: 'center',

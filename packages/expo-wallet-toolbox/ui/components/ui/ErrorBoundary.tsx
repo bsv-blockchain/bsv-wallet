@@ -14,6 +14,19 @@ interface State {
 /**
  * Error Boundary to catch JavaScript errors and prevent app crashes
  * This is especially important for production builds where crashes are more severe
+ *
+ * Styling here is deliberately literal -- hex colours and a font name, no
+ * imports beyond react-native. This is the screen that renders when something
+ * else has already failed, so it must not depend on a theme provider, a token
+ * module or a hook that could be part of what broke. The values below are the
+ * app's dark palette (src/theme/tokens.ts) copied in by hand for that reason;
+ * if that palette moves, this is a known place to update by hand. It stays
+ * dark in both schemes because a class component cannot read the scheme hook,
+ * and a crash screen that is always the same is easier to recognise anyway.
+ *
+ * Nunito is embedded at build time (app.config.js), so naming it needs no
+ * font loading and cannot fail here. The stack trace stays monospace: it is
+ * read as code, column alignment matters more than the brand face.
  */
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
@@ -94,7 +107,7 @@ export class ErrorBoundary extends Component<Props, State> {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a1a'
+    backgroundColor: '#0b0b0d'
   },
   scrollView: {
     flex: 1
@@ -104,47 +117,51 @@ const styles = StyleSheet.create({
     paddingTop: 60
   },
   title: {
+    fontFamily: 'Nunito',
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#ff6b6b',
+    fontWeight: '700',
+    color: '#f75d59',
     marginBottom: 16
   },
   message: {
+    fontFamily: 'Nunito',
     fontSize: 16,
-    color: '#ffffff',
+    color: '#f3f3f1',
     marginBottom: 24,
     lineHeight: 24
   },
   errorBox: {
-    backgroundColor: '#2d2d2d',
+    backgroundColor: '#161619',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     marginBottom: 16,
     borderLeftWidth: 4,
-    borderLeftColor: '#ff6b6b'
+    borderLeftColor: '#f75d59'
   },
   errorTitle: {
+    fontFamily: 'Nunito',
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#ff6b6b',
+    fontWeight: '700',
+    color: '#f75d59',
     marginBottom: 8
   },
   errorText: {
     fontSize: 12,
-    color: '#cccccc',
+    color: '#98989c',
     fontFamily: 'monospace',
     lineHeight: 18
   },
   button: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#f3f3f1',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
     marginTop: 16
   },
   buttonText: {
-    color: '#ffffff',
+    fontFamily: 'Nunito',
+    color: '#2d2d31',
     fontSize: 16,
-    fontWeight: 'bold'
+    fontWeight: '700'
   }
 })

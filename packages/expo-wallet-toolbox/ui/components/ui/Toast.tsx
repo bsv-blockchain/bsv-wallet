@@ -19,23 +19,20 @@ import Animated, {
   useReducedMotion
 } from 'react-native-reanimated'
 import { useTheme, spacing, radii, typography, springs, durations, haptics } from '@bsv/expo-wallet-toolbox'
+import { CircleAlert, CircleCheck } from 'lucide-react-native'
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Loaded lazily, only when actually rendering, same pattern as this
- * package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, like every other glyph this app draws (src/settings/Rows.tsx, the
+ * headers, the sheets).
+ *
+ * Imported at module scope rather than behind a lazy loader. What had to be
+ * deferred is @expo/vector-icons' index barrel, which re-exports every icon
+ * set and so reaches expo-font -> expo-asset as untransformed ESM; nothing
+ * here pulls that barrel in any more. lucide publishes both module formats
+ * and Jest resolves the ESM one, so the app pins this name to lucide's CJS
+ * entry in jest.moduleNameMapper (package.json), as it already does for its
+ * other ESM-only dependencies.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
 
 export type ToastType = 'info' | 'success' | 'error'
 interface ToastData {
@@ -62,7 +59,6 @@ export function showToast(message: string, opts?: { type?: ToastType }) {
 
 export function ToastHost() {
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
   const insets = useSafeAreaInsets()
   const reducedMotion = useReducedMotion()
   const [toast, setToast] = useState<ToastData | null>(null)
@@ -100,7 +96,7 @@ export function ToastHost() {
 
   if (!toast) return null
 
-  const icon = toast.type === 'success' ? 'checkmark-circle' : toast.type === 'error' ? 'alert-circle' : null
+  const Glyph = toast.type === 'success' ? CircleCheck : toast.type === 'error' ? CircleAlert : null
   const iconColor = toast.type === 'success' ? colors.success : colors.error
 
   return (
@@ -113,7 +109,7 @@ export function ToastHost() {
           animatedStyle
         ]}
       >
-        {icon && <Ionicons name={icon} size={18} color={iconColor} style={styles.icon} />}
+        {Glyph && <Glyph size={18} color={iconColor} style={styles.icon} />}
         <Text numberOfLines={2} style={[styles.text, { color: colors.textPrimary }]}>
           {toast.message}
         </Text>

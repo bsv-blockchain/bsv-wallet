@@ -303,6 +303,7 @@ import { HeaderStore } from '../headers/headerStore'
 import { OfflineFirstChaintracks } from '../headers/OfflineFirstChaintracks'
 import { prewarmOwnRoots } from '../headers/prewarm'
 import { syncHeaders } from '../headers/syncHeaders'
+import { groupSpendingLimit, clampGroupSpending } from '../services/groupSpendingLimit'
 import type { HeaderSource } from '../headers/syncHeaders'
 import { startHeaderSyncTriggers } from '../headers/headerSyncTriggers'
 import { wocLimitedFetch } from '../net/wocLimiter'
@@ -1397,7 +1398,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     async (args: GroupPermissionRequest, manager?: SigningPolicyPermissionsManager): Promise<void> => {
       const { requestID, originator, permissions } = args ?? ({} as GroupPermissionRequest)
       if (!requestID || !permissions) return
-      groupQueue.enqueue({ requestID, originator, permissions, manager })
+      const limit = await groupSpendingLimit()
+      groupQueue.enqueue({ requestID, originator, permissions: clampGroupSpending(permissions, limit), manager })
     },
     [groupQueue.enqueue]
   )

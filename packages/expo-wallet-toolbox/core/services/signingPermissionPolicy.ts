@@ -1,5 +1,6 @@
 import { Hash, Utils } from '@bsv/sdk'
 import { WalletPermissionsManager, type GroupedPermissions } from '@bsv/wallet-toolbox-mobile'
+import { groupSpendingLimit } from './groupSpendingLimit'
 
 /** A site's manifest group request (BRC-73), as the Connect sheet shows it and `mintGroupedPermissions` mints it. */
 export type GroupPermissions = GroupedPermissions
@@ -118,13 +119,13 @@ const isObject = (v: unknown): v is Record<string, any> => v !== null && typeof 
  * the manifest, so every entry is checked: one that does not have the shape the manager reads is
  * left out, and what remains is both what the Connect sheet shows and what Connect mints.
  */
-function sanitizeGroup(raw: unknown): GroupPermissions | null {
+export function sanitizeGroup(raw: unknown, limit: number): GroupPermissions | null {
   if (!isObject(raw)) return null
   const group: GroupPermissions = {}
   if (typeof raw.description === 'string') group.description = raw.description
   const spending = raw.spendingAuthorization
-  if (isObject(spending) && Number.isSafeInteger(spending.amount) && spending.amount > 0) {
-    group.spendingAuthorization = { amount: spending.amount, description: str(spending.description) }
+  if (isObject(spending) && Number.isSafeInteger(spending.amount) && spending.amount > 0 && limit > 0) {
+    group.spendingAuthorization = { amount: Math.min(spending.amount, limit), description: str(spending.description) }
   }
   const list = (v: unknown): any[] => (Array.isArray(v) ? v.filter(isObject) : [])
   group.protocolPermissions = list(raw.protocolPermissions)
@@ -327,7 +328,7 @@ export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
     try {
       const { normalized } = this.internals.prepareOriginator(originator)
       const { groupPermissions } = await this.internals.fetchManifestPermissions(normalized)
-      return sanitizeGroup(groupPermissions)
+      return sanitizeGroup(groupPermissions, await groupSpendingLimit())
     } catch {
       return null
     }
@@ -347,19 +348,24 @@ export class SigningPolicyPermissionsManager extends WalletPermissionsManager {
       protocolPermissions: (group.protocolPermissions ?? []).filter(p => !isAskEveryTimeProtocol(p.protocolID))
     }
     const todo = await i.filterAlreadyGrantedPermissions(normalized, wanted)
+    const limit = await groupSpendingLimit()
+    const spend =
+      todo.spendingAuthorization != null && limit > 0
+        ? { ...todo.spendingAuthorization, amount: Math.min(todo.spendingAuthorization.amount, limit) }
+        : null
     const lookup = i.buildOriginatorLookupValues(originator, normalized)
     const toCreate: MintItem[] = []
     const toRenew: MintItem[] = []
-    if (todo.spendingAuthorization != null) {
+    if (spend != null) {
       toCreate.push({
         request: {
           type: 'spending',
           originator: normalized,
-          spending: { satoshis: todo.spendingAuthorization.amount },
-          reason: todo.spendingAuthorization.description
+          spending: { satoshis: spend.amount },
+          reason: spend.description
         },
         expiry: 0,
-        amount: todo.spendingAuthorization.amount
+        amount: spend.amount
       })
     }
     for (const p of todo.protocolPermissions ?? []) {

@@ -51,21 +51,17 @@ function managerToken(manager: unknown): string {
 const TAP_PROTECTION_MS = 700
 
 // ---------------------------------------------------------------------------
-// @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
-// etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
-// that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
-// Loaded lazily, only when actually rendering, same pattern as this
-// package's other native-module-boundary fixes (expo-router, expo-blur).
+// lucide, like every other glyph this app draws. Imported at module scope
+// rather than behind a lazy loader. What had to be deferred is
+// @expo/vector-icons' index barrel, which re-exports every icon set and so
+// reaches expo-font -> expo-asset as untransformed ESM; nothing here pulls
+// that barrel in any more. lucide publishes both module formats and Jest
+// resolves the ESM one, so the app pins this name to lucide's CJS entry in
+// jest.moduleNameMapper (package.json), as it already does for its other
+// ESM-only dependencies.
 // ---------------------------------------------------------------------------
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
+import { Check, ChevronDown, ChevronUp } from 'lucide-react-native'
+import { BalancedText } from './BalancedText'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -503,7 +499,7 @@ function GroupPermissionSections({ group, unverified }: { group: GroupPermission
           <Text style={[styles.groupSectionTitle, { color: colors.textSecondary }]}>{t('spending_section')}</Text>
           <View style={styles.groupRow}>
             <Text style={[styles.groupRowLabel, { color: colors.textPrimary }]}>
-              <AmountDisplay>{group.spendingAuthorization.amount}</AmountDisplay>
+              {t('spending_up_to')} <AmountDisplay>{group.spendingAuthorization.amount}</AmountDisplay> {t('spending_each_month')}
             </Text>
             {group.spendingAuthorization.description && (
               <Text style={[styles.groupRowDesc, { color: colors.textSecondary }]}>
@@ -606,7 +602,6 @@ interface PermissionSheetProps {
 const PermissionSheet: React.FC<PermissionSheetProps> = ({ backdropDismisses = true }) => {
   const { t } = useTranslation()
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
 
   const {
     protocolRequests,
@@ -1097,12 +1092,11 @@ const PermissionSheet: React.FC<PermissionSheetProps> = ({ backdropDismisses = t
                   <Text style={[styles.detailsToggleText, { color: colors.textSecondary }]}>
                     {detailsExpanded ? t('hide_details') : t('details')}
                   </Text>
-                  <Ionicons
-                    name={detailsExpanded ? 'chevron-up' : 'chevron-down'}
-                    size={12}
-                    color={colors.textSecondary}
-                    style={styles.chevron}
-                  />
+                  {React.createElement(detailsExpanded ? ChevronUp : ChevronDown, {
+                    size: 12,
+                    color: colors.textSecondary,
+                    style: styles.chevron
+                  })}
                 </TouchableOpacity>
 
                 {detailsExpanded && (
@@ -1154,7 +1148,9 @@ const PermissionSheet: React.FC<PermissionSheetProps> = ({ backdropDismisses = t
             {/* -------- The ask, then the figure. The sentence is the quiet
                      half: it says what for, the amount says how much. -------- */}
             <View style={styles.askBlock}>
-              <Text style={[styles.description, { color: colors.textSecondary }]}>{active.description}</Text>
+              <BalancedText style={[styles.description, { color: colors.textSecondary }]}>
+                {active.description}
+              </BalancedText>
 
               {active.siteSays ? (
                 <View style={[styles.siteSays, { borderColor: colors.separator }]}>
@@ -1204,7 +1200,7 @@ const PermissionSheet: React.FC<PermissionSheetProps> = ({ backdropDismisses = t
               testID="bridge-approve"
             >
               {granted ? (
-                <Ionicons name="checkmark" size={22} color={colors.textOnAccent} />
+                <Check size={22} color={colors.textOnAccent} />
               ) : (
                 <Text style={[styles.buttonAllowText, { color: colors.textOnAccent }]}>
                   {t(active.kind === 'connection' ? 'bridge_connect' : 'authorize')}
@@ -1245,6 +1241,7 @@ const styles = StyleSheet.create({
     marginRight: spacing.md
   },
   faviconLetter: {
+    fontFamily: 'Nunito',
     fontSize: 17,
     fontWeight: '700'
   },
@@ -1252,6 +1249,7 @@ const styles = StyleSheet.create({
     flex: 1
   },
   originator: {
+    fontFamily: 'Nunito',
     fontSize: 15,
     fontWeight: '600',
     letterSpacing: -0.1
@@ -1331,11 +1329,13 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xxl
   },
   description: {
+    fontFamily: 'Nunito',
     fontSize: 13.5,
     lineHeight: 18,
     textAlign: 'center'
   },
   amountValue: {
+    fontFamily: 'Nunito',
     fontSize: 42,
     fontWeight: '700',
     lineHeight: 44,
@@ -1344,6 +1344,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums']
   },
   amountUnit: {
+    fontFamily: 'Nunito',
     fontSize: 19,
     fontWeight: '600',
     letterSpacing: 0
@@ -1360,6 +1361,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs
   },
   detailsToggleText: {
+    fontFamily: 'Nunito',
     fontSize: 12.5,
     fontWeight: '600'
   },
@@ -1382,10 +1384,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10
   },
   detailLabel: {
+    fontFamily: 'Nunito',
     fontSize: 13,
     flexShrink: 1
   },
   detailValue: {
+    fontFamily: 'Nunito',
     fontSize: 13.5,
     fontWeight: '600',
     textAlign: 'right',
@@ -1395,6 +1399,7 @@ const styles = StyleSheet.create({
     flexShrink: 1
   },
   detailUnit: {
+    fontFamily: 'Nunito',
     fontSize: 11.5,
     fontWeight: '500'
   },
@@ -1453,6 +1458,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center'
   },
   buttonDenyText: {
+    fontFamily: 'Nunito',
     fontSize: 15,
     fontWeight: '600'
   },
@@ -1469,6 +1475,7 @@ const styles = StyleSheet.create({
     elevation: 4
   },
   buttonAllowText: {
+    fontFamily: 'Nunito',
     fontSize: 15,
     fontWeight: '700'
   }

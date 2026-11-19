@@ -25,6 +25,7 @@ import Animated, {
   useReducedMotion
 } from 'react-native-reanimated'
 import { useTheme, spacing, radii, typography, springs, durations, haptics } from '@bsv/expo-wallet-toolbox'
+import { BalancedText } from './BalancedText'
 
 export interface AlertButton {
   text: string
@@ -167,9 +168,9 @@ export function AlertHost() {
         <Animated.View
           style={[styles.card, { backgroundColor: colors.sheetBackground, borderColor: colors.separator }, cardStyle]}
         >
-          <Text style={[styles.title, { color: colors.textPrimary }]}>{current.title}</Text>
+          <BalancedText style={[styles.title, { color: colors.textPrimary }]}>{current.title}</BalancedText>
           {!!current.message && (
-            <Text style={[styles.message, { color: colors.textSecondary }]}>{current.message}</Text>
+            <BalancedText style={[styles.message, { color: colors.textSecondary }]}>{current.message}</BalancedText>
           )}
           <View
             style={[styles.buttonGroup, { borderTopColor: colors.separator }, !sideBySide && styles.buttonGroupStacked]}

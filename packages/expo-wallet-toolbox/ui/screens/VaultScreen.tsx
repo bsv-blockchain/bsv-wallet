@@ -31,6 +31,7 @@ import {
   AppState
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, CircleAlert, Lock } from 'lucide-react-native'
 import { GroupedSection } from '../components/ui/GroupedList'
 import { ListRow } from '../components/ui/ListRow'
 import PressableScale from '../components/ui/PressableScale'
@@ -39,9 +40,10 @@ import AmountDisplay from '../components/wallet/AmountDisplay'
 import { BiometricAdvisoryModal } from '../components/wallet/BiometricAdvisoryModal'
 import { showAlert, type AlertButton } from '../components/ui/AlertCard'
 import { showToast } from '../components/ui/Toast'
-import { EnrollWizard } from '../components/vault/EnrollWizard'
+import { EnrollWizard, type HardwareKeyArtComponent } from '../components/vault/EnrollWizard'
 import { KeyChooser, vaultKeyLabel, formatVaultSerial } from '../components/vault/KeyChooser'
 import { VaultBackdrop } from '../components/vault/VaultBackdrop'
+import { BalancedText } from '../components/ui/BalancedText'
 import { vaultErrorCopy } from '../components/vault/vaultErrorCopy'
 import { profileLabel } from '../../core/profiles/profileLabel'
 import { useVaultBalance } from '../hooks/useVaultBalance'
@@ -103,21 +105,12 @@ const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
 const REMOVAL_RECHECK_MS = 30_000
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Loaded lazily, only when actually rendering, same pattern as this
- * package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, the family this app draws every other glyph from (its settings rows,
+ * its headers, its sheets). Imported at module scope, unlike
+ * @expo/vector-icons: lucide-react-native ships a CJS entry for `require`, so
+ * it needs no transform and reaches no native module at import time, which is
+ * what this package's lazy icon loads exist to avoid.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -152,11 +145,10 @@ interface RelockRequest {
   revoke?: VaultKeyRecord
 }
 
-export function VaultScreen() {
+export function VaultScreen({ keyArt: KeyArt }: { keyArt?: HardwareKeyArtComponent } = {}) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const { router } = loadExpoRouter()
-  const Ionicons = loadIonicons()
   const { balance, loading, refresh } = useVaultBalance()
   const { coverage, refresh: refreshCoverage } = useVaultCoverage()
   const { exportData, exporting } = useExportWalletData()
@@ -176,6 +168,11 @@ export function VaultScreen() {
   const [meta, setMeta] = useState<VaultMeta | null | undefined>(undefined)
   const metaRef = useRef<VaultMeta | null>(null)
   const [wizard, setWizard] = useState<'enroll' | 'add-key' | null>(null)
+  /** What back does while the wizard is up: it says so itself (onBackChange),
+   * because only it knows which of its pages is showing. */
+  const [wizardBack, setWizardBack] = useState<(() => void) | null>(null)
+  // The setter would take a function as an updater, so it is wrapped in one.
+  const takeWizardBack = useCallback((back: () => void) => setWizardBack(() => back), [])
   const serialsBeforeAdd = useRef<Set<string>>(new Set())
   const [renaming, setRenaming] = useState<VaultKeyRecord | null>(null)
   const [renameText, setRenameText] = useState('')
@@ -304,6 +301,9 @@ export function VaultScreen() {
         haptics.success()
         setRestoreNotice(t('vault_restore_found', { count: result.found }) + skipped)
         await reload()
+      } else if (result.needsKey) {
+        // a vault was seen and nothing was restored: the next step is a tap, never "none found"
+        setRestoreNotice(t('vault_restore_needs_key') + skipped)
       } else if (result.pendingConfirmation > 0) {
         setRestoreNotice(t('vault_restore_pending', { count: result.pendingConfirmation }) + skipped)
       } else {
@@ -1091,17 +1091,21 @@ export function VaultScreen() {
   }, [ensureWalletExists, requireBackupAttested, router, walletCreationIntent])
 
   // ── header ──────────────────────────────────────────────────────────
-  // While the wizard is up, back means "leave set-up" and goes through the
-  // wizard's own leave-confirm (it owns the pending keys), so the chevron is
-  // replaced by a spacer and the wizard's Leave link is the only way out.
+  // While the wizard is up this chevron is the wizard's own back: a page back
+  // inside a key, and otherwise its leave-confirm (it owns the pending keys).
+  // Its pages carry no Back button -- the keyboard covers that corner -- so
+  // until it has said what back means, there is nothing here to press.
+  const headerBack = wizard ? wizardBack : () => router.back()
   const Header = (
     <View style={[styles.header, { borderBottomColor: colors.separator }]}>
-      {wizard ? (
-        <View style={styles.iconBtn} />
-      ) : (
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
-          <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
+      {headerBack ? (
+        <TouchableOpacity onPress={headerBack} style={styles.iconBtn}>
+          <View style={[styles.headerBackWell, { backgroundColor: colors.surfaceSunken }]}>
+            <ArrowLeft size={16} color={colors.textPrimary} />
+          </View>
         </TouchableOpacity>
+      ) : (
+        <View style={styles.iconBtn} />
       )}
       <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>{t('vault_title')}</Text>
       <View style={styles.iconBtn} />
@@ -1116,12 +1120,12 @@ export function VaultScreen() {
       <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
         {Header}
         <View style={styles.centered}>
-          <Ionicons name="lock-closed-outline" size={44} color={colors.textSecondary} />
-          <Text style={[styles.p, { color: colors.textPrimary }]}>
+          <Lock size={44} color={colors.textSecondary} />
+          <BalancedText style={[styles.p, { color: colors.textPrimary }]}>
             {t('vault_profile_only_default', {
               profile: profileLabel(profiles.find(p => p.index === 0) ?? { index: 0 }, t)
             })}
-          </Text>
+          </BalancedText>
         </View>
       </View>
     )
@@ -1132,8 +1136,8 @@ export function VaultScreen() {
       <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
         {Header}
         <View style={styles.centered}>
-          <Ionicons name="alert-circle-outline" size={44} color={colors.error} />
-          <Text style={[styles.p, { color: colors.textPrimary }]}>{recoveryError}</Text>
+          <CircleAlert size={44} color={colors.error} />
+          <BalancedText style={[styles.p, { color: colors.textPrimary }]}>{recoveryError}</BalancedText>
           <PressableScale
             haptic="tap"
             onPress={retryRecovery}
@@ -1166,6 +1170,8 @@ export function VaultScreen() {
           mode={wizard}
           onDone={wizard === 'enroll' ? onEnrolled : onKeyAdded}
           onCancel={() => void closeWizard()}
+          onBackChange={takeWizardBack}
+          keyArt={KeyArt}
         />
       </View>
     )
@@ -1177,11 +1183,14 @@ export function VaultScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }]}>
         {Header}
-        {/* Backdrop is clipped to the area below the header rather than laid over
-            the whole screen, so the line work never crosses the title bar. */}
+        {/* Art is clipped to the area below the header rather than laid over
+            the whole screen, so it never crosses the title bar. The host's own
+            key drawing when it supplies one — the same key the enrolment
+            wizard's touch step shows, so the vault is one object throughout —
+            and the package's line-art backdrop otherwise. */}
         <View style={styles.heroArea}>
-          <View style={styles.heroArt}>
-            <VaultBackdrop color={colors.textPrimary} />
+          <View style={[styles.heroArt, !!KeyArt && styles.heroArtObject]}>
+            {KeyArt ? <KeyArt size={288} /> : <VaultBackdrop color={colors.textPrimary} />}
           </View>
           <ScrollView contentContainerStyle={styles.heroScroll}>
             {/* 1:4 spacers sit the copy block high, just under the header,
@@ -1189,7 +1198,7 @@ export function VaultScreen() {
             <View style={styles.heroSpacerTop} />
             <View style={styles.heroCopy}>
               <Text style={[styles.h1, { color: colors.textPrimary }]}>{t('vault_hero_title')}</Text>
-              <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_hero_body')}</Text>
+              <BalancedText style={[styles.p, { color: colors.textSecondary }]}>{t('vault_hero_body')}</BalancedText>
               <PressableScale
                 haptic="confirm"
                 onPress={canEnroll ? () => void onBeginEnrollment() : undefined}
@@ -1214,15 +1223,19 @@ export function VaultScreen() {
                   hardware. */}
               {!enabled && (
                 <View style={styles.heroNotice}>
-                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>{t(unavailableCopy)}</Text>
+                  <BalancedText style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>
+                    {t(unavailableCopy)}
+                  </BalancedText>
                 </View>
               )}
               {enabled && !supported && (
                 <View style={styles.heroNotice}>
-                  <Text style={[styles.heroNoticeTitle, { color: colors.error }]}>{t('vault_unsupported_title')}</Text>
-                  <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>
+                  <BalancedText style={[styles.heroNoticeTitle, { color: colors.error }]}>
+                    {t('vault_unsupported_title')}
+                  </BalancedText>
+                  <BalancedText style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>
                     {t('vault_unsupported_body')}
-                  </Text>
+                  </BalancedText>
                 </View>
               )}
               {/* No local vault meta at all: a wiped device / reinstall with
@@ -1258,7 +1271,9 @@ export function VaultScreen() {
                     )}
                   </PressableScale>
                   {restoreNotice && (
-                    <Text style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>{restoreNotice}</Text>
+                    <BalancedText style={[styles.heroNoticeBody, { color: colors.textSecondary }]}>
+                      {restoreNotice}
+                    </BalancedText>
                   )}
                 </View>
               )}
@@ -1273,7 +1288,9 @@ export function VaultScreen() {
           fitContent
         >
           <View style={styles.sheetBody}>
-            <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_restore_with_key_body')}</Text>
+            <BalancedText style={[styles.p, { color: colors.textSecondary }]}>
+              {t('vault_restore_with_key_body')}
+            </BalancedText>
             <Text style={[styles.sheetLabel, { color: colors.textPrimary }]}>{t('vault_enter_pin')}</Text>
             <TextInput
               accessibilityLabel={t('vault_enter_pin')}
@@ -1294,16 +1311,18 @@ export function VaultScreen() {
             {keyRestoreBusy && (
               <View style={styles.adoptionProgress}>
                 <ActivityIndicator color={colors.accent} />
-                <Text style={[styles.p, { color: colors.textSecondary }]}>
+                <BalancedText style={[styles.p, { color: colors.textSecondary }]}>
                   {keyRestorePhase === 'scanning'
                     ? t('vault_restore_scanning')
                     : keyRestorePhase === 'challenging'
                       ? t('vault_touch_when_blinks')
                       : t('vault_reading_key')}
-                </Text>
+                </BalancedText>
               </View>
             )}
-            {keyRestoreError && <Text style={[styles.err, { color: colors.error }]}>{keyRestoreError}</Text>}
+            {keyRestoreError && (
+              <BalancedText style={[styles.err, { color: colors.error }]}>{keyRestoreError}</BalancedText>
+            )}
             <PressableScale
               haptic="confirm"
               onPress={!keyRestoreBusy && /^[0-9]{6,8}$/.test(keyRestorePin) ? () => void runKeyRestore() : undefined}
@@ -1401,7 +1420,7 @@ export function VaultScreen() {
             accessibilityState={{ disabled: !canDeposit }}
             style={[styles.actionBtn, { backgroundColor: canDeposit ? colors.accent : colors.backgroundElevated }]}
           >
-            <Ionicons name="arrow-down" size={18} color={canDeposit ? colors.textOnAccent : colors.textTertiary} />
+            <ArrowDownToLine size={16} color={canDeposit ? colors.textOnAccent : colors.textTertiary} />
             <Text style={[styles.actionLabel, { color: canDeposit ? colors.textOnAccent : colors.textTertiary }]}>
               {t('vault_deposit_cta')}
             </Text>
@@ -1422,27 +1441,35 @@ export function VaultScreen() {
               }
             ]}
           >
-            <Ionicons name="arrow-up" size={18} color={canWithdraw ? colors.accent : colors.textTertiary} />
+            <ArrowUpFromLine size={16} color={canWithdraw ? colors.accent : colors.textTertiary} />
             <Text style={[styles.actionLabel, { color: canWithdraw ? colors.accent : colors.textTertiary }]}>
               {t('vault_withdraw_cta')}
             </Text>
           </PressableScale>
         </View>
-        {!enabled && <Text style={[styles.notice, { color: colors.textSecondary }]}>{t(unavailableCopy)}</Text>}
+        {!enabled && (
+          <BalancedText style={[styles.notice, { color: colors.textSecondary }]}>{t(unavailableCopy)}</BalancedText>
+        )}
         {transfersBlocked && (
-          <Text style={[styles.notice, { color: colors.warning }]}>
+          <BalancedText style={[styles.notice, { color: colors.warning }]}>
             {t(removalAwaitingNetwork ? 'vault_removal_awaiting_network' : 'vault_err_relock_required')}
-          </Text>
+          </BalancedText>
         )}
         {overLockLimit && !transfersBlocked && (
-          <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_too_many_active_keys')}</Text>
+          <BalancedText style={[styles.notice, { color: colors.warning }]}>
+            {t('vault_err_too_many_active_keys')}
+          </BalancedText>
         )}
         {recoveryRequired && !hasRecoveryRedundancy && (
-          <Text style={[styles.notice, { color: colors.warning }]}>{t('vault_err_key_not_adopted')}</Text>
+          <BalancedText style={[styles.notice, { color: colors.warning }]}>
+            {t('vault_err_key_not_adopted')}
+          </BalancedText>
         )}
         {actionPendingNotice && (
           <View style={[styles.notice, styles.actionPendingBlock]}>
-            <Text style={[styles.heroNoticeBody, { color: colors.warning }]}>{vaultErrorCopy('action-pending')}</Text>
+            <BalancedText style={[styles.heroNoticeBody, { color: colors.warning }]}>
+              {vaultErrorCopy('action-pending')}
+            </BalancedText>
             <PressableScale
               haptic="confirm"
               onPress={resolvingDeposit ? undefined : () => void onResolveHeldDeposit()}
@@ -1502,7 +1529,7 @@ export function VaultScreen() {
                 label={`${rec.nickname} · ${formatVaultSerial(rec.serial)}`}
                 subtitle={adopted ? new Date(rec.enrolledAt).toLocaleDateString() : t('vault_err_key_not_adopted')}
                 icon={adopted ? 'key-outline' : 'shield-checkmark-outline'}
-                iconColor={adopted ? colors.permissionSpending : colors.warning}
+                iconColor={adopted ? undefined : colors.warning}
                 showChevron={false}
                 onPress={adopted ? () => void keyActions(rec) : () => openAdoption(rec)}
                 isLast={i === meta.keys.length - 1 && !canAdd}
@@ -1544,7 +1571,6 @@ export function VaultScreen() {
           <ListRow
             label={t('export_wallet_data')}
             icon="share-outline"
-            iconColor="#32ADE6"
             showChevron={false}
             onPress={exporting ? undefined : () => void exportData()}
             trailing={exporting ? <ActivityIndicator size="small" /> : undefined}
@@ -1607,7 +1633,9 @@ export function VaultScreen() {
         fitContent
       >
         <View style={styles.sheetBody}>
-          <Text style={[styles.p, { color: colors.textSecondary }]}>{t('vault_err_key_not_adopted')}</Text>
+          <BalancedText style={[styles.p, { color: colors.textSecondary }]}>
+            {t('vault_err_key_not_adopted')}
+          </BalancedText>
           <Text style={[styles.sheetLabel, { color: colors.textPrimary }]}>{t('vault_enter_pin')}</Text>
           <TextInput
             accessibilityLabel={t('vault_enter_pin')}
@@ -1628,12 +1656,12 @@ export function VaultScreen() {
           {adoptionBusy && (
             <View style={styles.adoptionProgress}>
               <ActivityIndicator color={colors.accent} />
-              <Text style={[styles.p, { color: colors.textSecondary }]}>
+              <BalancedText style={[styles.p, { color: colors.textSecondary }]}>
                 {adoptionPhase === 'challenging' ? t('vault_touch_when_blinks') : t('vault_reading_key')}
-              </Text>
+              </BalancedText>
             </View>
           )}
-          {adoptionError && <Text style={[styles.err, { color: colors.error }]}>{adoptionError}</Text>}
+          {adoptionError && <BalancedText style={[styles.err, { color: colors.error }]}>{adoptionError}</BalancedText>}
           <PressableScale
             haptic="confirm"
             onPress={!adoptionBusy && /^[0-9]{6,8}$/.test(adoptionPin) ? () => void runAdoption() : undefined}
@@ -1663,10 +1691,12 @@ export function VaultScreen() {
         fitContent
       >
         <View style={styles.sheetBody}>
-          {relock?.reason ? <Text style={[styles.p, { color: colors.textSecondary }]}>{relock.reason}</Text> : null}
+          {relock?.reason ? (
+            <BalancedText style={[styles.p, { color: colors.textSecondary }]}>{relock.reason}</BalancedText>
+          ) : null}
           <Text style={[styles.sheetLabel, { color: colors.textPrimary }]}>{t('vault_relock_choose')}</Text>
           <KeyChooser keys={relockCandidates} selected={relockSerial} onSelect={setRelockSerial} />
-          {relockError && <Text style={[styles.err, { color: colors.error }]}>{relockError}</Text>}
+          {relockError && <BalancedText style={[styles.err, { color: colors.error }]}>{relockError}</BalancedText>}
           <PressableScale
             haptic="confirm"
             onPress={relockSerial && !relocking ? () => void runRelock() : undefined}
@@ -1697,6 +1727,13 @@ export function VaultScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerBackWell: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
@@ -1716,6 +1753,8 @@ const styles = StyleSheet.create({
   content: { paddingTop: spacing.lg, paddingBottom: spacing.xxxl },
   heroArea: { flex: 1, overflow: 'hidden' },
   heroArt: { position: 'absolute', bottom: '7%', left: 0, right: 0, height: '56%' },
+  // a backdrop fills its slot; a drawn object sits in the middle of it
+  heroArtObject: { alignItems: 'center', justifyContent: 'center' },
   heroScroll: { flexGrow: 1 },
   heroNotice: { alignItems: 'center', gap: spacing.xs },
   heroNoticeTitle: { ...typography.subhead, fontWeight: '600', textAlign: 'center' },
