@@ -10,25 +10,17 @@
  */
 import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
+import { Circle, CircleDot } from 'lucide-react-native'
 import PressableScale from '../ui/PressableScale'
 import { useTheme, spacing, radii, typography, type VaultKeyRecord } from '@bsv/expo-wallet-toolbox'
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Loaded lazily, only when actually rendering, same pattern as this
- * package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, the family this app draws every other glyph from (its settings rows,
+ * its headers, its sheets). Imported at module scope, unlike
+ * @expo/vector-icons: lucide-react-native ships a CJS entry for `require`, so
+ * it needs no transform and reaches no native module at import time, which is
+ * what this package's lazy icon loads exist to avoid.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
 
 /** The one display form of a vault key: `nickname · …serialTail4`. */
 export function vaultKeyLabel(k: { nickname: string; serial: string }): string {
@@ -49,7 +41,6 @@ export const KeyChooser: React.FC<{
   onSelect: (serial: string) => void
 }> = ({ keys, selected, onSelect }) => {
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
   return (
     <View style={[styles.list, { backgroundColor: colors.backgroundElevated, borderColor: colors.separator }]}>
       {keys.map((k, i) => {
@@ -70,11 +61,7 @@ export const KeyChooser: React.FC<{
               }
             ]}
           >
-            <Ionicons
-              name={on ? 'radio-button-on' : 'radio-button-off'}
-              size={22}
-              color={on ? colors.accent : colors.textTertiary}
-            />
+            {on ? <CircleDot size={20} color={colors.accent} /> : <Circle size={20} color={colors.textTertiary} />}
             <Text style={[styles.label, { color: colors.textPrimary }]} numberOfLines={1}>
               {vaultKeyLabel(k)}
             </Text>

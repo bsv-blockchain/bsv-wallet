@@ -45,7 +45,7 @@ import { Beef, Hash, LockingScript, OP, P2PKH, PublicKey, Script, Transaction, U
 import { isBackupPushEnabled } from '../../backup/preference'
 import { getBackupUrl, isVaultAvailable, isVaultEnabled } from '../../toolboxConfig'
 import { sdk as toolboxSdk } from '@bsv/wallet-toolbox-mobile'
-import { noteVaultProgress, requestVaultSigner } from './ceremonyHost'
+import { noteVaultProgress, openVaultSignerSession, requestVaultSigner, type VaultSignerSession } from './ceremonyHost'
 import {
   MAX_DESCRIPTOR_CIPHERTEXT_BYTES,
   R1C_LOCK_LEN,
@@ -72,6 +72,7 @@ import { VaultError } from './types'
 import { metaFromVerifiedOutputs, VAULT_MAX_KEYS, VAULT_MIN_KEYS } from './VaultKeyService'
 import { vaultStore, VaultKeyRecord, VaultMeta, type VaultScopeToken, type VaultStoreScope } from './vaultStore'
 import { computeVaultMetaAuthorityTag, verifyVaultMetaAuthorityTag, type HmacCapableWallet } from './metaAuthority'
+import { failedVaultSpendBlocksRemoval } from './failedVaultSpend'
 import { requireVaultKeyChallenge, requireVaultOutputKeyPossession } from './outputAuthority'
 import { planLockKeys, type LockKeyPlan } from './lockKeys'
 import { forgetSerialsNoLongerEnrolledForIdentity } from './enrolledSerialRegistry'
@@ -380,6 +381,10 @@ function asHmacWallet(w: VaultWallet): HmacCapableWallet {
 export interface VaultActionRow {
   txid?: string
   status: string
+  /** When the wallet recorded the action. Not part of BRC-100's listActions
+   * result; the wallet core returns it with each row. Read only by
+   * failedVaultSpendBlocksRemoval, which blocks when it is missing. */
+  created_at?: string | Date
   reference?: string
   labels?: string[]
   inputs?: { sourceOutpoint?: string; sourceSatoshis?: number; sourceLockingScript?: string }[]
@@ -2316,7 +2321,11 @@ async function newVaultOutput(
   outputDescription: string,
   inventory: VaultSaltInventory,
   scopeToken: VaultScopeToken,
-  chosenSerial?: string
+  chosenSerial?: string,
+  /** A spend's key session and reason: the possession proof below is signed in
+   * it, and spendVaultOutputs signs the inputs in the same session. A deposit
+   * passes none (it signs no Vault input) and keeps its own ceremony. */
+  shared?: { session: VaultSignerSession; reason: string }
 ): Promise<[vault: VaultOutputSpec, marker: VaultOutputSpec, descriptor: VaultOutputSpec]> {
   // Every output-creating path (deposit, re-lock, partial-withdrawal
   // remainder) comes through here. The key list may briefly hold one key more
@@ -2354,8 +2363,12 @@ async function newVaultOutput(
       saltKeyId,
       lockingScript: lockingScript.toHex()
     },
-    chosenSerial
+    chosenSerial,
+    shared
   )
+  // The shared session stays armed while the transaction is built: say so, and
+  // restart its retention window. A no-op with nothing armed.
+  if (shared) noteVaultProgress({ phase: 'preparing' })
   const v7: VaultInstructionsV7 = {
     v: 7,
     type: 'R1C',
@@ -3249,7 +3262,11 @@ async function spendVaultOutputs(
   reason: string,
   plan: VaultSpendPlan,
   opts?: VaultTransferOptions,
-  scopeToken?: VaultScopeToken
+  scopeToken?: VaultScopeToken,
+  /** The operation's key session. When a new Vault output's possession proof
+   * already armed the chosen key in it, the inputs are signed in that same
+   * session: no second PIN entry or tap. */
+  session?: VaultSignerSession
 ): Promise<VaultSpendResult> {
   const { tx, reference, prepared } = await createSignableVaultTx(
     w,
@@ -3271,7 +3288,9 @@ async function spendVaultOutputs(
   const unlocks: { inputIndex: number; unlockingScript: UnlockingScript }[] = []
   try {
     // ── the tap(s): one on-card signature per input ────────────────────
-    const signer = await requestVaultSigner(reason, chosen.serial)
+    const signer = session
+      ? await session.acquire(reason, chosen.serial)
+      : await requestVaultSigner(reason, chosen.serial)
     assertVaultScope(scopeToken)
     // The commitment check above ran against chosen.pubkey, but every unlock
     // is built with signer.pubkey — they must be the same key, or the card
@@ -3516,6 +3535,9 @@ export async function withdrawFromVault(
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
     assertVaultScope(scopeToken)
+    // One key session for the remainder's possession proof and the inputs.
+    const session = openVaultSignerSession()
+    try {
     // Cheapest refusal first, as in depositToVault — see requireWithdrawalAmount.
     requireWithdrawalAmount(amount)
     // An offline user is never asked to present a key for a transfer that
@@ -3568,7 +3590,8 @@ export async function withdrawFromVault(
           'Vault change',
           sel.saltInventory,
           scopeToken,
-          chosenSerial
+          chosenSerial,
+          { session, reason }
         ))
       )
     }
@@ -3584,10 +3607,15 @@ export async function withdrawFromVault(
         description: 'Vault withdrawal'
       },
       opts,
-      scopeToken
+      scopeToken,
+      session
     )
     if (remainderPlan?.changesKeySet) await commitPlannedKeySet(w, adminOriginator, scopeToken, remainderPlan)
     return result
+    } finally {
+      // Also the way out when anything between the proof and the inputs throws.
+      session.close()
+    }
   })
 }
 
@@ -3660,6 +3688,9 @@ export async function relockVault(
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
     assertVaultScope(scopeToken)
+    // One key session for the new lock's possession proof and the inputs.
+    const session = openVaultSignerSession()
+    try {
     requireReleased(opts, scopeToken, 'Re-locking the vault')
     await requireOnline(opts)
     assertVaultScope(scopeToken)
@@ -3720,7 +3751,8 @@ export async function relockVault(
           'Vault re-lock',
           sel.saltInventory,
           scopeToken,
-          chosenSerial
+          chosenSerial,
+          { session, reason }
         ),
         labels: ['vault', 'vault-relock'],
         inputDescription: 'Vault re-lock',
@@ -3730,7 +3762,8 @@ export async function relockVault(
         description: 'Vault relock'
       },
       opts,
-      scopeToken
+      scopeToken,
+      session
     )
     if (revokePubkey) {
       // The tag covers pendingRemoval.state, so the 'broadcast' write must be
@@ -3748,6 +3781,10 @@ export async function relockVault(
     }
     if (plan.changesKeySet) await commitPlannedKeySet(w, adminOriginator, scopeToken, plan)
     return result
+    } finally {
+      // Also the way out when anything between the proof and the inputs throws.
+      session.close()
+    }
   })
 }
 
@@ -4209,8 +4246,10 @@ async function isUnbroadcastPendingRemovalRelock(
 /** Reconcile a durable pending removal. A bounded broadcast marker is inferred
  * after a crash only from an authenticated matching re-lock action. The
  * tombstone is cleared only when every Vault action is accepted by the network
- * (ACCEPTED_ACTION_STATUSES) or is a failed deposit, a matching re-lock is
- * accepted, and two authenticated scans find no lock authorizing the key. */
+ * (ACCEPTED_ACTION_STATUSES), is a failed deposit, or is a failed spend that
+ * can no longer reach the network for this removal
+ * (failedVaultSpendBlocksRemoval), a matching re-lock is accepted, and two
+ * authenticated scans find no lock authorizing the key. */
 export async function finalizeVaultKeyRemoval(w: VaultWallet, adminOriginator: string): Promise<boolean> {
   const scopeToken = vaultStore.captureScopeToken()
   return await withVaultMutation(async () => {
@@ -4284,7 +4323,12 @@ export async function finalizeVaultKeyRemoval(w: VaultWallet, adminOriginator: s
         if (ACCEPTED_ACTION_STATUSES.has(action.status)) return
         if (action.status === 'failed') {
           const labels = new Set(action.labels ?? [])
-          if (!(labels.has('vault-deposit') && !labels.has('vault-withdraw') && !labels.has('vault-relock'))) {
+          // A failed deposit never blocks. A failed spend blocks only while it
+          // may still reach the network for THIS removal: see failedVaultSpend.ts.
+          if (
+            !(labels.has('vault-deposit') && !labels.has('vault-withdraw') && !labels.has('vault-relock')) &&
+            failedVaultSpendBlocksRemoval(action, pendingAtStart.startedAt)
+          ) {
             actionStateBlocks = true
           }
         } else {

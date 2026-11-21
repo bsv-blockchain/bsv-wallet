@@ -6,12 +6,23 @@ jest.mock('expo-haptics', () => ({
   NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' }
 }))
 
-// @expo/vector-icons reaches expo-font, which this repo's transformIgnorePatterns
-// does not transform. Stubbed the same way Celebration.test.tsx stubs react-native-svg.
-jest.mock('@expo/vector-icons', () => {
+// Each lucide glyph is a plain View that carries its export name as `name`,
+// so the tests read which glyph was drawn without rendering any SVG.
+jest.mock('lucide-react-native', () => {
   const React = require('react')
   const { View } = require('react-native')
-  return { Ionicons: (props: object) => React.createElement(View, props) }
+  const glyphs: Record<string, unknown> = {}
+  return new Proxy(
+    {},
+    {
+      get: (_target, key) => {
+        if (key === '__esModule') return true
+        if (typeof key !== 'string') return undefined
+        glyphs[key] ??= (props: object) => React.createElement(View, { ...props, name: key })
+        return glyphs[key]
+      }
+    }
+  )
 })
 
 // Pulled in as a side effect of importing anything from the barrel: its
@@ -106,7 +117,7 @@ describe('PresenceRow', () => {
   })
 })
 
-// The rendered tree, flattened to the Ionicons glyph names in it. The mock at
+// The rendered tree, flattened to the lucide glyph names in it. The mock at
 // the top of this file spreads `name` onto a plain View, so no host node other
 // than a mocked icon carries that prop.
 function iconNames(node: unknown): string[] {
@@ -128,24 +139,24 @@ const drawWith = (props: { state: PresenceState; medium?: 'wifi' | 'bluetooth' }
 // the person paying to look at the wrong radio when it fails.
 describe('PresenceRow medium', () => {
   it('defaults the ready glyph to wi-fi', () => {
-    expect(iconNames(drawWith({ state: 'ready' }).toJSON())).toEqual(['wifi'])
+    expect(iconNames(drawWith({ state: 'ready' }).toJSON())).toEqual(['Wifi'])
   })
 
   it('shows the bluetooth glyph when the ready link is BLE', () => {
-    expect(iconNames(drawWith({ state: 'ready', medium: 'bluetooth' }).toJSON())).toEqual(['bluetooth'])
+    expect(iconNames(drawWith({ state: 'ready', medium: 'bluetooth' }).toJSON())).toEqual(['BluetoothIcon'])
   })
 
   it('leaves the non-radio states untouched by the medium', () => {
-    expect(iconNames(drawWith({ state: 'qr', medium: 'bluetooth' }).toJSON())).toEqual(['qr-code-outline'])
-    expect(iconNames(drawWith({ state: 'linked', medium: 'bluetooth' }).toJSON())).toEqual(['lock-closed'])
-    expect(iconNames(drawWith({ state: 'paid', medium: 'bluetooth' }).toJSON())).toEqual(['checkmark-circle'])
+    expect(iconNames(drawWith({ state: 'qr', medium: 'bluetooth' }).toJSON())).toEqual(['QrCode'])
+    expect(iconNames(drawWith({ state: 'linked', medium: 'bluetooth' }).toJSON())).toEqual(['Lock'])
+    expect(iconNames(drawWith({ state: 'paid', medium: 'bluetooth' }).toJSON())).toEqual(['CircleCheck'])
   })
 
   // The payee's only radio-live state is `waiting`, so this is the one that has
   // to be able to say Bluetooth: if `waiting` drew a bare dot, the medium prop
   // could never reach a pixel on the receiving side.
   it('names the radio in the waiting state too', () => {
-    expect(iconNames(drawWith({ state: 'waiting' }).toJSON())).toEqual(['wifi'])
-    expect(iconNames(drawWith({ state: 'waiting', medium: 'bluetooth' }).toJSON())).toEqual(['bluetooth'])
+    expect(iconNames(drawWith({ state: 'waiting' }).toJSON())).toEqual(['Wifi'])
+    expect(iconNames(drawWith({ state: 'waiting', medium: 'bluetooth' }).toJSON())).toEqual(['BluetoothIcon'])
   })
 })

@@ -1,6 +1,6 @@
 {
   "name": "@bsv/expo-wallet-toolbox",
-  "version": "0.25.1",
+  "version": "0.26.0",
   "private": false,
   "description": "Wallet screens and P2P local-payment backend for Expo/React Native apps, extracted from BSV Wallet.",
   "license": "Apache-2.0",
@@ -75,6 +75,7 @@
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "i18next": "^25.2.1",
+    "lucide-react-native": "^1.27.0",
     "mobx": "^6.13.7",
     "mobx-react-lite": "^4.1.0",
     "qrcode": "^1.5.4",

@@ -587,7 +587,10 @@ function UniversalSendInner(
     setRegistrySearching(true)
     const timer = setTimeout(async () => {
       try {
-        const rows = await registryClient.search(query)
+        // A complete address whose key is not the one pinned here comes back
+        // flagged `changedFrom` (XR-071). This screen has no key-change
+        // warning, so such a row is dropped, as before the flag existed.
+        const rows = (await registryClient.search(query)).filter(row => !row.changedFrom)
         if (cancelled) return
         setRegistryMatches(rows)
         setRegistryError(false)

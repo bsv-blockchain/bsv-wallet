@@ -7,6 +7,12 @@ jest.mock('react-native-svg', () => ({ SvgUri: 'SvgUri' }))
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0 }) }))
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (value: string) => value }) }))
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }))
+// TrustScreen draws lucide glyphs, which need react-native-svg's Svg and Path;
+// the svg mock above keeps only SvgUri, so each glyph is a host string here.
+jest.mock(
+  'lucide-react-native',
+  () => new Proxy({}, { get: (_target, key) => (key === '__esModule' ? true : String(key)) })
+)
 jest.mock('expo-router', () => ({ router: { back: jest.fn() } }))
 jest.mock('expo-image', () => ({ Image: Object.assign(() => null, { prefetch: async () => true }) }))
 jest.mock('../../ui/components/ui/AlertCard', () => ({ showAlert: jest.fn(async () => 'cancel') }))

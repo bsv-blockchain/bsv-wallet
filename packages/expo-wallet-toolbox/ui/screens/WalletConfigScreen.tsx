@@ -74,25 +74,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { isE2eBuild } from '../../core/e2e/mode'
 import { profileScopedKey } from '../../core/profiles/profileStore'
 import { profileLabel } from '../../core/profiles/profileLabel'
+import { ArrowLeft, Banknote, Bitcoin, Check } from 'lucide-react-native'
 import { NETWORKS } from '../../core/networks'
-
-/**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Loaded lazily, only when actually rendering, same pattern as this
- * package's other native-module-boundary fixes (expo-router, expo-blur,
- * WalletHomeScreen.tsx/ListRow.tsx's lazy icon loads).
- */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -135,17 +118,21 @@ const NEXT_MOCK_KEY: Record<MockPresentKey, MockPresentKey> = {
 }
 
 /**
+ * `title`: what the host calls this screen. The package's own app reaches it
+ * as Settings, so that is the default; an app that keeps its own settings
+ * elsewhere and mounts this one deeper (here: Settings -> Advanced ->
+ * Developer tools) would otherwise show a header naming the wrong screen.
+ *
  * `hideLogout`: for an app that forgets wallets its own way (and shows this
  * screen only as developer tools), the Log Out row is left out.
  */
-export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolean } = {}) {
+export function WalletConfigScreen({ hideLogout = false, title }: { hideLogout?: boolean; title?: string } = {}) {
   const versionLabel = useMemo(() => appVersionLabel(), [])
   const { t } = useTranslation()
   const { colors } = useTheme()
   const { router, useLocalSearchParams } = loadExpoRouter()
   const { section } = useLocalSearchParams<{ section?: string }>()
   const openBackup = section === 'backup'
-  const Ionicons = loadIonicons()
 
   const {
     managers,
@@ -567,9 +554,11 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
           accessibilityLabel={t('go_back')}
           style={localStyles.headerBack}
         >
-          <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
+          <View style={[localStyles.headerBackWell, { backgroundColor: colors.surfaceSunken }]}>
+            <ArrowLeft size={16} color={colors.textPrimary} />
+          </View>
         </TouchableOpacity>
-        <Text style={[localStyles.headerTitle, { color: colors.textPrimary }]}>{t('settings')}</Text>
+        <Text style={[localStyles.headerTitle, { color: colors.textPrimary }]}>{title ?? t('settings')}</Text>
         <View style={localStyles.headerBack} />
       </View>
       <ScrollView
@@ -582,12 +571,11 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
             is denominated in, how to hand an app access, and the two ways out of
             a lost phone. Everything else is engine-room detail and sits behind
             Advanced, collapsed, so this screen opens as four choices not twenty. */}
-        <GroupedSection>
+        <GroupedSection card={false}>
           <ListRow
             label={t('display_currency')}
             value={CURRENCIES.find(c => c.id === currentCurrency)?.label ?? currentCurrency}
             icon="cash-outline"
-            iconColor="#F5B300"
             onPress={() => setCurrencyExpanded(e => !e)}
             showChevron={currencyExpanded}
             chevronDown={currencyExpanded}
@@ -603,16 +591,13 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                     onPress={() => handleSelectCurrency(cur.id)}
                     activeOpacity={0.6}
                   >
-                    <Ionicons
-                      name={cur.icon as any}
-                      size={16}
-                      color={colors.textSecondary}
-                      style={{ marginRight: spacing.md }}
-                    />
-                    <Text style={[localStyles.networkLabel, { color: colors.textPrimary }]}>{cur.label}</Text>
-                    {isActive && (
-                      <Ionicons name="checkmark" size={20} color={colors.accent} style={{ marginLeft: 'auto' }} />
+                    {cur.icon === 'logo-bitcoin' ? (
+                      <Bitcoin size={16} color={colors.textSecondary} style={{ marginRight: spacing.md }} />
+                    ) : (
+                      <Banknote size={16} color={colors.textSecondary} style={{ marginRight: spacing.md }} />
                     )}
+                    <Text style={[localStyles.networkLabel, { color: colors.textPrimary }]}>{cur.label}</Text>
+                    {isActive && <Check size={16} color={colors.accent} style={{ marginLeft: 'auto' }} />}
                   </TouchableOpacity>
                 )
               })}
@@ -622,7 +607,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
             testID="settings-connections"
             label={t('connect_to_app')}
             icon="qr-code-outline"
-            iconColor="#0A84FF"
             onPress={() => router.push('/connections' as any)}
           />
           {/* In the main group, not behind Advanced: this is the row a user
@@ -632,19 +616,17 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
             testID="settings-troubleshooting"
             label={t('check_wallet')}
             icon="checkmark-done-circle-outline"
-            iconColor="#30D158"
             onPress={() => router.push('/wallet-check' as any)}
             isLast
           />
         </GroupedSection>
 
         {/* ── Advanced ── */}
-        <GroupedSection>
+        <GroupedSection card={false}>
           <ListRow
             testID="settings-advanced"
             label={t('advanced')}
             icon="construct-outline"
-            iconColor="#8E8E93"
             onPress={handleToggleAdvanced}
             chevronDown={advancedExpanded}
             isLast
@@ -655,6 +637,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
           <>
             {/* ── Configuration ── */}
             <GroupedSection
+              card={false}
               header={t('configuration')}
               footer={
                 profilesSupported
@@ -676,7 +659,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                     : (NETWORK_OPTIONS.find(n => n.id === selectedNetwork)?.label ?? selectedNetwork)
                 }
                 icon="globe-outline"
-                iconColor={NETWORK_OPTIONS.find(n => n.id === selectedNetwork)?.color ?? colors.success}
                 onPress={() => setNetworkExpanded(e => !e)}
                 showChevron={networkExpanded}
                 chevronDown={networkExpanded}
@@ -694,9 +676,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                       >
                         <View style={[localStyles.networkDot, { backgroundColor: net.color }]} />
                         <Text style={[localStyles.networkLabel, { color: colors.textPrimary }]}>{net.label}</Text>
-                        {isActive && (
-                          <Ionicons name="checkmark" size={20} color={colors.accent} style={{ marginLeft: 'auto' }} />
-                        )}
+                        {isActive && <Check size={16} color={colors.accent} style={{ marginLeft: 'auto' }} />}
                       </TouchableOpacity>
                     )
                   })}
@@ -709,7 +689,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                   return known ? known.label : arcUrlInput.replace('https://', '')
                 })()}
                 icon="radio-outline"
-                iconColor="#6E56CF"
                 onPress={() => setArcExpanded(e => !e)}
                 showChevron={arcExpanded}
                 chevronDown={arcExpanded}
@@ -743,23 +722,26 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                         />
                         <View style={{ flex: 1 }}>
                           <Text style={[localStyles.networkLabel, { color: colors.textPrimary }]}>{preset.label}</Text>
-                          <Text style={{ ...typography.caption1, color: colors.textSecondary }} numberOfLines={1}>
+                          <Text
+                            style={{ ...typography.caption1, fontFamily: 'Nunito', color: colors.textSecondary }}
+                            numberOfLines={1}
+                          >
                             {preset.url.replace('https://', '')}
                           </Text>
                         </View>
                         {preset.requiresToken && (
-                          <Text style={{ ...typography.caption1, color: colors.warning, marginLeft: spacing.sm }}>
+                          <Text
+                            style={{
+                              ...typography.caption1,
+                              fontFamily: 'Nunito',
+                              color: colors.warning,
+                              marginLeft: spacing.sm
+                            }}
+                          >
                             {t('arc_requires_token')}
                           </Text>
                         )}
-                        {isSelected && (
-                          <Ionicons
-                            name="checkmark"
-                            size={18}
-                            color={colors.accent}
-                            style={{ marginLeft: spacing.sm }}
-                          />
-                        )}
+                        {isSelected && <Check size={16} color={colors.accent} style={{ marginLeft: spacing.sm }} />}
                       </TouchableOpacity>
                     )
                   })}
@@ -783,7 +765,9 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                       returnKeyType="next"
                     />
                     {arcUrlError && (
-                      <Text style={{ ...typography.caption1, color: colors.error }}>{t('arc_url_https_required')}</Text>
+                      <Text style={{ ...typography.caption1, fontFamily: 'Nunito', color: colors.error }}>
+                        {t('arc_url_https_required')}
+                      </Text>
                     )}
                   </View>
                   <View style={localStyles.arcInputRow}>
@@ -808,7 +792,9 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                       onPress={handleResetArc}
                       activeOpacity={0.7}
                     >
-                      <Text style={{ ...typography.body, color: colors.textSecondary }}>{t('arc_reset_default')}</Text>
+                      <Text style={{ ...typography.body, fontFamily: 'Nunito', color: colors.textSecondary }}>
+                        {t('arc_reset_default')}
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[localStyles.arcButton, { backgroundColor: colors.accent }]}
@@ -818,7 +804,14 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                       {arcSaving ? (
                         <ActivityIndicator size="small" color={colors.textOnAccent} />
                       ) : (
-                        <Text style={{ ...typography.body, color: colors.textOnAccent, fontWeight: '600' }}>
+                        <Text
+                          style={{
+                            ...typography.body,
+                            fontFamily: 'Nunito',
+                            color: colors.textOnAccent,
+                            fontWeight: '600'
+                          }}
+                        >
                           {t('arc_apply')}
                         </Text>
                       )}
@@ -838,7 +831,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                     : messageBox.messageBoxUrl.replace(/^https:\/\//, '')
                 }
                 icon="mail-outline"
-                iconColor="#5E5CE6"
                 onPress={() => messageBox.setShowConfig(v => !v)}
                 showChevron={messageBox.showConfig}
                 chevronDown={messageBox.showConfig}
@@ -868,7 +860,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                     : formatAmount(thresholdSats, currentCurrency, satoshisPerUSD, { usdToFiat })
                 }
                 icon="flash-outline"
-                iconColor="#FF9F0A"
                 onPress={() => {
                   setThresholdExpanded(e => !e)
                   if (!thresholdExpanded) {
@@ -916,7 +907,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                 testID="settings-trust"
                 label={t('trust_network')}
                 icon="shield-checkmark-outline"
-                iconColor="#BF5AF2"
                 onPress={() => router.push('/trust' as any)}
                 isLast
               />
@@ -924,7 +914,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
 
             {/* ── Data & Security ── */}
             <View onLayout={event => setBackupSectionY(event.nativeEvent.layout.y)}>
-              <GroupedSection header={t('data_and_security')}>
+              <GroupedSection card={false} header={t('data_and_security')}>
                 {/* Demo mode: a wallet full of obviously-fake BSV and stablecoins,
                 for showing the app without an account or a balance. Literal
                 copy rather than i18n — this row renders only under `__DEV__`
@@ -933,7 +923,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                   <ListRow
                     label="Demo mode (dev)"
                     icon="flask-outline"
-                    iconColor="#8E8E93"
                     showChevron={false}
                     value={demoOn ? 'On' : 'Off'}
                     onPress={() => {
@@ -947,7 +936,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                   <ListRow
                     label="Reset demo data (dev)"
                     icon="refresh-outline"
-                    iconColor="#8E8E93"
                     showChevron={false}
                     onPress={() => demoMod.resetDemoLedger()}
                   />
@@ -958,7 +946,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                   <ListRow
                     label={t('vault_mock_toggle')}
                     icon="bug-outline"
-                    iconColor="#8E8E93"
                     showChevron={false}
                     value={vaultMockOn ? t('vault_on') : t('vault_off')}
                     onPress={() => {
@@ -979,7 +966,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                   <ListRow
                     label="Mock key present (dev)"
                     icon="key-outline"
-                    iconColor="#8E8E93"
                     showChevron={false}
                     value={mockPresent}
                     onPress={() => {
@@ -992,13 +978,11 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                 <ListRow
                   label={t('backup_wallet_keys', { defaultValue: 'Backup Wallet Keys' })}
                   icon="key-outline"
-                  iconColor="#CC8400"
                   onPress={() => router.push('/auth/mnemonic?flow=backup')}
                 />
                 <ListRow
                   label={t('storage_row')}
                   icon="server-outline"
-                  iconColor="#8E8E93"
                   showChevron={false}
                   onPress={handleStorage}
                   trailing={storageBusy ? <ActivityIndicator size="small" /> : undefined}
@@ -1006,7 +990,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                 <ListRow
                   label={t('export_wallet_data')}
                   icon="share-outline"
-                  iconColor="#32ADE6"
                   onPress={() => void exportData()}
                   showChevron={false}
                   trailing={exporting ? <ActivityIndicator size="small" /> : undefined}
@@ -1023,7 +1006,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                 <ListRow
                   label={t('import_wallet_data')}
                   icon="download-outline"
-                  iconColor="#30D158"
                   onPress={handleImportData}
                   showChevron={false}
                   trailing={isImporting ? <ActivityIndicator size="small" /> : undefined}
@@ -1032,7 +1014,6 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
                   testID="settings-logs"
                   label="Debugging"
                   icon="terminal-outline"
-                  iconColor="#8E8E93"
                   onPress={() => router.push('/logs' as any)}
                   isLast
                 />
@@ -1044,11 +1025,10 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
               encrypted copy of the wallet database to a BSVA-operated server by default, and
               that deserves saying out loud rather than burying in a row label. */}
             {getBackupUrl() !== '' && (
-              <GroupedSection header={t('backup_push_section')} footer={t('backup_push_disclosure')}>
+              <GroupedSection card={false} header={t('backup_push_section')} footer={t('backup_push_disclosure')}>
                 <ListRow
                   label={t('backup_push_toggle')}
                   icon="cloud-upload-outline"
-                  iconColor="#0A84FF"
                   showChevron={false}
                   value={backupPushOn ? t('vault_on') : t('vault_off')}
                   onPress={handleToggleBackupPush}
@@ -1073,7 +1053,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
 
         {/* ── Account ── */}
         {!hideLogout && (
-          <GroupedSection>
+          <GroupedSection card={false}>
             <ListRow
               testID="settings-log-out"
               label={t('log_out')}
@@ -1143,6 +1123,7 @@ export function WalletConfigScreen({ hideLogout = false }: { hideLogout?: boolea
 const localStyles = StyleSheet.create({
   version: {
     ...typography.caption1,
+    fontFamily: 'Nunito',
     textAlign: 'center',
     paddingTop: spacing.xl,
     paddingBottom: spacing.lg
@@ -1161,8 +1142,16 @@ const localStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
+  headerBackWell: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   headerTitle: {
     ...typography.headline,
+    fontFamily: 'Nunito',
     fontWeight: '600'
   },
   networkList: {
@@ -1182,7 +1171,8 @@ const localStyles = StyleSheet.create({
     marginRight: spacing.md
   },
   networkLabel: {
-    ...typography.body
+    ...typography.body,
+    fontFamily: 'Nunito'
   },
   thresholdRow: {
     flexDirection: 'row',
@@ -1193,6 +1183,7 @@ const localStyles = StyleSheet.create({
   thresholdInput: {
     flex: 1,
     ...typography.body,
+    fontFamily: 'Nunito',
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 8,
     paddingHorizontal: spacing.md,
@@ -1200,6 +1191,7 @@ const localStyles = StyleSheet.create({
   },
   thresholdUnit: {
     ...typography.body,
+    fontFamily: 'Nunito',
     marginLeft: spacing.sm
   },
   arcInputRow: {
@@ -1208,10 +1200,12 @@ const localStyles = StyleSheet.create({
   },
   arcLabel: {
     ...typography.caption1,
+    fontFamily: 'Nunito',
     marginBottom: spacing.xs
   },
   arcInput: {
     ...typography.body,
+    fontFamily: 'Nunito',
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 8,
     paddingHorizontal: spacing.md,

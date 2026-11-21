@@ -1,7 +1,45 @@
 import React from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useTheme, spacing, typography } from '@bsv/expo-wallet-toolbox'
+import { useTheme, spacing } from '@bsv/expo-wallet-toolbox'
 import PressableScale from './PressableScale'
+import {
+  ArrowLeftRight,
+  Banknote,
+  Bell,
+  Bitcoin,
+  Bug,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+  CircleCheckBig,
+  CirclePlus,
+  CircleX,
+  Clock,
+  CloudUpload,
+  Download,
+  FlaskConical,
+  Globe,
+  KeyRound,
+  LockOpen,
+  LogOut,
+  Mail,
+  QrCode,
+  Radio,
+  Receipt,
+  RefreshCw,
+  Send,
+  Server,
+  Settings,
+  Share2,
+  ShieldCheck,
+  Terminal,
+  Trash2,
+  Vault,
+  Wifi,
+  Wrench,
+  Zap,
+  type LucideIcon
+} from 'lucide-react-native'
 
 /**
  * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
@@ -9,7 +47,8 @@ import PressableScale from './PressableScale'
  * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
  * Both icon sets are loaded lazily, only when actually rendering, same
  * pattern as this package's other native-module-boundary fixes (expo-router,
- * expo-blur).
+ * expo-blur). They are now only reached by a row whose icon name has no
+ * lucide equivalent below.
  */
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
 type MaterialCommunityIconsComponent = typeof import('@expo/vector-icons').MaterialCommunityIcons
@@ -30,13 +69,65 @@ function loadMaterialCommunityIcons(): MaterialCommunityIconsComponent {
   return materialCommunityIconsComponent
 }
 
+/**
+ * Every glyph this app draws comes from lucide -- its settings rows
+ * (src/settings/Rows.tsx), its headers, its sheets -- so the rows here draw
+ * from it too, at the same 16px and the same default stroke. Two icon
+ * families in one list is visible at a glance: Ionicons' filled-corner,
+ * closed shapes next to lucide's open 2px strokes read as two apps.
+ *
+ * The prop stays an Ionicons (or MaterialCommunityIcons) name, because that
+ * is this component's published API and every call site passes one. This maps
+ * each name used across the package to its nearest lucide counterpart; a name
+ * with no entry falls through to the set it was written for, so a row added
+ * upstream still draws something rather than nothing.
+ */
+const LUCIDE: Record<string, LucideIcon> = {
+  'add-circle-outline': CirclePlus,
+  'alert-circle-outline': CircleAlert,
+  'bug-outline': Bug,
+  'cash-outline': Banknote,
+  'checkmark-done-circle-outline': CircleCheckBig,
+  'close-circle-outline': CircleX,
+  'cloud-upload-outline': CloudUpload,
+  'construct-outline': Wrench,
+  'download-outline': Download,
+  'flash-outline': Zap,
+  'flask-outline': FlaskConical,
+  'globe-outline': Globe,
+  'key-outline': KeyRound,
+  'lock-open': LockOpen,
+  'log-out-outline': LogOut,
+  'logo-bitcoin': Bitcoin,
+  'mail-outline': Mail,
+  'notifications-outline': Bell,
+  'qr-code-outline': QrCode,
+  'radio-outline': Radio,
+  'receipt-outline': Receipt,
+  'refresh-outline': RefreshCw,
+  // MaterialCommunityIcons' `safe` -- the one concept Ionicons had no glyph
+  // for, and the reason iconFamily exists. lucide has it.
+  safe: Vault,
+  'send-outline': Send,
+  'server-outline': Server,
+  'settings-outline': Settings,
+  'share-outline': Share2,
+  'shield-checkmark-outline': ShieldCheck,
+  'swap-horizontal-outline': ArrowLeftRight,
+  'terminal-outline': Terminal,
+  'time-outline': Clock,
+  'trash-outline': Trash2,
+  'wifi-outline': Wifi
+}
+
 interface ListRowProps {
   label: string
   /** Secondary line under the label. Settings rows use this for the explaining copy. */
   subtitle?: string
   value?: string
   /** Ionicons name by default; a MaterialCommunityIcons name when
-   * `iconFamily="material-community"`. */
+   * `iconFamily="material-community"`. Drawn as its lucide equivalent, which
+   * is what the rest of this app draws. */
   icon?: keyof IoniconsComponent['glyphMap'] | keyof MaterialCommunityIconsComponent['glyphMap']
   /** Ionicons covers almost everything here, but a few concepts have no glyph
    * in it (e.g. a bank vault — `lock-closed` reads as a generic padlock).
@@ -72,16 +163,11 @@ export const ListRow: React.FC<ListRowProps> = ({
   testID
 }) => {
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
-  const MaterialCommunityIcons = loadMaterialCommunityIcons()
+  const Glyph = icon ? LUCIDE[icon as string] : undefined
+  const Chevron = chevronDown ? ChevronDown : ChevronRight
 
   const content = (
-    <View
-      style={[
-        styles.container,
-        !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
-      ]}
-    >
+    <View style={styles.container}>
       {icon && (
         <View
           style={[
@@ -91,18 +177,20 @@ export const ListRow: React.FC<ListRowProps> = ({
               : { backgroundColor: colors.surfaceSunken, borderColor: colors.surfaceSunkenBorder }
           ]}
         >
-          {iconFamily === 'material-community' ? (
-            <MaterialCommunityIcons
-              name={icon as keyof typeof MaterialCommunityIcons.glyphMap}
-              size={17}
-              color={iconColor || colors.textSecondary}
-            />
+          {Glyph ? (
+            <Glyph size={16} color={iconColor || colors.textPrimary} />
+          ) : iconFamily === 'material-community' ? (
+            React.createElement(loadMaterialCommunityIcons(), {
+              name: icon as never,
+              size: 16,
+              color: iconColor || colors.textPrimary
+            })
           ) : (
-            <Ionicons
-              name={icon as keyof typeof Ionicons.glyphMap}
-              size={17}
-              color={iconColor || colors.textSecondary}
-            />
+            React.createElement(loadIonicons(), {
+              name: icon as never,
+              size: 16,
+              color: iconColor || colors.textPrimary
+            })
           )}
         </View>
       )}
@@ -124,12 +212,7 @@ export const ListRow: React.FC<ListRowProps> = ({
           </Text>
         )}
         {showChevron && onPress && !destructive && (
-          <Ionicons
-            name={chevronDown ? 'chevron-down' : 'chevron-forward'}
-            size={18}
-            color={colors.textQuaternary}
-            style={styles.chevron}
-          />
+          <Chevron size={16} color={colors.textSecondary} style={styles.chevron} />
         )}
       </View>
     </View>
@@ -158,16 +241,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minHeight: 44,
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg
+    paddingHorizontal: spacing.md,
+    borderRadius: 19.04
   },
   // A well the glyph sits in, tinted by the row's own colour rather than
   // flooded with it. A grid of saturated tiles reads as decoration and makes
   // every row shout equally; the tint keeps the category cue and drops the
   // shouting.
   iconContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
+    width: 36,
+    height: 36,
+    borderRadius: 19.04,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
@@ -177,10 +261,15 @@ const styles = StyleSheet.create({
     flex: 1
   },
   label: {
-    ...typography.body
+    fontFamily: 'Nunito',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500'
   },
   subtitle: {
-    ...typography.footnote,
+    fontFamily: 'Nunito',
+    fontSize: 12,
+    lineHeight: 16,
     marginTop: 1
   },
   trailing: {
@@ -190,7 +279,9 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm
   },
   value: {
-    ...typography.body,
+    fontFamily: 'Nunito',
+    fontSize: 13,
+    lineHeight: 18,
     maxWidth: 200
   },
   chevron: {

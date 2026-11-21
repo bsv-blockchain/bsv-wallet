@@ -269,6 +269,19 @@ export class CeremonyController {
     return () => this.subscribers.delete(cb)
   }
 
+  /** Whether `signer` is still the armed one: not released by its caller, by
+   * cancel(), by a detach or by the retention ceiling. Read by a shared signer
+   * session (ceremonyHost.openVaultSignerSession) before it reuses a signer. */
+  holds(signer: VaultSigner): boolean {
+    return this.activeHandle === signer
+  }
+
+  /** Whether cancel() ended the ceremony most recently asked for. requestSigner
+   * resets it, so it speaks only for that ceremony. */
+  get wasCancelled(): boolean {
+    return this.cancelled
+  }
+
   /** Ask for the chosen key as a signer. Every overlapping request is refused:
    * one caller must have sole ownership of both the signer and the process-wide
    * native discovery/session object through release and teardown. */

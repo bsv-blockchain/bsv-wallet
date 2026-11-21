@@ -13,18 +13,10 @@ import React from 'react'
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTheme, spacing, radii, typography, i18n } from '@bsv/expo-wallet-toolbox'
 import PressableScale from '../ui/PressableScale'
+import { Wifi } from 'lucide-react-native'
+import { BalancedText } from '../ui/BalancedText'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
-
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
 
 export const NearbyAdvisoryModal: React.FC<{
   visible: boolean
@@ -32,7 +24,6 @@ export const NearbyAdvisoryModal: React.FC<{
   onContinue: () => void
 }> = ({ visible, onCancel, onContinue }) => {
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
 
   if (!visible) return null
 
@@ -56,10 +47,12 @@ export const NearbyAdvisoryModal: React.FC<{
         />
         <View style={[styles.card, { backgroundColor: colors.sheetBackground, borderColor: colors.separator }]}>
           <View style={[styles.heroIcon, { backgroundColor: colors.fillTertiary }]}>
-            <Ionicons name="wifi" size={26} color={colors.accent} />
+            <Wifi size={26} color={colors.accent} />
           </View>
           <Text style={[styles.title, { color: colors.textPrimary }]}>{t('nearby_advisory_title')}</Text>
-          <Text style={[styles.body, { color: colors.textSecondary }]}>{t('nearby_advisory_body')}</Text>
+          <BalancedText style={[styles.body, { color: colors.textSecondary }]}>
+            {t('nearby_advisory_body')}
+          </BalancedText>
 
           <PressableScale
             haptic="confirm"

@@ -16,24 +16,21 @@ import React from 'react'
 import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useTheme, spacing, radii, typography, i18n } from '@bsv/expo-wallet-toolbox'
 import PressableScale from '../ui/PressableScale'
+import { BalancedText } from '../ui/BalancedText'
 
 const t = (k: string, o?: Record<string, unknown>) => i18n.t(k, o) as string
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set, one of which
- * reaches expo-font -> expo-asset -- untransformed ESM Jest cannot parse
- * when eagerly pulled in via the `ui` package barrel. Loaded lazily, same
- * pattern as this package's other native-module-boundary fixes.
+ * lucide, like every other glyph this app draws. Imported at module scope
+ * rather than behind a lazy loader: what had to be deferred is
+ * @expo/vector-icons' index barrel, which re-exports every icon set and so
+ * reaches expo-font -> expo-asset as untransformed ESM; nothing here pulls
+ * that barrel in any more. lucide publishes both module formats and Jest
+ * resolves the ESM one, so the app pins this name to lucide's CJS entry in
+ * jest.moduleNameMapper (package.json), as it already does for its other
+ * ESM-only dependencies.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
+import { Fingerprint } from 'lucide-react-native'
 
 export const BiometricAdvisoryModal: React.FC<{
   visible: boolean
@@ -53,7 +50,6 @@ export const BiometricAdvisoryModal: React.FC<{
   onContinue: () => void
 }> = ({ visible, loading = false, degraded = false, onCancel, onContinue }) => {
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
 
   if (!visible) return null
 
@@ -77,12 +73,12 @@ export const BiometricAdvisoryModal: React.FC<{
         />
         <View style={[styles.card, { backgroundColor: colors.sheetBackground, borderColor: colors.separator }]}>
           <View style={[styles.heroIcon, { backgroundColor: colors.fillTertiary }]}>
-            <Ionicons name="finger-print" size={28} color={colors.accent} />
+            <Fingerprint size={28} color={colors.accent} />
           </View>
           <Text style={[styles.title, { color: colors.textPrimary }]}>{t('biometric_advisory_title')}</Text>
-          <Text style={[styles.body, { color: colors.textSecondary }]}>
+          <BalancedText style={[styles.body, { color: colors.textSecondary }]}>
             {t(degraded ? 'biometric_advisory_body_degraded' : 'biometric_advisory_body')}
-          </Text>
+          </BalancedText>
 
           <PressableScale
             haptic="confirm"

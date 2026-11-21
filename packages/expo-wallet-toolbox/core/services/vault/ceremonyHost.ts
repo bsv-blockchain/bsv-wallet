@@ -7,6 +7,7 @@
  */
 import { CeremonyController, VaultProgress, VaultSigner } from './ceremony'
 import { getVaultDriver } from './driver'
+import { VaultError } from './types'
 import { vaultStore } from './vaultStore'
 
 /** How long an armed signer stays usable before it relocks — refreshed by
@@ -49,4 +50,61 @@ export function requestVaultSigner(reason: string, chosenSerial: string): Promis
  * nothing is armed, such as after a deposit's possession proof is released. */
 export function noteVaultProgress(p: VaultProgress): void {
   ceremony.noteProgress(p)
+}
+
+/**
+ * One key session for a whole spend that also creates a Vault output (a
+ * withdrawal with a re-vaulted remainder, a re-lock): one PIN entry and one
+ * tap cover both the new output's possession proof and the input signatures.
+ * Before this, each step opened its own ceremony, so the person entered the
+ * PIN and tapped twice for one transfer.
+ *
+ * The session is a local of ONE operation and is closed in that operation's
+ * finally. It is never module state (see VaultSigner).
+ *
+ * - `acquire` arms the chosen key the first time. Later calls return the same
+ *   signer while it is still armed. If the key left or the retention window
+ *   closed in between (the proof is signed before the transaction is built, so
+ *   the session stays open through the build), it asks for a fresh ceremony:
+ *   the old two-tap behaviour, never a failed transfer. A session the person
+ *   cancelled stays cancelled (`user-cancelled`).
+ * - `close` releases the signer. Idempotent, as VaultSigner.release() is, so
+ *   the spend may release the signer itself as soon as the last input is
+ *   signed and the operation's finally may close again.
+ */
+export interface VaultSignerSession {
+  acquire(reason: string, chosenSerial: string): Promise<VaultSigner>
+  close(): void
+}
+
+export function openVaultSignerSession(
+  deps: {
+    request: (reason: string, chosenSerial: string) => Promise<VaultSigner>
+    holds: (signer: VaultSigner) => boolean
+    cancelled: () => boolean
+  } = {
+    request: requestVaultSigner,
+    holds: signer => ceremony.holds(signer),
+    cancelled: () => ceremony.wasCancelled
+  }
+): VaultSignerSession {
+  let held: VaultSigner | undefined
+  return {
+    async acquire(reason, chosenSerial) {
+      if (held && held.serial === chosenSerial && deps.holds(held)) return held
+      if (held) {
+        const ended = held
+        held = undefined
+        ended.release()
+        if (deps.cancelled()) throw new VaultError('user-cancelled', 'Vault key session was cancelled')
+      }
+      held = await deps.request(reason, chosenSerial)
+      return held
+    },
+    close() {
+      const signer = held
+      held = undefined
+      signer?.release()
+    }
+  }
 }

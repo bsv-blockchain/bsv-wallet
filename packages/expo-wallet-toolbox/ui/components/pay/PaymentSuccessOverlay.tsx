@@ -28,6 +28,7 @@ import AmountDisplay from '../wallet/AmountDisplay'
 import Celebration from '../ui/Celebration'
 import PressableScale from '../ui/PressableScale'
 import type { DismissTarget } from '../../dismissTarget'
+import { BalancedText } from '../ui/BalancedText'
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -282,12 +283,14 @@ export default function PaymentSuccessOverlay({
               rendered ungated by direction; a sent payment gets its own, because
               "Received offline" over an outgoing payment is simply wrong. */}
           {!broadcast && (
-            <Text style={[styles.pending, { color: colors.textSecondary }]}>
+            <BalancedText style={[styles.pending, { color: colors.textSecondary }]}>
               {t(sent ? 'pay_sent_not_broadcast' : 'pay_received_not_broadcast')}
-            </Text>
+            </BalancedText>
           )}
 
-          {!!statusNote && <Text style={[styles.pending, { color: colors.textSecondary }]}>{statusNote}</Text>}
+          {!!statusNote && (
+            <BalancedText style={[styles.pending, { color: colors.textSecondary }]}>{statusNote}</BalancedText>
+          )}
 
           {!!firstHoldNote && (
             <Text
@@ -342,10 +345,9 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     alignItems: 'center'
   },
+  // the display ramp exactly, which this used to restate by hand
   amount: {
-    fontSize: 44,
-    lineHeight: 52,
-    fontWeight: '700',
+    ...typography.display,
     textAlign: 'center'
   },
   support: {
