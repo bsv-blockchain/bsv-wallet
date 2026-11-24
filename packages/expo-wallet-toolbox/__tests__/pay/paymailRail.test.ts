@@ -328,6 +328,67 @@ describe('sendViaPaymail', () => {
       expect((await rows(storage))[0]).toMatchObject({ status: 'unsent', lastError: 'status_unavailable' })
     })
 
+    it('an abort that throws but landed: refused, row removed (the action is gone on re-check)', async () => {
+      let released = false
+      const base = fakeWallet()
+      const wallet = fakeWallet({
+        createAction: base.createAction,
+        abortAction: jest.fn(async () => {
+          released = true
+          throw new Error('late')
+        }),
+        listActions: jest.fn(async () => ({ actions: released ? [] : (await base.listActions()).actions }))
+      })
+      const { args, storage } = setup({ wallet, post: http503, status: jest.fn().mockResolvedValue(unknown) })
+      const e = await rejection(sendViaPaymail(args))
+      expect(e).toMatchObject({ kind: 'refused', code: 'recipient_refused' })
+      expect(await rows(storage)).toHaveLength(0)
+    })
+
+    it('abort_failed marks the row refused so the drain cannot re-post it', async () => {
+      const wallet = fakeWallet({ abortAction: jest.fn().mockResolvedValue({ aborted: false }) })
+      const { args, storage, client } = setup({ wallet, post: http503, status: jest.fn().mockResolvedValue(unknown) })
+      await rejection(sendViaPaymail(args))
+      const [row] = await rows(storage)
+      expect(row.refused).toBe(true)
+      const { retryPaymailDelivery } = require('../../core/pay/rails/paymail')
+      await retryPaymailDelivery({ ...args, entry: row })
+      expect(client.postBeef).toHaveBeenCalledTimes(1)
+    })
+
+    it('a storage write that fails after the row is saved is maybe_sent / storage_error', async () => {
+      const storage = fakeStorage()
+      let writes = 0
+      const failing = {
+        getKeyValue: storage.getKeyValue,
+        setKeyValue: async (k: string, v: string) => {
+          if (++writes > 1) throw new Error('SQLITE_BUSY')
+          await storage.setKeyValue(k, v)
+        }
+      }
+      const { args } = setup({ storage: failing })
+      const e = await rejection(sendViaPaymail(args))
+      expect(e).toBeInstanceOf(PaymailSendError)
+      expect(e).toMatchObject({ kind: 'maybe_sent', code: 'storage_error' })
+      expect(await rows(storage as never)).toHaveLength(1)
+    })
+
+    it('a storage fault while noting a failed attempt keeps the typed error', async () => {
+      const storage = fakeStorage()
+      let writes = 0
+      const failing = {
+        getKeyValue: storage.getKeyValue,
+        // save, delivering:true, then everything fails
+        setKeyValue: async (k: string, v: string) => {
+          if (++writes > 2) throw new Error('SQLITE_BUSY')
+          await storage.setKeyValue(k, v)
+        }
+      }
+      const { args } = setup({ storage: failing, post: { kind: 'network', message: 'timeout' } })
+      const e = await rejection(sendViaPaymail(args))
+      expect(e).toMatchObject({ kind: 'maybe_sent', code: 'no_answer' })
+    })
+
     it('abortAction never resolves: after 10 s abort_failed, row stays unsent', async () => {
       jest.useFakeTimers()
       const wallet = fakeWallet({ abortAction: jest.fn(() => new Promise(() => {})) })

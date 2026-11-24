@@ -110,14 +110,59 @@ function errMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
-/** Record a failed attempt and make sure the drain looks at the row again. */
+/**
+ * Record a failed attempt and make sure the drain looks at the row again.
+ * Best effort: the caller is about to throw a typed error, and a storage fault
+ * here must not replace it with a plain one.
+ */
 async function noteAttempt(deps: PaymailRailDeps, entry: PaymailOutboxEntry, lastError: string, extra = {}) {
-  await updateOutboxEntry(deps.storage, entry.id, {
-    lastAttemptAt: new Date().toISOString(),
-    lastError,
-    ...extra
-  })
+  try {
+    await updateOutboxEntry(deps.storage, entry.id, {
+      lastAttemptAt: new Date().toISOString(),
+      lastError,
+      ...extra
+    })
+  } catch (e) {
+    console.warn('[paymail] could not record the attempt:', errMessage(e))
+  }
   TaskDrainOutbox.noteEnqueued()
+}
+
+/** Whether a noSend action for `txid` is still live (it can still be broadcast or aborted). */
+async function nosendActionIsLive(
+  wallet: Pick<PaymailRailWallet, 'listActions'>,
+  adminOriginator: string,
+  txid: string
+): Promise<boolean> {
+  const { actions } = await wallet.listActions({ labels: [PAYMAIL_LABEL], limit: 1000 }, adminOriginator)
+  const match = actions.find(a => a.txid === txid)
+  return match != null && (match as { status?: string }).status !== 'failed'
+}
+
+/**
+ * Free the inputs held by the noSend action for `txid`, inside the deadline.
+ * True when the abort landed or the action is already gone. An abort that
+ * times out or throws may still land late, so the action is looked up again
+ * before the funds are called stuck. False only when it is still live.
+ */
+async function releaseNosend(
+  deps: Pick<PaymailRailDeps, 'wallet' | 'adminOriginator'>,
+  txid: string
+): Promise<boolean> {
+  try {
+    if (
+      await withDeadline(abortNosendByTxid(deps.wallet, deps.adminOriginator, txid, PAYMAIL_LABEL), NETWORK_CALL_DEADLINE_MS)
+    ) {
+      return true
+    }
+  } catch {
+    // fall through to the look-up
+  }
+  try {
+    return !(await withDeadline(nosendActionIsLive(deps.wallet, deps.adminOriginator, txid), NETWORK_CALL_DEADLINE_MS))
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -204,20 +249,14 @@ export async function settlePaymailPost(
     )
   }
 
-  let aborted = false
-  try {
-    aborted = await withDeadline(
-      abortNosendByTxid(deps.wallet, deps.adminOriginator, entry.txid, PAYMAIL_LABEL),
-      NETWORK_CALL_DEADLINE_MS
-    )
-  } catch {
-    aborted = false
-  }
+  const aborted = await releaseNosend(deps, entry.txid)
   if (aborted) {
     await removeOutboxEntry(deps.storage, entry.id)
     throw new PaymailSendError('refused', post.message, 'recipient_refused')
   }
-  await noteAttempt(deps, entry, 'abort_failed')
+  // The abort may still land late. Mark the row refused so the drain never posts
+  // it again over inputs that may be freed; only a Cancel resolves it.
+  await noteAttempt(deps, entry, 'abort_failed', { refused: true })
   throw new PaymailSendError(
     'abort_failed',
     'The receiver refused the payment, but the funds could not be freed.',
@@ -316,23 +355,36 @@ export async function sendViaPaymail(
       throw e
     }
 
-    await updateOutboxEntry(storage, outboxId, { delivering: true })
-    const post = await client.postBeef({
-      endpoint: destination.beefEndpoint,
-      beefHex,
-      reference: destination.reference
-    })
-    const entry = (await getOutboxEntries(storage)).find(e => e.id === outboxId) as PaymailOutboxEntry | undefined
-    if (!entry) {
-      // The receiver may hold the payment but the row is gone: nothing to settle against.
+    // From here the row exists and the receiver may hold the payment. Whatever
+    // fails must reach the caller as a typed error, so the UI blocks a second
+    // payment instead of reporting "not sent".
+    try {
+      await updateOutboxEntry(storage, outboxId, { delivering: true })
+      const post = await client.postBeef({
+        endpoint: destination.beefEndpoint,
+        beefHex,
+        reference: destination.reference
+      })
+      const entry = (await getOutboxEntries(storage)).find(e => e.id === outboxId) as PaymailOutboxEntry | undefined
+      if (!entry) {
+        // The receiver may hold the payment but the row is gone: nothing to settle against.
+        throw new PaymailSendError(
+          'maybe_sent',
+          'The payment record is missing. The payment may have gone through.',
+          'outbox_missing'
+        )
+      }
+      const result = await settlePaymailPost(args, entry, post, { allowAbort: true })
+      return { outboxId, satoshis: total, broadcastPending: result.broadcastPending }
+    } catch (e) {
+      if (e instanceof PaymailSendError) throw e
+      TaskDrainOutbox.noteEnqueued()
       throw new PaymailSendError(
         'maybe_sent',
-        'The payment record is missing. The payment may have gone through.',
-        'outbox_missing'
+        'The wallet could not save the payment state. The payment may have gone through.',
+        'storage_error'
       )
     }
-    const result = await settlePaymailPost(args, entry, post, { allowAbort: true })
-    return { outboxId, satoshis: total, broadcastPending: result.broadcastPending }
   })
   if (!settled) {
     throw new PaymailSendError('maybe_sent', 'This payment is already being handled.', 'in_progress')
@@ -406,18 +458,6 @@ export async function retryPaymailDelivery(args: PaymailRailDeps & { entry: Paym
   })
 }
 
-/** Abort the noSend action for `txid` inside the deadline. False on a refusal, a throw or a hang. */
-async function abortWithDeadline(deps: Pick<PaymailRailDeps, 'wallet' | 'adminOriginator'>, txid: string) {
-  try {
-    return await withDeadline(
-      abortNosendByTxid(deps.wallet, deps.adminOriginator, txid, PAYMAIL_LABEL),
-      NETWORK_CALL_DEADLINE_MS
-    )
-  } catch {
-    return false
-  }
-}
-
 const statusUnavailable = () =>
   new PaymailSendError(
     'maybe_sent',
@@ -457,7 +497,7 @@ export async function cancelPaymailPayment(
       if (settled.broadcastPending) await markOutboxSent(storage, stored.id)
       return { aborted: false, sent: true }
     }
-    if (await abortWithDeadline(args, stored.txid)) {
+    if (await releaseNosend(args, stored.txid)) {
       await removeOutboxEntry(storage, stored.id)
       return { aborted: true, sent: false }
     }
@@ -485,7 +525,7 @@ export async function resolveOrphanPaymailAction(
       await broadcastNoSend(args.wallet, args.adminOriginator, args.txid)
       return { aborted: false, sent: true }
     }
-    if (await abortWithDeadline(args, args.txid)) return { aborted: true, sent: false }
+    if (await releaseNosend(args, args.txid)) return { aborted: true, sent: false }
     throw abortFailed()
   })
   if (!result) throw new PaymailSendError('maybe_sent', 'This payment is already being handled.', 'in_progress')

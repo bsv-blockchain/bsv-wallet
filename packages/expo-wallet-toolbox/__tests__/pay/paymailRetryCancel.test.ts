@@ -247,6 +247,25 @@ describe('cancelPaymailPayment', () => {
     expect(await s.row()).toBeDefined()
   })
 
+  it('with no live action (the abort landed late) and the network unknown removes the row', async () => {
+    const s = await setup()
+    s.wallet.listActions.mockResolvedValue({ actions: [] })
+    const res = await cancelPaymailPayment({ ...s.deps, entry: await s.row() })
+    expect(res).toEqual({ aborted: true, sent: false })
+    expect(await s.row()).toBeUndefined()
+  })
+
+  it('with an abort that throws, then no live action, removes the row', async () => {
+    const s = await setup()
+    s.wallet.abortAction.mockRejectedValue(new Error('late'))
+    s.wallet.listActions
+      .mockResolvedValueOnce({ actions: [{ txid: s.txid, reference: 'ref1' }] })
+      .mockResolvedValue({ actions: [] })
+    const res = await cancelPaymailPayment({ ...s.deps, entry: await s.row() })
+    expect(res.aborted).toBe(true)
+    expect(await s.row()).toBeUndefined()
+  })
+
   it('when the abort is refused keeps the row', async () => {
     const s = await setup()
     s.wallet.abortAction.mockResolvedValue({ aborted: false } as never)
