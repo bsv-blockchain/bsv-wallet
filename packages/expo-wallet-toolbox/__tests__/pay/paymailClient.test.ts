@@ -68,10 +68,6 @@ describe('getP2pDestination', () => {
         ]
       }
     ],
-    [
-      'more than 10 outputs',
-      { ...GOOD, outputs: Array.from({ length: 11 }, () => ({ script: 'aa', satoshis: 1000 / 11 })) }
-    ],
     ['no outputs', { ...GOOD, outputs: [] }],
     ['a missing reference', { outputs: GOOD.outputs }],
     ['a numeric reference', { ...GOOD, reference: 5 }],
@@ -82,6 +78,17 @@ describe('getP2pDestination', () => {
     const { client } = clientWith([destRule(async () => ok(body))])
     const r = await client.getP2pDestination('deggen@handcash.io', 1000)
     expect(r).toMatchObject({ kind: 'failed', reason: 'invalid_destination' })
+  })
+
+  it('refuses 11 whole-satoshi outputs that add up (output cap), but accepts 10', async () => {
+    const mk = (n: number) => Array.from({ length: n }, () => ({ script: 'aa', satoshis: 1 }))
+    const over = clientWith([destRule(async () => ok({ ...GOOD, outputs: mk(11) }))])
+    expect(await over.client.getP2pDestination('deggen@handcash.io', 11)).toMatchObject({
+      kind: 'failed',
+      reason: 'invalid_destination'
+    })
+    const at = clientWith([destRule(async () => ok({ ...GOOD, outputs: mk(10) }))])
+    expect((await at.client.getP2pDestination('deggen@handcash.io', 10)).kind).toBe('ok')
   })
 
   it('accepts several outputs that add up', async () => {
