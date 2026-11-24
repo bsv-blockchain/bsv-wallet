@@ -136,9 +136,28 @@ describe('paymail outbox entries', () => {
     ['whose endpoint is http://', { endpoint: 'http://hc.example/x' }],
     ['whose endpoint is a private host', { endpoint: 'https://127.0.0.1/x' }],
     ['with satoshis 0', { satoshis: 0 }],
-    ['with beefHex that is not BEEF', { beefHex: 'deadbeef' }]
+    ['with beefHex that is not BEEF', { beefHex: 'deadbeef' }],
+    ['whose amount is more than the transaction pays', { satoshis: 501 }],
+    ['whose amount matches no combination of outputs', { satoshis: 499 }],
+    ['with a paymail that is not a paymail', { paymail: 'not a paymail' }],
+    ['with an empty paymail', { paymail: '' }],
+    ['with a paymail whose alias has a slash', { paymail: 'a/b@hc.example' }]
   ])('validateImportedOutboxEntry rejects a paymail row %s', async (_name, over) => {
     const entry = await heldPm(fakeStorage(), over)
+    await expect(validateImportedOutboxEntry(entry, sender, ADMIN)).rejects.toThrow(/^Imported payment/)
+  })
+
+  it('accepts a row whose amount is a subset of the outputs (the rest is change)', async () => {
+    const key = new PrivateKey(22)
+    const tx = new Transaction()
+    for (const satoshis of [700, 300, 12345]) tx.addOutput({ lockingScript: new P2PKH().lock(key.toAddress()), satoshis })
+    const entry = await heldPm(fakeStorage(), { beefHex: tx.toHexBEEF(), txid: tx.id('hex'), satoshis: 1000 })
+    await expect(validateImportedOutboxEntry(entry, sender, ADMIN)).resolves.toMatchObject({ id: entry.id })
+  })
+
+  it('rejects a row whose transaction has no outputs', async () => {
+    const tx = new Transaction()
+    const entry = await heldPm(fakeStorage(), { beefHex: tx.toHexBEEF(), txid: tx.id('hex') })
     await expect(validateImportedOutboxEntry(entry, sender, ADMIN)).rejects.toThrow(/^Imported payment/)
   })
 

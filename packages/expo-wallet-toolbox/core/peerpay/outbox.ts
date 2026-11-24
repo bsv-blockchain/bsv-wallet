@@ -17,6 +17,7 @@
 import { P2PKH, PublicKey, Transaction, type WalletInterface } from '@bsv/sdk'
 import { BRC29_PROTOCOL_ID } from './brc29'
 import { isPublicHttpsUrl } from '../net/publicDestination'
+import { parsePaymail } from '../pay/paymail/address'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -215,6 +216,28 @@ export async function quarantineImportedOutbox(storage: StorageLike): Promise<nu
   })
 }
 
+/** The most outputs a paymail transaction is allowed to have for the subset check. */
+const MAX_SUBSET_OUTPUTS = 24
+
+/**
+ * The displayed amount must be what the signed transaction pays. The
+ * transaction also carries change back to the wallet, so the amount is a
+ * combination of its outputs, not their sum. A transaction with no outputs, or
+ * with none that add up to the amount, is refused.
+ */
+function outputsCanPay(tx: Transaction, satoshis: number): boolean {
+  const values = tx.outputs.map(o => o.satoshis)
+  if (values.length === 0 || values.length > MAX_SUBSET_OUTPUTS) return false
+  if (!values.every(v => typeof v === 'number' && Number.isSafeInteger(v) && v > 0)) return false
+  let sums = new Set<number>([0])
+  for (const v of values as number[]) {
+    const next = new Set(sums)
+    for (const s of sums) if (s + v <= satoshis) next.add(s + v)
+    sums = next
+  }
+  return sums.has(satoshis)
+}
+
 function validateImportedPaymailEntry(entry: PaymailOutboxEntry): void {
   let tx: Transaction
   try {
@@ -232,6 +255,12 @@ function validateImportedPaymailEntry(entry: PaymailOutboxEntry): void {
   }
   if (!Number.isSafeInteger(entry.satoshis) || entry.satoshis <= 0) {
     throw new Error('Imported payment has an invalid amount')
+  }
+  if (!parsePaymail(entry.paymail)) {
+    throw new Error('Imported payment has an invalid paymail')
+  }
+  if (!outputsCanPay(tx, entry.satoshis)) {
+    throw new Error('Imported payment amount does not match its signed outputs')
   }
   if (typeof entry.endpoint !== 'string' || !isPublicHttpsUrl(entry.endpoint)) {
     throw new Error('Imported payment has an invalid endpoint')
