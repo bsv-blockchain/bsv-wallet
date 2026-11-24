@@ -130,7 +130,7 @@ describe('sendViaPaymail', () => {
         endpoint: destination().beefEndpoint
       })
       expect(typeof row.beefHex).toBe('string')
-      return { kind: 'accepted', txid: 'x', note: '' }
+      return { kind: 'accepted', txid: row.txid, note: '' }
     }) as any)
     await sendViaPaymail(args)
     expect(client.postBeef).toHaveBeenCalled()
@@ -206,6 +206,42 @@ describe('sendViaPaymail', () => {
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref1' }, 'admin.com')
     expect(client.postBeef).not.toHaveBeenCalled()
     expect(await rows(storage)).toHaveLength(0)
+  })
+
+  it('a malformed tx from the wallet aborts and throws mint_failed', async () => {
+    const wallet = fakeWallet({
+      createAction: jest.fn().mockResolvedValue({ txid: 'a'.repeat(64), tx: [1, 2, 3] }),
+      listActions: jest.fn(async () => ({ actions: [{ txid: 'a'.repeat(64), reference: 'ref1' }] }))
+    })
+    const { args, client, storage } = setup({ wallet })
+    expect(await rejection(sendViaPaymail(args))).toMatchObject({ kind: 'not_sent', code: 'mint_failed' })
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref1' }, 'admin.com')
+    expect(client.postBeef).not.toHaveBeenCalled()
+    expect(await rows(storage)).toHaveLength(0)
+  })
+
+  it('a tx whose id differs from created.txid aborts and throws mint_failed', async () => {
+    const wallet = fakeWallet()
+    const inner = wallet.createAction.getMockImplementation()!
+    wallet.createAction.mockImplementation(async (a: any) => {
+      const r: any = await inner(a)
+      return a?.options?.sendWith ? r : { ...r, txid: 'b'.repeat(64) }
+    })
+    wallet.listActions.mockImplementation(async () => ({ actions: [{ txid: 'b'.repeat(64), reference: 'ref1' }] }))
+    const { args, client } = setup({ wallet })
+    expect(await rejection(sendViaPaymail(args))).toMatchObject({ kind: 'not_sent', code: 'mint_failed' })
+    expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref1' }, 'admin.com')
+    expect(client.postBeef).not.toHaveBeenCalled()
+  })
+
+  it('the txid is locked while the row exists unsent', async () => {
+    const { args, client } = setup()
+    client.postBeef.mockImplementation((async () => {
+      const [row] = await rows(args.storage)
+      expect(await withTxidLock(row.txid, async () => 1)).toBeUndefined()
+      return { kind: 'accepted', txid: row.txid, note: '' }
+    }) as any)
+    await sendViaPaymail(args)
   })
 
   it('a save failure aborts the nosend and rethrows', async () => {
@@ -329,11 +365,11 @@ describe('sendViaPaymail', () => {
     expect(TaskDrainOutbox.hasPending).toBe(true)
   })
 
-  it('sendWith answers another status but the network says known: row sent, not pending', async () => {
+  it('sendWith answers failed but the network says known: row sent, not pending', async () => {
     const wallet = fakeWallet()
     const inner = wallet.createAction.getMockImplementation()!
     wallet.createAction.mockImplementation(async (a: any) => {
-      if (a?.options?.sendWith) return { sendWithResults: [{ txid: a.options.sendWith[0], status: 'unproven-nope' }] }
+      if (a?.options?.sendWith) return { sendWithResults: [{ txid: a.options.sendWith[0], status: 'failed' }] }
       return inner(a)
     })
     const status = jest.fn(async (t: string[]) => known(t[0]))

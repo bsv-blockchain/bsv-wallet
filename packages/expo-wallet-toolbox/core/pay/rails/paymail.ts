@@ -273,48 +273,69 @@ export async function sendViaPaymail(
     }
   }
 
-  const tx = Transaction.fromAtomicBEEF(created.tx)
-  const matches =
-    tx.id('hex') === txid &&
-    destination.outputs.every((o, i) => {
-      const out = tx.outputs[i]
-      return out != null && out.satoshis === o.satoshis && out.lockingScript.toHex().toLowerCase() === o.script.toLowerCase()
-    })
-  if (!matches) {
-    await abortQuietly()
-    throw new PaymailSendError('not_sent', 'The wallet built a different payment than asked.', 'mint_failed')
-  }
-  const beefHex = tx.toHexBEEF()
-  const total = destination.outputs.reduce((sum, o) => sum + o.satoshis, 0)
-
-  let outboxId: string
-  try {
-    outboxId = await savePaymailOutboxEntry(storage, {
-      paymail,
-      endpoint: destination.beefEndpoint,
-      paymailReference: destination.reference,
-      beefHex,
-      satoshis: total,
-      txid,
-      note: note?.trim() || undefined
-    })
-  } catch (e) {
-    await abortQuietly()
-    throw e
-  }
-
+  const createdTx = created.tx
   const settled = await withTxidLock(txid, async () => {
+    let beefHex: string
+    try {
+      const tx = Transaction.fromAtomicBEEF(createdTx)
+      const matches =
+        tx.id('hex') === txid &&
+        destination.outputs.every((o, i) => {
+          const out = tx.outputs[i]
+          return (
+            out != null &&
+            out.satoshis === o.satoshis &&
+            out.lockingScript.toHex().toLowerCase() === o.script.toLowerCase()
+          )
+        })
+      if (!matches) {
+        await abortQuietly()
+        throw new PaymailSendError('not_sent', 'The wallet built a different payment than asked.', 'mint_failed')
+      }
+      beefHex = tx.toHexBEEF()
+    } catch (e) {
+      if (e instanceof PaymailSendError) throw e
+      await abortQuietly()
+      throw new PaymailSendError('not_sent', 'The wallet returned a transaction that could not be read.', 'mint_failed')
+    }
+    const total = destination.outputs.reduce((sum, o) => sum + o.satoshis, 0)
+
+    let outboxId: string
+    try {
+      outboxId = await savePaymailOutboxEntry(storage, {
+        paymail,
+        endpoint: destination.beefEndpoint,
+        paymailReference: destination.reference,
+        beefHex,
+        satoshis: total,
+        txid,
+        note: note?.trim() || undefined
+      })
+    } catch (e) {
+      await abortQuietly()
+      throw e
+    }
+
     await updateOutboxEntry(storage, outboxId, { delivering: true })
     const post = await client.postBeef({
       endpoint: destination.beefEndpoint,
       beefHex,
       reference: destination.reference
     })
-    const entry = (await getOutboxEntries(storage)).find(e => e.id === outboxId) as PaymailOutboxEntry
-    return settlePaymailPost(args, entry, post, { allowAbort: true })
+    const entry = (await getOutboxEntries(storage)).find(e => e.id === outboxId) as PaymailOutboxEntry | undefined
+    if (!entry) {
+      // The receiver may hold the payment but the row is gone: nothing to settle against.
+      throw new PaymailSendError(
+        'maybe_sent',
+        'The payment record is missing. The payment may have gone through.',
+        'outbox_missing'
+      )
+    }
+    const result = await settlePaymailPost(args, entry, post, { allowAbort: true })
+    return { outboxId, satoshis: total, broadcastPending: result.broadcastPending }
   })
   if (!settled) {
     throw new PaymailSendError('maybe_sent', 'This payment is already being handled.', 'in_progress')
   }
-  return { outboxId, txid, satoshis: total, broadcastPending: settled.broadcastPending }
+  return { outboxId: settled.outboxId, txid, satoshis: settled.satoshis, broadcastPending: settled.broadcastPending }
 }
