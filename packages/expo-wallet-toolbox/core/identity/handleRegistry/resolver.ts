@@ -31,10 +31,19 @@ export interface RegistryEndpoints {
   readonly pinned: boolean
 }
 
+/** What discovery found for a domain, before anyone decides what it means. */
+export type CapabilityDiscovery =
+  | { kind: 'ok'; domain: string; origin: string; capabilities: Readonly<Record<string, unknown>> }
+  | { kind: 'unsecured' } // SRV not authenticated, or SRV target not a public https origin
+  | { kind: 'none' } // answered, but not a usable capability document (HTTP 4xx, not an object)
+  | { kind: 'failed' } // DNS or HTTP gave no answer (throw, timeout, 5xx)
+
 export interface RegistryResolver {
   resolve(domain: string): Promise<RegistryEndpoints | null>
+  /** The raw capability map from the same cached, DNSSEC-checked discovery. */
+  discoverCapabilities(domain: string): Promise<CapabilityDiscovery>
   /** Test seam, and the way a "try again" control forgets a failed lookup. */
-  clearCache(): void
+  clearCache(domain?: string): void
 }
 
 export const REGISTRY_TIMEOUT_MS = 8000
@@ -202,6 +211,10 @@ function templateOf(value: unknown, placeholder: string): string | null {
   return isPublicHttpsUrl(value) ? value : null
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 export function createRegistryResolver(args: {
   pinned?: RegistryPin
   /** Trusted test transport; production must retain the native byte ceiling. */
@@ -214,7 +227,7 @@ export function createRegistryResolver(args: {
   const dohEndpoints = args.dohEndpoints ?? DOH_ENDPOINTS
   const pinnedDomain = args.pinned?.domain.trim().toLowerCase() ?? ''
   const pinnedOrigin = trimTrailingSlashes(args.pinned?.url.trim() ?? '')
-  const cache = new Map<string, { at: number; value: RegistryEndpoints | null }>()
+  const cache = new Map<string, { at: number; value: CapabilityDiscovery }>()
 
   const pinnedEndpoints: RegistryEndpoints | null =
     pinnedDomain !== '' && pinnedOrigin !== ''
@@ -235,7 +248,7 @@ export function createRegistryResolver(args: {
    * DNSSEC failure into `https://<domain>`. It is a failure of that resolver
    * instead, and the next one gets the question.
    */
-  async function lookupSrv(domain: string): Promise<{ target: string; port: number } | null> {
+  async function lookupSrv(domain: string): Promise<{ target: string; port: number } | 'unsecured' | null> {
     const fallback = { target: domain, port: 443 }
     for (const endpoint of dohEndpoints) {
       let body: DohResponse
@@ -255,58 +268,83 @@ export function createRegistryResolver(args: {
       if (body.Status === NXDOMAIN || records.length === 0) return fallback
       records.sort((a, b) => a.priority - b.priority || b.weight - a.weight)
       const best = records[0]
-      if (body.AD !== true && best.target !== domain) return null
+      if (body.AD !== true && best.target !== domain) return 'unsecured'
       return { target: best.target, port: best.port }
     }
     return null
   }
 
-  async function discover(domain: string): Promise<RegistryEndpoints | null> {
+  async function discover(domain: string): Promise<CapabilityDiscovery> {
     const host = await lookupSrv(domain)
-    if (!host) return null
+    if (host === null) return { kind: 'failed' }
+    if (host === 'unsecured') return { kind: 'unsecured' }
     const origin = `https://${host.target}${host.port === 443 ? '' : `:${host.port}`}`
     // An SRV target is ordinarily just a hostname, but nothing stops one from
     // being an IP literal, `localhost`, or a `.local` name — and DNSSEC only
     // authenticates that the domain's own zone said so, not that it is a
     // sensible destination (XR-073 / SEC2-057, SEC2-076).
-    if (!isPublicHttpsUrl(`${origin}/`)) return null
-    let capabilities: Record<string, unknown>
+    if (!isPublicHttpsUrl(`${origin}/`)) return { kind: 'unsecured' }
+    let body: unknown
     try {
       const res = await fetchWithTimeout(fetchImpl, `${origin}/.well-known/bsvalias`, {
         headers: { accept: 'application/json' }
       })
-      if (!res.ok) return null
-      const body = (await res.json()) as { capabilities?: Record<string, unknown> }
-      capabilities = body?.capabilities ?? {}
+      if (!res.ok) return res.status >= 500 ? { kind: 'failed' } : { kind: 'none' }
+      body = await res.json()
     } catch {
-      return null
+      return { kind: 'failed' }
     }
-    const searchTemplate = templateOf(capabilities[BRFC_LOOKUP], '{query}')
-    const reverseTemplate = templateOf(capabilities[BRFC_REVERSE_LOOKUP], '{pubkey}')
-    if (!searchTemplate || !reverseTemplate) return null
-    return {
-      domain,
-      search: query => searchTemplate.replace('{query}', encodeURIComponent(query)),
-      reverse: pubkey => reverseTemplate.replace('{pubkey}', encodeURIComponent(pubkey)),
-      pinned: false
+    if (!isPlainObject(body)) return { kind: 'none' }
+    const capabilities = body.capabilities ?? {}
+    if (!isPlainObject(capabilities)) return { kind: 'none' }
+    return { kind: 'ok', domain, origin, capabilities }
+  }
+
+  async function discoverCapabilities(rawDomain: string): Promise<CapabilityDiscovery> {
+    const domain = rawDomain.trim().toLowerCase()
+    if (pinnedEndpoints && domain === pinnedDomain) {
+      return {
+        kind: 'ok',
+        domain,
+        origin: pinnedOrigin,
+        capabilities: {
+          [BRFC_LOOKUP]: `${pinnedOrigin}/api/handle/{query}`,
+          [BRFC_REVERSE_LOOKUP]: `${pinnedOrigin}/api/identityKey/{pubkey}`
+        }
+      }
     }
+    // Ahead of the cache, not inside discovery: a half-typed domain is not an
+    // answer, and the cache has no eviction — search resolves as the user types.
+    if (!looksLikeDomain(domain)) return { kind: 'none' }
+    const hit = cache.get(domain)
+    if (hit && now() - hit.at < (hit.value.kind === 'ok' ? RESOLVER_SUCCESS_TTL_MS : RESOLVER_FAILURE_TTL_MS)) {
+      return hit.value
+    }
+    const value = await discover(domain)
+    cache.set(domain, { at: now(), value })
+    return value
   }
 
   return {
     async resolve(rawDomain) {
       const domain = rawDomain.trim().toLowerCase()
       if (pinnedEndpoints && domain === pinnedDomain) return pinnedEndpoints
-      // Ahead of the cache, not inside discovery: a half-typed domain is not an
-      // answer, and the cache has no eviction — search resolves as the user types.
-      if (!looksLikeDomain(domain)) return null
-      const hit = cache.get(domain)
-      if (hit && now() - hit.at < (hit.value ? RESOLVER_SUCCESS_TTL_MS : RESOLVER_FAILURE_TTL_MS)) return hit.value
-      const value = await discover(domain)
-      cache.set(domain, { at: now(), value })
-      return value
+      const found = await discoverCapabilities(domain)
+      if (found.kind !== 'ok') return null
+      const searchTemplate = templateOf(found.capabilities[BRFC_LOOKUP], '{query}')
+      const reverseTemplate = templateOf(found.capabilities[BRFC_REVERSE_LOOKUP], '{pubkey}')
+      if (!searchTemplate || !reverseTemplate) return null
+      return {
+        domain,
+        search: query => searchTemplate.replace('{query}', encodeURIComponent(query)),
+        reverse: pubkey => reverseTemplate.replace('{pubkey}', encodeURIComponent(pubkey)),
+        pinned: false
+      }
     },
-    clearCache() {
-      cache.clear()
+    discoverCapabilities,
+    clearCache(domain) {
+      if (domain === undefined) cache.clear()
+      else cache.delete(domain.trim().toLowerCase())
     }
   }
 }
