@@ -546,20 +546,29 @@ export async function broadcastNoSend(
  * the result keeps that row (and the reservation) in place until an abort
  * actually lands.
  */
-export async function abortPeerPayNosend(
+export async function abortNosendByTxid(
   wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>,
   adminOriginator: string,
-  txid: string
+  txid: string,
+  label: string
 ): Promise<boolean> {
   // createAction returns no reference for a completed noSend action, so the
   // abort handle is recovered from listActions by txid.
-  const { actions } = await wallet.listActions({ labels: ['peerpay'], limit: 1000 }, adminOriginator)
+  const { actions } = await wallet.listActions({ labels: [label], limit: 1000 }, adminOriginator)
   const match = actions.find(a => a.txid === txid)
   if (!match?.reference) return false
   const result = (await wallet.abortAction({ reference: match.reference }, adminOriginator)) as
     | { aborted?: boolean }
     | undefined
   return result?.aborted !== false
+}
+
+export async function abortPeerPayNosend(
+  wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>,
+  adminOriginator: string,
+  txid: string
+): Promise<boolean> {
+  return abortNosendByTxid(wallet, adminOriginator, txid, 'peerpay')
 }
 
 /**
@@ -823,7 +832,7 @@ export function isAbortSafe(
   action: { labels?: string[]; txid?: string },
   outboxEntries: Array<Pick<OutboxEntry, 'txid' | 'delivered' | 'delivering'>>
 ): { aborted: boolean; needsAbandon?: boolean } {
-  if (!action.labels?.includes('peerpay')) return { aborted: true }
+  if (!action.labels?.includes('peerpay') && !action.labels?.includes('paymail')) return { aborted: true }
   const stored = action.txid != null ? outboxEntries.find(e => e.txid === action.txid) : undefined
   if (stored == null || stored.delivered === true || stored.delivering === true) {
     return { aborted: false, needsAbandon: true }

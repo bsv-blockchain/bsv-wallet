@@ -8,6 +8,8 @@ import {
   internalizeIncoming,
   resetCreditAckQueueForTests,
   cancelOutboxPayment,
+  abortNosendByTxid,
+  abortPeerPayNosend,
   isAbortSafe,
   isMessageBoxNetworkError,
   peerPayLinkFor,
@@ -1031,6 +1033,20 @@ describe('isAbortSafe', () => {
     expect(result.needsAbandon).toBeUndefined()
   })
 
+  it('isAbortSafe refuses a paymail-labelled action with no row', () => {
+    expect(isAbortSafe({ labels: ['paymail'], txid: 'aa' }, [])).toEqual({ aborted: false, needsAbandon: true })
+  })
+
+  it('isAbortSafe refuses a paymail row that is delivering', () => {
+    expect(isAbortSafe({ labels: ['paymail'], txid: 'aa' }, [{ txid: 'aa', delivering: true }]).aborted).toBe(false)
+    expect(isAbortSafe({ labels: ['paymail'], txid: 'aa' }, [{ txid: 'aa', delivered: true }]).aborted).toBe(false)
+  })
+
+  it('isAbortSafe allows a paymail row that is neither delivering nor delivered', () => {
+    const r = isAbortSafe({ labels: ['paymail'], txid: 'aa' }, [{ txid: 'aa', delivered: false, delivering: false }])
+    expect(r).toEqual({ aborted: true })
+  })
+
   it('leaves every non-peerpay action alone', () => {
     const action = { labels: ['someOtherRail'], txid: 'zz' }
     expect(isAbortSafe(action, [])).toEqual({ aborted: true })
@@ -1053,6 +1069,31 @@ describe('isAbortSafe', () => {
 
     expect(entries).toHaveLength(1)
     expect(result).toEqual({ aborted: false, needsAbandon: true })
+  })
+})
+
+describe('abortNosendByTxid', () => {
+  const mk = (aborted?: boolean) => ({
+    listActions: jest.fn().mockResolvedValue({ actions: [{ txid: 'aa', reference: 'ref1' }] }),
+    abortAction: jest.fn().mockResolvedValue(aborted === undefined ? {} : { aborted })
+  })
+
+  it('abortNosendByTxid lists by the label it is given', async () => {
+    const w = mk(true)
+    await expect(abortNosendByTxid(w as never, 'admin', 'aa', 'paymail')).resolves.toBe(true)
+    expect(w.listActions).toHaveBeenCalledWith({ labels: ['paymail'], limit: 1000 }, 'admin')
+    expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref1' }, 'admin')
+  })
+
+  it('abortNosendByTxid returns false for { aborted: false }', async () => {
+    const w = mk(false)
+    await expect(abortNosendByTxid(w as never, 'admin', 'aa', 'paymail')).resolves.toBe(false)
+  })
+
+  it('abortPeerPayNosend still lists label peerpay', async () => {
+    const w = mk(true)
+    await abortPeerPayNosend(w as never, 'admin', 'aa')
+    expect(w.listActions).toHaveBeenCalledWith({ labels: ['peerpay'], limit: 1000 }, 'admin')
   })
 })
 
