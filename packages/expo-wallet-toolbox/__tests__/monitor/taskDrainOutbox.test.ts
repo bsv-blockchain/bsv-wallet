@@ -216,6 +216,28 @@ describe('drainUnsentEntries', () => {
     expect(retry.mock.calls.map(c => c[0].id)).toEqual(['a', 'b'])
   })
 
+  it('an isolated row that throws does not stop the rows behind it', async () => {
+    const retry = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('receiver down'))
+      .mockResolvedValueOnce(undefined)
+    const result = await drainUnsentEntries({
+      entries: [entry('pm'), entry('pp')],
+      retry,
+      isolate: e => e.id === 'pm'
+    })
+    expect(retry.mock.calls.map(c => c[0].id)).toEqual(['pm', 'pp'])
+    expect(result).toEqual({ retried: 1, remaining: 1, stopped: false })
+  })
+
+  it('a row that is not isolated still stops the pass', async () => {
+    const retry = jest.fn().mockRejectedValueOnce(new Error('box down'))
+    await expect(
+      drainUnsentEntries({ entries: [entry('pp'), entry('pm')], retry, isolate: e => e.id === 'pm' })
+    ).rejects.toThrow('box down')
+    expect(retry).toHaveBeenCalledTimes(1)
+  })
+
   it('drainUnsentEntries retries a paymail row through the same retry callback', async () => {
     const row: OutboxEntry = {
       kind: 'paymail',

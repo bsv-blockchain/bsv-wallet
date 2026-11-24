@@ -2435,6 +2435,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                   const entries = unsentEntries(await getOutboxEntries(phoneStorage!))
                   return drainUnsentEntries({
                     entries,
+                    isolate: isPaymailEntry,
                     retry: async entry => {
                       if (isPaymailEntry(entry)) {
                         await retryPaymailDelivery({
