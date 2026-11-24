@@ -13,7 +13,8 @@ import {
   fetchWithTimeout,
   type RegistryResolver
 } from '../../identity/handleRegistry/resolver'
-import { BRFC_P2P_DESTINATION, BRFC_P2P_RECEIVE_BEEF, looksLikeDomain } from '../../identity/handleRegistry/rules'
+import { BRFC_P2P_DESTINATION, BRFC_P2P_RECEIVE_BEEF } from '../../identity/handleRegistry/rules'
+import { parsePaymail } from './address'
 import { isPublicHttpsUrl } from '../../net/publicDestination'
 import { createBoundedNativeFetch } from '../../network/boundedFetch'
 
@@ -23,7 +24,7 @@ export const MAX_DESTINATION_OUTPUTS = 10
 const MAX_SCRIPT_HEX_CHARS = 10_000
 const MAX_REFERENCE_CHARS = 4_096
 const PLACEHOLDERS = ['{alias}', '{domain.tld}'] as const
-const ALIAS_FORMAT = /^[a-z0-9][a-z0-9._+-]{0,63}$/
+const MAX_ERROR_MESSAGE_CHARS = 200
 const HEX_FORMAT = /^(?:[0-9a-f]{2})+$/i
 const TXID_FORMAT = /^[0-9a-f]{64}$/i
 
@@ -70,7 +71,12 @@ async function readJson(res: Response): Promise<{ ok: true; body: unknown } | { 
 }
 
 function errorMessage(parsed: { ok: true; body: unknown } | { ok: false }, status: number): string {
-  if (parsed.ok && isPlainObject(parsed.body) && typeof parsed.body.message === 'string') return parsed.body.message
+  if (parsed.ok && isPlainObject(parsed.body) && typeof parsed.body.message === 'string') {
+    // The host's text is untrusted: no control characters, a short length.
+    // eslint-disable-next-line no-control-regex
+    const clean = parsed.body.message.slice(0, 2_000).replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim()
+    if (clean) return clean.slice(0, MAX_ERROR_MESSAGE_CHARS)
+  }
   return `HTTP ${status}`
 }
 
@@ -120,11 +126,9 @@ export function createLegacyPaymailClient(args: {
 
   return {
     async getP2pDestination(paymail, satoshis) {
-      const parts = paymail.trim().toLowerCase().split('@')
-      if (parts.length !== 2 || !ALIAS_FORMAT.test(parts[0]) || !looksLikeDomain(parts[1])) {
-        return fail('invalid_paymail', 'Not a valid paymail.')
-      }
-      const [alias, domain] = parts
+      const parsedAddress = parsePaymail(paymail)
+      if (!parsedAddress) return fail('invalid_paymail', 'Not a valid paymail.')
+      const { alias, domain } = parsedAddress
       const found = await args.resolver.discoverCapabilities(domain)
       if (found.kind === 'failed') return fail('unreachable', 'Could not reach that paymail host.')
       if (found.kind !== 'ok') return fail('unsupported', 'That paymail host does not take this kind of payment.')

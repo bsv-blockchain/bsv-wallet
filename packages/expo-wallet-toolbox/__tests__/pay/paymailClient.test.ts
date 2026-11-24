@@ -30,6 +30,40 @@ const textRes = (status: number, text: string) =>
     text: async () => text
   }) as unknown as Response
 
+describe('getP2pDestination alias and server text', () => {
+  it('accepts aliases that start with _ . or -', async () => {
+    for (const a of ['_bob', '.bob', '-bob']) {
+      const { client, calls } = clientWith([destRule(async () => ok(GOOD))])
+      const res = await client.getP2pDestination(`${a}@handcash.io`, 1000)
+      expect(res.kind).toBe('ok')
+      expect(calls).toHaveLength(1)
+    }
+  })
+
+  it('still rejects / ? # whitespace and a second @ in the alias', async () => {
+    for (const p of ['a/b@handcash.io', 'a?b@handcash.io', 'a#b@handcash.io', 'a b@handcash.io', '+a@handcash.io']) {
+      const { client, calls } = clientWith([destRule(async () => ok(GOOD))])
+      expect(await client.getP2pDestination(p, 1000)).toMatchObject({ kind: 'failed', reason: 'invalid_paymail' })
+      expect(calls).toHaveLength(0)
+    }
+  })
+
+  it('bounds and cleans the host message', async () => {
+    const hostile = `Your wallet is locked\u0007\n${'x'.repeat(250_000)}`
+    const { client } = clientWith([destRule(async () => notOk(400, { message: hostile }))])
+    const res = (await client.getP2pDestination('bob@handcash.io', 1000)) as any
+    expect(res.message.length).toBeLessThanOrEqual(200)
+    expect(res.message).not.toMatch(/[\u0000-\u001f\u007f]/)
+    expect(res.message.startsWith('Your wallet is locked')).toBe(true)
+  })
+
+  it('bounds the message of a refused POST too', async () => {
+    const { client } = clientWith([['/p2p/beef/', async () => notOk(503, { message: 'y'.repeat(5000) })]])
+    const res = (await client.postBeef({ endpoint: 'https://cloud.handcash.io/p2p/beef/a@b.io', beefHex: 'aa', reference: 'r' })) as any
+    expect(res.message.length).toBeLessThanOrEqual(200)
+  })
+})
+
 describe('getP2pDestination', () => {
   it('asks the destination URL with alias and domain filled, and posts {"satoshis":1000}', async () => {
     const { client, calls, inits } = clientWith([destRule(async () => ok(GOOD))])
@@ -139,9 +173,9 @@ describe('getP2pDestination', () => {
     expect(calls).toHaveLength(2)
   })
 
-  it('rejects a 65-character alias and one that starts with a dot', async () => {
+  it('rejects a 65-character alias', async () => {
     const { client, calls } = clientWith([destRule(async () => ok(GOOD))])
-    for (const p of [`${'a'.repeat(65)}@handcash.io`, '.a@handcash.io']) {
+    for (const p of [`${'a'.repeat(65)}@handcash.io`]) {
       expect(await client.getP2pDestination(p, 1000)).toMatchObject({ kind: 'failed', reason: 'invalid_paymail' })
     }
     expect(calls).toHaveLength(0)
