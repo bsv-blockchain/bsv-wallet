@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## 0.27.0
+
+Paymail send. No native change: hosts do not rebuild.
+
+### Breaking / host action
+
+- **A host that supplies its own `RegistryResolver` must add `discoverCapabilities`.** `createRegistryResolver` already has it.
+- **A host that reads outbox rows must handle the `OutboxEntry` union.** Use `isPaymailEntry` to tell a `paymail` row from a PeerPay row.
+
+### Added
+
+- **`classifyPaymailDomain` and `classifyPaymailDomainDetailed`.** They read a domain's capability map and return `peerpay`, `legacy`, `unsupported` or `failed`.
+- **`sendViaPaymail`.** It pays a `legacy` paymail (for example HandCash) with BSV. It mints with `noSend`, writes an outbox row, posts the plain BEEF, then broadcasts. It throws `PaymailSendError`.
+- **The `paymail` outbox kind**, with retry, cancel and drain.
+- **`RegistryResolver.discoverCapabilities`.** It returns the raw capability map from the same cached and DNSSEC-checked discovery.
+- **`createLegacyPaymailClient`, `statusFnFromStorage` and `abortNosendByTxid`.**
+
+### Changed
+
+- **`abortPeerPayNosend` now calls the new `abortNosendByTxid`.**
+- **`isAbortSafe` also guards `paymail` actions.**
+- **An outgoing `paymail` action reads as sent, not spent.**
+
+### Not added
+
+- **No `@bsv/paymail` dependency.** The toolbox has its own small client on the bounded fetch.
+
 ## 0.26.0
 
 The BSV Wallet app's launch changes, upstreamed from its patch of 0.25.1: one key tap for a Vault spend, a key removal that can finish, a monthly limit for group spending grants, and a new icon set. No native change: hosts do not rebuild.
