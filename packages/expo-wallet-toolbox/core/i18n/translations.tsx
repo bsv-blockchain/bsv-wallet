@@ -708,6 +708,8 @@ const resources = {
       review_imported_payment: 'Review imported payment',
       review_imported_payment_detail:
         'This payment came from a backup and may have been canceled. Send {{amount}} satoshis to {{recipient}} now?',
+      review_imported_paymail_detail:
+        'This payment came from a backup and may have been canceled. It is listed as {{amount}} satoshis to {{recipient}}, but the app cannot check that the signed transaction pays that recipient or that amount. Send it anyway?',
       payment_not_delivered: 'Not delivered',
       payment_delivered: 'Delivered',
       retry: 'Retry',
@@ -1914,6 +1916,8 @@ const resources = {
       outgoing_payments: '已发出',
       review_imported_payment: '审核导入的付款',
       review_imported_payment_detail: '此付款来自备份，可能已被取消。现在向 {{recipient}} 发送 {{amount}} 聪吗？',
+      review_imported_paymail_detail:
+        '此付款来自备份，可能已被取消。它显示为向 {{recipient}} 发送 {{amount}} 聪，但应用无法核实已签名的交易是否支付给该收款人或该金额。仍要发送吗？',
       payment_not_delivered: '未送达',
       payment_delivered: '已送达',
       retry: '重试',
@@ -3132,6 +3136,8 @@ const resources = {
       review_imported_payment: 'आयातित भुगतान की समीक्षा करें',
       review_imported_payment_detail:
         'यह भुगतान बैकअप से आया है और संभव है कि इसे रद्द कर दिया गया हो। क्या अभी {{recipient}} को {{amount}} सातोशी भेजें?',
+      review_imported_paymail_detail:
+        'यह भुगतान बैकअप से आया है और संभव है कि इसे रद्द कर दिया गया हो। इसमें {{recipient}} को {{amount}} सातोशी दिखाए गए हैं, लेकिन ऐप जाँच नहीं सकता कि हस्ताक्षरित लेन-देन उसी प्राप्तकर्ता को या उसी राशि का भुगतान करता है। फिर भी भेजें?',
       payment_not_delivered: 'डिलीवर नहीं हुआ',
       payment_delivered: 'डिलीवर हो गया',
       retry: 'पुनः प्रयास',
@@ -4394,6 +4400,8 @@ const resources = {
       review_imported_payment: 'Revisar pago importado',
       review_imported_payment_detail:
         'Este pago procede de una copia de seguridad y puede haberse cancelado. ¿Enviar ahora {{amount}} satoshis a {{recipient}}?',
+      review_imported_paymail_detail:
+        'Este pago procede de una copia de seguridad y puede haberse cancelado. Figura como {{amount}} satoshis para {{recipient}}, pero la app no puede comprobar que la transacción firmada pague a ese destinatario ni esa cantidad. ¿Enviar de todos modos?',
       payment_not_delivered: 'No entregado',
       payment_delivered: 'Entregado',
       retry: 'Reintentar',
@@ -5675,6 +5683,8 @@ const resources = {
       review_imported_payment: 'Vérifier le paiement importé',
       review_imported_payment_detail:
         'Ce paiement provient d’une sauvegarde et a peut-être été annulé. Envoyer maintenant {{amount}} satoshis à {{recipient}} ?',
+      review_imported_paymail_detail:
+        'Ce paiement provient d’une sauvegarde et a peut-être été annulé. Il est indiqué comme {{amount}} satoshis pour {{recipient}}, mais l’application ne peut pas vérifier que la transaction signée paie ce destinataire ni ce montant. Envoyer quand même ?',
       payment_not_delivered: 'Non livré',
       payment_delivered: 'Livré',
       retry: 'Réessayer',
@@ -6918,6 +6928,8 @@ const resources = {
       review_imported_payment: 'مراجعة الدفعة المستوردة',
       review_imported_payment_detail:
         'جاءت هذه الدفعة من نسخة احتياطية وربما أُلغيت. هل تريد إرسال {{amount}} ساتوشي إلى {{recipient}} الآن؟',
+      review_imported_paymail_detail:
+        'جاءت هذه الدفعة من نسخة احتياطية وربما أُلغيت. هي مدرجة بمبلغ {{amount}} ساتوشي إلى {{recipient}}، لكن التطبيق لا يستطيع التحقق من أن المعاملة الموقعة تدفع لهذا المستلم أو بهذا المبلغ. هل تريد الإرسال على أي حال؟',
       payment_not_delivered: 'لم يتم التسليم',
       payment_delivered: 'تم التسليم',
       retry: 'إعادة المحاولة',
@@ -8160,6 +8172,8 @@ const resources = {
       review_imported_payment: 'Rever pagamento importado',
       review_imported_payment_detail:
         'Este pagamento veio de uma cópia de segurança e pode ter sido cancelado. Enviar agora {{amount}} satoshis para {{recipient}}?',
+      review_imported_paymail_detail:
+        'Este pagamento veio de uma cópia de segurança e pode ter sido cancelado. Consta como {{amount}} satoshis para {{recipient}}, mas a app não consegue confirmar que a transação assinada paga a esse destinatário nem esse valor. Enviar mesmo assim?',
       payment_not_delivered: 'Não entregue',
       payment_delivered: 'Entregue',
       retry: 'Tentar novamente',
@@ -9415,6 +9429,8 @@ const resources = {
       review_imported_payment: 'আমদানি করা পেমেন্ট যাচাই করুন',
       review_imported_payment_detail:
         'এই পেমেন্টটি ব্যাকআপ থেকে এসেছে এবং হয়তো বাতিল করা হয়েছে। এখন {{recipient}}-কে {{amount}} সাতোশি পাঠাবেন?',
+      review_imported_paymail_detail:
+        'এই পেমেন্টটি ব্যাকআপ থেকে এসেছে এবং হয়তো বাতিল করা হয়েছে। এটি {{recipient}}-কে {{amount}} সাতোশি হিসেবে দেখানো আছে, কিন্তু স্বাক্ষরিত লেনদেন সেই প্রাপককে বা সেই পরিমাণ দেয় কি না, অ্যাপ তা যাচাই করতে পারে না। তবুও পাঠাবেন?',
       payment_not_delivered: 'ডেলিভারি হয়নি',
       payment_delivered: 'ডেলিভারি হয়েছে',
       retry: 'পুনরায় চেষ্টা',
@@ -10672,6 +10688,8 @@ const resources = {
       review_imported_payment: 'Проверить импортированный платёж',
       review_imported_payment_detail:
         'Этот платёж восстановлен из резервной копии и мог быть отменён. Отправить сейчас {{amount}} сатоши получателю {{recipient}}?',
+      review_imported_paymail_detail:
+        'Этот платёж восстановлен из резервной копии и мог быть отменён. Он указан как {{amount}} сатоши получателю {{recipient}}, но приложение не может проверить, что подписанная транзакция платит этому получателю или эту сумму. Всё равно отправить?',
       payment_not_delivered: 'Не доставлено',
       payment_delivered: 'Доставлено',
       retry: 'Повторить',
@@ -11935,6 +11953,8 @@ const resources = {
       review_imported_payment: 'Tinjau pembayaran yang diimpor',
       review_imported_payment_detail:
         'Pembayaran ini berasal dari cadangan dan mungkin telah dibatalkan. Kirim {{amount}} satoshi ke {{recipient}} sekarang?',
+      review_imported_paymail_detail:
+        'Pembayaran ini berasal dari cadangan dan mungkin telah dibatalkan. Tercatat {{amount}} satoshi untuk {{recipient}}, tetapi aplikasi tidak dapat memeriksa bahwa transaksi yang ditandatangani membayar penerima atau jumlah itu. Tetap kirim?',
       payment_not_delivered: 'Belum terkirim',
       payment_delivered: 'Terkirim',
       retry: 'Coba lagi',
@@ -13201,6 +13221,8 @@ const resources = {
       review_imported_payment: 'インポートした支払いを確認',
       review_imported_payment_detail:
         'この支払いはバックアップから復元されたもので、キャンセル済みの可能性があります。今すぐ {{recipient}} に {{amount}} サトシを送信しますか？',
+      review_imported_paymail_detail:
+        'この支払いはバックアップから復元されたもので、キャンセル済みの可能性があります。{{recipient}} 宛て {{amount}} サトシと表示されていますが、署名済みの取引がその受取人やその金額に支払うものかどうか、アプリでは確認できません。それでも送信しますか？',
       payment_not_delivered: '未配信',
       payment_delivered: '配信済み',
       retry: '再試行',
@@ -14473,6 +14495,8 @@ const resources = {
       review_imported_payment: 'Sprawdź zaimportowaną płatność',
       review_imported_payment_detail:
         'Ta płatność pochodzi z kopii zapasowej i mogła zostać anulowana. Wysłać teraz {{amount}} satoshi do {{recipient}}?',
+      review_imported_paymail_detail:
+        'Ta płatność pochodzi z kopii zapasowej i mogła zostać anulowana. Jest wpisana jako {{amount}} satoshi dla {{recipient}}, ale aplikacja nie może sprawdzić, czy podpisana transakcja płaci temu odbiorcy ani tę kwotę. Wysłać mimo to?',
       payment_not_delivered: 'Nie dostarczono',
       payment_delivered: 'Dostarczono',
       retry: 'Ponów',

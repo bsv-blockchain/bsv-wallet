@@ -110,7 +110,10 @@ export default function ImportedOutboxApproval({
       {reviewed && (
         <Text style={[styles.detail, { color: colors.textPrimary }]}>
           {isPaymailEntry(reviewed)
-            ? t('review_imported_payment_detail', {
+            ? // The paymail destination script cannot be derived offline, so the
+              // recipient and amount cannot be checked against the signed
+              // outputs. Say so; do not present them as verified terms.
+              t('review_imported_paymail_detail', {
                 amount: reviewed.satoshis,
                 recipient: `${reviewed.paymail} (${hostOf(reviewed.endpoint)})`
               })

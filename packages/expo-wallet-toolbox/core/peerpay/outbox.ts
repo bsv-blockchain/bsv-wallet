@@ -220,10 +220,18 @@ export async function quarantineImportedOutbox(storage: StorageLike): Promise<nu
 const MAX_SUBSET_OUTPUTS = 24
 
 /**
- * The displayed amount must be what the signed transaction pays. The
- * transaction also carries change back to the wallet, so the amount is a
- * combination of its outputs, not their sum. A transaction with no outputs, or
- * with none that add up to the amount, is refused.
+ * A loose check, and it is the most an offline import can do.
+ *
+ * The row holds the signed transaction, a display amount and a paymail, and
+ * nothing that says which output is the wallet's own change. So the amount must
+ * only equal the sum of SOME subset of the outputs (the rest being change); a
+ * transaction with no outputs, or none that add up to the amount, is refused.
+ *
+ * Limits: this does NOT bind the recipient to any output (the P2P destination
+ * script comes from the receiver's server and cannot be derived offline), and it
+ * does not prove that the subset is what the recipient is paid. A tampered
+ * backup could show one paymail and amount while the transaction pays another
+ * output. The approval screen therefore says these terms are unchecked.
  */
 function outputsCanPay(tx: Transaction, satoshis: number): boolean {
   const values = tx.outputs.map(o => o.satoshis)
