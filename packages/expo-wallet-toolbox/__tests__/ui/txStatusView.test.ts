@@ -18,6 +18,11 @@ describe('activityKind', () => {
     expect(activityKind(false, ['some-app-label'])).toBe('spent')
     expect(activityKind(false, undefined)).toBe('spent')
   })
+
+  it('reads an outgoing paymail action as Sent', () => {
+    expect(activityKind(false, ['paymail', 'paymail:a@b.io'])).toBe('sent')
+    expect(txStatusView('completed', undefined, false, ['paymail', 'paymail:a@b.io']).key).toBe('tx_status_sent')
+  })
 })
 
 describe('txStatusView', () => {

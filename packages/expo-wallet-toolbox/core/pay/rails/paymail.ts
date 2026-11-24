@@ -339,3 +339,152 @@ export async function sendViaPaymail(
   }
   return { outboxId: settled.outboxId, txid, satoshis: settled.satoshis, broadcastPending: settled.broadcastPending }
 }
+
+async function findPaymailRow(
+  storage: PaymailRailDeps['storage'],
+  id: string
+): Promise<PaymailOutboxEntry | undefined> {
+  const found = (await getOutboxEntries(storage)).find(e => e.id === id)
+  return found && found.kind === 'paymail' ? found : undefined
+}
+
+/**
+ * Retry a stuck paymail row: post the same BEEF again if the receiver never
+ * accepted it, then broadcast. It never aborts. A refusal sets `refused` on the
+ * row and only an explicit Cancel can free the funds.
+ */
+export async function retryPaymailDelivery(args: PaymailRailDeps & { entry: PaymailOutboxEntry }): Promise<void> {
+  const { storage, client, entry } = args
+  if (entry.status !== 'unsent' || entry.refused === true) return
+
+  // XR-048: the stored txid is not authenticated. Re-derive it from the BEEF.
+  let ownTxid: string | undefined
+  try {
+    ownTxid = Transaction.fromHexBEEF(entry.beefHex).id('hex')
+  } catch {
+    ownTxid = undefined
+  }
+  if (!ownTxid || ownTxid.toLowerCase() !== entry.txid.toLowerCase()) {
+    throw new Error('outbox_txid_mismatch')
+  }
+
+  // XR-052: a Cancel can remove the row between awaits. Re-read before each side effect.
+  const stillPending = async (): Promise<PaymailOutboxEntry | undefined> => {
+    const row = await findPaymailRow(storage, entry.id)
+    return row && row.status === 'unsent' && row.refused !== true ? row : undefined
+  }
+
+  await withTxidLock(entry.txid, async () => {
+    if (!(await stillPending())) return
+    await updateOutboxEntry(storage, entry.id, { lastAttemptAt: new Date().toISOString() })
+    try {
+      if (entry.delivered === true) {
+        const row = await stillPending()
+        if (!row) return
+        const result = await broadcastOrSettle(args, row)
+        if (result.broadcastPending) throw new Error('broadcast_not_confirmed')
+        return
+      }
+      if (!(await stillPending())) return
+      await updateOutboxEntry(storage, entry.id, { delivering: true })
+      const post = await client.postBeef({
+        endpoint: entry.endpoint,
+        beefHex: entry.beefHex,
+        reference: entry.paymailReference
+      })
+      const row = await stillPending()
+      if (!row) return
+      const result = await settlePaymailPost(args, row, post, { allowAbort: false })
+      if (result.broadcastPending) throw new Error('broadcast_not_confirmed')
+    } catch (e) {
+      if (!(e instanceof PaymailSendError)) {
+        const row = await findPaymailRow(storage, entry.id)
+        if (row) await updateOutboxEntry(storage, entry.id, { lastError: errMessage(e) })
+      }
+      throw e
+    }
+  })
+}
+
+/** Abort the noSend action for `txid` inside the deadline. False on a refusal, a throw or a hang. */
+async function abortWithDeadline(deps: Pick<PaymailRailDeps, 'wallet' | 'adminOriginator'>, txid: string) {
+  try {
+    return await withDeadline(
+      abortNosendByTxid(deps.wallet, deps.adminOriginator, txid, PAYMAIL_LABEL),
+      NETWORK_CALL_DEADLINE_MS
+    )
+  } catch {
+    return false
+  }
+}
+
+const statusUnavailable = () =>
+  new PaymailSendError(
+    'maybe_sent',
+    'Could not check the network. The payment may have gone through.',
+    'status_unavailable'
+  )
+
+const abortFailed = () =>
+  new PaymailSendError('abort_failed', 'The funds could not be freed. Try again later.', 'abort_failed')
+
+/**
+ * Cancel a paymail payment on the user's say. The network answer decides: a
+ * payment the network knows is finished, not cancelled.
+ */
+export async function cancelPaymailPayment(
+  args: PaymailRailDeps & { entry: PaymailOutboxEntry }
+): Promise<{ aborted: boolean; sent: boolean }> {
+  const { storage, entry } = args
+  const stored = await findPaymailRow(storage, entry.id)
+  if (!stored) return { aborted: false, sent: false }
+  if (stored.delivered === true) {
+    throw new PaymailSendError(
+      'maybe_sent',
+      'The receiver has this payment. It cannot be cancelled. Finish it instead.',
+      'already_delivered'
+    )
+  }
+  const result = await withTxidLock(stored.txid, async () => {
+    const maybePosted = stored.delivering === true || stored.lastAttemptAt != null
+    const verdict = maybePosted ? await confirmUnknown(args, stored.txid) : await networkKnowsTxid(args.getStatusForTxids, stored.txid)
+    if (verdict === 'error') throw statusUnavailable()
+    if (verdict === 'known') {
+      const settled = await broadcastOrSettle(args, stored)
+      if (settled.broadcastPending) await markOutboxSent(storage, stored.id)
+      return { aborted: false, sent: true }
+    }
+    if (await abortWithDeadline(args, stored.txid)) {
+      await removeOutboxEntry(storage, stored.id)
+      return { aborted: true, sent: false }
+    }
+    await noteAttempt(args, stored, 'abort_failed')
+    throw abortFailed()
+  })
+  if (!result) throw new PaymailSendError('maybe_sent', 'This payment is already being handled.', 'in_progress')
+  return result
+}
+
+/**
+ * A noSend `paymail` action with no outbox row (a crash between the mint and
+ * the row save, or a restore: key_value_store is not in the backup). The
+ * network decides, as in a cancel.
+ */
+export async function resolveOrphanPaymailAction(
+  args: Pick<PaymailRailDeps, 'wallet' | 'adminOriginator' | 'getStatusForTxids' | 'recheckDelayMs' | 'sleep'> & {
+    txid: string
+  }
+): Promise<{ aborted: boolean; sent: boolean }> {
+  const result = await withTxidLock(args.txid, async () => {
+    const verdict = await confirmUnknown(args, args.txid)
+    if (verdict === 'error') throw statusUnavailable()
+    if (verdict === 'known') {
+      await broadcastNoSend(args.wallet, args.adminOriginator, args.txid)
+      return { aborted: false, sent: true }
+    }
+    if (await abortWithDeadline(args, args.txid)) return { aborted: true, sent: false }
+    throw abortFailed()
+  })
+  if (!result) throw new PaymailSendError('maybe_sent', 'This payment is already being handled.', 'in_progress')
+  return result
+}

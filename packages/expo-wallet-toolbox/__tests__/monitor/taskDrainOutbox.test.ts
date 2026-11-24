@@ -215,4 +215,23 @@ describe('drainUnsentEntries', () => {
     expect(retry).toHaveBeenCalledTimes(2)
     expect(retry.mock.calls.map(c => c[0].id)).toEqual(['a', 'b'])
   })
+
+  it('drainUnsentEntries retries a paymail row through the same retry callback', async () => {
+    const row: OutboxEntry = {
+      kind: 'paymail',
+      id: 'pm1',
+      createdAt: new Date().toISOString(),
+      status: 'unsent',
+      txid: 'ab'.repeat(32),
+      paymail: 'a@b.io',
+      endpoint: 'https://b.io/beef',
+      paymailReference: 'r',
+      beefHex: '00',
+      satoshis: 1
+    }
+    const retry = jest.fn().mockResolvedValue(undefined)
+    await drainUnsentEntries({ entries: [row], retry })
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(retry.mock.calls[0][0]).toMatchObject({ kind: 'paymail', id: 'pm1' })
+  })
 })
