@@ -345,6 +345,61 @@ describe('sendViaPaymail', () => {
       expect(await rows(storage)).toHaveLength(0)
     })
 
+    describe('action look-up pages', () => {
+      const filler = (page: number) =>
+        Array.from({ length: 1000 }, (_, i) => ({ txid: `f${page}-${i}`, reference: `fr${page}-${i}` }))
+
+      it('a full first page without the txid: the txid on page 2 is found and aborted', async () => {
+        const base = fakeWallet()
+        let released = false
+        const wallet = fakeWallet({
+          createAction: base.createAction,
+          abortAction: jest.fn(async () => {
+            released = true
+            return {}
+          }),
+          listActions: jest.fn(async (a: { offset?: number }) => {
+            const mine = (await base.listActions()).actions
+            if (!a.offset) return { actions: filler(0) }
+            return { actions: released ? [] : mine }
+          })
+        })
+        const { args, storage } = setup({ wallet, post: http503, status: jest.fn().mockResolvedValue(unknown) })
+        const e = await rejection(sendViaPaymail(args))
+        expect(e).toMatchObject({ kind: 'refused', code: 'recipient_refused' })
+        expect(wallet.listActions).toHaveBeenCalledWith(expect.objectContaining({ offset: 1000 }), 'admin.com')
+        expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref1' }, 'admin.com')
+        expect(await rows(storage)).toHaveLength(0)
+      })
+
+      it('ten full pages without the txid: unknown is live, the row is kept', async () => {
+        const base = fakeWallet()
+        const wallet = fakeWallet({
+          createAction: base.createAction,
+          listActions: jest.fn(async (a: { offset?: number }) => ({ actions: filler((a.offset ?? 0) / 1000) }))
+        })
+        const { args, storage } = setup({ wallet, post: http503, status: jest.fn().mockResolvedValue(unknown) })
+        const e = await rejection(sendViaPaymail(args))
+        expect(e).toMatchObject({ kind: 'abort_failed', code: 'abort_failed' })
+        expect(wallet.abortAction).not.toHaveBeenCalled()
+        const [row] = await rows(storage)
+        expect(row).toMatchObject({ status: 'unsent', refused: true, lastError: 'abort_failed' })
+      })
+    })
+
+    it('a hung abort: the late re-check runs and the row stays while the action is listed', async () => {
+      jest.useFakeTimers()
+      const wallet = fakeWallet({ abortAction: jest.fn(() => new Promise(() => {})) })
+      const { args, storage } = setup({ wallet, post: http503, status: jest.fn().mockResolvedValue(unknown) })
+      const p = rejection(sendViaPaymail(args))
+      await jest.advanceTimersByTimeAsync(20_001)
+      const e = await p
+      expect(e).toMatchObject({ kind: 'abort_failed' })
+      // once to find the reference, once more for the re-check
+      expect(wallet.listActions.mock.calls.length).toBeGreaterThanOrEqual(2)
+      expect((await rows(storage))[0]).toMatchObject({ status: 'unsent', refused: true })
+    })
+
     it('abort_failed marks the row refused so the drain cannot re-post it', async () => {
       const wallet = fakeWallet({ abortAction: jest.fn().mockResolvedValue({ aborted: false }) })
       const { args, storage, client } = setup({ wallet, post: http503, status: jest.fn().mockResolvedValue(unknown) })

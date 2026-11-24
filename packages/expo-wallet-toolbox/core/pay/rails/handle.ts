@@ -533,6 +533,34 @@ export async function broadcastNoSend(
   if (!released) throw new Error('broadcast_not_confirmed')
 }
 
+const ACTION_PAGE_SIZE = 1000
+const ACTION_MAX_PAGES = 10
+
+/**
+ * Find the action for `txid` among the actions with `label`, paging with
+ * `offset` until a short page. `complete` is false when the search ended
+ * without proof of absence (it hit the page maximum): the caller must then
+ * treat a missing match as unknown, never as "gone".
+ */
+export async function findActionByTxid(
+  wallet: Pick<HandleRailWallet, 'listActions'>,
+  adminOriginator: string,
+  txid: string,
+  label: string
+): Promise<{ match?: { txid?: string; reference?: string; status?: string }; complete: boolean }> {
+  for (let page = 0; page < ACTION_MAX_PAGES; page++) {
+    const args =
+      page === 0
+        ? { labels: [label], limit: ACTION_PAGE_SIZE }
+        : { labels: [label], limit: ACTION_PAGE_SIZE, offset: page * ACTION_PAGE_SIZE }
+    const { actions } = await wallet.listActions(args, adminOriginator)
+    const match = actions.find(a => a.txid === txid)
+    if (match) return { match: match as never, complete: true }
+    if (actions.length < ACTION_PAGE_SIZE) return { complete: true }
+  }
+  return { complete: false }
+}
+
 /**
  * Abort a PeerPay noSend by recovering its reference from listActions.
  *
@@ -554,8 +582,7 @@ export async function abortNosendByTxid(
 ): Promise<boolean> {
   // createAction returns no reference for a completed noSend action, so the
   // abort handle is recovered from listActions by txid.
-  const { actions } = await wallet.listActions({ labels: [label], limit: 1000 }, adminOriginator)
-  const match = actions.find(a => a.txid === txid)
+  const { match } = await findActionByTxid(wallet, adminOriginator, txid, label)
   if (!match?.reference) return false
   const result = (await wallet.abortAction({ reference: match.reference }, adminOriginator)) as
     | { aborted?: boolean }

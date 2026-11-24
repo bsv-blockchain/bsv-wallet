@@ -28,7 +28,7 @@ import {
   type PaymailOutboxEntry
 } from '../../peerpay/outbox'
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
-import { abortNosendByTxid, broadcastNoSend, type HandleRailWallet } from './handle'
+import { abortNosendByTxid, broadcastNoSend, findActionByTxid, type HandleRailWallet } from './handle'
 
 export const PAYMAIL_LABEL = 'paymail'
 
@@ -128,15 +128,19 @@ async function noteAttempt(deps: PaymailRailDeps, entry: PaymailOutboxEntry, las
   TaskDrainOutbox.noteEnqueued()
 }
 
-/** Whether a noSend action for `txid` is still live (it can still be broadcast or aborted). */
+/**
+ * Whether a noSend action for `txid` is still live (it can still be broadcast
+ * or aborted). A search that cannot prove absence (the label has more actions
+ * than the pages searched) answers true: unknown is treated as live.
+ */
 async function nosendActionIsLive(
   wallet: Pick<PaymailRailWallet, 'listActions'>,
   adminOriginator: string,
   txid: string
 ): Promise<boolean> {
-  const { actions } = await wallet.listActions({ labels: [PAYMAIL_LABEL], limit: 1000 }, adminOriginator)
-  const match = actions.find(a => a.txid === txid)
-  return match != null && (match as { status?: string }).status !== 'failed'
+  const { match, complete } = await findActionByTxid(wallet, adminOriginator, txid, PAYMAIL_LABEL)
+  if (!complete) return true
+  return match != null && match.status !== 'failed'
 }
 
 /**
@@ -151,7 +155,10 @@ async function releaseNosend(
 ): Promise<boolean> {
   try {
     if (
-      await withDeadline(abortNosendByTxid(deps.wallet, deps.adminOriginator, txid, PAYMAIL_LABEL), NETWORK_CALL_DEADLINE_MS)
+      await withDeadline(
+        abortNosendByTxid(deps.wallet, deps.adminOriginator, txid, PAYMAIL_LABEL),
+        NETWORK_CALL_DEADLINE_MS
+      )
     ) {
       return true
     }
@@ -487,7 +494,9 @@ export async function cancelPaymailPayment(
   }
   const result = await withTxidLock(stored.txid, async () => {
     const maybePosted = stored.delivering === true || stored.lastAttemptAt != null
-    const verdict = maybePosted ? await confirmUnknown(args, stored.txid) : await networkKnowsTxid(args.getStatusForTxids, stored.txid)
+    const verdict = maybePosted
+      ? await confirmUnknown(args, stored.txid)
+      : await networkKnowsTxid(args.getStatusForTxids, stored.txid)
     if (verdict === 'error') throw statusUnavailable()
     if (verdict === 'known') {
       const settled = await broadcastOrSettle(args, stored)
