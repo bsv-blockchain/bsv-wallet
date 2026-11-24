@@ -451,6 +451,9 @@ export async function cancelPaymailPayment(
     if (verdict === 'error') throw statusUnavailable()
     if (verdict === 'known') {
       const settled = await broadcastOrSettle(args, stored)
+      // The network already knows this txid, so the payment is out of our hands.
+      // Mark the row sent even when our own broadcast is still pending: leaving
+      // it unsent would let the drain re-POST a payment that cannot be cancelled.
       if (settled.broadcastPending) await markOutboxSent(storage, stored.id)
       return { aborted: false, sent: true }
     }

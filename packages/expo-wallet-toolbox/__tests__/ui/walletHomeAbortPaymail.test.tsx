@@ -118,11 +118,16 @@ jest.mock('../../ui/components/wallet/ActivityRow', () => {
   const React = require('react')
   const { Text } = require('react-native')
   const { Pressable } = require('react-native')
-  return ({ action, onAbort }: any) =>
+  return ({ action, onAbort, onSendAgain }: any) =>
     React.createElement(
-      Pressable,
-      { testID: `abort:${action.txid}`, onPress: () => onAbort(action.reference, action) },
-      React.createElement(Text, {}, `row:${action.txid}`)
+      React.Fragment,
+      {},
+      React.createElement(
+        Pressable,
+        { testID: `abort:${action.txid}`, onPress: () => onAbort(action.reference, action) },
+        React.createElement(Text, {}, `row:${action.txid}`)
+      ),
+      React.createElement(Pressable, { testID: `again:${action.txid}`, onPress: () => onSendAgain?.(action) })
     )
 })
 jest.mock('../../ui/components/security/WalletLockNotice', () => () => null)
@@ -130,6 +135,13 @@ jest.mock('../../ui/components/pay/OfflineNotice', () => () => null)
 jest.mock('../../ui/hooks/useOnline', () => ({ useOnline: () => false }))
 jest.mock('../../ui/hooks/useContactsStore', () => ({ useContactsStore: () => mockContactsStore }))
 jest.mock('../../ui/hooks/useOfflineNoticeActions', () => ({ useOfflineNoticeActions: () => ({}) }))
+const mockCancelPaymail = jest.fn()
+jest.mock('../../core/pay/rails/paymail', () => ({
+  ...jest.requireActual('../../core/pay/rails/paymail'),
+  cancelPaymailPayment: (...a: unknown[]) => mockCancelPaymail(...a),
+  retryPaymailDelivery: (...a: unknown[]) => mockRetryPaymail(...a)
+}))
+const mockRetryPaymail = jest.fn()
 jest.mock('../../ui/components/ui/Toast', () => ({ showToast: jest.fn() }))
 import { showToast } from '../../ui/components/ui/Toast'
 jest.mock('../../ui/exportTransactions', () => ({ exportTransactionsAsCsv: jest.fn() }))
@@ -295,9 +307,41 @@ describe('WalletHomeScreen: Activity abort of a paymail action', () => {
     expect(pm.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.test')
   })
 
-  test('an unsent row that is neither delivering nor delivered aborts as usual', async () => {
+  test('an unsent row is cancelled through the network-decides rule, never a bare abortAction', async () => {
     mockEntries = [entry({})]
+    mockCancelPaymail.mockResolvedValue({ aborted: true, sent: false })
     await abort()
-    expect(pm.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.test')
+    expect(mockCancelPaymail).toHaveBeenCalledWith(expect.objectContaining({ entry: mockEntries[0] }))
+    expect(pm.abortAction).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith('tx_abort_success', { type: 'success' })
+  })
+
+  test('an unsent row the network knows is not reported as cancelled', async () => {
+    mockEntries = [entry({ lastAttemptAt: '2026-09-01T00:00:00Z' })]
+    mockCancelPaymail.mockResolvedValue({ aborted: false, sent: true })
+    await abort()
+    expect(pm.abortAction).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith('tx_abort_maybe_delivered', { type: 'error' })
+  })
+
+  test('a failed cancel shows its message and aborts nothing directly', async () => {
+    mockEntries = [entry({})]
+    mockCancelPaymail.mockRejectedValue(new Error('Could not check the network.'))
+    await abort()
+    expect(pm.abortAction).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith('Could not check the network.', { type: 'error' })
+  })
+
+  test('send again on a refused row does not retry and does not report success', async () => {
+    mockEntries = [entry({ refused: true })]
+    const screen = render(<WalletHomeScreen />)
+    await settle()
+    await settle()
+    await act(async () => {
+      fireEvent.press(screen.getByTestId(`again:${HELD_TXID}`))
+    })
+    await settle()
+    expect(mockRetryPaymail).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('Cancel'), { type: 'error' })
   })
 })

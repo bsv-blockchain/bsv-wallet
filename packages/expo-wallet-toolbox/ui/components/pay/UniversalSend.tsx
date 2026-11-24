@@ -1204,6 +1204,10 @@ function UniversalSendInner(
       if (entry.status !== 'unsent') return
       if (isPaymailEntry(entry)) {
         if (!storage || !wallet) return
+        if (entry.refused === true) {
+          showToast('The receiver refused this payment. Cancel it to free the funds.', { type: 'error' })
+          return
+        }
         setRetryingId(entry.id)
         try {
           await retryPaymailDelivery({

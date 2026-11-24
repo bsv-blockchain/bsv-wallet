@@ -78,7 +78,7 @@ import {
 import { NETWORKS } from '../../core/networks'
 import { isPaymailEntry } from '../../core/peerpay/outbox'
 import { getHandleRegistryConfig } from '../../core/toolboxConfig'
-import { resolveOrphanPaymailAction, retryPaymailDelivery } from '../../core/pay/rails/paymail'
+import { cancelPaymailPayment, resolveOrphanPaymailAction, retryPaymailDelivery } from '../../core/pay/rails/paymail'
 import { createLegacyPaymailClient } from '../../core/pay/paymail/client'
 import { statusFnFromStorage } from '../../core/pay/paymail/networkCheck'
 import { createRegistryResolver } from '../../core/identity/handleRegistry/resolver'
@@ -1024,6 +1024,11 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     [busyRow, refreshProof, t]
   )
 
+  const paymailClient = useMemo(() => {
+    const registry = getHandleRegistryConfig(selectedNetwork)
+    return createLegacyPaymailClient({ resolver: createRegistryResolver({ pinned: registry }) })
+  }, [selectedNetwork])
+
   /**
    * Abort a still-local transaction, releasing the inputs it reserved.
    *
@@ -1072,6 +1077,35 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
             showToast(t('tx_abort_maybe_delivered'), { type: 'error' })
             return
           }
+          const paymailRow = isPaymail ? entries.find(e => e.txid === action.txid && isPaymailEntry(e)) : undefined
+          if (paymailRow && isPaymailEntry(paymailRow)) {
+            // A paymail row survives a plain abort and the drain would re-POST
+            // its BEEF over freed inputs. Network decides; abort removes the row.
+            if (!storage) {
+              showToast(t('tx_abort_maybe_delivered'), { type: 'error' })
+              return
+            }
+            try {
+              const r = await cancelPaymailPayment({
+                wallet: managers.permissionsManager as never,
+                adminOriginator,
+                storage,
+                client: paymailClient,
+                getStatusForTxids: statusFnFromStorage(storage as never),
+                entry: paymailRow
+              })
+              if (r.aborted) {
+                showToast(t('tx_abort_success'), { type: 'success' })
+                await onRefresh()
+              } else {
+                showToast(t('tx_abort_maybe_delivered'), { type: 'error' })
+                await onRefresh()
+              }
+            } catch (e) {
+              showToast(e instanceof Error ? e.message : t('tx_abort_failed'), { type: 'error' })
+            }
+            return
+          }
         }
         const r = (await managers.permissionsManager.abortAction({ reference }, adminOriginator)) as
           | { aborted?: boolean }
@@ -1089,7 +1123,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         setBusyLabel(undefined)
       }
     },
-    [managers.permissionsManager, adminOriginator, busyRow, onRefresh, storage, t]
+    [managers.permissionsManager, adminOriginator, busyRow, onRefresh, storage, t, paymailClient]
   )
 
   const onResendPending = useCallback(async () => {
@@ -1237,11 +1271,6 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
   )
 
   // The paymail rail's resolver and client, one per screen.
-  const paymailClient = useMemo(() => {
-    const registry = getHandleRegistryConfig(selectedNetwork)
-    return createLegacyPaymailClient({ resolver: createRegistryResolver({ pinned: registry }) })
-  }, [selectedNetwork])
-
   const onFailedSendAgain = useCallback(
     async (action: ActivityAction) => {
       if (busyRow) return
@@ -1249,6 +1278,11 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         const paymailRow = unsentEntries(await getOutboxEntries(storage))
           .filter(isPaymailEntry)
           .find(e => e.txid === action.txid)
+        if (paymailRow?.refused === true) {
+          // The retry is a no-op for a refused row. Say so, do not fake success.
+          showToast(t('paymail_refused_cancel_hint', { defaultValue: 'The receiver refused this payment. Cancel it to free the funds.' }), { type: 'error' })
+          return
+        }
         if (paymailRow) {
           // A paymail row has no message box: never build a PeerPay client for it.
           setBusyRow(action.txid)
