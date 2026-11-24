@@ -74,6 +74,7 @@ import {
   sendToAddress,
   getOutboxEntries,
   pruneExpiredSent,
+  isPaymailEntry,
   type OutboxEntry,
   type Session,
   haptics,
@@ -174,7 +175,9 @@ function OutgoingSection({
           const truncated =
             entry.status === 'import_hold'
               ? t('review_imported_payment')
-              : `${entry.recipient.slice(0, 8)}…${entry.recipient.slice(-4)}`
+              : isPaymailEntry(entry)
+                ? entry.paymail
+                : `${entry.recipient.slice(0, 8)}…${entry.recipient.slice(-4)}`
           return (
             <View
               key={entry.id}
@@ -192,7 +195,7 @@ function OutgoingSection({
                   </Text>
                   {entry.status !== 'import_hold' && (
                     <Text style={[styles.outgoingAmount, { color: accentColor }]}>
-                      <AmountDisplay>{entry.token.amount}</AmountDisplay>
+                      <AmountDisplay>{isPaymailEntry(entry) ? entry.satoshis : entry.token.amount}</AmountDisplay>
                     </Text>
                   )}
                 </View>
@@ -1184,6 +1187,8 @@ function UniversalSendInner(
     async (entry: OutboxEntry) => {
       // Held rows can become actionable only through the validated inline approval.
       if (entry.status !== 'unsent') return
+      // Task 7 adds the paymail branch.
+      if (isPaymailEntry(entry)) return
       // `peerPayClient` is built from the CURRENT setting, so it wins: the
       // configured host may have changed since this entry was minted, and the
       // client re-resolves the recipient's advertised inbox on every send
@@ -1220,6 +1225,8 @@ function UniversalSendInner(
   const handleCancel = useCallback(
     async (entry: OutboxEntry) => {
       if (!storage || !wallet) return
+      // Task 7 adds the paymail branch.
+      if (isPaymailEntry(entry)) return
       const deliveredOrUncertain = entry.delivered === true || entry.delivering === true
       if (deliveredOrUncertain) {
         const key = await showChoiceSheet({

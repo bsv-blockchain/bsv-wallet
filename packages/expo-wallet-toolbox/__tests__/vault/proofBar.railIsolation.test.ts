@@ -84,6 +84,7 @@ jest.mock('expo-sqlite', () => {
 })
 jest.mock('../../core/diskSpace', () => ({ diskPressure: () => 'ok' }))
 
+import { asPeerPayRows } from '../__helpers__/signedPeerPay'
 import {
   Beef,
   KeyDeriver,
@@ -440,7 +441,7 @@ describe('I3: the handle/MessageBox rail (sendViaHandle) never selects Vault fun
     // The outbox row holds the exact AtomicBEEF `createAction` produced
     // (`token.transaction`) — reading it back avoids `wallet.listActions`
     // entirely (see `isSpendable`'s comment for why).
-    const [entry] = await getOutboxEntries(kv)
+    const [entry] = asPeerPayRows(await getOutboxEntries(kv))
     const tx = Transaction.fromAtomicBEEF(entry.token.transaction)
     const usedOutpoints = tx.inputs.map(i => `${i.sourceTXID}.${i.sourceOutputIndex}`)
     expect(usedOutpoints).toContain(funding.outpoint) // positive control

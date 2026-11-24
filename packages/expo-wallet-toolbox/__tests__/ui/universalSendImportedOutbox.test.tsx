@@ -7,9 +7,9 @@ import {
   markOutboxSent,
   quarantineImportedOutbox,
   saveOutboxEntry,
-  type OutboxEntry
+  type PeerPayOutboxEntry
 } from '../../core/peerpay/outbox'
-import { sender, signedPayment } from '../__helpers__/signedPeerPay'
+import { sender, signedPayment, asPeerPayRows } from '../__helpers__/signedPeerPay'
 import { TaskDrainOutbox } from '../../core/monitor/TaskDrainOutbox'
 
 jest.mock('@bsv/wallet-toolbox-mobile', () => ({ WalletMonitorTask: class {} }))
@@ -137,7 +137,7 @@ jest.mock('../../ui/tokenFormat', () => ({
 }))
 jest.mock('../../core/identity/handleRegistry/client', () => ({ createHandleRegistryClient: jest.fn() }))
 
-let held: OutboxEntry
+let held: PeerPayOutboxEntry
 beforeEach(async () => {
   jest.clearAllMocks()
   TaskDrainOutbox.resetForTests()
@@ -153,7 +153,7 @@ beforeEach(async () => {
   }
   await saveOutboxEntry(mockStorage, await signedPayment())
   await quarantineImportedOutbox(mockStorage)
-  ;[held] = await getOutboxEntries(mockStorage)
+  ;[held] = asPeerPayRows(await getOutboxEntries(mockStorage))
   mockRetry.mockReset().mockImplementation(async ({ storage, entry }) => {
     await markOutboxSent(storage, entry.id)
   })
@@ -203,7 +203,7 @@ test('canceling the inline review keeps the token held without retry or native a
   await act(async () => {
     fireEvent.press(screen.getByText('cancel'))
   })
-  expect((await getOutboxEntries(mockStorage))[0].status).toBe('import_hold')
+  expect((asPeerPayRows(await getOutboxEntries(mockStorage)))[0].status).toBe('import_hold')
   expect(mockRetry).not.toHaveBeenCalled()
   expect(mockCancel).not.toHaveBeenCalled()
   expect(mockAlert).not.toHaveBeenCalled()
@@ -219,7 +219,7 @@ test('invalid imported display fields stay masked and the parent reports validat
   expect(mockToast).toHaveBeenCalledWith(expect.stringMatching(/^retry_failed:/), { type: 'error' })
   expect(mockRetry).not.toHaveBeenCalled()
   expect(screen.queryByText('999 sats')).toBeNull()
-  expect((await getOutboxEntries(mockStorage))[0].status).toBe('import_hold')
+  expect((asPeerPayRows(await getOutboxEntries(mockStorage)))[0].status).toBe('import_hold')
 })
 
 test('the parent refuses release when the stored snapshot changes after review', async () => {
@@ -292,7 +292,7 @@ test('a Finish choice on imported delivered history cannot bypass its fresh revi
     fireEvent.press(screen.getByText('cancel'))
   })
   expect(mockRetry).not.toHaveBeenCalled()
-  expect((await getOutboxEntries(mockStorage))[0].status).toBe('import_hold')
+  expect((asPeerPayRows(await getOutboxEntries(mockStorage)))[0].status).toBe('import_hold')
 })
 
 test('a missing delivery client prevents transmission after valid fresh approval', async () => {

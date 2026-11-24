@@ -1,4 +1,4 @@
-import type { OutboxEntry } from './outbox'
+import type { PeerPayOutboxEntry } from './outbox'
 
 export function instructionsFromOutput(customInstructions: unknown):
   | {
@@ -54,7 +54,7 @@ export async function rebuildPeerPayToken(args: {
   action: { txid?: string; outputs?: RebuildOutput[] }
   recipient: string
   refetch: (txid: string) => Promise<number[] | undefined>
-}): Promise<{ token: OutboxEntry['token']; recipient: string } | undefined> {
+}): Promise<{ token: PeerPayOutboxEntry['token']; recipient: string } | undefined> {
   const { action, recipient, refetch } = args
   if (!action.txid) return undefined
 

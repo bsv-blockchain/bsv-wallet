@@ -16,10 +16,13 @@
 
 import { P2PKH, PublicKey, Transaction, type WalletInterface } from '@bsv/sdk'
 import { BRC29_PROTOCOL_ID } from './brc29'
+import { isPublicHttpsUrl } from '../net/publicDestination'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export interface OutboxEntry {
+export interface PeerPayOutboxEntry {
+  /** Absent on rows stored before the paymail kind existed; those are PeerPay rows. */
+  kind?: 'peerpay'
   /** `${timestamp}_${recipientKey.slice(0, 8)}`, with a suffix on collision. */
   id: string
   /** ISO 8601 creation timestamp */
@@ -81,6 +84,46 @@ export interface OutboxEntry {
    * Absent for a payment sent through the message box from the start.
    */
   via?: 'direct'
+}
+
+/** A payment to a legacy paymail (P2P destination plus BEEF). */
+export interface PaymailOutboxEntry {
+  kind: 'paymail'
+  id: string
+  createdAt: string
+  status: 'unsent' | 'sent' | 'import_hold'
+  lastAttemptAt?: string
+  lastError?: string
+  /** Our txid, 64 hex. */
+  txid: string
+  paymail: string
+  /** The BEEF URL, resolved at send time. */
+  endpoint: string
+  /** The receiver's reference, not the wallet action reference. */
+  paymailReference: string
+  /** Plain BEEF. */
+  beefHex: string
+  satoshis: number
+  /** The user's note. */
+  note?: string
+  /** Set just before the POST. */
+  delivering?: boolean
+  /** The receiver accepted. */
+  delivered?: boolean
+  receiverTxid?: string
+  receiverNote?: string
+  /** A retry saw a refusal and did not abort: only a user Cancel can finish it. */
+  refused?: boolean
+}
+
+export type OutboxEntry = PeerPayOutboxEntry | PaymailOutboxEntry
+
+export function isPaymailEntry(e: OutboxEntry): e is PaymailOutboxEntry {
+  return e.kind === 'paymail'
+}
+
+export function isPeerPayEntry(e: OutboxEntry): e is PeerPayOutboxEntry {
+  return e.kind !== 'paymail'
 }
 
 interface StorageLike {
@@ -172,17 +215,48 @@ export async function quarantineImportedOutbox(storage: StorageLike): Promise<nu
   })
 }
 
+function validateImportedPaymailEntry(entry: PaymailOutboxEntry): void {
+  let tx: Transaction
+  try {
+    if (typeof entry.beefHex !== 'string' || !entry.beefHex) throw new Error('empty')
+    tx = Transaction.fromHexBEEF(entry.beefHex)
+  } catch {
+    throw new Error('Imported payment has an invalid signed transaction')
+  }
+  if (
+    typeof entry.txid !== 'string' ||
+    !/^[0-9a-f]{64}$/i.test(entry.txid) ||
+    tx.id('hex').toLowerCase() !== entry.txid.toLowerCase()
+  ) {
+    throw new Error('Imported payment transaction ID does not match its signed transaction')
+  }
+  if (!Number.isSafeInteger(entry.satoshis) || entry.satoshis <= 0) {
+    throw new Error('Imported payment has an invalid amount')
+  }
+  if (typeof entry.endpoint !== 'string' || !isPublicHttpsUrl(entry.endpoint)) {
+    throw new Error('Imported payment has an invalid endpoint')
+  }
+  if (typeof entry.paymailReference !== 'string' || !entry.paymailReference) {
+    throw new Error('Imported payment has no paymail reference')
+  }
+}
+
 /** Verify an imported snapshot before its amount or recipient is offered for
  * approval. Only public-key derivation is needed; no payment is signed or sent. */
-export async function validateImportedOutboxEntry(
-  entry: OutboxEntry,
+export async function validateImportedOutboxEntry<E extends OutboxEntry>(
+  entry: E,
   wallet: Pick<WalletInterface, 'getPublicKey'>,
   adminOriginator: string
-): Promise<OutboxEntry> {
+): Promise<E> {
   // Separate the checked snapshot from the caller's mutable imported object
   // before awaiting wallet derivation. Release still checks exact stored equality.
   const reviewed = JSON.parse(JSON.stringify(entry)) as OutboxEntry
+  const result = reviewed as E
   if (reviewed.status !== 'import_hold') throw new Error('Imported payment is not held for review')
+  if (isPaymailEntry(reviewed)) {
+    validateImportedPaymailEntry(reviewed)
+    return result
+  }
   const token = reviewed.token
   if (
     !token ||
@@ -235,16 +309,16 @@ export async function validateImportedOutboxEntry(
   if (output.lockingScript.toHex() !== expected) {
     throw new Error('Imported payment recipient does not match its signed output')
   }
-  return reviewed
+  return result
 }
 
 /** Called only after reviewing the displayed imported payment for a new send. */
-export async function releaseImportedOutboxEntry(
+export async function releaseImportedOutboxEntry<E extends OutboxEntry>(
   storage: StorageLike,
-  reviewed: OutboxEntry,
+  reviewed: E,
   wallet: Pick<WalletInterface, 'getPublicKey'>,
   adminOriginator: string
-): Promise<OutboxEntry> {
+): Promise<E> {
   return withOutboxLock(storage, async () => {
     const all = await readEntries(storage)
     const index = all.findIndex(entry => entry.id === reviewed.id)
@@ -253,10 +327,26 @@ export async function releaseImportedOutboxEntry(
       throw new Error('Imported payment changed; review it again')
     }
     const validated = await validateImportedOutboxEntry(current, wallet, adminOriginator)
-    const approved = { ...validated, status: 'unsent' as const }
+    let approved: OutboxEntry
+    if (isPaymailEntry(validated)) {
+      // An imported row must not claim a delivery this wallet did not see.
+      const {
+        delivered: _d,
+        delivering: _g,
+        refused: _r,
+        receiverTxid: _t,
+        receiverNote: _n,
+        lastAttemptAt: _a,
+        lastError: _e,
+        ...rest
+      } = validated
+      approved = { ...rest, status: 'unsent' as const }
+    } else {
+      approved = { ...validated, status: 'unsent' as const }
+    }
     all[index] = approved
     await writeEntries(storage, all)
-    return approved
+    return approved as E
   })
 }
 
@@ -268,16 +358,16 @@ export async function saveOutboxEntry(
   storage: StorageLike,
   params: {
     recipient: string
-    token: OutboxEntry['token']
+    token: PeerPayOutboxEntry['token']
     messageBoxUrl: string
     txid?: string
     recipientHost?: string
-    via?: OutboxEntry['via']
+    via?: PeerPayOutboxEntry['via']
   }
 ): Promise<string> {
   const { recipient, token, messageBoxUrl, txid, recipientHost, via } = params
   const id = `${Date.now()}_${recipient.slice(0, 8)}`
-  const entry: OutboxEntry = {
+  const entry: PeerPayOutboxEntry = {
     id,
     createdAt: new Date().toISOString(),
     recipient,
@@ -293,6 +383,45 @@ export async function saveOutboxEntry(
     // Concurrent sends to the same recipient can share a millisecond. Choose
     // against the current queue while holding the lock so later updates and
     // removals still identify exactly one payment; existing IDs stay unchanged.
+    const usedIds = new Set(all.map(e => e.id))
+    let suffix = 0
+    while (usedIds.has(entry.id)) entry.id = `${id}_${++suffix}`
+    all.push(entry)
+    await writeEntries(storage, all)
+    return entry.id
+  })
+}
+
+/** Persist a paymail payment before the POST. Returns the generated entry ID. */
+export async function savePaymailOutboxEntry(
+  storage: StorageLike,
+  params: {
+    paymail: string
+    endpoint: string
+    paymailReference: string
+    beefHex: string
+    satoshis: number
+    txid: string
+    note?: string
+  }
+): Promise<string> {
+  const { paymail, endpoint, paymailReference, beefHex, satoshis, txid, note } = params
+  const id = `${Date.now()}_pm_${txid.slice(0, 8)}`
+  const entry: PaymailOutboxEntry = {
+    kind: 'paymail',
+    id,
+    createdAt: new Date().toISOString(),
+    status: 'unsent',
+    txid,
+    paymail,
+    endpoint,
+    paymailReference,
+    beefHex,
+    satoshis,
+    ...(note ? { note } : {})
+  }
+  return withOutboxLock(storage, async () => {
+    const all = await readEntries(storage)
     const usedIds = new Set(all.map(e => e.id))
     let suffix = 0
     while (usedIds.has(entry.id)) entry.id = `${id}_${++suffix}`
@@ -321,12 +450,14 @@ export async function markOutboxSent(storage: StorageLike, id: string): Promise<
  * Merge a partial update into an entry.
  * Used to record `lastAttemptAt` and `lastError` on failed retry attempts.
  */
-export async function updateOutboxEntry(storage: StorageLike, id: string, patch: Partial<OutboxEntry>): Promise<void> {
+export async function updateOutboxEntry(storage: StorageLike, id: string,
+  patch: Partial<PeerPayOutboxEntry> | Partial<PaymailOutboxEntry>
+): Promise<void> {
   return withOutboxLock(storage, async () => {
     const all = await readEntries(storage)
     const idx = all.findIndex(e => e.id === id)
     if (idx !== -1) {
-      all[idx] = { ...all[idx], ...patch }
+      all[idx] = { ...all[idx], ...patch } as OutboxEntry
       await writeEntries(storage, all)
     }
   })
@@ -372,12 +503,12 @@ export async function pruneExpiredSent(storage: StorageLike, now: number = Date.
 }
 
 /** Only explicitly authorized unsent entries may enter automatic delivery. */
-export function unsentEntries(entries: OutboxEntry[]): OutboxEntry[] {
+export function unsentEntries<E extends OutboxEntry>(entries: E[]): E[] {
   return entries.filter(e => e.status === 'unsent')
 }
 
 /** Held or unrecognized history still needs retention, even though it cannot
  * be automatically delivered. Only sent entries are terminal. */
-export function unresolvedOutboxEntries(entries: OutboxEntry[]): OutboxEntry[] {
+export function unresolvedOutboxEntries<E extends OutboxEntry>(entries: E[]): E[] {
   return entries.filter(e => e.status !== 'sent')
 }

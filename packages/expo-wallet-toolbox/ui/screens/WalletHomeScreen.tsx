@@ -62,6 +62,7 @@ import {
   getOnline,
   haptics,
   getOutboxEntries,
+  isPeerPayEntry,
   unsentEntries,
   retryDelivery,
   makePeerPayClient,
@@ -1206,7 +1207,10 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     async (action: ActivityAction) => {
       if (busyRow) return
       if (action.txid && storage && managers.permissionsManager) {
-        const entry = unsentEntries(await getOutboxEntries(storage)).find(e => e.txid === action.txid)
+        // Task 7 adds the paymail branch.
+        const entry = unsentEntries(await getOutboxEntries(storage))
+          .filter(isPeerPayEntry)
+          .find(e => e.txid === action.txid)
         if (entry) {
           setBusyRow(action.txid)
           try {

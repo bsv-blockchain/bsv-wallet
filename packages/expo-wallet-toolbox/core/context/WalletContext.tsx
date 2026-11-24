@@ -284,7 +284,7 @@ import {
   readMessageBoxUrl,
   retryDelivery
 } from '../pay/rails/handle'
-import { getOutboxEntries, pruneExpiredSent, unsentEntries } from '../peerpay/outbox'
+import { getOutboxEntries, isPeerPayEntry, pruneExpiredSent, unsentEntries } from '../peerpay/outbox'
 import { MAX_HEX_RESPONSE_CHARS, wocConfigFor } from '../pay/rails/address'
 import { PeerPayClient } from '@bsv/message-box-client'
 import {
@@ -2430,6 +2430,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                   return drainUnsentEntries({
                     entries,
                     retry: async entry => {
+                      // Task 7 adds the paymail branch.
+                      if (!isPeerPayEntry(entry)) return
                       const client = bindMessageBoxNetwork(
                         new PeerPayClient({
                           messageBoxHost: entry.messageBoxUrl,

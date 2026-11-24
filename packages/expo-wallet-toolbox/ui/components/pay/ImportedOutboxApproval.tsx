@@ -3,7 +3,20 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import type { WalletInterface } from '@bsv/sdk'
 import type { ThemeColors } from '../../../core/theme/ThemeContext'
 import { hitTargets, spacing, typography } from '../../../core/theme/tokens'
-import { releaseImportedOutboxEntry, validateImportedOutboxEntry, type OutboxEntry } from '../../../core/peerpay/outbox'
+import {
+  isPaymailEntry,
+  releaseImportedOutboxEntry,
+  validateImportedOutboxEntry,
+  type OutboxEntry
+} from '../../../core/peerpay/outbox'
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
 import { TaskDrainOutbox } from '../../../core/monitor/TaskDrainOutbox'
 import PressableScale from '../ui/PressableScale'
 
@@ -96,7 +109,12 @@ export default function ImportedOutboxApproval({
     <View>
       {reviewed && (
         <Text style={[styles.detail, { color: colors.textPrimary }]}>
-          {t('review_imported_payment_detail', { amount: reviewed.token.amount, recipient: reviewed.recipient })}
+          {isPaymailEntry(reviewed)
+            ? t('review_imported_payment_detail', {
+                amount: reviewed.satoshis,
+                recipient: `${reviewed.paymail} (${hostOf(reviewed.endpoint)})`
+              })
+            : t('review_imported_payment_detail', { amount: reviewed.token.amount, recipient: reviewed.recipient })}
         </Text>
       )}
       <View style={[styles.buttons, { borderTopColor: colors.separator }]}>

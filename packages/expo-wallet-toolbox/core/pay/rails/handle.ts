@@ -18,7 +18,8 @@ import {
   removeOutboxEntry,
   saveOutboxEntry,
   updateOutboxEntry,
-  type OutboxEntry
+  type OutboxEntry,
+  type PeerPayOutboxEntry
 } from '../../peerpay/outbox'
 import type { CreditFailureKind } from '../creditErrors'
 import { abbreviateKey } from '../counterparty'
@@ -643,7 +644,7 @@ export async function sendViaHandle(args: {
 /** A payment minted with noSend: signed, saved by the caller, not yet broadcast. */
 export interface MintedPeerPayToken {
   txid: string
-  token: OutboxEntry['token']
+  token: PeerPayOutboxEntry['token']
   /** What output 0 pays the recipient, read off the transaction (covers send-max). */
   satoshis: number
 }
@@ -757,7 +758,7 @@ export async function cancelOutboxPayment(args: {
   wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>
   adminOriginator: string
   storage: StorageLike
-  entry: Pick<OutboxEntry, 'id' | 'txid' | 'delivered' | 'delivering' | 'recipient' | 'recipientHost'>
+  entry: Pick<PeerPayOutboxEntry, 'id' | 'txid' | 'delivered' | 'delivering' | 'recipient' | 'recipientHost'>
   client?: Pick<PeerPayClient, 'sendMessage'>
   mode?: 'undelivered' | 'abandon'
 }): Promise<{ aborted: boolean; needsAbandon?: boolean }> {
@@ -920,7 +921,7 @@ export async function retryDelivery(args: {
   adminOriginator: string
   client: Pick<PeerPayClient, 'sendMessage'>
   storage: StorageLike
-  entry: OutboxEntry
+  entry: PeerPayOutboxEntry
 }): Promise<void> {
   const { wallet, adminOriginator, client, storage, entry } = args
   if (entry.status !== 'unsent') return
