@@ -115,7 +115,12 @@ async function readBoundedJson(res: Response, fallback: () => Promise<unknown>, 
  * single stalled body would wedge every later write for the life of the
  * process, with no toast and no timeout.
  */
-export async function fetchWithTimeout(fetchImpl: typeof fetch, url: string, init?: RequestInit): Promise<Response> {
+export async function fetchWithTimeout(
+  fetchImpl: typeof fetch,
+  url: string,
+  init?: RequestInit,
+  timeoutMs: number = REGISTRY_TIMEOUT_MS
+): Promise<Response> {
   const controller = new AbortController()
   const caller = init?.signal ?? null
   const onAbort = () => controller.abort(caller?.reason)
@@ -123,7 +128,7 @@ export async function fetchWithTimeout(fetchImpl: typeof fetch, url: string, ini
   caller?.addEventListener('abort', onAbort)
   const release = () => caller?.removeEventListener('abort', onAbort)
   const startedAt = Date.now()
-  const timer = setTimeout(() => controller.abort(), REGISTRY_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   let response: Response
   try {
     response = await fetchImpl(url, { ...init, signal: controller.signal })
@@ -150,9 +155,9 @@ export async function fetchWithTimeout(fetchImpl: typeof fetch, url: string, ini
         bodyTimer = setTimeout(
           () => {
             controller.abort()
-            reject(new Error(`handleRegistry: no body from ${url} after ${REGISTRY_TIMEOUT_MS}ms`))
+            reject(new Error(`handleRegistry: no body from ${url} after ${timeoutMs}ms`))
           },
-          Math.max(0, REGISTRY_TIMEOUT_MS - (Date.now() - startedAt))
+          Math.max(0, timeoutMs - (Date.now() - startedAt))
         )
         void readBoundedJson(response, fallback, url).then(resolve, reject)
       })

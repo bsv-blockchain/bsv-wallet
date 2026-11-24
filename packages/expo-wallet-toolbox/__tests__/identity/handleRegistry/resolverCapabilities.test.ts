@@ -1,7 +1,8 @@
 import {
   RESOLVER_FAILURE_TTL_MS,
   RESOLVER_SUCCESS_TTL_MS,
-  createRegistryResolver
+  createRegistryResolver,
+  fetchWithTimeout
 } from '../../../core/identity/handleRegistry/resolver'
 import { OTHER, notOk, ok, srv, transport, wellKnown } from '../../__helpers__/fakeTransport'
 
@@ -168,5 +169,43 @@ describe('discoverCapabilities', () => {
     await r.discoverCapabilities(OTHER)
     expect(calls.filter(c => c.includes(DOH))).toHaveLength(1)
     expect(calls.filter(c => c.includes('.well-known'))).toHaveLength(1)
+  })
+})
+
+describe('fetchWithTimeout', () => {
+  afterEach(() => jest.useRealTimers())
+
+  function hangingFetch() {
+    let aborted = false
+    const fetchImpl = ((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted = true
+          reject(new Error('aborted'))
+        })
+      })) as unknown as typeof fetch
+    return { fetchImpl, isAborted: () => aborted }
+  }
+
+  it('aborts at the timeout argument', async () => {
+    jest.useFakeTimers()
+    const { fetchImpl, isAborted } = hangingFetch()
+    const p = fetchWithTimeout(fetchImpl, 'https://x.example/', undefined, 15000).catch(() => 'rejected')
+    await jest.advanceTimersByTimeAsync(8000)
+    expect(isAborted()).toBe(false)
+    await jest.advanceTimersByTimeAsync(7000)
+    expect(isAborted()).toBe(true)
+    expect(await p).toBe('rejected')
+  })
+
+  it('default is still 8 s', async () => {
+    jest.useFakeTimers()
+    const { fetchImpl, isAborted } = hangingFetch()
+    const p = fetchWithTimeout(fetchImpl, 'https://x.example/').catch(() => 'rejected')
+    await jest.advanceTimersByTimeAsync(7999)
+    expect(isAborted()).toBe(false)
+    await jest.advanceTimersByTimeAsync(1)
+    expect(isAborted()).toBe(true)
+    expect(await p).toBe('rejected')
   })
 })
