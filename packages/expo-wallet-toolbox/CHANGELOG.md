@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.28.0
+
+No native change: hosts do not rebuild.
+
+### Added
+
+- **An incoming PeerPay payment whose token has a valid `paymail` gets the wallet label `paymail:<address>`.** A host sees the field only with `@bsv/message-box-client` 2.8.0 or newer; an older client gives no label. No host action.
+
 ## 0.27.0
 
 Paymail send. No native change: hosts do not rebuild.
