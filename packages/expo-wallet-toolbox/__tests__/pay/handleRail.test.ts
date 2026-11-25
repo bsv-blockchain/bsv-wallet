@@ -21,6 +21,8 @@ import { applyAppData } from '../../core/backup/appData'
 import { getOutboxEntries, saveOutboxEntry, unsentEntries, updateOutboxEntry } from '../../core/peerpay/outbox'
 import { validatePeerPayURI } from '../../core/parsePeerPayURI'
 import { abbreviateKey } from '../../core/pay/counterparty'
+import { incomingPaymailLabel } from '../../core/pay/paymailLabel'
+import { paymailAddressLabel } from '../../core/pay/rails/paymail'
 
 // secp256k1 generator point, in the lowercase hex PublicKey.toString() emits —
 // which is also the form parsePeerPayURI.ts stores, whichever case a link carries.
@@ -127,6 +129,46 @@ describe('internalizeIncoming', () => {
       paymentRemittance: { derivationPrefix: 'p', derivationSuffix: 's', senderIdentityKey: KEY }
     })
     expect(client.acknowledgeMessage).toHaveBeenCalledWith({ messageIds: ['m1'] })
+  })
+
+  describe('paymail sender label', () => {
+    const run = async (paymail: unknown, hasKey = true) => {
+      const wallet = { internalizeAction: jest.fn().mockResolvedValue({ accepted: true }) }
+      const client = { acknowledgeMessage: jest.fn().mockResolvedValue(undefined) }
+      const token = { ...(payment as any).token, ...(hasKey ? { paymail } : {}) }
+      await internalizeIncoming(wallet as never, client as never, 'admin.com', { ...(payment as any), token })
+      return wallet.internalizeAction.mock.calls[0][0].labels as string[]
+    }
+
+    it('adds a paymail label when the token carries a valid paymail', async () => {
+      expect(await run('rosa@handcash.io')).toEqual(['peerpay', 'paymail:rosa@handcash.io'])
+    })
+
+    it('lower-cases the address', async () => {
+      expect(await run('Rosa@HandCash.IO')).toEqual(['peerpay', 'paymail:rosa@handcash.io'])
+    })
+
+    it.each([
+      ['a number', 42],
+      ['no domain', 'rosa'],
+      ['a 300 character address', `${'a'.repeat(60)}@${'b'.repeat(235)}.io`],
+      ['a newline', 'rosa@handcash.io\n'],
+      ['a bidi override', 'rosa@handcash.io\u202e']
+    ])('ignores an invalid paymail (%s)', async (_n, value) => {
+      expect(await run(value)).toEqual(['peerpay'])
+    })
+
+    it('never adds the bare paymail label', async () => {
+      expect(await run('rosa@handcash.io')).not.toContain('paymail')
+    })
+
+    it('the label equals what the send rail writes', () => {
+      expect(incomingPaymailLabel('A@B.io')).toBe(paymailAddressLabel('A@B.io'))
+    })
+
+    it('a token with no paymail is unchanged', async () => {
+      expect(await run(undefined, false)).toEqual(['peerpay'])
+    })
   })
 
   it('prefers a note carried in the token over the default description', async () => {

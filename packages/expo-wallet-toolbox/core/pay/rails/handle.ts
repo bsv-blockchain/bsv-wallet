@@ -23,6 +23,7 @@ import {
 } from '../../peerpay/outbox'
 import type { CreditFailureKind } from '../creditErrors'
 import { abbreviateKey } from '../counterparty'
+import { incomingPaymailLabel } from '../paymailLabel'
 import { cleanPeerPayNote } from '../../parsePeerPayURI'
 import { isDuplicateMessageError, sendControlMessage, type ResendReason } from '../../peerpay/control'
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
@@ -200,7 +201,7 @@ export type CreditOutcome = 'credited' | 'duplicate'
  * The recorded description is the note the sender attached to the token or,
  * failing that, the sender's abbreviated identity key: the same default the
  * sending wallet wrote for the recipient, so both sides name one payment the
- * same way. The sender is not added to the labels; the activity list recovers
+ * same way. The sender's key is not added to the labels; the activity list recovers
  * the counterparty from the output's senderIdentityKey instead.
  *
  * `repairBeef` is the second chance. The token's AtomicBEEF was minted at send
@@ -231,6 +232,10 @@ export async function internalizeIncoming(
 
   const description = creditDescription((payment.token as { note?: unknown }).note, payment.sender)
 
+  // A legacy sender's address, when the token carries a valid one. Never the
+  // bare `paymail` label: that one marks an outbox-protected outgoing action.
+  const paymailLabel = incomingPaymailLabel((payment.token as { paymail?: unknown }).paymail)
+
   const argsFor = (tx: number[] | typeof payment.token.transaction) => ({
     tx,
     outputs: [
@@ -244,7 +249,7 @@ export async function internalizeIncoming(
         protocol: 'wallet payment'
       }
     ],
-    labels: ['peerpay'],
+    labels: ['peerpay', ...(paymailLabel ? [paymailLabel] : [])],
     description
   })
 
