@@ -293,6 +293,7 @@ const resources = {
       vault_restore_found: 'Found {{count}} vault deposit(s) on the blockchain.',
       vault_restore_pending: '{{count}} deposit(s) found, awaiting their first confirmation — try again shortly.',
       vault_restore_none_found: 'No vault deposits were found on the blockchain for this wallet.',
+      vault_restore_needs_key: 'Vault found. Tap one of its keys to restore it.',
       vault_balance_label: 'Vault holds',
       vault_key_section: 'Security keys ({{count}} of 5)',
       vault_manage_section: 'Manage',
@@ -338,6 +339,18 @@ const resources = {
       vault_reset_body:
         'This key has been used before. Resetting erases every certificate and key in its PIV application, not only the vault slot. Anything that relies on this key stops working.',
       vault_reset_ack: 'I understand this erases everything on this key',
+      vault_card_checking: 'Checking the blockchain for a vault this key opens…',
+      vault_card_funds_title: 'This key opens a vault',
+      vault_card_funds_body_one:
+        '1 deposit ({{amount}}) can be opened with this key. Restore the vault instead of resetting the key.',
+      vault_card_funds_body_other:
+        '{{count}} deposits ({{amount}}) can be opened with this key. Restore the vault instead of resetting the key.',
+      vault_card_restore: 'Restore this vault',
+      vault_card_unknown_title: 'Couldn’t check the blockchain',
+      vault_card_unknown_body:
+        'The key was not changed. Try again. If you reset it without checking, any vault it opens is lost for good.',
+      vault_card_retry: 'Try again',
+      vault_card_loss_ack: 'Any funds in a vault that uses this key are lost for good if you reset it.',
       vault_reset_unknown_ack:
         "This device cannot confirm whether this key still secures a different profile's vault. I understand erasing it may destroy that key for good.",
       vault_reset_own_draft_ack:
@@ -382,8 +395,8 @@ const resources = {
       vault_done_cta: 'Done',
       vault_add_key_row: 'Add key',
       vault_add_key_done:
-        '{{nickname}} can open deposits made from now on. Re-lock the vault so it can open everything.',
-      vault_key_added_toast: 'Key added',
+        '{{nickname}} is saved but not active yet. It opens this vault only after you confirm it with one of your other keys.',
+      vault_key_added_toast: 'Key saved. It is not active yet.',
       vault_recovery_verified: 'Recovered key verified on this device',
       vault_relock_row: 'Re-lock vault',
       vault_relock_now: 'Re-lock now',
@@ -398,7 +411,7 @@ const resources = {
         'The vault locks to at most five keys. Remove one before depositing, re-locking or withdrawing part of the balance.',
       vault_key_section_over_limit: 'Security keys ({{count}}, remove one)',
       vault_add_key_done_over_limit:
-        '{{nickname}} is added. The vault locks to at most five keys, so remove the key this one replaces, then re-lock once.',
+        '{{nickname}} is saved but not active yet. The vault locks to at most five keys, so remove the key this one replaces. Removing it also makes {{nickname}} active.',
       vault_relock_done: 'Vault re-locked to your current keys',
       vault_relock_capped: '{{count}} more deposits remain — re-lock again to move them.',
       vault_relock_unreachable:
@@ -695,6 +708,8 @@ const resources = {
       review_imported_payment: 'Review imported payment',
       review_imported_payment_detail:
         'This payment came from a backup and may have been canceled. Send {{amount}} satoshis to {{recipient}} now?',
+      review_imported_paymail_detail:
+        'This payment came from a backup and may have been canceled. It is listed as {{amount}} satoshis to {{recipient}}, but the app cannot check that the signed transaction pays that recipient or that amount. Send it anyway?',
       payment_not_delivered: 'Not delivered',
       payment_delivered: 'Delivered',
       retry: 'Retry',
@@ -790,6 +805,8 @@ const resources = {
       authorize: 'Authorize',
       renewal: 'Renewal',
       spending_section: 'Spending',
+      spending_up_to: 'Up to',
+      spending_each_month: 'each month, until you remove it',
       protocols_section: 'Protocols',
       baskets_section: 'Baskets',
       certificates_section: 'Certificates',
@@ -1534,6 +1551,7 @@ const resources = {
       vault_restore_found: '在区块链上找到 {{count}} 笔保险库存款。',
       vault_restore_pending: '找到 {{count}} 笔存款，正在等待首次确认——请稍后重试。',
       vault_restore_none_found: '未在区块链上找到此钱包的保险库存款。',
+      vault_restore_needs_key: '已找到保险库。请轻触其中一把密钥来恢复它。',
       vault_balance_label: '保险库存有',
       vault_key_section: '安全密钥（{{count}} / 5）',
       vault_manage_section: '管理',
@@ -1578,6 +1596,15 @@ const resources = {
       vault_reset_body:
         '此密钥曾被使用过。重置会抹除其 PIV 应用中的所有证书和密钥，而不仅仅是保险库槽位。任何依赖此密钥的功能都将失效。',
       vault_reset_ack: '我明白这会抹除此密钥上的所有内容',
+      vault_card_checking: '正在区块链上查找此密钥可打开的保险库…',
+      vault_card_funds_title: '此密钥可打开一个保险库',
+      vault_card_funds_body_one: '此密钥可以打开 1 笔存入（{{amount}}）。请恢复该保险库，而不是重置密钥。',
+      vault_card_funds_body_other: '此密钥可以打开 {{count}} 笔存入（{{amount}}）。请恢复该保险库，而不是重置密钥。',
+      vault_card_restore: '恢复此保险库',
+      vault_card_unknown_title: '无法检查区块链',
+      vault_card_unknown_body: '密钥未被更改。请重试。如果不检查就重置，它所打开的任何保险库都将永久丢失。',
+      vault_card_retry: '重试',
+      vault_card_loss_ack: '如果重置，使用此密钥的保险库中的任何资金都将永久丢失。',
       vault_reset_unknown_ack:
         '本设备无法确认这把密钥是否仍在为另一个身份的保险库提供保护。我明白抹除它可能会永久销毁那把密钥。',
       vault_reset_own_draft_ack:
@@ -1617,8 +1644,8 @@ const resources = {
       vault_done_body: '{{count}} 把密钥可以打开这个保险库。只有这些密钥能打开它 — 您的恢复助记词不能。',
       vault_done_cta: '完成',
       vault_add_key_row: '添加密钥',
-      vault_add_key_done: '{{nickname}} 可以打开从现在起的存入。重新锁定保险库后，它就能打开全部资金。',
-      vault_key_added_toast: '密钥已添加',
+      vault_add_key_done: '{{nickname}} 已保存，但尚未生效。只有在您用另一把密钥确认后，它才能打开此保险库。',
+      vault_key_added_toast: '密钥已保存，尚未生效。',
       vault_recovery_verified: '已在此设备上验证恢复的密钥',
       vault_relock_row: '重新锁定保险库',
       vault_relock_now: '立即重新锁定',
@@ -1632,7 +1659,7 @@ const resources = {
       vault_err_too_many_active_keys: '保险库最多锁定到五把密钥。请先移除一把，再存入、重新锁定或提取部分余额。',
       vault_key_section_over_limit: '安全密钥（{{count}}，请移除一把）',
       vault_add_key_done_over_limit:
-        '已添加 {{nickname}}。保险库最多锁定到五把密钥，请移除它所替换的那把，然后重新锁定一次。',
+        '{{nickname}} 已保存，但尚未生效。保险库最多锁定到五把密钥，因此请移除这把密钥所替代的那一把。移除后，{{nickname}} 也会随之生效。',
       vault_relock_done: '保险库已重新锁定到当前密钥',
       vault_relock_capped: '还剩 {{count}} 笔存入 — 再次重新锁定以移动它们。',
       vault_relock_unreachable: '{{count}} 笔存入只能由 {{names}} 打开。请用其中一把密钥再次重新锁定。',
@@ -1889,6 +1916,8 @@ const resources = {
       outgoing_payments: '已发出',
       review_imported_payment: '审核导入的付款',
       review_imported_payment_detail: '此付款来自备份，可能已被取消。现在向 {{recipient}} 发送 {{amount}} 聪吗？',
+      review_imported_paymail_detail:
+        '此付款来自备份，可能已被取消。它显示为向 {{recipient}} 发送 {{amount}} 聪，但应用无法核实已签名的交易是否支付给该收款人或该金额。仍要发送吗？',
       payment_not_delivered: '未送达',
       payment_delivered: '已送达',
       retry: '重试',
@@ -1978,6 +2007,8 @@ const resources = {
       authorize: '授权',
       renewal: '续订',
       spending_section: '消费',
+      spending_up_to: '最多',
+      spending_each_month: '每月，直到你移除为止',
       protocols_section: '协议',
       baskets_section: '篮子',
       certificates_section: '证书',
@@ -2707,6 +2738,7 @@ const resources = {
       vault_restore_found: 'ब्लॉकचेन पर {{count}} वॉल्ट जमा मिले।',
       vault_restore_pending: '{{count}} जमा मिले, पहली पुष्टि की प्रतीक्षा में — कृपया थोड़ी देर बाद पुनः प्रयास करें।',
       vault_restore_none_found: 'इस वॉलेट के लिए ब्लॉकचेन पर कोई वॉल्ट जमा नहीं मिला।',
+      vault_restore_needs_key: 'वॉल्ट मिल गया। उसे पुनर्स्थापित करने के लिए उसकी किसी एक कुंजी को टैप करें।',
       vault_balance_label: 'वॉल्ट में है',
       vault_key_section: 'सुरक्षा कुंजियाँ ({{count}}/5)',
       vault_manage_section: 'प्रबंधित करें',
@@ -2753,6 +2785,19 @@ const resources = {
       vault_reset_body:
         'यह कुंजी पहले इस्तेमाल हो चुकी है। रीसेट करने पर इसके PIV ऐप्लिकेशन का हर प्रमाणपत्र और कुंजी मिट जाएगी, सिर्फ़ वॉल्ट स्लॉट नहीं। इस कुंजी पर निर्भर सब कुछ काम करना बंद कर देगा।',
       vault_reset_ack: 'मैं समझता हूँ कि इससे इस कुंजी का सब कुछ मिट जाएगा',
+      vault_card_checking: 'ब्लॉकचेन पर ऐसा वॉल्ट खोजा जा रहा है जिसे यह कुंजी खोलती है…',
+      vault_card_funds_title: 'यह कुंजी एक वॉल्ट खोलती है',
+      vault_card_funds_body_one:
+        'इस कुंजी से 1 जमा ({{amount}}) खोली जा सकती है। कुंजी रीसेट करने के बजाय वॉल्ट पुनर्स्थापित करें।',
+      vault_card_funds_body_other:
+        'इस कुंजी से {{count}} जमा ({{amount}}) खोली जा सकती हैं। कुंजी रीसेट करने के बजाय वॉल्ट पुनर्स्थापित करें।',
+      vault_card_restore: 'इस वॉल्ट को पुनर्स्थापित करें',
+      vault_card_unknown_title: 'ब्लॉकचेन की जाँच नहीं हो सकी',
+      vault_card_unknown_body:
+        'कुंजी में कोई बदलाव नहीं हुआ। दोबारा कोशिश करें। अगर आप जाँचे बिना इसे रीसेट करते हैं, तो इससे खुलने वाला कोई भी वॉल्ट हमेशा के लिए खो जाएगा।',
+      vault_card_retry: 'पुनः प्रयास',
+      vault_card_loss_ack:
+        'अगर आप इसे रीसेट करते हैं, तो इस कुंजी का उपयोग करने वाले वॉल्ट में मौजूद सारे फ़ंड हमेशा के लिए खो जाएँगे।',
       vault_reset_unknown_ack:
         'यह डिवाइस पुष्टि नहीं कर सकता कि यह कुंजी किसी दूसरे प्रोफ़ाइल के वॉल्ट को अभी भी सुरक्षित कर रही है या नहीं। मैं समझता हूँ कि इसे मिटाने से वह कुंजी हमेशा के लिए नष्ट हो सकती है।',
       vault_reset_own_draft_ack:
@@ -2797,8 +2842,9 @@ const resources = {
         '{{count}} कुंजियाँ यह वॉल्ट खोल सकती हैं। केवल ये कुंजियाँ इसे खोलती हैं — आपका रिकवरी फ़्रेज़ नहीं।',
       vault_done_cta: 'हो गया',
       vault_add_key_row: 'कुंजी जोड़ें',
-      vault_add_key_done: '{{nickname}} अब से की गई जमाओं को खोल सकती है। वॉल्ट को री-लॉक करें ताकि यह सब कुछ खोल सके।',
-      vault_key_added_toast: 'कुंजी जोड़ी गई',
+      vault_add_key_done:
+        '{{nickname}} सहेज ली गई है, लेकिन अभी सक्रिय नहीं है। यह इस वॉल्ट को तभी खोलेगी जब आप इसे अपनी किसी दूसरी कुंजी से पुष्टि करेंगे।',
+      vault_key_added_toast: 'कुंजी सहेज ली गई। यह अभी सक्रिय नहीं है।',
       vault_recovery_verified: 'पुनर्प्राप्त कुंजी इस डिवाइस पर सत्यापित हुई',
       vault_relock_row: 'वॉल्ट री-लॉक करें',
       vault_relock_now: 'अभी री-लॉक करें',
@@ -2815,7 +2861,7 @@ const resources = {
         'वॉल्ट अधिकतम पाँच कुंजियों पर लॉक होता है। जमा करने, री-लॉक करने या शेष राशि का कुछ हिस्सा निकालने से पहले एक कुंजी हटाएँ।',
       vault_key_section_over_limit: 'सुरक्षा कुंजियाँ ({{count}}, एक हटाएँ)',
       vault_add_key_done_over_limit:
-        '{{nickname}} जोड़ दी गई। वॉल्ट अधिकतम पाँच कुंजियों पर लॉक होता है, इसलिए जिस कुंजी की जगह यह आई है उसे हटाएँ, फिर एक बार री-लॉक करें।',
+        '{{nickname}} सहेज ली गई है, लेकिन अभी सक्रिय नहीं है। वॉल्ट अधिकतम पाँच कुंजियों पर लॉक होता है, इसलिए वह कुंजी हटाएँ जिसकी जगह यह ले रही है। उसे हटाने पर {{nickname}} भी सक्रिय हो जाएगी।',
       vault_relock_done: 'वॉल्ट आपकी वर्तमान कुंजियों पर री-लॉक हो गया',
       vault_relock_capped: '{{count}} और जमा बाकी हैं — उन्हें ले जाने के लिए फिर री-लॉक करें।',
       vault_relock_unreachable:
@@ -3090,6 +3136,8 @@ const resources = {
       review_imported_payment: 'आयातित भुगतान की समीक्षा करें',
       review_imported_payment_detail:
         'यह भुगतान बैकअप से आया है और संभव है कि इसे रद्द कर दिया गया हो। क्या अभी {{recipient}} को {{amount}} सातोशी भेजें?',
+      review_imported_paymail_detail:
+        'यह भुगतान बैकअप से आया है और संभव है कि इसे रद्द कर दिया गया हो। इसमें {{recipient}} को {{amount}} सातोशी दिखाए गए हैं, लेकिन ऐप जाँच नहीं सकता कि हस्ताक्षरित लेन-देन उसी प्राप्तकर्ता को या उसी राशि का भुगतान करता है। फिर भी भेजें?',
       payment_not_delivered: 'डिलीवर नहीं हुआ',
       payment_delivered: 'डिलीवर हो गया',
       retry: 'पुनः प्रयास',
@@ -3182,6 +3230,8 @@ const resources = {
       authorize: 'अधिकृत करें',
       renewal: 'नवीनीकरण',
       spending_section: 'खर्च',
+      spending_up_to: 'अधिकतम',
+      spending_each_month: 'हर महीने, जब तक आप इसे हटा नहीं देते',
       protocols_section: 'प्रोटोकॉल',
       baskets_section: 'बास्केट',
       certificates_section: 'प्रमाणपत्र',
@@ -3941,6 +3991,7 @@ const resources = {
       vault_restore_pending:
         'Se encontraron {{count}} depósito(s), a la espera de su primera confirmación — inténtalo de nuevo en breve.',
       vault_restore_none_found: 'No se encontraron depósitos de la caja fuerte en la blockchain para esta billetera.',
+      vault_restore_needs_key: 'Caja fuerte encontrada. Toca una de sus llaves para restaurarla.',
       vault_balance_label: 'la caja fuerte tiene',
       vault_key_section: 'Llaves de seguridad ({{count}} de 5)',
       vault_manage_section: 'Gestionar',
@@ -3988,6 +4039,19 @@ const resources = {
       vault_reset_body:
         'Esta llave ya se ha usado antes. Restablecerla borra todos los certificados y claves de su aplicación PIV, no solo la ranura de la caja fuerte. Todo lo que dependa de ella dejará de funcionar.',
       vault_reset_ack: 'Entiendo que esto borra todo lo que hay en esta llave',
+      vault_card_checking: 'Buscando en la blockchain una caja fuerte que abra esta llave…',
+      vault_card_funds_title: 'Esta llave abre una caja fuerte',
+      vault_card_funds_body_one:
+        'Esta llave puede abrir 1 depósito ({{amount}}). Restaura la caja fuerte en lugar de restablecer la llave.',
+      vault_card_funds_body_other:
+        'Esta llave puede abrir {{count}} depósitos ({{amount}}). Restaura la caja fuerte en lugar de restablecer la llave.',
+      vault_card_restore: 'Restaurar esta caja fuerte',
+      vault_card_unknown_title: 'No se pudo consultar la blockchain',
+      vault_card_unknown_body:
+        'La llave no se modificó. Inténtalo de nuevo. Si la restableces sin comprobarlo, cualquier caja fuerte que abra se perderá para siempre.',
+      vault_card_retry: 'Reintentar',
+      vault_card_loss_ack:
+        'Si la restableces, cualquier fondo de una caja fuerte que use esta llave se perderá para siempre.',
       vault_reset_unknown_ack:
         'Este dispositivo no puede confirmar si esta llave todavía protege la caja fuerte de otro perfil. Entiendo que borrarla puede destruir esa clave para siempre.',
       vault_reset_own_draft_ack:
@@ -4034,8 +4098,8 @@ const resources = {
       vault_done_cta: 'Listo',
       vault_add_key_row: 'Añadir llave',
       vault_add_key_done:
-        '{{nickname}} puede abrir los depósitos hechos a partir de ahora. Vuelve a bloquear la caja fuerte para que pueda abrirlo todo.',
-      vault_key_added_toast: 'Llave añadida',
+        '{{nickname}} está guardada, pero aún no está activa. Solo abrirá esta caja fuerte cuando la confirmes con una de tus otras llaves.',
+      vault_key_added_toast: 'Llave guardada. Aún no está activa.',
       vault_recovery_verified: 'Llave recuperada verificada en este dispositivo',
       vault_relock_row: 'Volver a bloquear la caja fuerte',
       vault_relock_now: 'Volver a bloquear ahora',
@@ -4052,7 +4116,7 @@ const resources = {
         'La caja fuerte se bloquea con cinco llaves como máximo. Quita una antes de depositar, volver a bloquear o retirar parte del saldo.',
       vault_key_section_over_limit: 'Llaves de seguridad ({{count}}, quita una)',
       vault_add_key_done_over_limit:
-        '{{nickname}} se ha añadido. La caja fuerte se bloquea con cinco llaves como máximo: quita la llave a la que sustituye y vuelve a bloquear una vez.',
+        '{{nickname}} está guardada, pero aún no está activa. La caja fuerte se bloquea con cinco llaves como máximo, así que quita la llave a la que sustituye esta. Al quitarla, {{nickname}} también pasa a estar activa.',
       vault_relock_done: 'Caja fuerte bloqueada de nuevo con tus llaves actuales',
       vault_relock_capped: 'Quedan {{count}} depósitos más: vuelve a bloquear otra vez para moverlos.',
       vault_relock_unreachable:
@@ -4336,6 +4400,8 @@ const resources = {
       review_imported_payment: 'Revisar pago importado',
       review_imported_payment_detail:
         'Este pago procede de una copia de seguridad y puede haberse cancelado. ¿Enviar ahora {{amount}} satoshis a {{recipient}}?',
+      review_imported_paymail_detail:
+        'Este pago procede de una copia de seguridad y puede haberse cancelado. Figura como {{amount}} satoshis para {{recipient}}, pero la app no puede comprobar que la transacción firmada pague a ese destinatario ni esa cantidad. ¿Enviar de todos modos?',
       payment_not_delivered: 'No entregado',
       payment_delivered: 'Entregado',
       retry: 'Reintentar',
@@ -4428,6 +4494,8 @@ const resources = {
       authorize: 'Autorizar',
       renewal: 'Renovación',
       spending_section: 'Gasto',
+      spending_up_to: 'Hasta',
+      spending_each_month: 'al mes, hasta que lo quites',
       protocols_section: 'Protocolos',
       baskets_section: 'Cestas',
       certificates_section: 'Certificados',
@@ -5206,6 +5274,7 @@ const resources = {
       vault_restore_pending:
         '{{count}} dépôt(s) trouvé(s), en attente de leur première confirmation — réessayez bientôt.',
       vault_restore_none_found: "Aucun dépôt du coffre n'a été trouvé sur la blockchain pour ce portefeuille.",
+      vault_restore_needs_key: 'Coffre trouvé. Approchez l’une de ses clés pour le restaurer.',
       vault_balance_label: 'le coffre contient',
       vault_key_section: 'Clés de sécurité ({{count}} sur 5)',
       vault_manage_section: 'Gérer',
@@ -5253,6 +5322,19 @@ const resources = {
       vault_reset_body:
         'Cette clé a déjà servi. La réinitialiser efface tous les certificats et toutes les clés de son application PIV, pas seulement l’emplacement du coffre. Tout ce qui en dépend cessera de fonctionner.',
       vault_reset_ack: 'Je comprends que cela efface tout sur cette clé',
+      vault_card_checking: 'Recherche sur la blockchain d’un coffre ouvert par cette clé…',
+      vault_card_funds_title: 'Cette clé ouvre un coffre',
+      vault_card_funds_body_one:
+        'Cette clé peut ouvrir 1 dépôt ({{amount}}). Restaurez le coffre au lieu de réinitialiser la clé.',
+      vault_card_funds_body_other:
+        'Cette clé peut ouvrir {{count}} dépôts ({{amount}}). Restaurez le coffre au lieu de réinitialiser la clé.',
+      vault_card_restore: 'Restaurer ce coffre',
+      vault_card_unknown_title: 'Impossible de vérifier la blockchain',
+      vault_card_unknown_body:
+        'La clé n’a pas été modifiée. Réessayez. Si vous la réinitialisez sans vérifier, tout coffre qu’elle ouvre sera perdu définitivement.',
+      vault_card_retry: 'Réessayer',
+      vault_card_loss_ack:
+        'Si vous la réinitialisez, tous les fonds d’un coffre qui utilise cette clé seront perdus définitivement.',
       vault_reset_unknown_ack:
         "Cet appareil ne peut pas confirmer si cette clé protège encore le coffre d'un autre profil. Je comprends que l'effacer peut détruire cette clé définitivement.",
       vault_reset_own_draft_ack:
@@ -5298,8 +5380,8 @@ const resources = {
       vault_done_cta: 'Terminé',
       vault_add_key_row: 'Ajouter une clé',
       vault_add_key_done:
-        '{{nickname}} peut ouvrir les dépôts effectués à partir de maintenant. Reverrouillez le coffre pour qu’elle puisse tout ouvrir.',
-      vault_key_added_toast: 'Clé ajoutée',
+        '{{nickname}} est enregistrée, mais pas encore active. Elle n’ouvrira ce coffre qu’après que vous l’aurez confirmée avec l’une de vos autres clés.',
+      vault_key_added_toast: 'Clé enregistrée. Elle n’est pas encore active.',
       vault_recovery_verified: 'Clé récupérée vérifiée sur cet appareil',
       vault_relock_row: 'Reverrouiller le coffre',
       vault_relock_now: 'Reverrouiller maintenant',
@@ -5317,7 +5399,7 @@ const resources = {
         'Le coffre se verrouille avec cinq clés au plus. Retirez-en une avant de déposer, de reverrouiller ou de retirer une partie du solde.',
       vault_key_section_over_limit: 'Clés de sécurité ({{count}}, retirez-en une)',
       vault_add_key_done_over_limit:
-        '{{nickname}} a été ajoutée. Le coffre se verrouille avec cinq clés au plus : retirez la clé qu’elle remplace, puis reverrouillez une fois.',
+        '{{nickname}} est enregistrée, mais pas encore active. Le coffre se verrouille avec cinq clés au plus ; retirez donc la clé que celle-ci remplace. En la retirant, vous activez aussi {{nickname}}.',
       vault_relock_done: 'Coffre reverrouillé avec vos clés actuelles',
       vault_relock_capped: 'Il reste {{count}} dépôts — reverrouillez à nouveau pour les déplacer.',
       vault_relock_unreachable:
@@ -5601,6 +5683,8 @@ const resources = {
       review_imported_payment: 'Vérifier le paiement importé',
       review_imported_payment_detail:
         'Ce paiement provient d’une sauvegarde et a peut-être été annulé. Envoyer maintenant {{amount}} satoshis à {{recipient}} ?',
+      review_imported_paymail_detail:
+        'Ce paiement provient d’une sauvegarde et a peut-être été annulé. Il est indiqué comme {{amount}} satoshis pour {{recipient}}, mais l’application ne peut pas vérifier que la transaction signée paie ce destinataire ni ce montant. Envoyer quand même ?',
       payment_not_delivered: 'Non livré',
       payment_delivered: 'Livré',
       retry: 'Réessayer',
@@ -5693,6 +5777,8 @@ const resources = {
       authorize: 'Autoriser',
       renewal: 'Renouvellement',
       spending_section: 'Dépenses',
+      spending_up_to: 'Jusqu’à',
+      spending_each_month: 'par mois, jusqu’à ce que vous le retiriez',
       protocols_section: 'Protocoles',
       baskets_section: 'Paniers',
       certificates_section: 'Certificats',
@@ -6457,6 +6543,7 @@ const resources = {
       vault_restore_found: 'تم العثور على {{count}} إيداع (إيداعات) للخزنة على البلوكتشين.',
       vault_restore_pending: 'تم العثور على {{count}} إيداع (إيداعات)، بانتظار أول تأكيد لها — أعد المحاولة قريبًا.',
       vault_restore_none_found: 'لم يتم العثور على أي إيداعات للخزنة على البلوكتشين لهذه المحفظة.',
+      vault_restore_needs_key: 'تم العثور على الخزنة. المس أحد مفاتيحها لاستعادتها.',
       vault_balance_label: 'الخزنة تحتوي على',
       vault_key_section: 'مفاتيح الأمان ({{count}} من 5)',
       vault_manage_section: 'إدارة',
@@ -6502,6 +6589,18 @@ const resources = {
       vault_reset_body:
         'استُخدم هذا المفتاح من قبل. إعادة الضبط تمحو كل شهادة ومفتاح في تطبيق PIV الخاص به، وليس خانة الخزنة وحدها. كل ما يعتمد على هذا المفتاح سيتوقف عن العمل.',
       vault_reset_ack: 'أفهم أن هذا يمحو كل شيء على هذا المفتاح',
+      vault_card_checking: 'جارٍ البحث في البلوكتشين عن خزنة يفتحها هذا المفتاح…',
+      vault_card_funds_title: 'هذا المفتاح يفتح خزنة',
+      vault_card_funds_body_one:
+        'يمكن لهذا المفتاح فتح إيداع واحد ({{amount}}). استعد الخزنة بدلًا من إعادة ضبط المفتاح.',
+      vault_card_funds_body_other:
+        'يمكن لهذا المفتاح فتح {{count}} إيداعًا ({{amount}}). استعد الخزنة بدلًا من إعادة ضبط المفتاح.',
+      vault_card_restore: 'استعادة هذه الخزنة',
+      vault_card_unknown_title: 'تعذّر فحص البلوكتشين',
+      vault_card_unknown_body:
+        'لم يتم تغيير المفتاح. حاول مرة أخرى. إذا أعدت ضبطه دون فحص، فستضيع أي خزنة يفتحها إلى الأبد.',
+      vault_card_retry: 'إعادة المحاولة',
+      vault_card_loss_ack: 'ستضيع إلى الأبد أي أموال في خزنة تستخدم هذا المفتاح إذا أعدت ضبطه.',
       vault_reset_unknown_ack:
         'لا يمكن لهذا الجهاز التأكد مما إذا كان هذا المفتاح لا يزال يؤمّن خزنة ملف شخصي آخر. أفهم أن محوه قد يدمّر ذلك المفتاح نهائيًا.',
       vault_reset_own_draft_ack:
@@ -6542,8 +6641,9 @@ const resources = {
       vault_done_body: '{{count}} مفاتيح يمكنها فتح هذه الخزنة. هذه المفاتيح فقط تفتحها — وليس عبارة الاسترداد.',
       vault_done_cta: 'تم',
       vault_add_key_row: 'إضافة مفتاح',
-      vault_add_key_done: 'يمكن لـ {{nickname}} فتح الإيداعات التي تُجرى من الآن. أعد قفل الخزنة ليتمكن من فتح كل شيء.',
-      vault_key_added_toast: 'تمت إضافة المفتاح',
+      vault_add_key_done:
+        'تم حفظ {{nickname}} لكنه غير نشط بعد. لن يفتح هذه الخزنة إلا بعد أن تؤكده بأحد مفاتيحك الأخرى.',
+      vault_key_added_toast: 'تم حفظ المفتاح. وهو غير نشط بعد.',
       vault_recovery_verified: 'تم التحقق من المفتاح المستعاد على هذا الجهاز',
       vault_relock_row: 'إعادة قفل الخزنة',
       vault_relock_now: 'إعادة القفل الآن',
@@ -6558,7 +6658,7 @@ const resources = {
         'تُقفل الخزنة بخمسة مفاتيح كحدّ أقصى. أزل مفتاحًا قبل الإيداع أو إعادة القفل أو سحب جزء من الرصيد.',
       vault_key_section_over_limit: 'مفاتيح الأمان ({{count}}، أزل واحدًا)',
       vault_add_key_done_over_limit:
-        'أُضيف {{nickname}}. تُقفل الخزنة بخمسة مفاتيح كحدّ أقصى، لذا أزل المفتاح الذي يحلّ هذا محلّه، ثم أعد القفل مرة واحدة.',
+        'تم حفظ {{nickname}} لكنه غير نشط بعد. تُقفل الخزنة بخمسة مفاتيح كحدّ أقصى، لذا أزل المفتاح الذي يحلّ هذا محلّه. وإزالته تجعل {{nickname}} نشطًا أيضًا.',
       vault_relock_done: 'أُعيد قفل الخزنة على مفاتيحك الحالية',
       vault_relock_capped: 'بقي {{count}} إيداعًا — أعد القفل مجددًا لنقلها.',
       vault_relock_unreachable: '{{count}} إيداعًا لا يفتحها سوى {{names}}. أعد القفل مجددًا بأحد تلك المفاتيح.',
@@ -6828,6 +6928,8 @@ const resources = {
       review_imported_payment: 'مراجعة الدفعة المستوردة',
       review_imported_payment_detail:
         'جاءت هذه الدفعة من نسخة احتياطية وربما أُلغيت. هل تريد إرسال {{amount}} ساتوشي إلى {{recipient}} الآن؟',
+      review_imported_paymail_detail:
+        'جاءت هذه الدفعة من نسخة احتياطية وربما أُلغيت. هي مدرجة بمبلغ {{amount}} ساتوشي إلى {{recipient}}، لكن التطبيق لا يستطيع التحقق من أن المعاملة الموقعة تدفع لهذا المستلم أو بهذا المبلغ. هل تريد الإرسال على أي حال؟',
       payment_not_delivered: 'لم يتم التسليم',
       payment_delivered: 'تم التسليم',
       retry: 'إعادة المحاولة',
@@ -6919,6 +7021,8 @@ const resources = {
       authorize: 'تفويض',
       renewal: 'تجديد',
       spending_section: 'الإنفاق',
+      spending_up_to: 'حتى',
+      spending_each_month: 'كل شهر، إلى أن تزيله',
       protocols_section: 'البروتوكولات',
       baskets_section: 'السلال',
       certificates_section: 'الشهادات',
@@ -7663,6 +7767,7 @@ const resources = {
       vault_restore_pending:
         '{{count}} depósito(s) encontrado(s), aguardando a primeira confirmação — tente novamente em breve.',
       vault_restore_none_found: 'Nenhum depósito do cofre foi encontrado na blockchain para esta carteira.',
+      vault_restore_needs_key: 'Cofre encontrado. Encoste uma das chaves dele para restaurá-lo.',
       vault_balance_label: 'o cofre tem',
       vault_key_section: 'Chaves de segurança ({{count}} de 5)',
       vault_manage_section: 'Gerenciar',
@@ -7710,6 +7815,18 @@ const resources = {
       vault_reset_body:
         'Esta chave já foi usada. Repô-la apaga todos os certificados e chaves da sua aplicação PIV, não apenas a ranhura do cofre. Tudo o que depende desta chave deixa de funcionar.',
       vault_reset_ack: 'Compreendo que isto apaga tudo nesta chave',
+      vault_card_checking: 'Verificando na blockchain se esta chave abre algum cofre…',
+      vault_card_funds_title: 'Esta chave abre um cofre',
+      vault_card_funds_body_one:
+        'Esta chave pode abrir 1 depósito ({{amount}}). Restaure o cofre em vez de repor a chave.',
+      vault_card_funds_body_other:
+        'Esta chave pode abrir {{count}} depósitos ({{amount}}). Restaure o cofre em vez de repor a chave.',
+      vault_card_restore: 'Restaurar este cofre',
+      vault_card_unknown_title: 'Não foi possível verificar a blockchain',
+      vault_card_unknown_body:
+        'A chave não foi alterada. Tente novamente. Se a repuser sem verificar, qualquer cofre que ela abra será perdido para sempre.',
+      vault_card_retry: 'Tentar novamente',
+      vault_card_loss_ack: 'Se repuser esta chave, qualquer fundo num cofre que a use será perdido para sempre.',
       vault_reset_unknown_ack:
         'Este dispositivo não pode confirmar se esta chave ainda protege o cofre de outro perfil. Compreendo que apagá-la pode destruir essa chave para sempre.',
       vault_reset_own_draft_ack:
@@ -7755,8 +7872,8 @@ const resources = {
       vault_done_cta: 'Concluído',
       vault_add_key_row: 'Adicionar chave',
       vault_add_key_done:
-        '{{nickname}} pode abrir os depósitos feitos a partir de agora. Retranque o cofre para que ela possa abrir tudo.',
-      vault_key_added_toast: 'Chave adicionada',
+        'A chave {{nickname}} foi guardada, mas ainda não está ativa. Só abrirá este cofre depois de a confirmar com uma das suas outras chaves.',
+      vault_key_added_toast: 'Chave guardada. Ainda não está ativa.',
       vault_recovery_verified: 'Chave recuperada verificada neste dispositivo',
       vault_relock_row: 'Retrancar o cofre',
       vault_relock_now: 'Retrancar agora',
@@ -7773,7 +7890,7 @@ const resources = {
         'O cofre é bloqueado com no máximo cinco chaves. Remova uma antes de depositar, bloquear novamente ou retirar parte do saldo.',
       vault_key_section_over_limit: 'Chaves de segurança ({{count}}, remova uma)',
       vault_add_key_done_over_limit:
-        '{{nickname}} foi adicionada. O cofre é bloqueado com no máximo cinco chaves: remova a chave que ela substitui e bloqueie novamente uma vez.',
+        'A chave {{nickname}} foi guardada, mas ainda não está ativa. O cofre é bloqueado com no máximo cinco chaves, por isso remova a chave que esta substitui. Ao removê-la, {{nickname}} também fica ativa.',
       vault_relock_done: 'Cofre retrancado com as suas chaves atuais',
       vault_relock_capped: 'Restam {{count}} depósitos — retranque de novo para movê-los.',
       vault_relock_unreachable:
@@ -8055,6 +8172,8 @@ const resources = {
       review_imported_payment: 'Rever pagamento importado',
       review_imported_payment_detail:
         'Este pagamento veio de uma cópia de segurança e pode ter sido cancelado. Enviar agora {{amount}} satoshis para {{recipient}}?',
+      review_imported_paymail_detail:
+        'Este pagamento veio de uma cópia de segurança e pode ter sido cancelado. Consta como {{amount}} satoshis para {{recipient}}, mas a app não consegue confirmar que a transação assinada paga a esse destinatário nem esse valor. Enviar mesmo assim?',
       payment_not_delivered: 'Não entregue',
       payment_delivered: 'Entregue',
       retry: 'Tentar novamente',
@@ -8147,6 +8266,8 @@ const resources = {
       authorize: 'Autorizar',
       renewal: 'Renovação',
       spending_section: 'Gastos',
+      spending_up_to: 'Até',
+      spending_each_month: 'por mês, até o remover',
       protocols_section: 'Protocolos',
       baskets_section: 'Cestas',
       certificates_section: 'Certificados',
@@ -8920,6 +9041,7 @@ const resources = {
       vault_restore_found: 'ব্লকচেইনে {{count}}টি ভল্ট জমা পাওয়া গেছে।',
       vault_restore_pending: '{{count}}টি জমা পাওয়া গেছে, প্রথম নিশ্চিতকরণের অপেক্ষায় — শীঘ্রই আবার চেষ্টা করুন।',
       vault_restore_none_found: 'এই ওয়ালেটের জন্য ব্লকচেইনে কোনো ভল্ট জমা পাওয়া যায়নি।',
+      vault_restore_needs_key: 'ভল্ট পাওয়া গেছে। এটি পুনরুদ্ধার করতে এর যেকোনো একটি কী ট্যাপ করুন।',
       vault_balance_label: 'ভল্টে আছে',
       vault_key_section: 'সিকিউরিটি কী ({{count}}/৫)',
       vault_manage_section: 'পরিচালনা',
@@ -8965,6 +9087,17 @@ const resources = {
       vault_reset_body:
         'এই কী আগে ব্যবহার হয়েছে। রিসেট করলে এর PIV অ্যাপ্লিকেশনের প্রতিটি সার্টিফিকেট ও কী মুছে যাবে, শুধু ভল্ট স্লট নয়। এই কীর উপর নির্ভরশীল সবকিছু কাজ করা বন্ধ করবে।',
       vault_reset_ack: 'আমি বুঝেছি এতে এই কীর সবকিছু মুছে যাবে',
+      vault_card_checking: 'এই কী যে ভল্ট খোলে তার জন্য ব্লকচেইন যাচাই করা হচ্ছে…',
+      vault_card_funds_title: 'এই কী একটি ভল্ট খোলে',
+      vault_card_funds_body_one: 'এই কী দিয়ে 1টি জমা ({{amount}}) খোলা যায়। কী রিসেট না করে ভল্ট পুনরুদ্ধার করুন।',
+      vault_card_funds_body_other:
+        'এই কী দিয়ে {{count}}টি জমা ({{amount}}) খোলা যায়। কী রিসেট না করে ভল্ট পুনরুদ্ধার করুন।',
+      vault_card_restore: 'এই ভল্ট পুনরুদ্ধার করুন',
+      vault_card_unknown_title: 'ব্লকচেইন যাচাই করা যায়নি',
+      vault_card_unknown_body:
+        'কী পরিবর্তন করা হয়নি। আবার চেষ্টা করুন। যাচাই না করে রিসেট করলে এই কী যে ভল্ট খোলে তা চিরতরে হারিয়ে যাবে।',
+      vault_card_retry: 'পুনরায় চেষ্টা',
+      vault_card_loss_ack: 'রিসেট করলে এই কী ব্যবহার করা ভল্টের সব ফান্ড চিরতরে হারিয়ে যাবে।',
       vault_reset_unknown_ack:
         'এই ডিভাইসটি নিশ্চিত করতে পারে না যে এই কীটি অন্য কোনো প্রোফাইলের ভল্ট এখনও সুরক্ষিত করছে কিনা। আমি বুঝেছি এটি মুছে ফেললে ওই কী চিরতরে নষ্ট হতে পারে।',
       vault_reset_own_draft_ack:
@@ -9005,8 +9138,9 @@ const resources = {
       vault_done_body: '{{count}}টি কী এই ভল্ট খুলতে পারে। কেবল এই কী-গুলিই এটি খোলে — আপনার রিকভারি ফ্রেজ নয়।',
       vault_done_cta: 'সম্পন্ন',
       vault_add_key_row: 'কী যোগ করুন',
-      vault_add_key_done: '{{nickname}} এখন থেকে করা জমা খুলতে পারবে। ভল্ট পুনরায় লক করুন যাতে এটি সবকিছু খুলতে পারে।',
-      vault_key_added_toast: 'কী যোগ করা হয়েছে',
+      vault_add_key_done:
+        '{{nickname}} সংরক্ষিত হয়েছে, কিন্তু এখনও সক্রিয় নয়। আপনার অন্য কোনো কী দিয়ে নিশ্চিত করার পরেই এটি এই ভল্ট খুলবে।',
+      vault_key_added_toast: 'কী সংরক্ষিত হয়েছে। এটি এখনও সক্রিয় নয়।',
       vault_recovery_verified: 'উদ্ধার করা কী এই ডিভাইসে যাচাই হয়েছে',
       vault_relock_row: 'ভল্ট পুনরায় লক করুন',
       vault_relock_now: 'এখনই পুনরায় লক করুন',
@@ -9021,7 +9155,7 @@ const resources = {
         'ভল্ট সর্বোচ্চ পাঁচটি কী দিয়ে লক হয়। জমা, পুনরায় লক বা ব্যালান্সের কিছু অংশ উত্তোলনের আগে একটি কী সরান।',
       vault_key_section_over_limit: 'সিকিউরিটি কী ({{count}}, একটি সরান)',
       vault_add_key_done_over_limit:
-        '{{nickname}} যোগ করা হয়েছে। ভল্ট সর্বোচ্চ পাঁচটি কী দিয়ে লক হয়, তাই এটি যে কী-এর জায়গা নিচ্ছে সেটি সরান, তারপর একবার পুনরায় লক করুন।',
+        '{{nickname}} সংরক্ষিত হয়েছে, কিন্তু এখনও সক্রিয় নয়। ভল্ট সর্বোচ্চ পাঁচটি কী দিয়ে লক হয়, তাই এটি যে কীর জায়গা নিচ্ছে সেটি সরান। সেটি সরালে {{nickname}}ও সক্রিয় হবে।',
       vault_relock_done: 'ভল্ট আপনার বর্তমান কী-গুলিতে পুনরায় লক হয়েছে',
       vault_relock_capped: 'আরও {{count}}টি জমা বাকি — সরাতে আবার পুনরায় লক করুন।',
       vault_relock_unreachable:
@@ -9295,6 +9429,8 @@ const resources = {
       review_imported_payment: 'আমদানি করা পেমেন্ট যাচাই করুন',
       review_imported_payment_detail:
         'এই পেমেন্টটি ব্যাকআপ থেকে এসেছে এবং হয়তো বাতিল করা হয়েছে। এখন {{recipient}}-কে {{amount}} সাতোশি পাঠাবেন?',
+      review_imported_paymail_detail:
+        'এই পেমেন্টটি ব্যাকআপ থেকে এসেছে এবং হয়তো বাতিল করা হয়েছে। এটি {{recipient}}-কে {{amount}} সাতোশি হিসেবে দেখানো আছে, কিন্তু স্বাক্ষরিত লেনদেন সেই প্রাপককে বা সেই পরিমাণ দেয় কি না, অ্যাপ তা যাচাই করতে পারে না। তবুও পাঠাবেন?',
       payment_not_delivered: 'ডেলিভারি হয়নি',
       payment_delivered: 'ডেলিভারি হয়েছে',
       retry: 'পুনরায় চেষ্টা',
@@ -9387,6 +9523,8 @@ const resources = {
       authorize: 'অনুমোদন করুন',
       renewal: 'নবায়ন',
       spending_section: 'ব্যয়',
+      spending_up_to: 'সর্বোচ্চ',
+      spending_each_month: 'প্রতি মাসে, আপনি না সরানো পর্যন্ত',
       protocols_section: 'প্রোটোকল',
       baskets_section: 'বাস্কেট',
       certificates_section: 'সার্টিফিকেট',
@@ -10148,6 +10286,7 @@ const resources = {
       vault_restore_pending:
         'Найдено {{count}} депозит(ов), ожидающих первого подтверждения — повторите попытку позже.',
       vault_restore_none_found: 'Депозиты хранилища для этого кошелька на блокчейне не найдены.',
+      vault_restore_needs_key: 'Хранилище найдено. Приложите один из его ключей, чтобы восстановить его.',
       vault_balance_label: 'в хранилище',
       vault_key_section: 'Ключи безопасности ({{count}} из 5)',
       vault_manage_section: 'Управление',
@@ -10195,6 +10334,19 @@ const resources = {
       vault_reset_body:
         'Этот ключ уже использовался. Сброс стирает все сертификаты и ключи в его PIV-приложении, а не только слот хранилища. Всё, что на него опирается, перестанет работать.',
       vault_reset_ack: 'Я понимаю, что это сотрёт с ключа всё',
+      vault_card_checking: 'Ищем в блокчейне хранилище, которое открывает этот ключ…',
+      vault_card_funds_title: 'Этот ключ открывает хранилище',
+      vault_card_funds_body_one:
+        'Этим ключом можно открыть 1 депозит ({{amount}}). Восстановите хранилище, а не сбрасывайте ключ.',
+      vault_card_funds_body_other:
+        'Этим ключом можно открыть депозитов: {{count}} ({{amount}}). Восстановите хранилище, а не сбрасывайте ключ.',
+      vault_card_restore: 'Восстановить это хранилище',
+      vault_card_unknown_title: 'Не удалось проверить блокчейн',
+      vault_card_unknown_body:
+        'Ключ не изменён. Повторите попытку. Если сбросить его без проверки, любое хранилище, которое он открывает, будет потеряно безвозвратно.',
+      vault_card_retry: 'Повторить',
+      vault_card_loss_ack:
+        'Если сбросить ключ, все средства в хранилище, использующем этот ключ, будут потеряны безвозвратно.',
       vault_reset_unknown_ack:
         'Это устройство не может подтвердить, защищает ли этот ключ хранилище другого профиля. Я понимаю, что стирание может уничтожить его безвозвратно.',
       vault_reset_own_draft_ack:
@@ -10239,8 +10391,8 @@ const resources = {
       vault_done_cta: 'Готово',
       vault_add_key_row: 'Добавить ключ',
       vault_add_key_done:
-        '{{nickname}} может открывать пополнения, сделанные с этого момента. Перезапирайте хранилище, чтобы он мог открыть всё.',
-      vault_key_added_toast: 'Ключ добавлен',
+        'Ключ {{nickname}} сохранён, но пока не активен. Он откроет это хранилище только после того, как вы подтвердите его другим своим ключом.',
+      vault_key_added_toast: 'Ключ сохранён. Он пока не активен.',
       vault_recovery_verified: 'Восстановленный ключ проверен на этом устройстве',
       vault_relock_row: 'Перезапереть хранилище',
       vault_relock_now: 'Перезапереть сейчас',
@@ -10256,7 +10408,7 @@ const resources = {
         'Хранилище запирается не более чем пятью ключами. Удалите один, прежде чем пополнять, перезапирать или выводить часть баланса.',
       vault_key_section_over_limit: 'Ключи безопасности ({{count}}, удалите один)',
       vault_add_key_done_over_limit:
-        '{{nickname}} добавлен. Хранилище запирается не более чем пятью ключами: удалите ключ, который он заменяет, затем перезаприте один раз.',
+        'Ключ {{nickname}} сохранён, но пока не активен. Хранилище запирается не более чем пятью ключами, поэтому удалите ключ, который заменяет этот. После его удаления {{nickname}} тоже станет активным.',
       vault_relock_done: 'Хранилище перезаперто на текущие ключи',
       vault_relock_capped: 'Осталось ещё {{count}} пополнений — перезапирайте снова, чтобы перенести их.',
       vault_relock_unreachable:
@@ -10536,6 +10688,8 @@ const resources = {
       review_imported_payment: 'Проверить импортированный платёж',
       review_imported_payment_detail:
         'Этот платёж восстановлен из резервной копии и мог быть отменён. Отправить сейчас {{amount}} сатоши получателю {{recipient}}?',
+      review_imported_paymail_detail:
+        'Этот платёж восстановлен из резервной копии и мог быть отменён. Он указан как {{amount}} сатоши получателю {{recipient}}, но приложение не может проверить, что подписанная транзакция платит этому получателю или эту сумму. Всё равно отправить?',
       payment_not_delivered: 'Не доставлено',
       payment_delivered: 'Доставлено',
       retry: 'Повторить',
@@ -10628,6 +10782,8 @@ const resources = {
       authorize: 'Авторизовать',
       renewal: 'Продление',
       spending_section: 'Расходы',
+      spending_up_to: 'До',
+      spending_each_month: 'в месяц, пока вы его не удалите',
       protocols_section: 'Протоколы',
       baskets_section: 'Корзины',
       certificates_section: 'Сертификаты',
@@ -11395,6 +11551,7 @@ const resources = {
       vault_restore_found: 'Ditemukan {{count}} setoran brankas di blockchain.',
       vault_restore_pending: '{{count}} setoran ditemukan, menunggu konfirmasi pertamanya — coba lagi sebentar lagi.',
       vault_restore_none_found: 'Tidak ada setoran brankas yang ditemukan di blockchain untuk dompet ini.',
+      vault_restore_needs_key: 'Brankas ditemukan. Ketuk salah satu kuncinya untuk memulihkannya.',
       vault_balance_label: 'Brankas berisi',
       vault_key_section: 'Kunci keamanan ({{count}} dari 5)',
       vault_manage_section: 'Kelola',
@@ -11442,6 +11599,19 @@ const resources = {
       vault_reset_body:
         'Kunci ini pernah dipakai. Menyetel ulang menghapus setiap sertifikat dan kunci di aplikasi PIV-nya, bukan hanya slot brankas. Semua yang bergantung padanya berhenti berfungsi.',
       vault_reset_ack: 'Saya paham ini menghapus semua isi kunci ini',
+      vault_card_checking: 'Memeriksa blockchain untuk brankas yang dibuka kunci ini…',
+      vault_card_funds_title: 'Kunci ini membuka sebuah brankas',
+      vault_card_funds_body_one:
+        'Kunci ini dapat membuka 1 setoran ({{amount}}). Pulihkan brankas, jangan setel ulang kunci.',
+      vault_card_funds_body_other:
+        'Kunci ini dapat membuka {{count}} setoran ({{amount}}). Pulihkan brankas, jangan setel ulang kunci.',
+      vault_card_restore: 'Pulihkan brankas ini',
+      vault_card_unknown_title: 'Tidak dapat memeriksa blockchain',
+      vault_card_unknown_body:
+        'Kunci tidak diubah. Coba lagi. Jika Anda menyetel ulang tanpa memeriksa, brankas apa pun yang dibukanya hilang selamanya.',
+      vault_card_retry: 'Coba lagi',
+      vault_card_loss_ack:
+        'Dana apa pun di brankas yang memakai kunci ini hilang selamanya jika Anda menyetel ulangnya.',
       vault_reset_unknown_ack:
         'Perangkat ini tidak dapat memastikan apakah kunci ini masih mengamankan brankas profil lain. Saya paham menghapusnya berpotensi memusnahkan kunci itu selamanya.',
       vault_reset_own_draft_ack:
@@ -11487,8 +11657,8 @@ const resources = {
       vault_done_cta: 'Selesai',
       vault_add_key_row: 'Tambah kunci',
       vault_add_key_done:
-        '{{nickname}} dapat membuka setoran yang dibuat mulai sekarang. Kunci ulang brankas agar ia bisa membuka semuanya.',
-      vault_key_added_toast: 'Kunci ditambahkan',
+        '{{nickname}} sudah disimpan tetapi belum aktif. Kunci ini baru membuka brankas ini setelah Anda mengonfirmasinya dengan salah satu kunci Anda yang lain.',
+      vault_key_added_toast: 'Kunci disimpan. Belum aktif.',
       vault_recovery_verified: 'Kunci yang dipulihkan telah diverifikasi di perangkat ini',
       vault_relock_row: 'Kunci ulang brankas',
       vault_relock_now: 'Kunci ulang sekarang',
@@ -11506,7 +11676,7 @@ const resources = {
         'Brankas dikunci dengan paling banyak lima kunci. Hapus satu sebelum menyetor, mengunci ulang, atau menarik sebagian saldo.',
       vault_key_section_over_limit: 'Kunci keamanan ({{count}}, hapus satu)',
       vault_add_key_done_over_limit:
-        '{{nickname}} ditambahkan. Brankas dikunci dengan paling banyak lima kunci, jadi hapus kunci yang digantikannya, lalu kunci ulang sekali.',
+        '{{nickname}} sudah disimpan tetapi belum aktif. Brankas dikunci dengan paling banyak lima kunci, jadi hapus kunci yang digantikan kunci ini. Setelah dihapus, {{nickname}} ikut aktif.',
       vault_relock_done: 'Brankas dikunci ulang ke kunci Anda saat ini',
       vault_relock_capped: '{{count}} setoran lagi tersisa — kunci ulang lagi untuk memindahkannya.',
       vault_relock_unreachable:
@@ -11783,6 +11953,8 @@ const resources = {
       review_imported_payment: 'Tinjau pembayaran yang diimpor',
       review_imported_payment_detail:
         'Pembayaran ini berasal dari cadangan dan mungkin telah dibatalkan. Kirim {{amount}} satoshi ke {{recipient}} sekarang?',
+      review_imported_paymail_detail:
+        'Pembayaran ini berasal dari cadangan dan mungkin telah dibatalkan. Tercatat {{amount}} satoshi untuk {{recipient}}, tetapi aplikasi tidak dapat memeriksa bahwa transaksi yang ditandatangani membayar penerima atau jumlah itu. Tetap kirim?',
       payment_not_delivered: 'Belum terkirim',
       payment_delivered: 'Terkirim',
       retry: 'Coba lagi',
@@ -11875,6 +12047,8 @@ const resources = {
       authorize: 'Otorisasi',
       renewal: 'Pembaruan',
       spending_section: 'Pengeluaran',
+      spending_up_to: 'Hingga',
+      spending_each_month: 'per bulan, sampai Anda menghapusnya',
       protocols_section: 'Protokol',
       baskets_section: 'Keranjang',
       certificates_section: 'Sertifikat',
@@ -12646,6 +12820,7 @@ const resources = {
       vault_restore_pending:
         '{{count}} 件の入金が見つかりましたが、初回承認待ちです。しばらくしてから再試行してください。',
       vault_restore_none_found: 'このウォレットの保管庫の入金はブロックチェーン上に見つかりませんでした。',
+      vault_restore_needs_key: '保管庫が見つかりました。復元するには、その鍵のいずれかをかざしてください。',
       vault_balance_label: '保管庫の保有額',
       vault_key_section: 'セキュリティキー（{{count}}/5）',
       vault_manage_section: '管理',
@@ -12693,6 +12868,18 @@ const resources = {
       vault_reset_body:
         'このキーは以前に使われています。リセットすると、保管庫スロットだけでなく PIV アプリケーション内のすべての証明書と鍵が消去されます。このキーに依存しているものは動作しなくなります。',
       vault_reset_ack: 'このキーの内容がすべて消えることを理解しました',
+      vault_card_checking: 'この鍵で開く保管庫をブロックチェーンで確認しています…',
+      vault_card_funds_title: 'この鍵は保管庫を開きます',
+      vault_card_funds_body_one:
+        'この鍵で 1 件の入金（{{amount}}）を開けます。鍵をリセットせず、保管庫を復元してください。',
+      vault_card_funds_body_other:
+        'この鍵で {{count}} 件の入金（{{amount}}）を開けます。鍵をリセットせず、保管庫を復元してください。',
+      vault_card_restore: 'この保管庫を復元',
+      vault_card_unknown_title: 'ブロックチェーンを確認できませんでした',
+      vault_card_unknown_body:
+        '鍵は変更されていません。もう一度お試しください。確認せずにリセットすると、この鍵で開く保管庫は永久に失われます。',
+      vault_card_retry: '再試行',
+      vault_card_loss_ack: 'この鍵を使う保管庫の資金は、リセットすると永久に失われます。',
       vault_reset_unknown_ack:
         'このデバイスでは、このキーが別のプロファイルの保管庫を保護しているかどうかを確認できません。消去するとその鍵が永久に失われる可能性があることを理解しました。',
       vault_reset_own_draft_ack:
@@ -12737,8 +12924,8 @@ const resources = {
       vault_done_cta: '完了',
       vault_add_key_row: '鍵を追加',
       vault_add_key_done:
-        '{{nickname}} は今後の入金を開けられます。すべてを開けられるように保管庫を再ロックしてください。',
-      vault_key_added_toast: '鍵を追加しました',
+        '{{nickname}} は保存されましたが、まだ有効ではありません。ほかの鍵のいずれかで確認すると、初めてこの保管庫を開けるようになります。',
+      vault_key_added_toast: '鍵を保存しました。まだ有効ではありません。',
       vault_recovery_verified: '復元した鍵をこのデバイスで確認しました',
       vault_relock_row: '保管庫を再ロック',
       vault_relock_now: '今すぐ再ロック',
@@ -12753,7 +12940,7 @@ const resources = {
         '保管庫をロックできる鍵は最大 5 本です。入金、再ロック、残高の一部の出金の前に、鍵を 1 本削除してください。',
       vault_key_section_over_limit: 'セキュリティキー（{{count}}、1 本削除してください）',
       vault_add_key_done_over_limit:
-        '{{nickname}} を追加しました。保管庫をロックできる鍵は最大 5 本なので、この鍵で置き換える鍵を削除してから、再ロックを 1 回行ってください。',
+        '{{nickname}} は保存されましたが、まだ有効ではありません。保管庫をロックできる鍵は最大 5 本のため、この鍵が置き換える鍵を削除してください。削除すると {{nickname}} も有効になります。',
       vault_relock_done: '保管庫を現在の鍵に再ロックしました',
       vault_relock_capped: 'あと {{count}} 件の入金が残っています — 移動するには再度再ロックしてください。',
       vault_relock_unreachable:
@@ -13034,6 +13221,8 @@ const resources = {
       review_imported_payment: 'インポートした支払いを確認',
       review_imported_payment_detail:
         'この支払いはバックアップから復元されたもので、キャンセル済みの可能性があります。今すぐ {{recipient}} に {{amount}} サトシを送信しますか？',
+      review_imported_paymail_detail:
+        'この支払いはバックアップから復元されたもので、キャンセル済みの可能性があります。{{recipient}} 宛て {{amount}} サトシと表示されていますが、署名済みの取引がその受取人やその金額に支払うものかどうか、アプリでは確認できません。それでも送信しますか？',
       payment_not_delivered: '未配信',
       payment_delivered: '配信済み',
       retry: '再試行',
@@ -13131,6 +13320,8 @@ const resources = {
       authorize: '承認',
       renewal: '更新',
       spending_section: '支出',
+      spending_up_to: '最大',
+      spending_each_month: '毎月、削除するまで',
       protocols_section: 'プロトコル',
       baskets_section: 'バスケット',
       certificates_section: '証明書',
@@ -13900,6 +14091,7 @@ const resources = {
       vault_restore_pending:
         'Znaleziono {{count}} depozyt(ów), oczekujących na pierwsze potwierdzenie — spróbuj ponownie za chwilę.',
       vault_restore_none_found: 'Nie znaleziono żadnych depozytów sejfu w blockchainie dla tego portfela.',
+      vault_restore_needs_key: 'Znaleziono sejf. Przyłóż jeden z jego kluczy, aby go przywrócić.',
       vault_balance_label: 'sejf zawiera',
       vault_key_section: 'Klucze bezpieczeństwa ({{count}} z 5)',
       vault_manage_section: 'Zarządzaj',
@@ -13947,6 +14139,19 @@ const resources = {
       vault_reset_body:
         'Ten klucz był już używany. Reset kasuje każdy certyfikat i klucz w jego aplikacji PIV, nie tylko gniazdo sejfu. Wszystko, co na nim polega, przestanie działać.',
       vault_reset_ack: 'Rozumiem, że to skasuje całą zawartość tego klucza',
+      vault_card_checking: 'Sprawdzanie w blockchainie, czy ten klucz otwiera jakiś sejf…',
+      vault_card_funds_title: 'Ten klucz otwiera sejf',
+      vault_card_funds_body_one:
+        'Tym kluczem można otworzyć 1 depozyt ({{amount}}). Przywróć sejf zamiast resetować klucz.',
+      vault_card_funds_body_other:
+        'Liczba depozytów do otwarcia tym kluczem: {{count}} ({{amount}}). Przywróć sejf zamiast resetować klucz.',
+      vault_card_restore: 'Przywróć ten sejf',
+      vault_card_unknown_title: 'Nie udało się sprawdzić blockchaina',
+      vault_card_unknown_body:
+        'Klucz nie został zmieniony. Spróbuj ponownie. Jeśli zresetujesz go bez sprawdzenia, każdy sejf, który otwiera, przepadnie na zawsze.',
+      vault_card_retry: 'Spróbuj ponownie',
+      vault_card_loss_ack:
+        'Jeśli zresetujesz ten klucz, wszystkie środki w sejfie używającym tego klucza przepadną na zawsze.',
       vault_reset_unknown_ack:
         'To urządzenie nie może potwierdzić, czy ten klucz nadal zabezpiecza sejf innego profilu. Rozumiem, że skasowanie może zniszczyć ten klucz na zawsze.',
       vault_reset_own_draft_ack:
@@ -13991,8 +14196,8 @@ const resources = {
       vault_done_cta: 'Gotowe',
       vault_add_key_row: 'Dodaj klucz',
       vault_add_key_done:
-        '{{nickname}} może otwierać wpłaty dokonane od teraz. Zablokuj sejf ponownie, aby mógł otworzyć wszystko.',
-      vault_key_added_toast: 'Klucz dodany',
+        'Klucz {{nickname}} został zapisany, ale nie jest jeszcze aktywny. Otworzy ten sejf dopiero po potwierdzeniu go innym z Twoich kluczy.',
+      vault_key_added_toast: 'Klucz zapisany. Nie jest jeszcze aktywny.',
       vault_recovery_verified: 'Odzyskany klucz zweryfikowano na tym urządzeniu',
       vault_relock_row: 'Zablokuj sejf ponownie',
       vault_relock_now: 'Zablokuj ponownie teraz',
@@ -14008,7 +14213,7 @@ const resources = {
         'Sejf można zablokować najwyżej pięcioma kluczami. Usuń jeden, zanim wpłacisz, zablokujesz ponownie lub wypłacisz część salda.',
       vault_key_section_over_limit: 'Klucze bezpieczeństwa ({{count}}, usuń jeden)',
       vault_add_key_done_over_limit:
-        'Dodano {{nickname}}. Sejf można zablokować najwyżej pięcioma kluczami, więc usuń klucz, który zastępuje, a potem zablokuj ponownie raz.',
+        'Klucz {{nickname}} został zapisany, ale nie jest jeszcze aktywny. Sejf można zablokować najwyżej pięcioma kluczami, więc usuń klucz, który ten zastępuje. Po jego usunięciu {{nickname}} również stanie się aktywny.',
       vault_relock_done: 'Sejf zablokowany ponownie na obecne klucze',
       vault_relock_capped: 'Pozostało jeszcze {{count}} wpłat — zablokuj ponownie, aby je przenieść.',
       vault_relock_unreachable:
@@ -14290,6 +14495,8 @@ const resources = {
       review_imported_payment: 'Sprawdź zaimportowaną płatność',
       review_imported_payment_detail:
         'Ta płatność pochodzi z kopii zapasowej i mogła zostać anulowana. Wysłać teraz {{amount}} satoshi do {{recipient}}?',
+      review_imported_paymail_detail:
+        'Ta płatność pochodzi z kopii zapasowej i mogła zostać anulowana. Jest wpisana jako {{amount}} satoshi dla {{recipient}}, ale aplikacja nie może sprawdzić, czy podpisana transakcja płaci temu odbiorcy ani tę kwotę. Wysłać mimo to?',
       payment_not_delivered: 'Nie dostarczono',
       payment_delivered: 'Dostarczono',
       retry: 'Ponów',
@@ -14388,6 +14595,8 @@ const resources = {
       authorize: 'Autoryzuj',
       renewal: 'Odnowienie',
       spending_section: 'Wydatki',
+      spending_up_to: 'Do',
+      spending_each_month: 'miesięcznie, dopóki tego nie usuniesz',
       protocols_section: 'Protokoły',
       baskets_section: 'Koszyki',
       certificates_section: 'Certyfikaty',
@@ -14961,6 +15170,1276 @@ const resources = {
       'bridge.policy.seekProtocolPermissionsForSigning.on': 'podpisywać Twoimi kluczami (poza logowaniem)',
       'bridge.policy.seekSpendingPermissions.off': 'wydawać z Twojego salda',
       'bridge.policy.seekSpendingPermissions.on': 'wydawać z Twojego salda'
+    }
+  },
+  de: {
+    translation: {
+      token_balances_header: 'Guthaben',
+      wallet_coin_switcher: 'Wähle, welche Münze angezeigt wird',
+      wallet_activity_empty_asset: 'Noch keine {{ticker}}-Aktivität',
+      pay_direction_pay_asset: '{{ticker}} zahlen',
+      token_fee_footer: 'Zum Senden brauchst du etwas BSV für die Netzwerkgebühr. Zum Empfangen nicht.',
+      token_new_tap: 'Neu — tippe, um den Emittenten zu sehen',
+      token_unresolved: 'Unbekannter Token',
+      token_unresolved_sub:
+        'Dieses Wallet konnte den Emittenten nicht ermitteln. Versuch es erneut, wenn du online bist.',
+      token_paused_short: 'Übertragungen pausiert',
+      token_frozen_short: '{{amount}} eingefroren',
+      token_sheet_issuer: 'Ausgegeben von',
+      token_sheet_issuer_unknown: 'Nicht erkannt',
+      token_sheet_asset_id: 'Token-ID',
+      token_sheet_powers_header: 'Was {{issuer}} tun kann',
+      token_power_pause: 'Alle Übertragungen von {{ticker}} pausieren',
+      token_power_freeze: 'Bestimmte Münzen einfrieren, auch deine',
+      token_power_admit: 'Entscheiden, wer {{ticker}} halten darf',
+      token_power_replace: 'Eine eingefrorene Münze durch eine neue ersetzen',
+      token_powers_limit:
+        'Ohne dich kann niemand {{ticker}} aus deinem Wallet bewegen, und eine eingefrorene Münze lässt sich schlicht nicht ausgeben.',
+      token_frozen_sub:
+        '{{issuer}} hat {{amount}} {{ticker}} deines Guthabens eingefroren. Wende dich an den Emittenten, um das anzufechten.',
+      pay_asset_label: 'Du zahlst mit',
+      pay_asset_label_get: 'Du wirst bezahlt in',
+      pay_asset_cta: '{{amount}} {{ticker}} senden',
+      pay_asset_over_balance: 'Mehr als dein {{ticker}}-Guthaben.',
+      pay_asset_needs_bsv:
+        'Zum Senden von {{ticker}} brauchst du etwas BSV für die Netzwerkgebühr. Zum Empfangen nicht.',
+      pay_asset_get_bsv: 'BSV holen',
+      pay_asset_needs_bsv_short: 'BSV für die Gebühr nötig',
+      pay_asset_frozen_note:
+        '{{amount}} {{ticker}} deines Guthabens sind eingefroren und können nicht gesendet werden.',
+      pay_asset_paused: '{{issuer}} hat Übertragungen von {{ticker}} pausiert, deshalb geht das gerade nicht.',
+      pay_asset_no_address:
+        '{{ticker}} kann nur an eine Person oder ein Gerät in der Nähe gesendet werden — nicht an eine Bitcoin-Adresse.',
+      pay_asset_address_status: 'Für {{ticker}} nicht verfügbar',
+      pay_asset_self_unregistered:
+        '{{issuer}} hat dich nicht zum Senden von {{ticker}} registriert. Empfangen kannst du es trotzdem.',
+      pay_asset_unidentified: 'Dieses Wallet konnte den Token nicht erkennen und kann ihn deshalb noch nicht senden.',
+      pay_asset_recipient_unregistered:
+        '{{issuer}} hat diese Person für {{ticker}} noch nicht registriert, deshalb kann sie damit nicht bezahlt werden.',
+      pay_asset_recipient_blocked: '{{issuer}} erlaubt keine Zahlungen an diese Person.',
+      token_err_refused:
+        '{{issuer}} hat diese Übertragung abgelehnt. Nichts wurde gesendet, und dein {{ticker}} ist unverändert.',
+      token_err_refused_paused:
+        '{{issuer}} hat {{ticker}} pausiert. Nichts wurde gesendet, und dein Guthaben ist unverändert.',
+      token_err_refused_recipient:
+        '{{issuer}} erlaubt keine Zahlungen an diese Person. Nichts wurde gesendet, und dein Guthaben ist unverändert.',
+      token_err_refused_frozen:
+        'Ein Teil der {{ticker}}, die du senden wolltest, wurde gerade eingefroren. Nichts wurde gesendet; dein Guthaben wurde aktualisiert.',
+      token_err_send_failed:
+        'Diese Zahlung konnte nicht gesendet werden: {{reason}}. Nichts hat dein Wallet verlassen.',
+      token_err_reason_unknown: 'ein unbekanntes Problem',
+      token_err_unreachable:
+        'Wir konnten {{issuer}} nicht erreichen, um diese Übertragung zu bestätigen. Prüfe dein {{ticker}}-Guthaben, bevor du es erneut versuchst.',
+      token_err_check_again: 'Erneut prüfen',
+      token_err_balance_changed:
+        'Dein {{ticker}}-Guthaben hat sich geändert, während das vorbereitet wurde. Prüfe den Betrag und versuch es erneut.',
+      token_err_busy: 'Eine {{ticker}}-Zahlung ist bereits unterwegs.',
+      pay_sent_not_broadcast: 'Gesendet. Es hat das Netzwerk noch nicht erreicht — wir versuchen es weiter.',
+      pay_sent_not_notified:
+        'Gesendet. Wir konnten es ihnen noch nicht mitteilen — sie sehen es, wenn ihr Wallet das nächste Mal prüft.',
+      pay_sent_handed_to_wallet:
+        'Gesendet. Sie haben es nicht persönlich angenommen, deshalb haben wir es an ihr Wallet geschickt.',
+      token_first_hold:
+        '{{ticker}} wird von {{issuer}} ausgegeben. Der Emittent kann Übertragungen pausieren und Münzen einfrieren.',
+      pay_asset_request_paused:
+        '{{issuer}} hat {{ticker}} pausiert, eine Zahlung kommt deshalb vielleicht noch nicht an.',
+      token_admit_title: 'Du kannst noch nicht in {{ticker}} bezahlt werden',
+      token_admit_body:
+        '{{issuer}} sendet {{ticker}} nur an registrierte Personen. Bis dahin werden Zahlungen an dich abgelehnt, bevor sie das Wallet des Absenders verlassen.',
+      token_admit_bsv_instead: 'Stattdessen in BSV bezahlt werden',
+      token_row_sent: '{{ticker}} gesendet',
+      token_row_received: '{{ticker}} empfangen',
+      token_row_amount_pending: 'Betrag nicht verfügbar',
+      token_evicted_title: 'Ein Teil deiner {{ticker}} wurde abgezogen',
+      token_evicted_body: '{{issuer}} hat {{amount}} {{ticker}} aus deinem Wallet abgezogen.',
+      local_pay_token_not_cleared: 'Offline empfangen · von {{issuer}} noch nicht bestätigt',
+      pay_asset_nearby_needs_network:
+        'Persönlich in {{ticker}} zu zahlen braucht eine Verbindung. In BSV geht es auch ohne.',
+      pay_asset_nearby_wrong_overlay:
+        'Diese Anfrage gilt für einen Token, für den dieses Wallet nicht eingerichtet ist.',
+      pay_asset_link_not_held:
+        'Diese Anfrage gilt für einen Token, den dieses Wallet nicht hält. Du kannst sie trotzdem in BSV bezahlen.',
+      token_messagebox_mismatch:
+        'Dein Wallet ist auf eine andere Nachrichtenbox eingestellt, deshalb erreichen dich Token-Zahlungen vielleicht nicht.',
+      token_issuer_fallback: 'der Emittent',
+      token_row_hint: 'Zeigt, wer ihn ausgibt und was diese Stelle tun kann',
+      token_attention_one: 'Wartet auf die Bestätigung von {{issuer}} — tippe für Details',
+      token_attention_many: '{{count}} Token-Zahlungen warten auf den Abschluss — tippe für Details',
+      token_recv_reversed: 'Diese Zahlung konnte von {{issuer}} nicht bestätigt werden und wurde rückgängig gemacht.',
+      token_settle_paused_retry: '{{issuer}} hat {{ticker}} gerade pausiert — wir versuchen es weiter.',
+      token_settle_unreachable_retry:
+        'Wir konnten {{issuer}} nicht erreichen, um diese Übertragung zu bestätigen. Wir versuchen es weiter.',
+      token_settle_evicted:
+        'Diese Zahlung hat das Netzwerk nicht rechtzeitig erreicht und wurde rückgängig gemacht — deine {{ticker}} sind wieder im Guthaben.',
+      token_frame_unreadable:
+        'Wir konnten die Zahlung, die du erhalten hast, nicht lesen — bitte den Absender, sie erneut zu senden.',
+      token_chain_reversed:
+        'Eine frühere Zahlung in dieser Kette wurde von {{issuer}} abgelehnt, deshalb wurde auch diese rückgängig gemacht.',
+      token_settle_stuck_bound:
+        'Diese Zahlung wartet seit über 3 Tagen auf den Abschluss. Du kannst weiter warten oder {{issuer}} kontaktieren.',
+      token_cover_failed:
+        'Diese Zahlung stimmt nicht mit den Aufzeichnungen von {{issuer}} überein und wurde nicht angenommen.',
+      token_sent_settling:
+        'Gesendet. Wird mit {{issuer}} abgeschlossen — du siehst die Bestätigung, sobald du oder {{payee}} wieder verbunden seid.',
+      token_sent_settling_unnamed:
+        'Gesendet. Wird mit {{issuer}} abgeschlossen — du siehst die Bestätigung, sobald einer von euch wieder verbunden ist.',
+      token_sent_settled: 'Gesendet · mit {{issuer}} abgeschlossen',
+      token_status_settling: 'Wird abgeschlossen',
+      token_balance_pending: '{{amount}} ausstehend',
+      token_balance_settled: '{{amount}} abgeschlossen',
+      token_status_settled: 'Abgeschlossen',
+      token_status_refused: 'Abgelehnt',
+      token_status_reversed: 'Rückgängig',
+      token_status_stuck: 'Wartet auf Abschluss',
+      new_tab: 'Neuer Tab',
+      untitled: 'Ohne Titel',
+      share: 'Teilen',
+      back_to_homepage: 'Zur Startseite',
+      bookmarks: 'Lesezeichen',
+      add_bookmark: 'Lesezeichen hinzufügen',
+      bookmark: 'Lesezeichen',
+      unbookmark: 'Lesezeichen entfernen',
+      find_in_page: 'Auf der Seite suchen',
+      find_in_page_placeholder: 'Auf der Seite suchen…',
+      find_in_page_matches: '{{current}} von {{total}}',
+      find_in_page_no_matches: 'Keine Treffer',
+      history: 'Verlauf',
+      clear_all: 'Alles löschen',
+      clear_all_tabs: 'Alle Tabs schließen',
+      search_or_enter_website: 'Suchen oder Website eingeben',
+      browser: 'Browser',
+      bug_report: 'Fehler melden',
+      enable_web3: 'Web3 aktivieren',
+      tabs: 'Tabs',
+      unlock_web3_features: 'Web3-Funktionen freischalten',
+      cancel: 'Abbrechen',
+      done: 'Fertig',
+      discard: 'Verwerfen',
+      deny: 'Ablehnen',
+      allow: 'Erlauben',
+      save: 'Speichern',
+      remove: 'Entfernen',
+      delete: 'Löschen',
+      search: 'Suchen',
+      loading: 'Wird geladen…',
+      continue: 'Weiter',
+      go_back: 'Zurück',
+      continue_action: 'Weiter',
+      camera_denied_description:
+        'Der Kamerazugriff wurde abgelehnt. Du kannst ihn in den Einstellungen aktivieren, um diese Funktion zu nutzen.',
+      open_settings: 'Einstellungen öffnen',
+      copied: 'Kopiert',
+      copy: 'Kopieren',
+      copy_to_clipboard: 'In die Zwischenablage kopieren',
+      details: 'Details',
+      hide_details: 'Details ausblenden',
+      identity: 'Identität',
+      settings: 'Einstellungen',
+      wallet: 'Wallet',
+      activity: 'Aktivität',
+      configuration: 'Konfiguration',
+      data_and_security: 'Daten & Sicherheit',
+      storage_row: 'Speicher',
+      storage_title: 'Wallet-Speicher',
+      storage_db_size: 'Datenbank: {{size}}',
+      storage_free_space: 'Freier Speicher: {{size}}',
+      storage_reclaimable: 'Jetzt freigebbar: {{size}} über {{count}} Transaktionen',
+      storage_held_back: '{{count}} Transaktionen zurückgehalten, weil sie noch in Gebrauch sind',
+      storage_reclaim_explain:
+        'Freigeben entfernt Prüfdaten, die das Wallet nicht mehr braucht. Deine Transaktionen, Guthaben und der Verlauf bleiben unberührt. Das schafft Platz in der Datenbankdatei; die Datei selbst schrumpft erst, wenn das System sie komprimiert.',
+      storage_reclaim_confirm: 'Freigeben',
+      storage_reclaimed: '{{count}} Transaktionen freigegeben',
+      storage_failed: 'Speichernutzung konnte nicht gelesen werden.',
+      storage_unavailable: 'Der Speicher ist noch nicht bereit.',
+      backup_push_section: 'Private Sicherung',
+      backup_push_toggle: 'Auf den Server sichern',
+      backup_erase_row: 'Sicherung vom Server löschen',
+      backup_erase_title: 'Deine Sicherung löschen?',
+      backup_erase_message:
+        'Alles, was dieses Wallet an den Sicherungsserver gesendet hat, wird auf jedem Gerät dauerhaft gelöscht. Die Sicherung wird gleichzeitig ausgeschaltet. Deine Münzen, Schlüssel und deine Wiederherstellungsphrase bleiben unberührt — ein neues Gerät kann den Verlauf dieses Wallets aber nicht mehr wiederherstellen, und ein Teil deiner vorhandenen Münzen ist dort nicht ausgebbar.',
+      backup_erase_confirm: 'Löschen',
+      backup_erase_done: 'Sicherung gelöscht — {{count}} Einträge entfernt',
+      backup_erase_failed:
+        'Die Sicherung konnte nicht gelöscht werden. Nichts wurde entfernt — bitte versuch es noch einmal.',
+      backup_erase_no_key: 'Kein Wallet-Schlüssel verfügbar',
+      backup_push_disclosure:
+        'Eine verschlüsselte Kopie deiner Wallet-Datenbank wird an einen Server der BSV Association gesendet, damit du sie auf einem neuen Gerät wiederherstellen kannst. Verschlüsselt ist sie mit einem Schlüssel, den nur deine Wiederherstellungsphrase ableiten kann — der Betreiber kann sie nicht lesen. Du brauchst weiterhin deine Wiederherstellungsphrase oder die gedruckten Anteile: ohne sie kann die Sicherung niemand öffnen, auch wir nicht.',
+      backup_push_off_title: 'Private Sicherung ausschalten?',
+      backup_push_off_message:
+        'Deine Wiederherstellungsphrase allein kann dieses Wallet nicht wieder aufbauen. Angaben, die zur Sicherung deiner Münzen gehören, liegen nur in der Datenbank. Ist die Sicherung aus, kann ein neues Gerät deine Wiederherstellungsphrase wiederherstellen, aber nicht dein Guthaben. Was schon auf dem Server liegt, wird nicht gelöscht.',
+      backup_push_off_confirm: 'Ausschalten',
+      backup_push_on_toast: 'Sicherung an — holt jetzt auf',
+      backup_push_off_toast: 'Sicherung aus — es wird nichts mehr gesendet',
+      permissions: 'Berechtigungen',
+      trust_network: 'Vertrauensnetz',
+      vault_title: 'Tresor',
+      vault_row_title: 'Tresor',
+      vault_hero_title: 'Sicher aufbewahren',
+      vault_hero_body:
+        'Langfristige kalte Aufbewahrung, gebunden an deine eigenen YubiKeys. Du brauchst zwei oder mehr YubiKey 5 NFC.',
+      vault_unsupported_title: 'YubiKey nötig',
+      vault_unsupported_body: 'Zwei oder mehr YubiKey 5 NFC und ein Telefon, das sie lesen kann.',
+      vault_restore_from_chain: 'Tresor aus der Blockchain wiederherstellen',
+      vault_restore_scanning: 'Blockchain wird durchsucht…',
+      vault_restore_found: '{{count}} Tresor-Einzahlung(en) in der Blockchain gefunden.',
+      vault_restore_pending:
+        '{{count}} Einzahlung(en) gefunden, sie warten auf die erste Bestätigung — versuch es gleich noch einmal.',
+      vault_restore_none_found: 'Für dieses Wallet wurden keine Tresor-Einzahlungen in der Blockchain gefunden.',
+      vault_balance_label: 'Im Tresor',
+      vault_key_section: 'Sicherheitsschlüssel ({{count}} von 5)',
+      vault_manage_section: 'Verwalten',
+      vault_deposit_cta: 'Einzahlen',
+      vault_withdraw_cta: 'Auszahlen',
+      vault_deposit_title: 'In den Tresor einzahlen',
+      vault_withdraw_title: 'Aus dem Tresor auszahlen',
+      vault_deposit_sub: 'Aus deinem Alltagsguthaben. Bestätige mit einem registrierten YubiKey.',
+      vault_withdraw_sub: 'Zurück auf dein Alltagsguthaben. Tippe einen deiner Tresorschlüssel an.',
+      vault_deposit_done: 'In den Tresor verschoben',
+      vault_reclaim_done: 'Guthaben aus einer unterbrochenen Tresor-Einzahlung zurückgeholt',
+      vault_withdraw_done: 'Aus dem Tresor ausgezahlt',
+      vault_withdraw_partial: 'Noch {{count}} Einzahlungen übrig — zahl noch einmal aus, um sie zu verschieben.',
+      vault_withdraw_reason: 'Halte deinen YubiKey hier zum Signieren — {{amount}} sats auszahlen',
+      vault_not_released_body: 'Noch nicht verfügbar — Tresor-Einzahlungen sind in dieser Version ausgeschaltet.',
+      vault_not_on_mainnet_body:
+        'Der Tresor ist nur im Mainnet verfügbar. Schalte das Wallet zurück auf Mainnet, um ihn zu nutzen.',
+      vault_intro_title: 'Tresor einrichten',
+      vault_intro_what:
+        'Der Tresor bindet Geld an deine eigenen YubiKeys. Vom Tresorschlüssel liegt auf diesem Telefon nichts; jeder einzelne deiner Schlüssel öffnet ihn.',
+      vault_intro_two_keys: 'Du brauchst mindestens zwei YubiKeys.',
+      vault_intro_apart: 'Bewahre sie an verschiedenen Orten auf — zwei Schlüssel am selben Ort sind ein Schlüssel.',
+      vault_intro_backup:
+        'Lass die verschlüsselte Sicherung des Wallets an — sie bewahrt den beglaubigten Wiederherstellungsdatensatz.',
+      vault_intro_ack:
+        'Ich verstehe: Nur meine YubiKeys öffnen diesen Tresor. Meine Wiederherstellungsphrase nicht. Verliere ich sie alle, ist das Geld weg.',
+      vault_intro_piv_ack:
+        'Ich bestätige, dass die gesamte PIV-Anwendung dieses YubiKeys auf Werkseinstellung ist oder nur dem Tresor dient. Die Einrichtung ändert die globale PIV-PIN, den PUK und den Management-Key, kann jeden PIV-Slot betreffen, und ich werde den neuen PUK sicher notieren.',
+      vault_intro_begin: 'Beginnen',
+      vault_key_step_title: 'Schlüssel {{k}} von bis zu 5',
+      vault_key_step_replace:
+        'Nimm einen auf Werkseinstellung zurückgesetzten YubiKey, der nur dem Tresor dient. Liegt im Tresor-Slot ein alter Schlüssel, warnt die Einrichtung, bevor er ersetzt wird.',
+      vault_pin_choose_title: 'PIN wählen',
+      vault_pin_choose_sub: 'Die gibst du jedes Mal ein, wenn du diesen Schlüssel benutzt. 6 bis 8 Ziffern.',
+      vault_pin_confirm_label: 'Noch einmal eingeben',
+      vault_pin_mismatch: 'Die beiden PINs stimmen nicht überein.',
+      vault_pin_not_default: 'Nimm etwas anderes als 123456.',
+      vault_puk_title: 'Dein Wiederherstellungscode',
+      vault_puk_body:
+        'Schreib ihn auf und bewahre ihn sicher auf. Nur damit lässt sich dieser Schlüssel entsperren, wenn die PIN vergessen ist, und er wird nicht noch einmal angezeigt.',
+      vault_puk_ack: 'Ich habe das aufgeschrieben',
+      vault_reset_offer: 'Diesen Schlüssel zurücksetzen',
+      vault_reset_title: 'Diesen Schlüssel zurücksetzen?',
+      vault_reset_body:
+        'Dieser Schlüssel wurde schon benutzt. Zurücksetzen löscht jedes Zertifikat und jeden Schlüssel in seiner PIV-Anwendung, nicht nur den Tresor-Slot. Alles, was auf diesem Schlüssel beruht, funktioniert danach nicht mehr.',
+      vault_reset_ack: 'Ich verstehe, dass damit alles auf diesem Schlüssel gelöscht wird',
+      vault_reset_unknown_ack:
+        'Dieses Gerät kann nicht bestätigen, ob dieser Schlüssel noch den Tresor eines anderen Profils sichert. Ich verstehe, dass das Löschen diesen Schlüssel endgültig zerstören kann.',
+      vault_reset_own_draft_ack:
+        'Dieser Schlüssel enthält den unfertigen Schlüssel aus deinem früheren Versuch, und dieses Gerät hat den Datensatz noch. Ich verstehe, dass Zurücksetzen ihn löscht und der Versuch nicht fortgesetzt werden kann.',
+      vault_reset_nothing_erased:
+        'Nichts wurde gelöscht. Der Tresor-Slot dieses Schlüssels ist nicht leer, deshalb gibt es noch etwas zu bestätigen.',
+      vault_reset_confirm: 'Löschen und zurücksetzen',
+      vault_resetting: 'Schlüssel wird zurückgesetzt…',
+      vault_reset_done: 'Schlüssel zurückgesetzt. Tippe ihn erneut an, um fortzufahren.',
+      vault_reset_uncertain:
+        'Das Zurücksetzen wurde nicht abgeschlossen. Dieser Schlüssel ist vielleicht schon gelöscht — prüfe ihn, bevor du dich darauf verlässt.',
+      vault_err_reset_enrolled:
+        'Dieser Schlüssel gehört schon zu deinem Tresor — ihn zurückzusetzen würde einen deiner Tresorschlüssel zerstören.',
+      vault_err_reset_unreadable:
+        'Die Tresordatensätze auf diesem Gerät konnten nicht gelesen werden, deshalb lässt sich nicht beweisen, dass dieser Schlüssel keiner deiner Tresorschlüssel ist. Nichts wurde gelöscht, und das Zurücksetzen wird abgelehnt.',
+      vault_enrollment_resume_pin_hint:
+        'Einen gespeicherten Schlüssel fortzusetzen braucht die PIN, die du damals dafür gewählt hast, keine neue. Drei falsche Versuche sperren den Schlüssel.',
+      vault_setup_step: 'Schritt {{n}} von {{total}}',
+      vault_enrollment_resume: 'Gespeicherten Schlüssel fortsetzen',
+      vault_enrollment_reset_required:
+        'Dieser YubiKey ist nicht mehr im Werkszustand und kann so nicht registriert werden. Seine PIV-Anwendung muss auf Werkseinstellung gelöscht werden, bevor er einen Tresorschlüssel aufnehmen kann.',
+      vault_enrollment_state_uncertain:
+        'Ein Einrichtungsversuch wurde unterbrochen, deshalb lässt sich nicht sicher sagen, in welchem Zustand er den YubiKey hinterlassen hat. Dieser Schlüssel wird nicht wieder benutzt, bis seine PIV-Anwendung auf Werkseinstellung gelöscht wurde.',
+      vault_nfc_enroll_message: 'Halte deinen YubiKey hier hin, um ihn einzurichten',
+      vault_nfc_adopt_message: 'Halte diesen wiederhergestellten YubiKey hier hin, um ihn zu prüfen',
+      vault_nfc_sign_batch: 'Halte deinen YubiKey hier zum Signieren — Stapel {{b}} von {{n}}',
+      vault_key_use_different: 'Einen anderen YubiKey verwenden',
+      vault_key_setup_again: 'Erneut einrichten',
+      vault_name_default: 'Schlüssel {{k}}',
+      vault_more_title: 'Weiteren Schlüssel hinzufügen?',
+      vault_more_body: 'Bis zu 5 Schlüssel. Jeder einzelne öffnet den ganzen Tresor für sich.',
+      vault_more_add: 'Weiteren Schlüssel hinzufügen',
+      vault_more_finish: 'Abschließen',
+      vault_more_need_two:
+        'Füge einen zweiten Schlüssel hinzu, bevor du abschließt — ein Schlüssel bedeutet keine Wiederherstellung.',
+      vault_leave_setup: 'Einrichtung verlassen',
+      vault_leave_title: 'Einrichtung verlassen?',
+      vault_leave_body:
+        'Die {{count}} YubiKeys, die du eingerichtet hast, werden noch nicht gespeichert. Ihre Schlüssel bleiben darauf, du kannst sie gleich wieder hinzufügen.',
+      vault_leave_confirm: 'Verlassen',
+      vault_leave_stay: 'Bleiben',
+      vault_done_body:
+        '{{count}} Schlüssel können diesen Tresor öffnen. Nur diese Schlüssel öffnen ihn — deine Wiederherstellungsphrase nicht.',
+      vault_done_cta: 'Fertig',
+      vault_add_key_row: 'Schlüssel hinzufügen',
+      vault_add_key_done:
+        '{{nickname}} kann Einzahlungen öffnen, die ab jetzt entstehen. Sperre den Tresor neu, damit er alles öffnen kann.',
+      vault_key_added_toast: 'Schlüssel hinzugefügt',
+      vault_recovery_verified: 'Wiederhergestellter Schlüssel auf diesem Gerät geprüft',
+      vault_relock_row: 'Tresor neu sperren',
+      vault_relock_now: 'Jetzt neu sperren',
+      vault_relock_choose: 'Welchen Schlüssel tippst du zum Neusperren an?',
+      vault_relock_reason:
+        'Tippe einen deiner vorhandenen Schlüssel an ({{names}}) — nicht den, den du gerade hinzugefügt hast.',
+      vault_relock_reason_generic:
+        'Halte deinen YubiKey hier zum Signieren — Tresor auf deine aktuellen Schlüssel neu sperren',
+      vault_relock_reason_remaining: 'Nur auf deine verbleibenden Schlüssel neu sperren: {{names}}.',
+      vault_key_pending_removal: 'Entfernt — neu sperren, um abzuschließen',
+      vault_key_removal_awaiting_network: 'Wird entfernt — wartet, bis das Netzwerk die Neusperrung annimmt',
+      vault_removal_awaiting_network:
+        'Neusperrung gesendet. Ein- und Auszahlungen gehen wieder, sobald das Netzwerk sie annimmt.',
+      vault_err_too_many_active_keys:
+        'Der Tresor bindet an höchstens fünf Schlüssel. Entferne einen, bevor du einzahlst, neu sperrst oder einen Teil des Guthabens auszahlst.',
+      vault_key_section_over_limit: 'Sicherheitsschlüssel ({{count}}, einen entfernen)',
+      vault_add_key_done_over_limit:
+        '{{nickname}} ist hinzugefügt. Der Tresor bindet an höchstens fünf Schlüssel, entferne also den Schlüssel, den dieser ersetzt, und sperre danach einmal neu.',
+      vault_relock_done: 'Tresor auf deine aktuellen Schlüssel neu gesperrt',
+      vault_relock_capped: 'Noch {{count}} Einzahlungen übrig — sperre erneut neu, um sie zu verschieben.',
+      vault_relock_unreachable:
+        '{{count}} Einzahlungen können nur von {{names}} geöffnet werden. Sperre mit einem dieser Schlüssel erneut neu.',
+      vault_badge_missing: '{{count}} Einzahlungen sind für {{nickname}} noch nicht offen',
+      vault_badge_removed: '{{count}} Einzahlungen sind noch für einen entfernten Schlüssel offen',
+      vault_badge_unreachable: '{{count}} Einzahlungen kann kein Schlüssel auf dieser Liste öffnen',
+      vault_forget_unreachable_title: 'Nicht öffenbare Einzahlungen vergessen',
+      vault_forget_unreachable_message:
+        '{{count}} Einzahlungen sind nur an Schlüssel gebunden, die nicht auf dieser Liste stehen, meist aus einer früheren Einrichtung deiner YubiKeys. Keiner deiner Schlüssel kann sie ausgeben. Vergessen entfernt sie aus diesem Wallet und seiner Sicherung, damit sie nicht wiederkommen. Die Münzen bleiben in der Blockchain.',
+      vault_forget_unreachable_confirm: 'Vergessen',
+      vault_forget_unreachable_done: '{{count}} Einzahlungen vergessen',
+      vault_restore_unreachable:
+        '{{count}} Einzahlungen aus einer früheren Einrichtung übersprungen, die kein Schlüssel öffnen kann, den du hast.',
+      vault_key_action_rename: 'Umbenennen',
+      vault_key_action_remove: 'Entfernen',
+      vault_rename_title: '{{nickname}} umbenennen',
+      vault_rename_save: 'Speichern',
+      vault_remove_title: '{{nickname}} entfernen?',
+      vault_remove_body:
+        'Das Wallet benutzt {{nickname}} danach nicht mehr. Geld, das schon im Tresor liegt, bleibt damit öffenbar, bis du neu sperrst (≈ {{fee}} sats).',
+      vault_remove_only: 'Entfernen',
+      vault_key_removed_toast: 'Schlüssel entfernt',
+      vault_export_explainer:
+        'Jede Tresor-Einzahlung verbirgt ihren Salt, bis du sie ausgibst — davon ist im Sperrskript nichts sichtbar. Lass die verschlüsselte Sicherung an, damit ein neues Gerät die Schlüsseldatensätze wiederherstellen und beglaubigen kann, die du für deine YubiKeys brauchst.',
+      vault_footnote: 'Nur diese Schlüssel öffnen den Tresor. Deine Wiederherstellungsphrase nicht.',
+      vault_floor_line:
+        'Mindesteinzahlung {{floorDisplay}} ({{floorSats}} sats). Eine Tresor-Einzahlung anzulegen kostet etwa {{feeDisplay}}.',
+      vault_first_deposit_title: 'Erste Tresor-Einzahlung',
+      vault_first_deposit_body:
+        'Erste Tresor-Einzahlung — {{amount}} lässt sich nur mit {{count}} YubiKeys öffnen ({{names}}). Deine Wiederherstellungsphrase hilft nicht. Jede Einzahlung verbirgt ihren Salt bis zur Ausgabe, zur Wiederherstellung brauchst du aber auch beglaubigte Schlüsseldatensätze und den Wallet-Verlauf.',
+      vault_backup_off_title: 'Private Sicherung einschalten',
+      vault_backup_off_body:
+        'Die private Sicherung muss an sein, bevor das Wallet einen weiteren Tresor-Output anlegt. Sie speichert die beglaubigten YubiKey-Datensätze und den Wallet-Verlauf, die zur Wiederherstellung nötig sind. Du kannst weiterhin alles auszahlen, ohne Tresor-Wechselgeld zu erzeugen.',
+      vault_backup_off_cta: 'Sicherungseinstellungen öffnen',
+      vault_seed_not_preserved_title: 'Speichere zuerst deine Wiederherstellungsphrase',
+      vault_seed_not_preserved_body:
+        'Dein Tresor lässt sich nur mit deiner Wiederherstellungsphrase plus einem deiner YubiKeys wiederherstellen. Auf den YubiKeys liegt keine Kopie davon — ist sie verloren, bevor du sie aufschreibst, lassen sich diese Gelder nicht wiederherstellen. Speichere sie jetzt, bevor du einzahlst.',
+      vault_seed_not_preserved_cta: 'Wiederherstellungsphrase speichern',
+      vault_choose_key: 'Welchen Schlüssel tippst du an?',
+      vault_remainder_title: 'Alles auszahlen?',
+      vault_remainder_body:
+        'Wenn du {{amount}} auszahlst, bleiben {{remainder}}. Das liegt unter dem Tresor-Minimum von 100.000 sats. Der ganze Tresor geht auf dein Alltagsguthaben.',
+      vault_remainder_all: 'Alles auszahlen',
+      vault_remainder_change: 'Betrag ändern',
+      vault_unreachable_title: 'Ein Teil des Tresors braucht einen anderen Schlüssel',
+      vault_unreachable_body:
+        'Ein Teil des Tresors braucht einen anderen Schlüssel — verschoben: {{moved}}. {{count}} Einzahlungen über {{amount}} können nur von {{names}} geöffnet werden. Zahl mit einem dieser Schlüssel noch einmal aus.',
+      vault_sign_progress: '{{signed}} von {{total}} signiert',
+      vault_err_pin_locked_enroll:
+        'Die PIN dieses YubiKeys ist gesperrt. Entsperre sie mit dem PUK in Yubico Authenticator, oder richte einen anderen YubiKey ein.',
+      vault_err_serial_mismatch_chosen:
+        'Das ist {{tappedName}}. Du hast {{chosenName}} gewählt — tippe den an, oder geh zurück und wähle {{tappedName}}.',
+      vault_err_key_already_enrolled:
+        'Diesen YubiKey hast du schon hinzugefügt ({{nickname}}). Tippe einen anderen an.',
+      vault_err_not_released: 'Tresor-Einzahlungen sind in dieser Version ausgeschaltet.',
+      vault_err_not_on_mainnet:
+        'Der Tresor ist nur im Mainnet verfügbar. Schalte das Wallet auf Mainnet und versuch es erneut.',
+      vault_err_backup_off:
+        'Schalte die verschlüsselte private Sicherung ein, bevor ein weiterer Tresor-Output entsteht. Alles auszahlen kannst du weiterhin.',
+      vault_err_not_enough_keys: 'Dieser Tresor hat weniger als zwei Schlüssel. Richte ihn neu ein.',
+      vault_err_too_many_keys: 'Ein Tresor hält höchstens fünf Schlüssel.',
+      vault_err_last_keys:
+        'Ein Tresor braucht mindestens zwei Schlüssel. Füge einen weiteren hinzu, bevor du diesen entfernst.',
+      vault_err_relock_required:
+        'Sperre den Tresor zuerst neu, damit deine anderen Schlüssel jede Einzahlung öffnen können.',
+      vault_err_action_pending:
+        'Eine Tresor-Transaktion ist noch nicht fertig. Versuch es erneut, wenn sie abgeschlossen ist.',
+      vault_resolve_held_deposit_action: 'Unterbrochene Einzahlung abschließen',
+      vault_resolve_held_deposit_done: 'Einzahlung geklärt',
+      vault_resolve_held_deposit_failed: 'Die Einzahlung konnte nicht geklärt werden. Versuch es noch einmal.',
+      vault_resolve_held_deposit_none:
+        'Hier gibt es nichts zu klären — sieh im Tab Aktivität nach einer ausstehenden Transaktion, die du wiederholen oder abbrechen kannst.',
+      vault_err_key_not_committed:
+        '{{nickname}} kann keine Einzahlung in diesem Tresor öffnen. Nimm einen anderen deiner Tresorschlüssel.',
+      vault_err_key_cannot_cover:
+        '{{nickname}} kann {{reachable}} von {{total}} im Tresor öffnen. Zahl höchstens {{reachable}} aus, oder nimm stattdessen {{otherNames}}.',
+      vault_err_too_small_to_relock:
+        'Dieser Tresor hält weniger als 100.000 sats, das ist zu wenig zum Neusperren. Zahl ihn stattdessen aus und zahle erneut ein.',
+      vault_err_bad_version:
+        'Die Transaktion wurde im falschen Format gebaut. Nichts wurde signiert — versuch es noch einmal.',
+      vault_err_chain_scan_failed:
+        'Die Suche nach Tresor-Einzahlungen in der Blockchain konnte nicht abgeschlossen werden. Prüfe deine Verbindung und versuch es noch einmal.',
+      vault_shares_unavailable: 'Kein Schlüsselmaterial zum Drucken vorhanden.',
+      vault_enroll_begin: 'Tresor einrichten',
+      vault_enroll_phase_connecting: 'Schlüssel wird gelesen…',
+      vault_enroll_phase_pin_check: 'Schlüssel wird geprüft…',
+      vault_enroll_phase_checking_slot: 'Tresor-Slot wird geprüft…',
+      vault_enroll_phase_personalizing: 'PIN und Wiederherstellungscode werden gesetzt…',
+      vault_enroll_phase_generating: 'Tresorschlüssel wird erzeugt — berühre den Schlüssel, wenn er blinkt',
+      vault_enroll_phase_challenging: 'Neuer Tresorschlüssel wird geprüft — berühre den Schlüssel, wenn er blinkt',
+      vault_enroll_phase_done: 'Fertig',
+      vault_touch_when_blinks: 'Berühre den Goldkontakt, wenn der Schlüssel blinkt.',
+      vault_nfc_activation_hint:
+        'Zum ersten Mal mit diesem YubiKey? Steck ihn zuerst ein paar Sekunden in einen USB-C-Anschluss — neue Schlüssel werden mit ausgeschaltetem NFC ausgeliefert, bis dahin.',
+      vault_continue: 'Weiter',
+      vault_back: 'Zurück',
+      vault_enrolled_toast: 'Tresor bereit',
+      vault_insert_key: 'YubiKey einstecken',
+      vault_hold_key_nfc: 'Halte deinen YubiKey an den oberen Rand deines Telefons',
+      vault_keep_holding_nfc: 'Weiter halten — wird entsperrt…',
+      vault_unlocking_funds: 'Dein Guthaben wird entsperrt',
+      vault_unlocking_sub: 'Das dauert ein paar Sekunden. Lass die App bitte offen.',
+      vault_sending_to_network: 'Wird an das Netzwerk gesendet',
+      vault_sending_sub: 'Wenn es nicht sofort durchgeht, versuchen wir es weiter.',
+      vault_reading_key: 'Schlüssel wird gelesen…',
+      vault_enter_pin: 'YubiKey-PIN eingeben',
+      vault_pin_sub_nfc: 'Halte den Schlüssel danach an den oberen Rand deines Telefons, um abzuschließen.',
+      vault_pin_sub_usb: 'Berühre danach den Goldkontakt, um abzuschließen.',
+      vault_touch_contact: 'Goldkontakt berühren',
+      vault_unlock_cta: 'Entsperren',
+      vault_pin_retries: 'Noch {{count}} Versuche',
+      vault_locked: 'Tresor gesperrt',
+      vault_retry: 'Erneut versuchen',
+      vault_cancel: 'Abbrechen',
+      vault_dismiss: 'Schließen',
+      vault_err_wrong_key: 'Dieser YubiKey gehört nicht zu den Schlüsseln dieses Tresors.',
+      vault_err_serial_mismatch: 'Dieser YubiKey gehört nicht zu den Schlüsseln dieses Tresors ({{names}}).',
+      vault_err_touch_timeout: 'Keine Berührung erkannt. Versuch es erneut und berühre den Goldkontakt.',
+      vault_err_pin_locked:
+        'Die PIN dieses YubiKeys ist gesperrt. Nimm einen anderen deiner Tresorschlüssel, oder entsperre diesen mit seinem PUK in Yubico Authenticator.',
+      vault_err_pin_invalid: 'Falsche PIN.',
+      vault_err_puk_invalid: 'Falscher PUK.',
+      vault_err_puk_locked: 'Der PUK dieses YubiKeys ist gesperrt. Nimm einen neuen YubiKey.',
+      vault_err_key_removed_mid_op: 'Der Schlüssel wurde entfernt. Steck ihn ein und versuch es noch einmal.',
+      vault_err_ceremony_active:
+        'Ein anderer Tresor-Vorgang benutzt den YubiKey noch. Warte, bis er fertig ist, und versuch es noch einmal.',
+      vault_err_scope_changed:
+        'Wallet oder Netzwerk haben sich während dieses Tresor-Vorgangs geändert. Starte im aktuellen Wallet neu.',
+      vault_err_no_key: 'Kein YubiKey erkannt.',
+      vault_err_driver_unavailable: 'YubiKey-Unterstützung ist auf diesem Gerät nicht verfügbar.',
+      vault_err_mgmt_key_custom:
+        'Dieser Schlüssel hat einen eigenen Management-Key und kann nicht automatisch benutzt werden.',
+      vault_err_attestation_invalid:
+        'Das Herstellerattest dieses YubiKeys konnte nicht geprüft werden. Nimm einen echten, werkseitig attestierten YubiKey mit unberührtem PIV-Attest-Slot.',
+      vault_err_generic: 'Etwas ist schiefgelaufen. Bitte versuch es noch einmal.',
+      vault_err_template_invalid: 'Beim Zugriff auf den Tresor ist etwas schiefgelaufen. Bitte versuch es noch einmal.',
+      vault_err_not_enrolled: 'Es ist kein Tresor eingerichtet.',
+      vault_err_pin_required: 'Gib deine PIN ein.',
+      vault_err_unsupported_platform: 'YubiKey-Unterstützung ist auf diesem Gerät nicht verfügbar.',
+      vault_err_slot_occupied: 'Der Schlüssel-Slot ist schon belegt.',
+      vault_replace_key_warning:
+        'Ersetzen zerstört den vorhandenen privaten P-256-Schlüssel dauerhaft. Tresor-Guthaben, das diesen Schlüssel braucht, kann dadurch nicht mehr ausgebbar sein.',
+      vault_replace_key_confirm: 'Vorhandenen Schlüssel ersetzen',
+      vault_resume_draft_confirm_title: 'Diesen vorbereiteten Schlüssel verwenden?',
+      vault_resume_draft_confirm_body:
+        'Ein früher vorbereiteter Schlüssel — {{nickname}} · …{{tail}} — kann hinzugefügt werden, aber dieses Gerät hat ihn gerade nicht auf einer Karte geprüft. Mach nur weiter, wenn du ihn erkennst.',
+      vault_resume_draft_confirm_use: 'Diesen Schlüssel verwenden',
+      vault_resume_draft_confirm_discard: 'Verwerfen',
+      vault_err_enrollment_partial:
+        'Die YubiKey-Einrichtung ist stehen geblieben, nachdem der Schlüssel geändert wurde. Folge den Hinweisen zum erneuten Versuch; dieser Schlüssel wurde dem Tresor nicht hinzugefügt.',
+      vault_restore_with_key: 'Mit einem YubiKey wiederherstellen',
+      vault_restore_with_key_body:
+        'Gib die PIN dieses YubiKeys ein und tippe ihn an, wenn du dazu aufgefordert wirst. Das Wallet findet deine Tresor-Einzahlungen in der Blockchain und stellt die wieder her, die dieser Schlüssel öffnen kann.',
+      vault_err_key_opens_nothing:
+        'Dieser YubiKey kann keine Tresor-Einzahlung in der Blockchain öffnen. Sein Schlüssel wurde wahrscheinlich durch eine spätere Einrichtung ersetzt.',
+      vault_err_key_not_adopted:
+        'Weise den Besitz dieses wiederhergestellten YubiKeys auf diesem Gerät nach, bevor du damit auszahlst.',
+      vault_err_too_many_inputs:
+        'Zu viele Tresor-Einzahlungen, um sie auf einmal zu verschieben. Zahl zuerst einen kleineren Betrag aus — jede Auszahlung bündelt den Tresor auch, die nächste kann dann mehr verschieben.',
+      vault_err_requires_online:
+        'Tresor-Übertragungen brauchen eine Verbindung. Verbinde dich neu und versuch es noch einmal — Tresor-Guthaben wird nie für später vorgemerkt.',
+      vault_err_user_cancelled: 'Abgebrochen.',
+      vault_err_vault_empty: 'Im Tresor liegt noch nichts zum Auszahlen.',
+      vault_err_amount_exceeds_balance: 'Das ist mehr, als der Tresor enthält.',
+      vault_err_below_dust: 'Dieser Betrag ist zu klein zum Senden.',
+      vault_err_no_transaction: 'Die Übertragung konnte nicht abgeschlossen werden. Bitte versuch es noch einmal.',
+      vault_err_nfc_lost: 'Die Verbindung ist abgerissen. Halte den Schlüssel ruhig an dein Telefon.',
+      vault_err_lookup_unknown:
+        'Die Blockchain ließ sich gerade nicht prüfen. Nichts wurde geändert. Versuch es gleich noch einmal.',
+      vault_err_keys_unproven:
+        'Einige Schlüssel in diesem Tresor wurden auf diesem Telefon noch nicht geprüft. Halte jeden Schlüssel an das Telefon, um ihn zu prüfen, oder mach ohne die ungeprüften Schlüssel weiter.',
+      vault_err_not_enough_proven_keys:
+        'Eine neue Sperre braucht zwei geprüfte Schlüssel. Prüfe einen weiteren Schlüssel oder füge einen neuen hinzu. Alles auszahlen kannst du weiterhin.',
+      vault_err_chain_check_required:
+        'Prüfe die Blockchain auf deinen früheren Tresor, bevor du diesen Schlüssel zurücksetzt.',
+      vault_err_no_mnemonic:
+        'Ein Tresor braucht ein Wallet, das aus einer Wiederherstellungsphrase erzeugt wurde. Dieses Wallet wurde aus älteren Schlüsselteilen wiederhergestellt.',
+      vault_pin_invalid_retry:
+        'Falsche PIN — noch {{count}} Versuche. Tippe erneut auf Auszahlen, um es noch einmal zu versuchen.',
+      vault_pin_invalid_retry_generic: 'Falsche PIN. Tippe erneut auf Auszahlen, um es noch einmal zu versuchen.',
+      vault_disable_row: 'Tresor deaktivieren',
+      vault_disable_title: 'Tresor deaktivieren?',
+      vault_disable_message:
+        'Damit vergisst dieses Telefon die Schlüsselliste des Tresors. Die Schlüssel bleiben auf deinen YubiKeys.',
+      vault_disable_confirm: 'Deaktivieren',
+      vault_disabled_toast: 'Tresor deaktiviert',
+      vault_disable_blocked_title: 'Zuerst das Guthaben auszahlen',
+      vault_disable_blocked_message:
+        'Im Tresor liegt noch Guthaben. Zahl alles auf dein Alltagsguthaben aus, bevor du deaktivierst — sonst wäre dieses Guthaben gesperrt, ohne dass es sich signieren lässt.',
+      vault_ok: 'OK',
+      vault_mock_toggle: 'Schein-YubiKey verwenden (Entwicklung)',
+      vault_on: 'Ein',
+      vault_off: 'Aus',
+      vault_shares_word_count:
+        'Sicherungsanteile gibt es nur für Phrasen mit zwölf Wörtern. Schreib deine Phrase stattdessen auf.',
+      scan_shares_legacy_title: 'Älteres Sicherungsformat',
+      scan_shares_legacy_message:
+        'Diese Anteile sind ein älteres Format. Es stellt dein Alltagsguthaben wieder her, kann aber keinen Tresor öffnen. Wenn du deine Zwölf-Wörter-Phrase noch hast, stell damit wieder her — das holt alles zurück — und druck danach neue Anteile. Ist die Phrase weg, sende dein Guthaben an ein neues Wallet und fang neu an.',
+      scan_shares_legacy_ack: 'Ich verstehe',
+      delete_wallet: 'Wallet löschen',
+      delete_wallet_warning_title: 'Wallet löschen?',
+      delete_wallet_warning_body:
+        'Das löscht die Schlüssel deines Wallets dauerhaft von diesem Gerät. Hast du deine Wiederherstellungsphrase nicht gesichert oder keine Sicherungsanteile gedruckt, verlierst du den Zugang zu deinem Wallet für immer.',
+      delete_wallet_confirm: 'Wallet löschen',
+      delete_wallet_failed_title: 'Wallet löschen fehlgeschlagen',
+      delete_wallet_failed_body:
+        'Dein Wallet konnte auf diesem Gerät nicht vollständig gelöscht werden. Schlüsselmaterial kann noch vorhanden sein. Bitte versuch es noch einmal.',
+      bsv_network: 'BSV-Netzwerk',
+      arc_endpoint: 'ARC-Endpunkt',
+      arc_api_token: 'API-Token',
+      arc_custom_url: 'Eigene URL',
+      arc_apply: 'Übernehmen',
+      arc_reset_default: 'Auf Standard zurücksetzen',
+      arc_requires_token: 'Token nötig',
+      arc_url_https_required: 'Muss https sein (oder http://localhost für lokale Tests)',
+      recovery_phrase: 'Wiederherstellungsphrase',
+      you_have: 'Du hast',
+      switching: 'Wechsel läuft…',
+      mainnet: 'Mainnet',
+      testnet: 'Testnet',
+      teratest: 'Teratest',
+      scaletest: 'Scaling Teratest',
+      identity_key: 'Kennung',
+      transactions: 'Transaktionen',
+      no_transactions: 'Noch keine Transaktionen',
+      tx_status_confirmed: 'Bestätigt',
+      tx_status_received: 'Empfangen',
+      tx_status_sent: 'Gesendet',
+      tx_status_spent: 'Ausgegeben',
+      tx_status_transferred: 'Übertragen',
+      tx_status_accepted: 'Angenommen',
+      tx_status_broadcasting: 'Wird verarbeitet',
+      tx_status_not_sent: 'Nicht gesendet',
+      tx_status_unsigned: 'Entwurf',
+      tx_status_nonfinal: 'Ausstehend',
+      tx_status_pending: 'Ausstehend',
+      tx_status_failed: 'Fehlgeschlagen',
+      tx_status_offline_queued: 'Offline · in der Warteschlange',
+      tx_status_offline_sending: 'Offline · wird gesendet',
+      tx_status_offline_rejected: 'Offline · abgelehnt',
+      tx_copied: 'Transaktion kopiert',
+      tx_not_available: 'Transaktion nicht verfügbar',
+      tx_copy_failed: 'Transaktion konnte nicht kopiert werden',
+      tx_abort_success: 'Transaktion abgebrochen',
+      tx_abort_failed: 'Transaktion konnte nicht abgebrochen werden',
+      tx_abort_maybe_delivered: 'Abbrechen geht nicht — diese Zahlung ist vielleicht schon beim Empfänger',
+      tx_proof_refreshed: 'Transaktion bestätigt',
+      tx_proof_refresh_failed:
+        'Nachweis konnte nicht geholt werden — die Transaktion ist vielleicht noch nicht bestätigt',
+      tx_marked_failed: 'Nicht verarbeitet — als fehlgeschlagen markiert und Guthaben freigegeben',
+      tx_still_pending: 'Noch ausstehend — noch nicht bestätigt',
+      tx_action_explorer: 'Im Block-Explorer ansehen',
+      explorer_open_failed: 'Block-Explorer konnte nicht geöffnet werden',
+      tx_action_refresh: 'Status aktualisieren',
+      tx_action_refresh_short: 'Status',
+      tx_action_abort: 'Transaktion abbrechen',
+      tx_export_success: '{{count}} Transaktionen exportiert',
+      tx_export_failed: 'Transaktionen konnten nicht exportiert werden',
+      tx_export_csv: 'CSV exportieren',
+      tx_export: 'Exportieren',
+      activity_filter: 'Aktivität filtern',
+      activity_filter_all: 'Alle',
+      activity_search_placeholder: 'Notizen, Namen, @Alias suchen',
+      activity_search_clear: 'Suche leeren',
+      activity_filter_no_match: 'Keine passende Aktivität',
+      wallet_balance_label: 'Guthaben',
+      wallet_balance_you_have: 'Du hast',
+      wallet_balance_refresh: 'Guthaben aktualisieren',
+      wallet_group_today: 'Heute',
+      wallet_group_yesterday: 'Gestern',
+      back: 'Zurück',
+      wallet_payments: 'Zahlungen',
+      wallet_vault: 'Tresor',
+      wallet_settings: 'Einstellungen',
+      wallet_activity: 'Aktivität',
+      message_box_server: 'Nachrichtenbox-Server',
+      message_box_required: 'Nötig, um identitätsbasierte Zahlungen zu senden und zu empfangen.',
+      send_payment: 'Zahlung senden',
+      recipient: 'Empfänger',
+      amount: 'Betrag',
+      enter_valid_amount: 'Gib einen Betrag größer als null ein',
+      display_currency: 'Anzeigewährung',
+      no_pending_payments: 'Keine ausstehenden Zahlungen',
+      outgoing_payments: 'Ausgehend',
+      review_imported_payment: 'Importierte Zahlung prüfen',
+      review_imported_payment_detail:
+        'Diese Zahlung stammt aus einer Sicherung und wurde vielleicht abgebrochen. Jetzt {{amount}} Satoshis an {{recipient}} senden?',
+      payment_not_delivered: 'Nicht zugestellt',
+      payment_delivered: 'Zugestellt',
+      retry: 'Erneut versuchen',
+      retry_failed: 'Erneuter Versuch fehlgeschlagen',
+      dismiss: 'Schließen',
+      valid_identity_key: 'Gültige Kennung eingegeben',
+      valid_bsv_address: 'Gültige BSV-Adresse eingegeben',
+      searching: 'Suche läuft…',
+      unknown: 'Unbekannt',
+      from_prefix: 'Von:',
+      message_box_saved: 'Nachrichtenbox-Server gespeichert',
+      message_box_removed: 'Nachrichtenbox-Server entfernt',
+      message_box_off: 'Aus',
+      message_box_off_hint: 'Der Nachrichtenbox-Server ist aus. Schalte ihn unter Einstellungen › Erweitert ein.',
+      enter_valid_url: 'Bitte gib eine gültige URL ein',
+      checking_connection: 'Verbindung wird geprüft…',
+      connection_failed: 'Verbindung fehlgeschlagen',
+      recipient_placeholder: 'Name, Kennung oder BSV-Adresse…',
+      trust_updated: 'Vertrauensnetz aktualisiert',
+      failed_to_save: 'Speichern fehlgeschlagen',
+      confirm_delete: 'Löschen bestätigen',
+      confirm_delete_body: 'Möchtest du diesen Zertifizierer wirklich löschen?',
+      order_certifiers_hint: 'Ordne Zertifizierer nach Priorität. Apps zeigen höher eingestufte Zertifizierer zuerst.',
+      certifiers: 'Zertifizierer',
+      no_certifiers: 'Noch keine Zertifizierer.',
+      add_provider: 'Anbieter hinzufügen',
+      unsaved_changes: 'Du hast ungespeicherte Änderungen',
+      duplicate_key_error: 'Ein Eintrag mit diesem öffentlichen Schlüssel ist schon in der Liste!',
+      get_provider_details: 'Anbieterdetails holen',
+      validate_details: 'Details prüfen',
+      show_advanced: 'Erweitert anzeigen',
+      hide_advanced: 'Erweitert ausblenden',
+      description_length_error: 'Die Beschreibung muss zwischen 5 und 50 Zeichen lang sein',
+      enter_domain_hint: 'Anbieterdomain eingeben',
+      enter_details_hint: 'Anbieterdetails eingeben',
+      receive: 'Empfangen',
+      send: 'Senden',
+      generating_address: 'BSV-Adresse wird erzeugt…',
+      imported: 'Importiert',
+      unable_to_generate_address: 'BSV-Adresse konnte nicht erzeugt werden',
+      send_bsv: 'BSV senden',
+      recipient_address: 'BSV-Adresse des Empfängers',
+      enter_bsv_address: 'BSV-Adresse eingeben',
+      wallet_data: 'Wallet-Daten',
+      create_new_wallet: 'Neues Wallet anlegen',
+      generate_recovery_phrase_caption: 'Neue Wiederherstellungsphrase erzeugen',
+      import_existing_wallet: 'Vorhandenes Wallet importieren',
+      paste_recovery_phrase: 'Wiederherstellungsphrase einfügen',
+      save_recovery_phrase_heading: 'Wiederherstellungsphrase speichern',
+      save_recovery_phrase_btn: 'Wiederherstellungsphrase speichern',
+      recovery_phrase_write_down:
+        'Schreib diese 12 Wörter der Reihe nach auf und bewahre sie an einem sicheren Ort auf.',
+      acknowledgment_text:
+        'Ich habe meine Wiederherstellungsphrase gespeichert und verstehe, dass ihr Verlust den vollständigen und dauerhaften Verlust aller zugehörigen Gelder, Token und Zertifikate bedeutet.',
+      enter_recovery_words: 'Mnemonic mit 12 Wörtern eingeben',
+      restore_wallet_description: 'Gib deine Wiederherstellungsphrase ein, um dein Wallet wiederherzustellen',
+      backup_reminder_title: 'Dein Wallet ist nicht gesichert',
+      backup_reminder_body: 'Exportiere deine Schlüssel, damit kein Guthaben verloren geht.',
+      biometric_advisory_title: 'Wallet absichern',
+      wallet_balance_show_in: 'Anzeigen in {{unit}}',
+      tx_detail_block: 'Block',
+      tx_detail_block_pending: 'Wartet auf einen Block',
+      biometric_advisory_body: 'Schütze dein Vermögen mit Face ID oder deinem Fingerabdruck',
+      biometric_advisory_body_degraded:
+        'Auf diesem Gerät ist weder Face ID noch ein Fingerabdruck eingerichtet, deshalb schützt nur der Gerätecode den Schlüssel deines Wallets.',
+      import_prompt_title: 'Du hast schon ein Wallet?',
+      import_prompt_body: 'Stell es aus deiner Wiederherstellungsphrase oder aus Anteilen wieder her.',
+      import_prompt_action: 'Aus Sicherung importieren',
+      nearby_advisory_title: 'Verbindung in der Nähe',
+      nearby_advisory_body:
+        'Du wirst gefragt, ob WLAN, Bluetooth oder NFC erlaubt ist. Das dient nur dazu, dich für eine Zahlung direkt mit einem Gerät in der Nähe zu verbinden — es geht nie an unsere Server und wird nie für ein Profil von dir benutzt.',
+      backup_reminder_now: 'Schlüssel jetzt sichern',
+      backup_reminder_import: 'Aus Sicherung importieren',
+      restore_backup_checking: 'Suche nach deiner verschlüsselten Sicherung…',
+      restore_backup_progress: 'Wallet-Verlauf wird wiederhergestellt — {{chunks}} von {{total}}…',
+      restore_backup_failed_title: 'Verlauf konnte nicht wiederhergestellt werden',
+      restore_backup_failed_message:
+        'Deine Wiederherstellungsphrase ist in Ordnung, aber die verschlüsselte Sicherung konnte nicht abgespielt werden. Ein erneuter Versuch reicht meist. Ohne sie weiterzumachen gibt dir ein funktionierendes Wallet ohne frühere Transaktionen, und ein Teil deiner vorhandenen Münzen ist nicht ausgebbar.',
+      restore_backup_retry: 'Erneut versuchen',
+      restore_backup_skip: 'Aufgeben',
+      restore_backup_unverified_title: 'Sicherung vielleicht unvollständig',
+      restore_backup_unverified_body:
+        'Dein Wallet wurde wiederhergestellt, aber die Sicherung auf dem Server konnte nicht als vollständig bestätigt werden. Fehlt ein Teil des Verlaufs, stell später noch einmal wieder her, wenn das andere Gerät fertig hochgeladen hat.',
+      import_wallet: 'Wallet importieren',
+      reject: 'Zurückweisen',
+      authorize: 'Genehmigen',
+      renewal: 'Verlängerung',
+      spending_section: 'Ausgeben',
+      protocols_section: 'Protokolle',
+      baskets_section: 'Körbe',
+      certificates_section: 'Zertifikate',
+      requested_fields: 'Angefragte Felder',
+      color_prompt_send_title: 'Anfrage zum Senden eines Tokens',
+      color_prompt_signature_title: 'Anfrage für eine Token-Signatur',
+      color_prompt_access_title: 'Anfrage auf Token-Zugriff',
+      color_prompt_relinquish_title: 'Token-Bestand entfernen',
+      send_max: 'Maximum senden',
+      message_box_unreachable:
+        'Der Zahlungsserver war nicht erreichbar. Prüfe die Nachrichtenbox-URL in deinen Einstellungen.',
+      available: 'verfügbar',
+      note: 'Notiz',
+      note_placeholder: 'Wofür ist das? (optional)',
+      entire_wallet_balance: 'Gesamtes Wallet-Guthaben',
+      entire_vault_balance: 'Gesamtes Tresor-Guthaben',
+      export_wallet_data: 'Wallet-Daten exportieren',
+      import_wallet_data: 'Wallet-Daten importieren',
+      import_conflict_title: 'Datenbank existiert schon',
+      import_conflict_message:
+        'Für diese Identität gibt es schon eine Wallet-Datenbank mit einem neueren Zeitstempel. Verwendet wird immer die Sicherung mit der höchsten Zahl im Dateinamen.\n\nUm stattdessen diese ältere Sicherung zu nutzen: exportiere deine aktuellen Wallet-Daten, lösche die App und installiere sie neu, und importiere dann nur die gewünschte Sicherung.',
+      import_confirm_title: 'Datenbank importieren',
+      import_confirm_message: 'Diese Datenbank wird dein aktives Wallet. Weiter?',
+      import_success: 'Datenbank importiert. Wallet wird neu gestartet…',
+      import_invalid_file: 'Ungültige Sicherungsdatei',
+      import_invalid_file_detail:
+        'Diese Datei ist keine gültige Sicherung einer Wallet-Datenbank. Erwartet wird ein Name wie wallet-XXXXXXXX-mainnet-TIMESTAMP.db.',
+      import_oversized_file: 'Sicherungsdatei zu groß',
+      import_oversized_file_detail:
+        'Diese Datei ist größer, als eine Wallet-Sicherung sein sollte, deshalb wurde sie nicht gelesen. Wähle eine echte Sicherungsdatei der Wallet-Datenbank.',
+      import_untrusted_file: 'Diese Sicherung kann nicht importiert werden',
+      import_untrusted_file_detail:
+        'Diese Sicherung konnte nicht als zu diesem Wallet gehörig geprüft werden, oder ihrem Inhalt konnte nicht vertraut werden. Sie wurde nicht importiert.',
+      import_anyway: 'Trotzdem importieren',
+      import_invalid_input_title: 'Ungültige Eingabe',
+      import_invalid_input_message:
+        'Bitte gib eine gültige Wiederherstellungsphrase ein (12–24 Wörter) oder einen privaten Schlüssel als 64-stelliges Hex.',
+      import_setup_failed: 'Wallet konnte nicht eingerichtet werden: {{error}}',
+      create_wallet_refused: 'Wallet konnte nicht angelegt werden. Bitte versuch es noch einmal.',
+      create_wallet_failed: 'Mnemonic konnte nicht erzeugt werden. Bitte versuch es noch einmal.',
+      or: 'oder',
+      print_recovery_shares: 'Sicherungsanteile drucken',
+      scan_backup_shares: 'Sicherungsanteile scannen',
+      scan_backup_shares_caption: 'Wallet aus gedruckten Anteilen wiederherstellen',
+      scan_shares_invalid_format:
+        'Ungültiges Anteilsformat. Bitte scanne einen gültigen QR-Code eines Sicherungsanteils.',
+      scan_shares_camera_needed: 'Kamerazugriff nötig',
+      scan_shares_camera_description:
+        'Kamerazugriff ist nötig, um die QR-Codes deiner gedruckten Sicherungsanteile zu scannen.',
+      scan_shares_grant_camera: 'Kamerazugriff erlauben',
+      scan_shares_recovering: 'Wallet wird wiederhergestellt…',
+      scan_shares_scan_first: 'Scanne deinen ersten Sicherungsanteil',
+      scan_shares_progress: '{{scanned}} von {{needed}} Anteilen gescannt',
+      scan_shares_remaining: 'Noch {{count}} Anteil nötig',
+      scan_shares_complete: 'Alle Anteile erfasst!',
+      scan_shares_recovery_failed: 'Wiederherstellung fehlgeschlagen. Bitte scanne noch einmal.',
+      scan_shares_threshold_mismatch: 'Der Schwellenwert passt nicht zu den vorherigen Anteilen',
+      scan_shares_integrity_mismatch:
+        'Der Integritätshash passt nicht — die Anteile stammen von verschiedenen Schlüsseln',
+      scan_shares_duplicate: 'Dieser Anteil wurde schon gescannt',
+      scan_shares_print_mismatch:
+        'Diese Streifen stammen von verschiedenen Ausdrucken und lassen sich nicht zusammenfügen',
+      scan_shares_biometric_title: 'Biometrischer Zugriff nötig',
+      scan_shares_biometric_message:
+        'Biometrischer Zugriff ist nötig, um die Schlüssel deines Wallets zu schützen. Bitte versuch es noch einmal.',
+      recovery_replace_wallet_title: 'Das Wallet auf diesem Telefon ersetzen?',
+      recovery_replace_wallet_body:
+        'Auf diesem Telefon liegt schon ein Wallet. Weiter ersetzt es und alles, was es ausgeben kann. Ist seine Wiederherstellungsphrase nirgends gespeichert, ist dieses Geld endgültig weg.',
+      recovery_replace_wallet_confirm: 'Wallet ersetzen',
+      invalid_bsv_address: 'Ungültige BSV-Adresse',
+      scan_recipient_hint: 'Richte die Kamera auf einen Zahlungscode',
+      scan_qr_default_hint: 'Richte die Kamera auf einen QR-Code',
+      scan_wallet_qr_hint: 'Richte die Kamera auf einen QR-Code zum Koppeln des Wallets',
+      biometric_store_wallet: 'Wallet sicher speichern',
+      biometric_load_wallet: 'Wallet sicher laden',
+      biometric_unlock_wallet: 'Wallet entsperren',
+      wallet_lost_title: 'Wallet-Schlüssel zerstört',
+      wallet_lost_body:
+        'Dieses Gerät hat seine biometrischen Einstellungen geändert, deshalb hat das System den Schlüssel zerstört, der dieses Wallet schützt. Deine Münzen sind in der Blockchain sicher — stell dieses Wallet mit deiner Wiederherstellungsphrase wieder her.',
+      wallet_lost_restore: 'Wiederherstellen',
+      wallet_lost_later: 'Nicht jetzt',
+      wallet_locked_title: 'Wallet gesperrt',
+      wallet_locked_body: 'Entsperre, um die Schlüssel deines Wallets zu laden.',
+      wallet_unlock_retry: 'Wallet entsperren',
+      wallet_lockout_body:
+        'Zu viele Fehlversuche. Entsperre dein Telefon mit dem Gerätecode und versuch es dann noch einmal.',
+      wallet_no_biometrics_body:
+        'Auf diesem Gerät ist keine Biometrie eingerichtet. Die Schlüssel deines Wallets sind weiter vom Geräteschlüsselspeicher verschlüsselt, aber nicht durch eine biometrische Prüfung geschützt.',
+      connections: 'Verbindungen',
+      advanced: 'Erweitert',
+      copy_secret_words: 'Geheime Wörter kopieren',
+      print_recovery_keys: 'Wiederherstellungsphrase drucken',
+      backup_wallet_keys: 'Wallet-Schlüssel sichern',
+      log_out: 'Abmelden',
+      connect_to_app: 'Mit App verbinden',
+      no_connections_yet: 'Noch keine Verbindungen',
+      no_connections_subtitle: 'Scanne einen QR-Code aus einer Desktop-App, um dein Wallet zu verbinden',
+      connections_active: 'Aktiv',
+      connections_disconnected: 'Getrennt',
+      disconnect: 'Trennen',
+      reconnect: 'Neu verbinden',
+      reconnect_failed: 'Neu verbinden fehlgeschlagen',
+      reconnect_confirm_title: 'Mit dieser Website neu verbinden?',
+      reconnect_confirm_message: '{{origin}} kann wieder auf dein Wallet zugreifen.',
+      reconnect_needs_reapproval:
+        'Diese Verbindung konnte nicht geprüft werden. Scanne einen neuen QR-Code, um dich neu zu verbinden.',
+      scan_qr_code: 'QR-Code scannen',
+      paste_uri: 'URI einfügen',
+      invalid_qr_code: 'Ungültiger QR-Code',
+      wallet_not_ready: 'Wallet nicht bereit',
+      please_log_in_first: 'Bitte melde dich zuerst an',
+      unknown_error: 'Unbekannter Fehler',
+      payments: 'Zahlungen',
+      pay: 'Zahlen',
+      pay_direction_pay: 'Zahlen',
+      pay_direction_receive: 'Bezahlt werden',
+      pay_cell_nearby_pay: 'Jemand in der Nähe',
+      pay_cell_nearby_pay_sub: 'Dessen Code scannen',
+      pay_cell_handle_pay: 'Jemand anderswo',
+      pay_cell_handle_pay_sub: 'Einen Namen wählen — die Person braucht diese App',
+      pay_cell_address_pay: 'An eine BSV-Adresse',
+      pay_cell_address_pay_sub: 'BSV-Adresse einfügen oder scannen',
+      pay_cell_nearby_get: 'Jemand in der Nähe',
+      pay_cell_nearby_get_sub: 'Deinen Zahlungscode zeigen',
+      pay_cell_handle_get: 'Jemand anderswo',
+      pay_cell_handle_get_sub: 'Deinen Namen teilen',
+      pay_cell_address_get: 'An eine BSV-Adresse',
+      pay_cell_address_get_sub: 'Eine BSV-Adresse zeigen',
+      pay_address_unavailable_network: 'In diesem Netzwerk nicht verfügbar',
+      pay_method: 'Weg',
+      pay_method_nearby: 'In der Nähe',
+      pay_method_remote_link: 'Link aus der Ferne teilen',
+      pay_method_address: 'An eine BSV-Adresse',
+      pay_pre_nearby: 'Ihr seid beide hier.',
+      pay_pre_handle: 'Die Person nutzt diese App.',
+      pay_pre_address: 'Du hast deren BSV-Adresse.',
+      pay_conseq_nearby: 'Ist in Sekunden abgeschlossen.',
+      pay_conseq_handle: 'Kommt an, wenn deren Wallet das nächste Mal prüft.',
+      pay_conseq_address: 'Gesendet — die Person wird nicht benachrichtigt.',
+      paid: 'Bezahlt',
+      pay_inbox_attention: 'Konnte nicht hinzugefügt werden',
+      pay_inbox_attention_hint:
+        'Das ist angekommen, aber dein Wallet konnte es nicht hinzufügen. Versuch es noch einmal, oder schließ es, um endgültig darauf zu verzichten.',
+      pay_dismiss_confirm: 'Noch einmal tippen, um zu verzichten',
+      pay_dismissed: 'Zahlung aufgegeben',
+      payment_arrived: 'Zahlung empfangen',
+      payment_arrived_damaged: 'Diese Zahlung kam beschädigt an',
+      discard_payment_title: 'Diese Zahlung verwerfen?',
+      discard_payment_body:
+        'Der Absender wird gebeten, die Angaben erneut zu senden. Das Geld bleibt in der Chain, bis das geschieht.',
+      discard_void_title: 'Diese Zahlung ist nicht durchgegangen',
+      discard_void_body: 'Sie wurde abgebrochen oder anderswo ausgegeben. Du kannst sie schließen.',
+      waiting_network_confirm: 'Wartet, bis das Netzwerk diese Zahlung bestätigt',
+      finish_or_cancel_outgoing: 'Schließ die Zahlung unten ab oder brich sie ab, bevor du eine neue sendest',
+      identity_search_unavailable: 'Die Suche ist gerade nicht verfügbar. Versuch es gleich noch einmal.',
+      abandon_payment: 'Zahlung aufgeben',
+      finish_payment: 'Zahlung abschließen',
+      cancel_this_payment: 'Diese Zahlung abbrechen?',
+      cancel_payment: 'Zahlung abbrechen',
+      resend: 'Erneut senden',
+      resending: 'Wird erneut gesendet…',
+      send_payment_details_again: 'Angaben erneut senden',
+      tx_action_resend_short: 'Erneut',
+      tx_action_request_confirmation: 'Bestätigung vom Empfänger anfordern',
+      resend_sent: 'Zahlungsangaben erneut gesendet',
+      resend_failed_no_record:
+        'Die Angaben zu dieser Zahlung sind auf diesem Gerät nicht zu finden, deshalb kann sie nicht erneut gesendet werden.',
+      resend_failed_no_recipient:
+        'Bei dieser Zahlung steht nicht, für wen sie war, deshalb kann sie nicht erneut gesendet werden.',
+      resend_failed_no_transaction:
+        'Die Daten dieser Zahlung konnten nicht geholt werden. Versuch es erneut, wenn du online bist.',
+      resend_requested: 'Jemand bittet dich, eine Zahlung erneut zu senden',
+      request_again: 'Erneut anfordern',
+      send_again: 'Erneut senden',
+      copy_details: 'Angaben kopieren',
+      payment_bounced_resend: 'Gebeten, diese Zahlung erneut zu senden',
+      dismiss_rejected_payment: 'Diese abgelehnte Zahlung geschlossen',
+      activity_load_failed: 'Aktivität konnte nicht geladen werden',
+      activity_load_retry: 'Tippe, um es erneut zu versuchen',
+      activity_view_contact: 'Kontakt ansehen',
+      home_payments_need_attention: '{{count}} Zahlungen brauchen Aufmerksamkeit',
+      home_payments_unsent: '{{count}} Zahlungen nicht zugestellt',
+      pay_copy: 'Kopieren',
+      pay_share_link: 'Link teilen',
+      pay_address_watching:
+        'Geld, das hierhin gesendet wird, kommt automatisch in dein Wallet, aber nur solange die App offen ist.',
+      pay_address_earlier_day: 'Einen früheren Tag erreichen',
+      pay_address_sweep_now: 'Diese BSV-Adresse jetzt prüfen',
+      pay_address_swept: '{{amount}} empfangen',
+      push_advisory_title: 'Benachrichtigung, wenn du bezahlt wirst',
+      push_advisory_body:
+        'Als Nächstes fragt dein Telefon, ob Benachrichtigungen erlaubt sind. Damit kann BSV Wallet dir sagen, wenn eine Zahlung ankommt, auch wenn die App im Hintergrund ist.',
+      push_advisory_continue: 'Weiter',
+      push_advisory_not_now: 'Nicht jetzt',
+      notifications: 'Benachrichtigungen',
+      push_settings_row: 'Zahlungsbenachrichtigungen',
+      push_settings_on: 'Ein',
+      push_settings_off: 'Aus',
+      check_wallet: 'Fehlersuche',
+      settings_version: 'v{{version}}',
+      error_review_actions: 'Diese Zahlung hängt. Die Wallet-Prüfung kann versuchen, sie zu lösen.',
+      wallet_check_ok: 'Alles sieht gut aus',
+      wallet_check_attention: 'Einige Prüfungen brauchen deine Aufmerksamkeit',
+      wallet_check_couldnt: 'Prüfung nicht möglich',
+      wallet_check_couldnt_body: 'Ein Reparaturschritt wurde nicht fertig. Über deine Münzen wurde nichts angenommen.',
+      wallet_check_summary: '{{freed}} festhängende Münzen gelöst · {{recovered}} Zahlungen wiederhergestellt',
+      wallet_check_step_coins: 'Deine Münzen sind gültig',
+      wallet_check_skip: 'Diese Prüfung überspringen',
+      wallet_check_skipped: 'Übersprungen',
+      wallet_check_step_proofs: 'Transaktionsnachweise',
+      wallet_check_step_records: 'Lokale Datenbankeinträge',
+      wallet_check_step_tokens: 'Stablecoin-Übertragungen geprüft',
+      wallet_check_step_online: 'Online',
+      wallet_check_step_missed: 'Verpasste Zahlungen',
+      wallet_check_step_backup: 'Private Sicherung hochgeladen',
+      wallet_check_step_phrase: 'Wiederherstellungsphrase gespeichert',
+      wallet_check_progress: '{{current}} von {{total}}',
+      wallet_check_stuck_title: 'Diese Zahlung konnte nicht gesendet werden',
+      wallet_check_stuck_message: 'Einige Münzen scheinen festzustecken. Die Wallet-Prüfung kann sie lösen.',
+      wallet_check_failed: 'Die Prüfung konnte nicht abgeschlossen werden. Versuch es noch einmal.',
+      local_pay_request: 'Zahlung anfordern',
+      local_pay_send: 'Zahlung senden',
+      local_pay_amount: 'Betrag',
+      local_pay_show_qr: 'Zeig diesen Code dem Zahlenden',
+      local_pay_scan_qr: 'Scanne den Code des Empfängers',
+      local_pay_scan_payer_qr: 'Scanne den Code des Zahlenden',
+      local_pay_scan_progress: '{{have}} von {{total}} Teilen',
+      local_pay_show_payment_qr: 'Zeig diesen Code dem Empfänger',
+      local_pay_animated_hint:
+        'Bitte die Person, den bewegten Code unten zu scannen — er ändert sich, bis das Telefon alles hat.',
+      local_pay_show_qr_instead: 'Stattdessen einen QR-Code zeigen',
+      local_pay_preparing: 'Anfrage wird vorbereitet…',
+      local_pay_delivering: 'Zahlung wird übergeben…',
+      local_pay_saving: 'Zahlung wird gespeichert…',
+      local_pay_sent: 'Zahlung gesendet',
+      local_pay_received: 'Zahlung empfangen',
+      local_pay_added: 'Zu deinem Wallet hinzugefügt.',
+      local_pay_added_multiple: '{{count}} Zahlungen zu deinem Wallet hinzugefügt.',
+      local_pay_received_confirming: 'Wird mit deinem Wallet bestätigt…',
+      local_pay_received_not_credited:
+        'Noch nicht zu deinem Wallet hinzugefügt. Sieh in Aktivität nach, bevor du etwas übergibst.',
+      local_pay_decline_broadcast_title: 'Eine abgelehnte Zahlung ist durchgegangen',
+      local_pay_decline_broadcast_body:
+        'Eine abgelehnte Zahlung ist inzwischen im Netzwerk aufgetaucht. Sende sie nicht noch einmal — sieh in Aktivität nach.',
+      local_pay_pending_abort_dropped_title: 'Ungeprüfte Freigabeanfrage ignoriert',
+      local_pay_pending_abort_dropped_body:
+        'Ein gespeicherter Datensatz zur Zahlungsfreigabe konnte nicht geprüft werden, deshalb wurde nichts freigegeben. Sieht eine Zahlung noch fest, brich sie unter Aktivität ab.',
+      local_pay_cancel_unverifiable_title: 'Diese Zahlung lässt sich offline nicht prüfen',
+      local_pay_cancel_unverifiable_body:
+        'Hat die andere Person sie schon gescannt, können diese Münzen durch Abbrechen zweimal ausgegeben werden. Brich nur ab, wenn du sicher bist, dass sie nie gescannt wurde.',
+      local_pay_cancel_unverifiable_confirm: 'Trotzdem abbrechen',
+      local_pay_queued: 'Gespeichert — es wird automatisch zu deinem Wallet hinzugefügt.',
+      local_pay_already_paid: 'Diese Anfrage wurde schon bezahlt.',
+      local_pay_failed: 'Zahlung fehlgeschlagen',
+      local_pay_wrong_network:
+        'Dieser Code gilt für ein Wallet auf {{theirs}}. Dein Wallet ist auf {{mine}}, deshalb geht diese Zahlung nicht. Wechsle das Netzwerk, oder bitte die andere Person darum.',
+      local_pay_network_denied:
+        'Der Zugriff auf das lokale Netzwerk ist aus. Aktiviere ihn in den Einstellungen, um Geräte in der Nähe zu bezahlen.',
+      local_pay_radio_fallback: 'Funkverbindung nicht verfügbar — zeig diesen Code stattdessen dem anderen Gerät.',
+      local_pay_floor_peer_bt_off: 'Deren Bluetooth ist aus, deshalb läuft diese Zahlung über den Code.',
+      local_pay_floor_local_bt_off:
+        'Dein Bluetooth ist aus. Schalte es ein für eine schnellere Verbindung in der Nähe.',
+      local_pay_floor_local_ble_denied:
+        'Der Bluetooth-Zugriff für BSV Wallet ist aus. Erlaube ihn in den Einstellungen für eine schnellere Verbindung in der Nähe.',
+      local_pay_floor_cross_os:
+        'Das andere Gerät kann Bluetooth gerade nicht nutzen, deshalb läuft diese Zahlung über den Code.',
+      local_pay_floor_peer_no_radio:
+        'Das andere Gerät hört nicht auf eine Funkverbindung, deshalb läuft diese Zahlung über den Code.',
+      local_pay_ble_unavailable: 'Bluetooth ist nicht verfügbar. Der Code oben funktioniert trotzdem.',
+      local_pay_too_large: 'Die Daten dieser Zahlung sind zu groß, um sie mit QR-Codes zu übergeben.',
+      local_pay_nearby_unavailable: 'WLAN in der Nähe ist nicht verfügbar. Der Code oben funktioniert trotzdem.',
+      local_pay_retry_save: 'Erneut speichern versuchen',
+      local_pay_wrong_session:
+        'Diese Zahlung passt nicht zu dieser Anfrage und wurde nicht angenommen. Bitte den Zahlenden, den Code erneut zu scannen.',
+      local_pay_declined_mismatch:
+        'Der Empfänger hat diese Zahlung nicht angenommen — sie passt nicht zur Anfrage. Scanne den Code erneut.',
+      local_pay_declined_already_paid: 'Diese Anfrage wurde schon bezahlt. Nichts wurde gesendet.',
+      local_pay_declined_save:
+        'Der Empfänger konnte die Zahlung nicht speichern. Nichts wurde gesendet — versuch es noch einmal.',
+      local_pay_declined_decode:
+        'Der Empfänger konnte die Zahlung nicht lesen. Nichts wurde gesendet — versuch es noch einmal.',
+      local_pay_declined_not_covered:
+        'Der Empfänger konnte diese Zahlung nicht gegen die Aufzeichnungen des Emittenten prüfen. Nichts wurde gesendet.',
+      local_pay_declined_root_unverified:
+        'Das Gerät des Empfängers konnte diese Zahlung nicht gegen die Blockchain prüfen. Nichts wurde gesendet. Ist die Person offline, muss sie sich kurz verbinden und es dann erneut versuchen.',
+      local_pay_root_unverified:
+        'Dieses Gerät konnte die Zahlung nicht gegen die Blockchain prüfen, deshalb wurde sie nicht angenommen. Verbinde dich kurz mit dem Internet und bitte den Zahlenden dann, es erneut zu versuchen.',
+      local_pay_broadcast_pending:
+        'Gesendet. Dieses Gerät konnte sie noch nicht verarbeiten lassen — der Empfänger wird das tun.',
+      local_pay_any_amount: 'Beliebiger Betrag',
+      local_pay_choose_amount: 'Betrag wählen',
+      local_pay_enter_amount_send: 'Wie viel möchtest du senden?',
+      local_pay_qr_unavailable: 'Dieser Code konnte nicht erzeugt werden. Starte die Anfrage neu.',
+      local_pay_presence_qr: 'Per Code — keine Live-Verbindung',
+      local_pay_presence_ready: 'Verschlüsselte Verbindung in der Nähe bereit',
+      local_pay_presence_waiting_payee: 'Wartet auf ein Gerät in der Nähe',
+      local_pay_presence_waiting_payer: 'Gerät des Empfängers wird gesucht…',
+      local_pay_presence_linked: 'Verschlüsselte Verbindung offen',
+      local_pay_presence_paid: 'Zahlung bestätigt',
+      pay_offline_title: 'Du bist offline',
+      pay_offline_body:
+        'Gerade funktionieren nur Zahlungen in der Nähe. Sie werden verarbeitet, sobald du wieder verbunden bist.',
+      pay_offline_queued: '{{count}} Zahlung(en) warten auf die Verarbeitung, wenn du wieder verbunden bist.',
+      pay_offline_pending_title: 'Wartet auf Verarbeitung',
+      pay_offline_pending_body:
+        '{{count}} Zahlung(en) sind noch nicht verarbeitet. Nichts ist abgeschlossen, bis das geschieht — es wird weiter versucht.',
+      pay_offline_needs_internet: 'Internet nötig',
+      pay_offline_rejected_title: 'Eine Zahlung wurde abgelehnt',
+      pay_offline_rejected_body:
+        'Das Netzwerk hat eine Zahlung abgelehnt, die {{sender}} am {{when}} über {{via}} übergeben hat.',
+      pay_offline_unknown_sender: 'ein unbekannter Absender',
+      pay_offline_unknown_via: 'einen unbekannten Weg',
+      pay_received_not_broadcast: 'Offline empfangen · noch nicht verarbeitet',
+      pay_offline_sent_rejected_title: 'Eine Zahlung konnte nicht zugestellt werden',
+      pay_offline_sent_rejected_body: 'Das Netzwerk hat eine Zahlung abgelehnt, die du am {{when}} gesendet hast.',
+      pay_offline_send_now: 'Jetzt senden',
+      pay_offline_stalled_body: 'Einige vorgemerkte Zahlungen können nicht automatisch gesendet werden: {{detail}}',
+      offline_stall_no_request: 'Einer vorgemerkten Zahlung fehlt der Sendedatensatz.',
+      offline_stall_bad_beef: 'Die Transaktionsdaten einer vorgemerkten Zahlung konnten nicht gelesen werden.',
+      offline_stall_foreign_ancestor:
+        'Eine vorgemerkte Zahlung wartet auf eine übergeordnete Transaktion, die ein anderes Wallet nie verarbeitet hat.',
+      pay_offline_kv_pending: '{{count}} Zahlung(en) in der Nähe warten darauf, diesem Wallet hinzugefügt zu werden.',
+      pay_offline_kv_stuck:
+        '{{count}} Zahlung(en) in der Nähe konnten nicht hinzugefügt werden. Bitte den Absender, erneut zu senden.',
+      pay_offline_kv_corrupt: 'Auf diesem Gerät wurden beschädigte Zahlungsdaten gefunden.',
+      pay_offline_kv_corrupt_body:
+        'Die betroffenen Zahlungen wurden auf diesem Gerät beiseitegelegt, nicht gelöscht. Ein Teil davon kann schon deinem Guthaben hinzugefügt worden sein. Bitte einen Absender nur dann um eine erneute Sendung, wenn dessen Zahlung noch fehlt.',
+      pay_offline_show_code: 'Code erneut zeigen',
+      pay_parked_cancel: 'Zahlung abbrechen',
+      pay_parked_already_sent: 'Diese Zahlung wurde schon gesendet',
+      token_cancel_already_sent: 'Diese Zahlung ist schon durchgegangen und kann nicht abgebrochen werden.',
+      tx_status_parked: 'Nicht übergeben',
+      tx_status_import_hold: 'Gehalten (importiert)',
+      resend_sending: 'Wird über die Nachrichtenbox gesendet',
+      cancelling_payment: 'Zahlung wird abgebrochen',
+      contacts: 'Kontakte',
+      contacts_search_placeholder: 'Nach Name oder Alias suchen',
+      contacts_empty_title: 'Noch keine Kontakte',
+      contacts_empty_body:
+        'Personen, die du bezahlst, erscheinen hier, sobald du sie speicherst. Scanne den Profilcode mit der Taste oben rechts.',
+      contacts_recent: 'Zuletzt',
+      contact_edit_name: 'Namen bearbeiten',
+      contact_save_name: 'Namen speichern',
+      contact_activity: 'Aktivität',
+      contact_activity_empty: 'Noch keine Aktivität mit diesem Kontakt',
+      contact_delete: 'Kontakt löschen',
+      contact_delete_body: 'Das entfernt {{name}} aus deinen Kontakten. Frühere Zahlungen bleiben unberührt.',
+      contact_handle_caption: 'Deren registrierter Alias · nur diese Person kann ihn ändern',
+      contact_new_title: 'Neuer Kontakt',
+      contact_save: 'Kontakt speichern',
+      contact_identifier: 'Kennung',
+      contact_saved: 'Kontakt gespeichert',
+      contact_scan_hint: 'Scanne einen Profilcode, um jemanden hinzuzufügen',
+      contact_identifier_placeholder: 'Kennung einfügen',
+      contact_identifier_invalid: 'Das sieht nicht nach einer gültigen Kennung aus',
+      contact_add_from_payment: 'Zu Kontakten hinzufügen',
+      profile: 'Profil',
+      profile_label: 'profile{{number}}',
+      profile_add: 'Profil hinzufügen',
+      profile_switching: 'Wechsel zu {{profile}}…',
+      profile_switch_failed:
+        '{{profile}} konnte nicht geöffnet werden. Prüfe deine Verbindung und versuch es noch einmal.',
+      profile_switcher_a11y: 'Profil wechseln',
+      profile_settings_scope_note: 'Netzwerk- und Verbindungseinstellungen gelten nur für {{profile}}.',
+      vault_profile_only_default: 'Der Tresor ist nur auf {{profile}} verfügbar.',
+      profile_name: 'Profilname',
+      profile_name_hint: 'Nur du siehst diesen Namen. Er bleibt auf diesem Gerät und wird nicht gesichert.',
+      profile_name_edit: 'Profilnamen bearbeiten',
+      profile_name_save: 'Profilnamen speichern',
+      profile_remove: 'Profil entfernen',
+      profile_remove_hint: 'Nimm dieses Profil von diesem Gerät. Es muss zuerst leer sein.',
+      profile_removing: '{{profile}} wird entfernt…',
+      profile_removed: '{{profile}} entfernt',
+      profile_remove_confirm_title: '{{profile}} entfernen?',
+      profile_remove_confirm_body:
+        '{{profile}} wird von diesem Gerät genommen und die Daten hier gelöscht. Es enthält nichts, und deine Wiederherstellungsphrase kann es bei einer Neuinstallation neu anlegen.',
+      profile_remove_confirm_handle:
+        'Dein Alias {{handle}} wird freigegeben. 30 Tage lang kann ihn niemand sonst beanspruchen, danach jeder.',
+      profile_remove_confirm_action: 'Entfernen',
+      profile_remove_problem_title: '{{profile}} kann noch nicht entfernt werden',
+      profile_remove_blocked_funds: 'Es enthält noch Geld oder Token. Sende sie zuerst an ein anderes Profil.',
+      profile_remove_blocked_pending:
+        'Eine Zahlung läuft noch oder wartet darauf, gesendet oder gutgeschrieben zu werden. Versuch es erneut, wenn sie abgeschlossen ist.',
+      profile_remove_blocked_check:
+        'Dieses Profil konnte nicht geprüft werden, deshalb wurde nichts entfernt. Versuch es noch einmal.',
+      profile_remove_blocked_network:
+        'Es enthält auch Geld oder unfertige Zahlungen in einem anderen Netzwerk. Schalte dieses Profil auf dieses Netzwerk, leere es dort, und versuch es dann noch einmal.',
+      profile_remove_offline: 'Verbinde dich mit dem Internet, um ein Profil zu entfernen.',
+      profile_remove_failed_handle:
+        'Dein Alias konnte nicht freigegeben werden, oder eine Änderung daran läuft noch. Prüfe deine Verbindung und versuch es noch einmal. Nichts wurde entfernt.',
+      profile_remove_failed: 'Dieses Profil konnte nicht entfernt werden. Versuch es noch einmal.',
+      profile_display_name: 'Anzeigename',
+      profile_display_name_hint: 'Wird öffentlich neben deinem Alias angezeigt. Wer dich sucht, kann ihn sehen.',
+      profile_handle: 'Alias',
+      profile_handle_placeholder: 'deinname',
+      profile_handle_checking: 'Verfügbarkeit wird geprüft…',
+      profile_handle_available: '{{handle}} ist frei',
+      profile_handle_taken: '{{handle}} ist schon vergeben',
+      profile_handle_invalid:
+        '3–32 Zeichen: a–z, 0–9, Punkt, Unterstrich oder Bindestrich, am Anfang und am Ende ein Buchstabe oder eine Ziffer',
+      profile_handle_failed: 'Verfügbarkeit konnte nicht geprüft werden. Versuch es noch einmal.',
+      profile_handle_unavailable: 'Die Alias-Registrierung ist in diesem Build noch nicht verfügbar.',
+      profile_handle_registered: 'Alias registriert',
+      profile_handle_register_action: 'Registrieren',
+      profile_handle_too_similar: '{{handle}} ist einem schon vergebenen zu ähnlich',
+      profile_handle_reserved: '{{handle}} ist reserviert',
+      profile_handle_cooldown: '{{handle}} wurde kürzlich freigegeben und ist noch nicht frei',
+      profile_handle_pending: 'Registrierung wird abgeschlossen…',
+      profile_handle_rolled_back: '{{handle}} war vergeben. Du behältst {{previous}}.',
+      profile_handle_changed: 'Alias geändert',
+      profile_handle_rejected: 'Die Registrierungsstelle hat diesen Alias abgelehnt.',
+      profile_handle_clock_ahead: 'Die Uhr deines Geräts geht zu weit vor. Versuch es in ein paar Minuten noch einmal.',
+      profile_handle_wrong_registry:
+        'Dieser Alias liegt nicht in dieser Registrierungsstelle. Öffne das Profil erneut, um es zu aktualisieren.',
+      profile_display_name_publish_failed:
+        'Dein Name wurde hier gespeichert, aber die Registrierungsstelle hat ihn nicht veröffentlicht.',
+      profile_qr_hint: 'Andere können das scannen, um dich als Kontakt hinzuzufügen',
+      pay_step_contacts: 'Kontakte',
+      pay_step_continue: 'Weiter',
+      pay_review_to: 'An',
+      pay_review_amount: 'Betrag',
+      pay_review_note: 'Notiz',
+      pay_review_note_edit: 'Notiz hinzufügen',
+      pay_review_delivery_host: 'Zustellung an',
+      pay_trust_contact: 'Dein Kontakt',
+      pay_trust_handle_attested: 'Registriert',
+      pay_trust_handle_domain_attested: 'Geprüft von {{domain}}',
+      pay_review_route_live: 'Zahlt live, direkt in deren Wallet, wenn sie online sind',
+      pay_address_network_mismatch: 'Diese Adresse gehört zu einem anderen Netzwerk als dem, das du benutzt.',
+      contacts_your_contacts: 'Deine Kontakte',
+      contacts_other_people: 'Andere Personen',
+      contacts_not_saved: 'Nicht gespeichert',
+      contacts_network_footer: 'Im Netzwerk gefunden. Von dir nicht gespeichert.',
+      contact_no_handle: 'Noch kein Alias',
+      contact_no_handle_registered: 'Kein Alias registriert',
+      contact_name_section: 'Dein Name für diese Person',
+      contact_name_hint: 'Nur du siehst das. Es ändert nicht, wie die Person sich selbst nennt.',
+      contact_new_name_hint: 'Nur du siehst das. Auf diesem Gerät gespeichert.',
+      contact_copy_identifier: 'Kennung kopieren',
+      profile_handle_registered_hint: 'An deine Kennung gebunden. Andere können dich darüber finden.',
+      profile_handle_change: 'Ändern',
+      profile_handle_claim: '{{handle}} beanspruchen',
+      profile_handle_replace_warning:
+        'Beanspruchen ersetzt {{handle}}. Wer dich gespeichert hat, behält den Kontakt; der alte Alias führt nicht mehr zu dir.',
+      profile_identifier_section: 'Deine Kennung',
+      profile_show_qr: 'Als QR zeigen',
+      profile_show_qr_hint: 'Lass jemanden dich scannen, um dein Profil zu bekommen',
+      profile_qr_callout:
+        'Scannen öffnet BSV Wallet und fügt dich als Kontakt hinzu, mit Namen, Alias und Foto. Es fordert keine Zahlung an — dieser Code liegt unter Bezahlt werden.',
+      pay_review_title: 'Prüfen',
+      pay_send_amount: '{{amount}} senden',
+      pay_sent_to: 'an {{name}}',
+      pay_save_as_contact: 'Als Kontakt speichern',
+      direct_pay_status_on_title: 'Offen für Live-Zahlungen',
+      direct_pay_status_on_relay:
+        'Personen können dich direkt bezahlen, solange dieser Bildschirm offen ist. Verbunden über ein Relay.',
+      direct_pay_status_on_messagebox:
+        'Personen können dich direkt bezahlen, solange dieser Bildschirm offen ist. Verbunden über die Nachrichtenbox.',
+      direct_pay_status_on_fallback:
+        'Personen können dich direkt bezahlen, solange dieser Bildschirm offen ist. Verbunden über die Nachrichtenbox (Relay nicht erreichbar).',
+      direct_pay_status_connecting_title: 'Verbindung wird hergestellt…',
+      direct_pay_status_connecting_body: 'Wird bereit gemacht, Live-Zahlungen anzunehmen.',
+      direct_pay_status_off_title: 'Live-Zahlungen sind aus',
+      direct_pay_status_off_body:
+        'Schalte sie in den Einstellungen ein, damit Personen dich direkt bezahlen können, solange dieser Bildschirm offen ist.',
+      direct_pay_status_not_set_up_body:
+        'Live-Zahlungen erreichen andere Wallets über die Nachrichtenbox. Verbinde in den Einstellungen eine Nachrichtenbox, oder nutze einen Relay-Server.',
+      direct_pay_status_error_title: 'Live-Zahlungen funktionieren gerade nicht',
+      direct_pay_status_error_body: 'Live-Zahlungen können gerade nicht empfangen werden.',
+      direct_pay_fallback_offline:
+        '{{name}} nimmt gerade keine Live-Zahlungen an. Stattdessen an die Nachrichtenbox senden? Sie erreicht das Wallet, wenn es das nächste Mal geöffnet wird.',
+      direct_pay_fallback_link_failed:
+        'Direkte Verbindung zu {{name}} nicht möglich. Stattdessen an die Nachrichtenbox senden?',
+      direct_pay_fallback_too_large:
+        'Diese Zahlung ist zu groß für Live-Versand (über 1 MB). Stattdessen an die Nachrichtenbox von {{name}} senden? Es wurde noch nichts ausgegeben.',
+      direct_pay_failed_offline:
+        '{{name}} nimmt gerade keine Live-Zahlungen an. Nichts wurde ausgegeben. Verbinde in den Einstellungen eine Nachrichtenbox, um trotzdem zu zahlen.',
+      direct_pay_failed_link: 'Direkte Verbindung zu {{name}} nicht möglich. Nichts wurde ausgegeben.',
+      direct_pay_failed_network: 'Das Zahlungsnetzwerk war nicht erreichbar — prüfe deine Verbindung.',
+      direct_pay_failed_wrong_network: '{{name}} ist in einem anderen Netzwerk. Nichts wurde ausgegeben.',
+      direct_pay_failed_cancelled: 'Abgebrochen. Nichts wurde ausgegeben.',
+      direct_pay_failed_maybe_sent:
+        'Deine Zahlung an {{name}} wurde vielleicht schon gesendet. Sieh in Aktivität nach, bevor du noch einmal zahlst.',
+      direct_pay_failed_not_sent: 'Die Zahlung konnte nicht gesendet werden. Nichts wurde ausgegeben.',
+      direct_pay_failed_no_message_box:
+        'Verbinde deine Nachrichtenbox in den Einstellungen, um eine Wallet-Identität zu bezahlen.',
+      direct_pay_fallback_title: 'Live-Zahlung gerade nicht möglich',
+      direct_pay_fallback_send: 'An die Nachrichtenbox senden',
+      direct_pay_fallback_host: 'Deren Nachrichtenbox: {{host}}',
+      direct_pay_sent_live: 'Live bezahlt: es ist schon in deren Wallet.',
+      direct_pay_kept_needs_attention:
+        'Eine direkte Zahlung über {{amount}} sats von {{name}} braucht Aufmerksamkeit: dein Wallet konnte sie nicht hinzufügen. Sie bleibt auf diesem Gerät.',
+      bridge_badge_unverified: 'Nicht geprüft',
+      bridge_verified_by: 'Geprüft von {{browser}}',
+      bridge_browser_generic: 'deinem Browser',
+      bridge_unverified_channel:
+        'Diese Anfrage kam über einen Kanal, der nicht belegen kann, welche Website sie gesendet hat.',
+      bridge_allows_header: 'Nach der Verbindung kann diese Website, ohne dich zu fragen:',
+      bridge_asks_header: 'Sie fragt dich zuerst, bevor sie Folgendes darf:',
+      bridge_allows_sign_in: 'dich auf der Website anmelden',
+      bridge_payments_verified: 'Zahlungen unter deinem Limit für automatische Freigabe gehen automatisch durch.',
+      bridge_payments_unverified: 'Zahlungen aus deinem Guthaben fragen dich zuerst.',
+      bridge_remember_verified: 'Das Wallet merkt sich diese Website und was du ihr erlaubst.',
+      bridge_remember_unverified:
+        'Das Wallet merkt sich diese Website in diesem Browser. Vergisst der Browser sie, wirst du erneut gefragt, und frühere Berechtigungen gelten nicht weiter.',
+      bridge_connected_before: 'Diese Website war schon verbunden. Zustimmen fängt neu an.',
+      bridge_site_says: 'Diese Website sagt',
+      bridge_connect: 'Verbinden',
+      bridge_dont_connect: 'Nicht verbinden',
+      bridge_notifications_off: 'Schalte Benachrichtigungen ein, damit BSV Wallet dir spätere Anfragen mitteilen kann',
+      bridge_ports_exhausted: 'Ein anderes Programm benutzt die Ports, die BSV Wallet braucht',
+      bridge_not_ready_android: 'Lege zuerst in BSV Wallet ein Wallet an oder stell eines wieder her',
+      bridge_done_sent_to: 'Gesendet an {{site}}',
+      bridge_done_payment: 'Zahlung genehmigt · {{amount}}',
+      bridge_done_action: 'Aktion genehmigt',
+      bridge_done_signed: 'Signiert',
+      bridge_done_encrypted: 'Verschlüsselt',
+      bridge_done_certificate: 'Zertifikat geteilt',
+      bridge_done_approved: 'Genehmigt',
+      bridge_done_n_requests: '{{n}} Anfragen genehmigt',
+      bridge_done_n_sites: 'An {{n}} Websites gesendet',
+      bridge_done_back_hint: 'Tippe oben links auf ◀ Safari, um zurückzugehen',
+      bridge_toast_done: 'Fertig · ◀ Safari',
+      bridge_toast_failed: 'Nicht abgeschlossen · ◀ Safari',
+      bridge_setup_title: 'Dieses Wallet in Safari nutzen',
+      bridge_setup_step_extension: 'Schalte die Erweiterung ein unter Einstellungen › Apps › Safari › Erweiterungen.',
+      bridge_setup_step_allow:
+        'Wähle für Websites Immer erlauben: dort für alle Websites, oder für eine Website über aA › die Erweiterung › Immer erlauben.',
+      bridge_setup_why: 'Ohne Website-Zugriff kann eine Seite in Safari das Wallet nicht sehen.',
+      'bridge.policy.seekBasketInsertionPermissions.off': 'Ausgänge zu App-Körben hinzufügen',
+      'bridge.policy.seekBasketInsertionPermissions.on': 'Ausgänge zu App-Körben hinzufügen',
+      'bridge.policy.seekBasketListingPermissions.off': 'die Ausgänge in App-Körben auflisten',
+      'bridge.policy.seekBasketListingPermissions.on': 'die Ausgänge in App-Körben auflisten',
+      'bridge.policy.seekBasketRemovalPermissions.off': 'Ausgänge aus App-Körben entfernen',
+      'bridge.policy.seekBasketRemovalPermissions.on': 'Ausgänge aus App-Körben entfernen',
+      'bridge.policy.seekCertificateAcquisitionPermissions.off': 'neue Zertifikate einholen',
+      'bridge.policy.seekCertificateAcquisitionPermissions.on': 'neue Zertifikate einholen',
+      'bridge.policy.seekCertificateDisclosurePermissions.off': 'Zertifikatsfelder anderen Parteien zeigen',
+      'bridge.policy.seekCertificateDisclosurePermissions.on': 'Zertifikatsfelder anderen Parteien zeigen',
+      'bridge.policy.seekCertificateRelinquishmentPermissions.off': 'Zertifikate löschen',
+      'bridge.policy.seekCertificateRelinquishmentPermissions.on': 'Zertifikate löschen',
+      'bridge.policy.seekCertificateListingPermissions.off': 'deine Zertifikate lesen',
+      'bridge.policy.seekCertificateListingPermissions.on': 'deine Zertifikate lesen',
+      'bridge.policy.seekGroupedPermission.off': 'mehrere Berechtigungen auf einmal anfragen',
+      'bridge.policy.seekGroupedPermission.on': 'mehrere Berechtigungen auf einmal anfragen',
+      'bridge.policy.seekPermissionsForIdentityKeyRevelation.off': 'deinen Identitätsschlüssel sehen',
+      'bridge.policy.seekPermissionsForIdentityKeyRevelation.on': 'deinen Identitätsschlüssel sehen',
+      'bridge.policy.seekPermissionsForIdentityResolution.off': 'Identitäten nachschlagen',
+      'bridge.policy.seekPermissionsForIdentityResolution.on': 'Identitäten nachschlagen',
+      'bridge.policy.seekPermissionsForKeyLinkageRevelation.off': 'Schlüsselverknüpfungen einem Prüfer offenlegen',
+      'bridge.policy.seekPermissionsForKeyLinkageRevelation.on': 'Schlüsselverknüpfungen einem Prüfer offenlegen',
+      'bridge.policy.seekPermissionsForPublicKeyRevelation.off':
+        'die öffentlichen Schlüssel sehen, die aus deinem Identitätsschlüssel abgeleitet sind',
+      'bridge.policy.seekPermissionsForPublicKeyRevelation.on':
+        'die öffentlichen Schlüssel sehen, die aus deinem Identitätsschlüssel abgeleitet sind',
+      'bridge.policy.seekPermissionWhenApplyingActionLabels.off': 'deine Transaktionen mit Labels versehen',
+      'bridge.policy.seekPermissionWhenApplyingActionLabels.on': 'deine Transaktionen mit Labels versehen',
+      'bridge.policy.seekPermissionWhenListingActionsByLabel.off': 'deinen Transaktionsverlauf und deine Ausgänge lesen',
+      'bridge.policy.seekPermissionWhenListingActionsByLabel.on': 'deinen Transaktionsverlauf und deine Ausgänge lesen',
+      'bridge.policy.seekProtocolPermissionsForEncrypting.off': 'Daten verschlüsseln und entschlüsseln',
+      'bridge.policy.seekProtocolPermissionsForEncrypting.on': 'Daten verschlüsseln und entschlüsseln',
+      'bridge.policy.seekProtocolPermissionsForHMAC.off': 'HMACs erzeugen und prüfen',
+      'bridge.policy.seekProtocolPermissionsForHMAC.on': 'HMACs erzeugen und prüfen',
+      'bridge.policy.seekProtocolPermissionsForSigning.off': 'mit deinen Schlüsseln signieren (außer beim Anmelden)',
+      'bridge.policy.seekProtocolPermissionsForSigning.on': 'mit deinen Schlüsseln signieren (außer beim Anmelden)',
+      'bridge.policy.seekSpendingPermissions.off': 'aus deinem Guthaben ausgeben',
+      'bridge.policy.seekSpendingPermissions.on': 'aus deinem Guthaben ausgeben',
     }
   },
   is: {
@@ -16176,7 +17655,7 @@ const resources = {
 }
 
 // Define supported languages
-const supportedLanguages = ['en', 'es', 'zh', 'hi', 'fr', 'ar', 'pt', 'bn', 'ru', 'id', 'ja', 'pl', 'is']
+const supportedLanguages = ['en', 'es', 'zh', 'hi', 'fr', 'ar', 'pt', 'bn', 'ru', 'id', 'ja', 'pl', 'de', 'is']
 
 // Validate and ensure we use a supported language
 if (!supportedLanguages.includes(detectedLanguage)) {

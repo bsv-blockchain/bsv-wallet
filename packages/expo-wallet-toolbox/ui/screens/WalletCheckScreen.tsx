@@ -12,6 +12,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { ArrowLeft, Circle, CircleCheck, CircleMinus, TriangleAlert } from 'lucide-react-native'
 import { useTranslation } from 'react-i18next'
 import { PeerPayClient } from '@bsv/message-box-client'
 import { showAlert } from '../components/ui/AlertCard'
@@ -44,23 +45,15 @@ import { userFacingPayError } from '../../core/pay/userError'
 import { backupAttestation } from '../../core/services/vault/backupAttestation'
 import { getBackupUploadState } from '../../core/backup/status'
 import { getOnline, haptics, spacing, typography, useTheme, useWallet } from '@bsv/expo-wallet-toolbox'
+import { BalancedText } from '../components/ui/BalancedText'
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Ionicons is loaded lazily, only when actually rendering, same pattern as
- * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, the family this app draws every other glyph from (its settings rows,
+ * its headers, its sheets). Imported at module scope, unlike
+ * @expo/vector-icons: lucide-react-native ships a CJS entry for `require`, so
+ * it needs no transform and reaches no native module at import time, which is
+ * what this package's lazy icon loads exist to avoid.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
 
 /**
  * expo-router is required lazily rather than imported at module scope: this
@@ -270,7 +263,6 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const { router } = loadExpoRouter()
-  const Ionicons = loadIonicons()
   const contextPorts = useWalletCheckPorts()
   const ports = props?.ports ?? contextPorts
   const portsRef = useRef(ports)
@@ -375,7 +367,9 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
     <View style={{ flex: 1, backgroundColor: colors.backgroundSecondary, paddingTop: insets.top }}>
       <View style={[styles.header, { borderBottomColor: colors.separator }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBack} accessibilityRole="button">
-          <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
+          <View style={[styles.headerBackWell, { backgroundColor: colors.surfaceSunken }]}>
+            <ArrowLeft size={16} color={colors.textPrimary} />
+          </View>
         </TouchableOpacity>
         <View style={styles.headerBack} />
       </View>
@@ -397,13 +391,13 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
                   {active ? (
                     <ActivityIndicator size="small" color={colors.textSecondary} />
                   ) : status === 'ok' ? (
-                    <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+                    <CircleCheck size={20} color={colors.success} />
                   ) : status === 'attention' || status === 'error' ? (
-                    <Ionicons name="alert-circle" size={22} color={colors.warning} />
+                    <TriangleAlert size={20} color={colors.warning} />
                   ) : status === 'skipped' ? (
-                    <Ionicons name="remove-circle-outline" size={22} color={colors.textTertiary} />
+                    <CircleMinus size={20} color={colors.textTertiary} />
                   ) : (
-                    <Ionicons name="ellipse-outline" size={22} color={colors.textQuaternary} />
+                    <Circle size={20} color={colors.textQuaternary} />
                   )}
                 </View>
                 <Text
@@ -445,13 +439,13 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
             checklist is the evidence, and this is what it adds up to. */}
         {!running && (doneCopy || couldntCheck || error) && (
           <View style={styles.resultBlock}>
-            <Text style={[styles.done, styles.centered, { color: colors.textPrimary }]}>
+            <BalancedText style={[styles.done, styles.centered, { color: colors.textPrimary }]}>
               {couldntCheck ? t('wallet_check_couldnt') : error ? error : doneCopy}
-            </Text>
+            </BalancedText>
             {couldntCheck && (
-              <Text style={[styles.body, styles.centered, { color: colors.textSecondary }]}>
+              <BalancedText style={[styles.body, styles.centered, { color: colors.textSecondary }]}>
                 {t('wallet_check_couldnt_body')}
-              </Text>
+              </BalancedText>
             )}
             {(couldntCheck || error) && (
               // Outlined, because Done below is filled: two accent-filled
@@ -483,6 +477,13 @@ export function WalletCheckScreen(props?: { ports?: WalletCheckPorts }) {
 }
 
 const styles = StyleSheet.create({
+  headerBackWell: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

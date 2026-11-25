@@ -26,6 +26,7 @@ import { abbreviateKey, addressLabel, FROM_ADDRESS_LABEL_PREFIX, TO_ADDRESS_LABE
 import { addressNetwork, isValidBsvAddress } from './index'
 
 import { BRC29_PROTOCOL_ID } from '../../peerpay/brc29'
+import { wocLimitedFetch } from '../../net/wocLimiter'
 export { BRC29_PROTOCOL_ID } from '../../peerpay/brc29'
 
 /** Whether the address rail can carry a particular payment, and why not when it cannot. */
@@ -183,8 +184,7 @@ export function wocRequestInit(woc: WocConfig): { headers: Record<string, string
 
 /** A WhatsOnChain GET that turns a 429 into WocRateLimited. Shared with pay/rails/sweep.ts. */
 export async function wocFetch(woc: WocConfig, url: string): Promise<Response> {
-  const init = wocRequestInit(woc)
-  const response = init ? await fetch(url, init) : await fetch(url)
+  const response = await wocLimitedFetch(url, wocRequestInit(woc))
   if (response.status === 429) throw new WocRateLimited()
   return response
 }

@@ -17,7 +17,7 @@
  */
 import { parsePaymail } from './rules'
 import { buildProfileCertificate, type ProfileCertJson, type ProfileSigner } from './profileCert'
-import type { HandleRegistryClient } from './client'
+import type { HandleRegistryClient, StorePurchase } from './client'
 
 /** The in-flight journal. One at a time; a second intent replaces it. */
 export const PENDING_JOURNAL_KEY = 'profile_handle_pending'
@@ -29,6 +29,9 @@ export const ISSUED_AT_KV_KEY = 'profile_handle_issued_at'
  * leaves room for the request to arrive.
  */
 export const MAX_ISSUED_AT_LEAD_MS = 240_000
+
+/** The registry's refusal of a fallback handle that is taken or too similar. */
+const FALLBACK_UNAVAILABLE = 'ERR_FALLBACK_UNAVAILABLE'
 
 /** Structurally satisfied by `StorageExpoSQLite`. */
 export interface RegistrationStorage {
@@ -42,6 +45,10 @@ export interface PendingStep {
   kind: 'release' | 'claim'
   paymail: string
   cert: ProfileCertJson
+  /** the store subscription a paid claim is sent with */
+  purchase?: StorePurchase
+  /** the generated handle's certificate a paid claim reserves, signed after the claim */
+  fallback?: ProfileCertJson
 }
 
 /**
@@ -69,15 +76,21 @@ export interface PendingJournal {
 export type RegistrationFailureCode = 'invalid_handle' | 'wrong_domain' | 'same_handle' | 'clock_ahead'
 
 export type RegistrationResult =
-  | { kind: 'registered'; paymail: string }
+  /** `fallback`: the bare free handle the claim reserved, when it went with one */
+  | { kind: 'registered'; paymail: string; fallback?: string }
   | { kind: 'updated'; paymail: string }
-  | { kind: 'changed'; paymail: string }
+  | { kind: 'changed'; paymail: string; fallback?: string }
   /** The handle was tombstoned and nothing was claimed in its place. */
   | { kind: 'released'; paymail: string }
   /** `attempted` is the handle that was lost; `paymail` is the one kept. */
   | { kind: 'rolled_back'; paymail: string; attempted?: string }
   | { kind: 'pending' }
-  | { kind: 'rejected'; code: string; description: string }
+  /**
+   * `notRestored`: a change's claim was refused AND the reclaim of the old
+   * handle (`notRestored`, handle@domain) was refused too, so the wallet holds
+   * no handle. `code` and `description` are then the reclaim's.
+   */
+  | { kind: 'rejected'; code: string; description: string; notRestored?: string }
   | { kind: 'failed'; message: string; code?: RegistrationFailureCode }
   | { kind: 'unavailable' }
   | { kind: 'idle' }
@@ -236,10 +249,61 @@ async function alreadyApplied(
   return mine === null || mine.paymail !== step.paymail
 }
 
+/**
+ * The fallback's certificate for a paid claim, dated strictly after `after`
+ * (the claim, or in a change the later of the release and the claim). Null
+ * with no purchase: the registry reads `fallback` on a paid claim only.
+ */
+async function buildFallback(
+  deps: RegistrationDeps,
+  client: HandleRegistryClient,
+  args: { purchase?: StorePurchase; fallbackHandle?: string },
+  after: Date
+): Promise<ProfileCertJson | null> {
+  if (!args.purchase || !args.fallbackHandle) return null
+  const paymail = `${args.fallbackHandle.trim().toLowerCase()}@${client.domain}`
+  if (!parsePaymail(paymail)) throw new InvalidFallback(args.fallbackHandle)
+  const issuedAt = await nextIssuedAt(deps, client, after)
+  // The ceiling can leave no room above the claim; a fallback dated at or
+  // before it would be refused as stale after the claim had been paid for.
+  if (issuedAt.getTime() <= after.getTime()) throw new ClockAhead()
+  return await buildProfileCertificate({ signer: deps.signer, paymail, issuedAt })
+}
+
+class InvalidFallback extends Error {
+  constructor(handle: string) {
+    super(`handleRegistry: not a valid fallback handle: ${handle}`)
+  }
+}
+
+class ClockAhead extends Error {
+  constructor() {
+    super('handleRegistry: the clock is too far ahead to reserve a fallback handle yet')
+  }
+}
+
+/** A failure this module reached on its own, in the shape callers read. */
+function failureOf(e: unknown): RegistrationResult {
+  if (e instanceof InvalidFallback) return { kind: 'failed', code: 'invalid_handle', message: e.message }
+  if (e instanceof ClockAhead) return { kind: 'failed', code: 'clock_ahead', message: e.message }
+  return { kind: 'failed', message: messageOf(e) }
+}
+
 /** The `issuedAt` a step was minted with, as the journal carries it. */
 function issuedAtOf(step: PendingStep | undefined): Date | undefined {
   const ms = Date.parse(step?.cert.fields.issuedAt ?? '')
   return Number.isFinite(ms) ? new Date(ms) : undefined
+}
+
+/** The bare handle a claim step reserved as its fallback, when it had one. */
+function fallbackOf(step: PendingStep | undefined): string | undefined {
+  const paymail = step?.fallback?.fields.paymail
+  return typeof paymail === 'string' ? paymail.split('@')[0] : undefined
+}
+
+/** A reclaim the registry refused: the old handle is not back. */
+function notRestored(back: RegistrationResult, paymail: string): RegistrationResult {
+  return back.kind === 'rejected' ? { ...back, notRestored: paymail } : back
 }
 
 /**
@@ -271,7 +335,7 @@ async function runJournal(
 ): Promise<RegistrationResult> {
   for (let i = 0; i < journal.steps.length; i++) {
     const step = journal.steps[i]
-    const outcome = await client.putCertificate(step.cert)
+    const outcome = await client.putCertificate(step.cert, step.purchase, step.fallback)
     if (outcome.kind === 'created' || outcome.kind === 'ok') continue
     // No answer: the journal stays, and the next mount or an explicit retry
     // re-sends the same bytes.
@@ -290,14 +354,27 @@ async function runJournal(
       // their tombstone ahead of ours — any device a few minutes fast does —
       // and is the same hazard as the handle being taken. Replaying cannot
       // win, but the reclaim still can.
-      if (reclaim) return await rollBack(deps, client, reclaim.paymail, reclaim.releasedAt, reclaim.attempted)
+      if (reclaim) return notRestored(await rollBack(deps, client, reclaim.paymail, reclaim.releasedAt, reclaim.attempted), reclaim.paymail)
       // Replaying a certificate the registry calls stale can never win, so
       // keeping the journal would only retry it on every mount, forever.
       await clearJournal(deps.storage)
       return { kind: 'failed', message: outcome.description }
     }
-    if (reclaim) return await rollBack(deps, client, reclaim.paymail, reclaim.releasedAt, reclaim.attempted)
+    if (reclaim) {
+      const back = await rollBack(deps, client, reclaim.paymail, reclaim.releasedAt, reclaim.attempted)
+      // The reserve failed before anything was claimed, so the caller has to
+      // see that code to pick another fallback: the old handle is back, and
+      // the refusal is what is reported.
+      if (outcome.code === FALLBACK_UNAVAILABLE && back.kind === 'rolled_back') {
+        return { kind: 'rejected', code: outcome.code, description: outcome.description }
+      }
+      return notRestored(back, reclaim.paymail)
+    }
     await clearJournal(deps.storage)
+    // a rollback journal resumed on a later start: its one step reclaims the old handle
+    if (journal.intent === 'change' && journal.steps.length === 1 && journal.previousPaymail === step.paymail) {
+      return { kind: 'rejected', code: outcome.code, description: outcome.description, notRestored: step.paymail }
+    }
     return { kind: 'rejected', code: outcome.code, description: outcome.description }
   }
   await clearJournal(deps.storage)
@@ -313,10 +390,12 @@ async function runJournal(
       ...(journal.attemptedPaymail ? { attempted: journal.attemptedPaymail } : {})
     }
   }
+  // the fallback is the journal's, which may not be the one the caller of this run chose
+  const fallback = fallbackOf(journal.steps[journal.steps.length - 1])
   if (journal.intent === 'update') return { kind: 'updated', paymail }
-  if (journal.intent === 'change') return { kind: 'changed', paymail }
+  if (journal.intent === 'change') return { kind: 'changed', paymail, ...(fallback ? { fallback } : {}) }
   if (journal.intent === 'release') return { kind: 'released', paymail }
-  return { kind: 'registered', paymail }
+  return { kind: 'registered', paymail, ...(fallback ? { fallback } : {}) }
 }
 
 /**
@@ -398,9 +477,9 @@ async function finishOutstanding(
 
 export function registerHandle(
   deps: RegistrationDeps,
-  args: { handle: string; displayName?: string }
+  args: { handle: string; displayName?: string; purchase?: StorePurchase; fallbackHandle?: string }
 ): Promise<RegistrationResult> {
-  return share(`register:${args.handle.trim().toLowerCase()}:${args.displayName?.trim() ?? ''}`, async () => {
+  return share(`register:${args.handle.trim().toLowerCase()}:${args.displayName?.trim() ?? ''}:${args.fallbackHandle ?? ''}`, async () => {
     const client = deps.client
     if (!client) return { kind: 'unavailable' }
     try {
@@ -416,16 +495,25 @@ export function registerHandle(
         issuedAt,
         displayName: args.displayName
       })
+      const fallback = await buildFallback(deps, client, args, issuedAt)
       const journal: PendingJournal = {
         v: 1,
         intent: 'register',
-        steps: [{ kind: 'claim', paymail, cert }],
+        steps: [
+          {
+            kind: 'claim',
+            paymail,
+            cert,
+            ...(args.purchase ? { purchase: args.purchase } : {}),
+            ...(fallback ? { fallback } : {})
+          }
+        ],
         startedAt: issuedAt.toISOString()
       }
       await writeJournal(deps.storage, journal)
       return await runJournal(deps, client, journal)
     } catch (e) {
-      return { kind: 'failed', message: messageOf(e) }
+      return failureOf(e)
     }
   })
 }
@@ -472,9 +560,9 @@ export function updateProfile(
 
 export function changeHandle(
   deps: RegistrationDeps,
-  args: { previousPaymail: string; handle: string; displayName?: string }
+  args: { previousPaymail: string; handle: string; displayName?: string; purchase?: StorePurchase; fallbackHandle?: string }
 ): Promise<RegistrationResult> {
-  const key = `change:${args.previousPaymail.trim().toLowerCase()}:${args.handle.trim().toLowerCase()}:${args.displayName?.trim() ?? ''}`
+  const key = `change:${args.previousPaymail.trim().toLowerCase()}:${args.handle.trim().toLowerCase()}:${args.displayName?.trim() ?? ''}:${args.fallbackHandle ?? ''}`
   return share(key, async () => {
     const client = deps.client
     if (!client) return { kind: 'unavailable' }
@@ -530,12 +618,22 @@ export function changeHandle(
         issuedAt: claimAt,
         displayName: args.displayName
       })
+      // dated after the release and the claim both, so it beats the tombstone
+      // of a fallback handle that is the one being released
+      const fallback = await buildFallback(deps, client, args, claimAt)
       const journal: PendingJournal = {
         v: 1,
         intent: 'change',
         steps: [
           { kind: 'release', paymail: previousPaymail, cert: release },
-          { kind: 'claim', paymail, cert: claim }
+          // the new handle's subscription and its fallback go with its claim; a release needs neither
+          {
+            kind: 'claim',
+            paymail,
+            cert: claim,
+            ...(args.purchase ? { purchase: args.purchase } : {}),
+            ...(fallback ? { fallback } : {})
+          }
         ],
         previousPaymail,
         startedAt: releaseAt.toISOString()
@@ -543,7 +641,7 @@ export function changeHandle(
       await writeJournal(deps.storage, journal)
       return await runJournal(deps, client, journal)
     } catch (e) {
-      return { kind: 'failed', message: messageOf(e) }
+      return failureOf(e)
     }
   })
 }

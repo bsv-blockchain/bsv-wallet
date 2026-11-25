@@ -26,6 +26,12 @@ import {
   type SweepWallet,
   type SweepProgress
 } from '../../core/pay/rails/sweep'
+import { configureWocLimiter, resetWocLimiter } from '../../core/net/wocLimiter'
+
+// These tests are about the sweep, not the pacing: the shared WhatsOnChain
+// limiter is tested in __tests__/net/wocLimiter.test.ts.
+beforeAll(() => configureWocLimiter({ intervalMs: 0, pauseMs: 0 }))
+afterAll(() => resetWocLimiter())
 
 /*
  * Vectors. Every address below comes from an independent stdlib-only Python

@@ -21,15 +21,25 @@ export interface DrainOutboxResult {
   stopped?: boolean
 }
 
-/** Retry unsent entries in order; the first throw aborts the rest. */
+/**
+ * Retry unsent entries in order; the first throw aborts the rest. A throw from
+ * an entry that `isolate` accepts (a paymail row: its receiver is a third
+ * party that can fail for good) is skipped instead, so it cannot starve the
+ * rows behind it. Such a row stays counted as remaining, so the pass backs off.
+ */
 export async function drainUnsentEntries(args: {
   entries: OutboxEntry[]
   retry: (entry: OutboxEntry) => Promise<void>
+  isolate?: (entry: OutboxEntry) => boolean
 }): Promise<DrainOutboxResult> {
   let retried = 0
   for (const entry of args.entries) {
-    await args.retry(entry)
-    retried++
+    try {
+      await args.retry(entry)
+      retried++
+    } catch (e) {
+      if (!args.isolate?.(entry)) throw e
+    }
   }
   return { retried, remaining: args.entries.length - retried, stopped: false }
 }

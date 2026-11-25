@@ -35,6 +35,18 @@ export type AvailabilityResult =
   | { kind: 'failed' }
 
 /** `rejected` is the server answering no; `failed` is not having an answer. */
+/**
+ * The App Store or Google Play subscription that pays for a custom handle, as
+ * the registry verifies it: `token` is the StoreKit 2 signed transaction or
+ * Google's purchase token.
+ */
+export interface StorePurchase {
+  store: 'app-store' | 'google-play'
+  productId: string
+  transactionId: string
+  token: string | null
+}
+
 export type PutResult =
   | { kind: 'created' }
   | { kind: 'ok' }
@@ -50,13 +62,42 @@ export type PutResult =
  */
 export type ProfileLookup = { kind: 'found'; profile: RegistryProfile } | { kind: 'none' } | { kind: 'failed' }
 
+/** A profile as `search` returns it. */
+export type HandleProfile = RegistryProfile
+
+/**
+ * What a complete address resolves to, against the key this device pinned for
+ * it. `changed` is a valid certificate under another key: the pin does not move
+ * until `acceptKey`. `failed` is not having an answer, `none` is the registry
+ * saying nobody holds the handle.
+ */
+export type ResolveResult =
+  | { kind: 'found'; profile: HandleProfile }
+  | { kind: 'changed'; profile: HandleProfile; pinnedKey: string }
+  | { kind: 'none' }
+  | { kind: 'failed' }
+
 export interface HandleRegistryClient {
   /** The pinned domain: what a bare handle is registered under. */
   readonly domain: string
   checkAvailability(handle: string): Promise<AvailabilityResult>
-  putCertificate(cert: ProfileCertJson): Promise<PutResult>
-  /** Throws on transport failure — the contract `searchIdentities` already has. */
-  search(query: string): Promise<RegistryProfile[]>
+  /**
+   * `purchase` pays for a custom handle; it goes as `{certificate, purchase}`.
+   * `fallback` is the certificate of the generated handle the wallet becomes
+   * when the subscription lapses; it goes as a third member, and only with a
+   * purchase (the registry ignores it on a free claim).
+   */
+  putCertificate(cert: ProfileCertJson, purchase?: StorePurchase, fallback?: ProfileCertJson): Promise<PutResult>
+  /**
+   * Throws on transport failure — the contract `searchIdentities` already has.
+   * A complete address whose key differs from the pin comes back with
+   * `changedFrom` (the pinned key); a partial query still drops that row.
+   */
+  search(query: string): Promise<Array<HandleProfile & { changedFrom?: string }>>
+  /** Never throws. One complete address, checked against this device's key pin. */
+  resolveHandle(paymail: string): Promise<ResolveResult>
+  /** Replaces the pin for `paymail`: the payer has accepted its new key. */
+  acceptKey(paymail: string, identityKey: string): Promise<void>
   /** Never throws. The full verdict, for callers that cache the answer. */
   lookupProfile(identityKey: string, domain?: string): Promise<ProfileLookup>
   /** Never throws — the contract `resolveIdentity` already has. */
@@ -108,13 +149,17 @@ export function createHandleRegistryClient(args: {
    * is indistinguishable from a compromised or malicious registry redirecting
    * the paymail to an attacker.
    */
-  async function pinnedOrNull(profile: RegistryProfile): Promise<RegistryProfile | null> {
+  async function checkPin(profile: RegistryProfile): Promise<{ kind: 'match' } | { kind: 'mismatch'; pinnedKey: string }> {
     const known = await pinStore.get(profile.paymail)
     if (known === null) {
       await pinStore.set(profile.paymail, profile.identityKey)
-      return profile
+      return { kind: 'match' }
     }
-    return known.toLowerCase() === profile.identityKey.toLowerCase() ? profile : null
+    return known.toLowerCase() === profile.identityKey.toLowerCase() ? { kind: 'match' } : { kind: 'mismatch', pinnedKey: known }
+  }
+
+  async function pinnedOrNull(profile: RegistryProfile): Promise<RegistryProfile | null> {
+    return (await checkPin(profile)).kind === 'match' ? profile : null
   }
 
   /** Only ever from the registry we write to: a foreign host's clock is not
@@ -167,6 +212,13 @@ export function createHandleRegistryClient(args: {
     if (at < 0) return isRoutableSearchQuery(text) ? { domain, query: text } : null
     const local = text.slice(0, at)
     const typed = text.slice(at + 1)
+    // A one-character handle is a real, exact address: `r@domain` asks the
+    // registry for that one handle. Anything shorter than a search query is
+    // read this way only when the domain is finished; typed as a fragment it
+    // is still nothing to ask about.
+    if (/^[a-z0-9]$/.test(local) && (typed === domain || looksLikeDomain(typed))) {
+      return { domain: typed, query: local, paymail: `${local}@${typed}` }
+    }
     if (local.length < SEARCH_MIN_QUERY_LENGTH || !isRoutableSearchQuery(local)) return null
     // A domain still being typed is a prefix of ours: still our registry, and
     // still a fragment — the user has not finished naming anybody yet.
@@ -242,14 +294,18 @@ export function createHandleRegistryClient(args: {
       }
     },
 
-    async putCertificate(cert) {
-      let res: Response
-      try {
-        res = await fetchWithTimeout(fetchImpl, `${origin}/api/handle`, {
+    async putCertificate(cert, purchase, fallback) {
+      const put = (body: unknown) =>
+        fetchWithTimeout(fetchImpl, `${origin}/api/handle`, {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(cert)
+          body: JSON.stringify(body)
         })
+      let res: Response
+      try {
+        res = await put(purchase ? { certificate: cert, purchase, ...(fallback ? { fallback } : {}) } : cert)
+        // No bare retry after ERR_INVALID_CERTIFICATE: the registry verifies
+        // purchases now, and a bare certificate would claim a paid handle free.
       } catch (e) {
         return { kind: 'failed', message: e instanceof Error ? e.message : String(e) }
       }
@@ -296,11 +352,49 @@ export function createHandleRegistryClient(args: {
       )
       const certified = verified.filter((profile): profile is RegistryProfile => profile !== null)
       // Each row is checked against this device's own key-pin history
-      // (XR-071) — a row whose certificate verifies but whose key contradicts
-      // one already accepted for that paymail is dropped like any other row
-      // that failed verification.
-      const pinned = await Promise.all(certified.map(profile => pinnedOrNull(profile)))
-      return pinned.filter((profile): profile is RegistryProfile => profile !== null)
+      // (XR-071). A row whose certificate verifies but whose key contradicts
+      // one already accepted for that paymail is dropped from a partial query;
+      // for a complete address it is the answer, flagged with the pinned key,
+      // so the caller can warn instead of showing nobody.
+      const rows = await Promise.all(
+        certified.map(async (profile): Promise<(HandleProfile & { changedFrom?: string }) | null> => {
+          const pin = await checkPin(profile)
+          if (pin.kind === 'mismatch') return route.paymail ? { ...profile, changedFrom: pin.pinnedKey } : null
+          return profile
+        })
+      )
+      return rows.filter((profile): profile is HandleProfile & { changedFrom?: string } => profile !== null)
+    },
+
+    async resolveHandle(paymail) {
+      try {
+        const route = routeFor(paymail)
+        if (!route?.paymail) return { kind: 'none' }
+        const endpoints = await resolver.resolve(route.domain)
+        if (!endpoints) return { kind: 'failed' }
+        const res = await fetchWithTimeout(fetchImpl, endpoints.search(route.query), {
+          headers: { accept: 'application/json' }
+        })
+        if (endpoints.pinned) notePinnedSkew(res)
+        if (res.status === 404) return { kind: 'none' }
+        if (!res.ok) return { kind: 'failed' }
+        const body = (await res.json()) as unknown
+        if (!Array.isArray(body)) return { kind: 'none' }
+        for (const row of body.slice(0, MAX_SEARCH_RESULTS)) {
+          const profile = await verifyProfileCertificate(row, { domain: route.domain, paymail: route.paymail })
+          if (!profile) continue
+          const pin = await checkPin(profile)
+          if (pin.kind === 'mismatch') return { kind: 'changed', profile, pinnedKey: pin.pinnedKey }
+          return { kind: 'found', profile }
+        }
+        return { kind: 'none' }
+      } catch {
+        return { kind: 'failed' }
+      }
+    },
+
+    async acceptKey(paymail, identityKey) {
+      await pinStore.set(paymail.trim().toLowerCase(), identityKey)
     },
 
     lookupProfile,

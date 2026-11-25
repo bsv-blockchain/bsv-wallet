@@ -18,10 +18,12 @@ import {
   removeOutboxEntry,
   saveOutboxEntry,
   updateOutboxEntry,
-  type OutboxEntry
+  type OutboxEntry,
+  type PeerPayOutboxEntry
 } from '../../peerpay/outbox'
 import type { CreditFailureKind } from '../creditErrors'
 import { abbreviateKey } from '../counterparty'
+import { incomingPaymailLabel } from '../paymailLabel'
 import { cleanPeerPayNote } from '../../parsePeerPayURI'
 import { isDuplicateMessageError, sendControlMessage, type ResendReason } from '../../peerpay/control'
 import { TaskDrainOutbox } from '../../monitor/TaskDrainOutbox'
@@ -199,7 +201,7 @@ export type CreditOutcome = 'credited' | 'duplicate'
  * The recorded description is the note the sender attached to the token or,
  * failing that, the sender's abbreviated identity key: the same default the
  * sending wallet wrote for the recipient, so both sides name one payment the
- * same way. The sender is not added to the labels; the activity list recovers
+ * same way. The sender's key is not added to the labels; the activity list recovers
  * the counterparty from the output's senderIdentityKey instead.
  *
  * `repairBeef` is the second chance. The token's AtomicBEEF was minted at send
@@ -230,6 +232,10 @@ export async function internalizeIncoming(
 
   const description = creditDescription((payment.token as { note?: unknown }).note, payment.sender)
 
+  // A legacy sender's address, when the token carries a valid one. Never the
+  // bare `paymail` label: that one marks an outbox-protected outgoing action.
+  const paymailLabel = incomingPaymailLabel((payment.token as { paymail?: unknown }).paymail)
+
   const argsFor = (tx: number[] | typeof payment.token.transaction) => ({
     tx,
     outputs: [
@@ -243,7 +249,7 @@ export async function internalizeIncoming(
         protocol: 'wallet payment'
       }
     ],
-    labels: ['peerpay'],
+    labels: ['peerpay', ...(paymailLabel ? [paymailLabel] : [])],
     description
   })
 
@@ -532,6 +538,34 @@ export async function broadcastNoSend(
   if (!released) throw new Error('broadcast_not_confirmed')
 }
 
+const ACTION_PAGE_SIZE = 1000
+const ACTION_MAX_PAGES = 10
+
+/**
+ * Find the action for `txid` among the actions with `label`, paging with
+ * `offset` until a short page. `complete` is false when the search ended
+ * without proof of absence (it hit the page maximum): the caller must then
+ * treat a missing match as unknown, never as "gone".
+ */
+export async function findActionByTxid(
+  wallet: Pick<HandleRailWallet, 'listActions'>,
+  adminOriginator: string,
+  txid: string,
+  label: string
+): Promise<{ match?: { txid?: string; reference?: string; status?: string }; complete: boolean }> {
+  for (let page = 0; page < ACTION_MAX_PAGES; page++) {
+    const args =
+      page === 0
+        ? { labels: [label], limit: ACTION_PAGE_SIZE }
+        : { labels: [label], limit: ACTION_PAGE_SIZE, offset: page * ACTION_PAGE_SIZE }
+    const { actions } = await wallet.listActions(args, adminOriginator)
+    const match = actions.find(a => a.txid === txid)
+    if (match) return { match: match as never, complete: true }
+    if (actions.length < ACTION_PAGE_SIZE) return { complete: true }
+  }
+  return { complete: false }
+}
+
 /**
  * Abort a PeerPay noSend by recovering its reference from listActions.
  *
@@ -545,20 +579,28 @@ export async function broadcastNoSend(
  * the result keeps that row (and the reservation) in place until an abort
  * actually lands.
  */
-export async function abortPeerPayNosend(
+export async function abortNosendByTxid(
   wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>,
   adminOriginator: string,
-  txid: string
+  txid: string,
+  label: string
 ): Promise<boolean> {
   // createAction returns no reference for a completed noSend action, so the
   // abort handle is recovered from listActions by txid.
-  const { actions } = await wallet.listActions({ labels: ['peerpay'], limit: 1000 }, adminOriginator)
-  const match = actions.find(a => a.txid === txid)
+  const { match } = await findActionByTxid(wallet, adminOriginator, txid, label)
   if (!match?.reference) return false
   const result = (await wallet.abortAction({ reference: match.reference }, adminOriginator)) as
     | { aborted?: boolean }
     | undefined
   return result?.aborted !== false
+}
+
+export async function abortPeerPayNosend(
+  wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>,
+  adminOriginator: string,
+  txid: string
+): Promise<boolean> {
+  return abortNosendByTxid(wallet, adminOriginator, txid, 'peerpay')
 }
 
 /**
@@ -643,7 +685,7 @@ export async function sendViaHandle(args: {
 /** A payment minted with noSend: signed, saved by the caller, not yet broadcast. */
 export interface MintedPeerPayToken {
   txid: string
-  token: OutboxEntry['token']
+  token: PeerPayOutboxEntry['token']
   /** What output 0 pays the recipient, read off the transaction (covers send-max). */
   satoshis: number
 }
@@ -757,7 +799,7 @@ export async function cancelOutboxPayment(args: {
   wallet: Pick<HandleRailWallet, 'listActions' | 'abortAction'>
   adminOriginator: string
   storage: StorageLike
-  entry: Pick<OutboxEntry, 'id' | 'txid' | 'delivered' | 'delivering' | 'recipient' | 'recipientHost'>
+  entry: Pick<PeerPayOutboxEntry, 'id' | 'txid' | 'delivered' | 'delivering' | 'recipient' | 'recipientHost'>
   client?: Pick<PeerPayClient, 'sendMessage'>
   mode?: 'undelivered' | 'abandon'
 }): Promise<{ aborted: boolean; needsAbandon?: boolean }> {
@@ -822,7 +864,7 @@ export function isAbortSafe(
   action: { labels?: string[]; txid?: string },
   outboxEntries: Array<Pick<OutboxEntry, 'txid' | 'delivered' | 'delivering'>>
 ): { aborted: boolean; needsAbandon?: boolean } {
-  if (!action.labels?.includes('peerpay')) return { aborted: true }
+  if (!action.labels?.includes('peerpay') && !action.labels?.includes('paymail')) return { aborted: true }
   const stored = action.txid != null ? outboxEntries.find(e => e.txid === action.txid) : undefined
   if (stored == null || stored.delivered === true || stored.delivering === true) {
     return { aborted: false, needsAbandon: true }
@@ -920,7 +962,7 @@ export async function retryDelivery(args: {
   adminOriginator: string
   client: Pick<PeerPayClient, 'sendMessage'>
   storage: StorageLike
-  entry: OutboxEntry
+  entry: PeerPayOutboxEntry
 }): Promise<void> {
   const { wallet, adminOriginator, client, storage, entry } = args
   if (entry.status !== 'unsent') return

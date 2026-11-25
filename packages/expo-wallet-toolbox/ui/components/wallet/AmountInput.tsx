@@ -20,21 +20,16 @@ import {
 import { parseTokenAmount, tokenAmountInputText, tokenAmountMask, tokenUnitsFromField } from '../../tokenFormat'
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Ionicons is loaded lazily, only when actually rendering, same pattern as
- * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, like every other glyph this app draws. Imported at module scope
+ * rather than behind a lazy loader: what had to be deferred is
+ * @expo/vector-icons' index barrel, which re-exports every icon set and so
+ * reaches expo-font -> expo-asset as untransformed ESM; nothing here pulls
+ * that barrel in any more. lucide publishes both module formats and Jest
+ * resolves the ESM one, so the app pins this name to lucide's CJS entry in
+ * jest.moduleNameMapper (package.json), as it already does for its other
+ * ESM-only dependencies.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
+import { Wallet, X } from 'lucide-react-native'
 
 export const SEND_MAX_VALUE = '2099999999999999'
 
@@ -102,7 +97,6 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   const { settings } = useWallet()
   const { satoshisPerUSD, usdToFiat = {} } = useContext(ExchangeRateContext)
   const reducedMotion = useReducedMotion()
-  const Ionicons = loadIonicons()
 
   const currency = settings?.currency || 'BSV'
   // ONE conjunction, and it is what keeps three denominations from colliding:
@@ -199,7 +193,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
     return (
       <View style={[styles.row, { backgroundColor: colors.backgroundSecondary, borderColor: colors.accent }]}>
         <View style={styles.sendMaxDisplay}>
-          <Ionicons name="wallet-outline" size={18} color={colors.accent} />
+          <Wallet size={18} color={colors.accent} />
           <Text style={[styles.sendMaxLabel, { color: colors.accent }]}>{t(maxLabelKey)}</Text>
         </View>
         <TouchableOpacity
@@ -209,7 +203,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           }}
           style={[styles.clearButton, { backgroundColor: colors.fill }]}
         >
-          <Ionicons name="close" size={16} color={colors.accent} />
+          <X size={16} color={colors.accent} />
         </TouchableOpacity>
       </View>
     )

@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { BsvExchangeRate } from '../toolboxTypes'
+import { reserveWocSlot, waitWocSlot, wocRateLimited } from '../net/wocLimiter'
 
 // Shared with context/ExchangeRateContext.tsx so a single cache serves both the
 // fiat-display UI and the wallet-build seed. Same key + same { usdPerBsv } shape.
@@ -8,6 +9,7 @@ import type { BsvExchangeRate } from '../toolboxTypes'
 export const CACHE_KEY = 'cached_exchange_rate'
 export const FALLBACK_RATE = 16.75
 const REFRESH_TIMEOUT_MS = 4000
+const EXCHANGE_RATE_URL = 'https://api.whatsonchain.com/v1/bsv/main/exchangerate'
 
 /**
  * `getExchangeRate()`'s own return, plus a handle on the SAME background
@@ -31,12 +33,17 @@ export interface ExchangeRateSeed extends BsvExchangeRate {
  */
 function refreshExchangeRateCache(): Promise<number | undefined> {
   return (async () => {
+    // The limiter wait comes before the timeout starts, so time in the queue
+    // never counts against the request.
+    const wait = reserveWocSlot(EXCHANGE_RATE_URL)
+    if (wait > 0) await waitWocSlot(wait)
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), REFRESH_TIMEOUT_MS)
     try {
-      const res = await fetch('https://api.whatsonchain.com/v1/bsv/main/exchangerate', {
+      const res = await fetch(EXCHANGE_RATE_URL, {
         signal: controller.signal
       })
+      if (res.status === 429) wocRateLimited(EXCHANGE_RATE_URL)
       const data = await res.json()
       const usdPerBsv = Number(data?.rate)
       if (Number.isFinite(usdPerBsv) && usdPerBsv > 0) {

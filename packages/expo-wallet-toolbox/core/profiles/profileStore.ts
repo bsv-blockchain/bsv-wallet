@@ -79,7 +79,10 @@ export function normalizeRestorePending(raw: unknown): AppChain[] | undefined {
 }
 
 export function defaultProfilesState(): ProfilesState {
-  return { active: 0, profiles: [{ index: 0, network: e2eSafeChain(DEFAULT_CHAIN) }] }
+  // E2E builds set this before the toolbox loads (index.js). A fresh install
+  // then starts on testnet. Production never sets it, so the default stays main.
+  const network = (globalThis as { __BSV_E2E_CHAIN?: string }).__BSV_E2E_CHAIN === 'test' ? 'test' : DEFAULT_CHAIN
+  return { active: 0, profiles: [{ index: 0, network: e2eSafeChain(network) }] }
 }
 
 /** Trim and cap a profile name; undefined when nothing is left (the default label applies). */

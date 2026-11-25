@@ -21,21 +21,19 @@ import { AmountInput, type AmountInputAsset } from '../wallet/AmountInput'
 import PressableScale from '../ui/PressableScale'
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Ionicons is loaded lazily, only when actually rendering, same pattern as
- * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, like every other glyph this app draws. Imported at module scope
+ * rather than behind a lazy loader: what had to be deferred is
+ * @expo/vector-icons' index barrel, which re-exports every icon set and so
+ * reaches expo-font -> expo-asset as untransformed ESM; nothing here pulls
+ * that barrel in any more. lucide publishes both module formats and Jest
+ * resolves the ESM one, so the app pins this name to lucide's CJS entry in
+ * jest.moduleNameMapper (package.json), as it already does for its other
+ * ESM-only dependencies.
  */
+import { ArrowRight, ArrowUp, Info, User, type LucideIcon } from 'lucide-react-native'
+
+/** The icon props below stay Ionicons names; LUCIDE draws their twins. */
 type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
 
 /** One field section: the uppercase caption, then whatever asks the question. */
 export function PayField({ labelKey, children }: { labelKey: string; children: React.ReactNode }) {
@@ -126,10 +124,9 @@ export function ConsequenceNote({
 }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
   return (
     <View style={[styles.consequence, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
-      <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
+      <Info size={16} color={colors.textSecondary} />
       <Text style={[styles.consequenceText, { color: colors.textSecondary }]}>{text ?? t(textKey, values)}</Text>
       {action && (
         <PressableScale
@@ -150,6 +147,18 @@ export function ConsequenceNote({
 }
 
 /** The submit button every rail sends with. */
+/**
+ * The two icon props below stay Ionicons names, because that is what every
+ * call site already passes; this maps each name used in this package to its
+ * lucide counterpart. A name with no entry draws nothing rather than a glyph
+ * from the wrong family -- the seam this whole change exists to close.
+ */
+const LUCIDE: Record<string, LucideIcon> = {
+  'arrow-up': ArrowUp,
+  'arrow-forward': ArrowRight,
+  person: User
+}
+
 export function PayCta({
   onPress,
   disabled,
@@ -175,7 +184,6 @@ export function PayCta({
 }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
   const enabled = !disabled
   const text = label ?? t(labelKey)
   return (
@@ -193,7 +201,8 @@ export function PayCta({
         <ActivityIndicator size="small" color={enabled ? colors.background : colors.textTertiary} />
       ) : (
         <>
-          <Ionicons name={icon} size={20} color={enabled ? colors.textOnAccent : colors.textTertiary} />
+          {!!LUCIDE[icon] &&
+            React.createElement(LUCIDE[icon], { size: 20, color: enabled ? colors.textOnAccent : colors.textTertiary })}
           <Text style={[styles.ctaText, { color: enabled ? colors.textOnAccent : colors.textTertiary }]}>{text}</Text>
         </>
       )}
@@ -217,11 +226,10 @@ export function RecipientSummary({
 }) {
   const { t } = useTranslation()
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
   return (
     <View style={[styles.idCard, { backgroundColor: colors.backgroundElevated, borderColor: colors.separator }]}>
       <View style={[styles.avatar, { backgroundColor: colors.fillTertiary }]}>
-        <Ionicons name={icon} size={20} color={colors.textSecondary} />
+        {!!LUCIDE[icon] && React.createElement(LUCIDE[icon], { size: 20, color: colors.textSecondary })}
       </View>
       <View style={styles.idText}>
         <Text style={[styles.idLabel, { color: colors.textTertiary }]}>{t('recipient')}</Text>

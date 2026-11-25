@@ -1,14 +1,16 @@
 import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import ImportedOutboxApproval from '../../ui/components/pay/ImportedOutboxApproval'
+import { P2PKH, PrivateKey, Transaction } from '@bsv/sdk'
+import { resources } from '../../core/i18n/translations'
 import {
   OUTBOX_KEY,
   getOutboxEntries,
   quarantineImportedOutbox,
   saveOutboxEntry,
-  type OutboxEntry
+  savePaymailOutboxEntry
 } from '../../core/peerpay/outbox'
-import { ADMIN, sender, signedPayment } from '../__helpers__/signedPeerPay'
+import { ADMIN, sender, signedPayment, asPeerPayRows } from '../__helpers__/signedPeerPay'
 import { TaskDrainOutbox } from '../../core/monitor/TaskDrainOutbox'
 
 jest.mock('../../ui/components/ui/PressableScale', () => ({ __esModule: true, default: 'Pressable' }))
@@ -33,7 +35,7 @@ async function fixture(overrides: Partial<React.ComponentProps<typeof ImportedOu
   }
   await saveOutboxEntry(storage, await signedPayment())
   await quarantineImportedOutbox(storage)
-  const [entry] = await getOutboxEntries(storage)
+  const [entry] = asPeerPayRows(await getOutboxEntries(storage))
   const props = {
     entry,
     storage,
@@ -63,29 +65,27 @@ async function fixture(overrides: Partial<React.ComponentProps<typeof ImportedOu
       buttons()[0].props.onPress()
     })
   }
-  return { props, tree, buttons, review, cancel, storage, values }
+  return { entry, props, tree, buttons, review, cancel, storage, values }
 }
 
 test('validates before displaying exact signed terms and releases only after the separate Send press', async () => {
   const f = await fixture()
-  expect(JSON.stringify(f.tree.toJSON())).not.toContain(f.props.entry.recipient)
+  expect(JSON.stringify(f.tree.toJSON())).not.toContain(f.entry.recipient)
   await f.review()
   expect(JSON.stringify(f.tree.toJSON())).toContain(`\\"amount\\":17`)
-  expect(JSON.stringify(f.tree.toJSON())).toContain(f.props.entry.recipient)
+  expect(JSON.stringify(f.tree.toJSON())).toContain(f.entry.recipient)
   expect(f.props.wallet!.getPublicKey).toHaveBeenCalledTimes(1)
   expect(f.props.wallet!.getPublicKey).toHaveBeenLastCalledWith(
-    { protocolID: [2, '3241645161d8'], keyID: 'cHJlZml4 c3VmZml4', counterparty: f.props.entry.recipient },
+    { protocolID: [2, '3241645161d8'], keyID: 'cHJlZml4 c3VmZml4', counterparty: f.entry.recipient },
     ADMIN
   )
-  expect((await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
+  expect(asPeerPayRows(await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
   expect(f.props.onApproved).not.toHaveBeenCalled()
   expect(f.tree.root.findAllByType('Modal' as never)).toEqual([])
   await f.review()
   expect(f.props.wallet!.getPublicKey).toHaveBeenCalledTimes(2)
-  expect(f.props.onApproved).toHaveBeenCalledWith(
-    expect.objectContaining({ status: 'unsent', token: f.props.entry.token })
-  )
-  expect((await getOutboxEntries(f.storage))[0].status).toBe('unsent')
+  expect(f.props.onApproved).toHaveBeenCalledWith(expect.objectContaining({ status: 'unsent', token: f.entry.token }))
+  expect(asPeerPayRows(await getOutboxEntries(f.storage))[0].status).toBe('unsent')
 })
 
 test('canceling review leaves the signed payment held, while Cancel before review delegates cancellation', async () => {
@@ -95,39 +95,33 @@ test('canceling review leaves the signed payment held, while Cancel before revie
   await f.review()
   await f.cancel()
   expect(f.props.onCancel).toHaveBeenCalledTimes(1)
-  expect((await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
-  expect(JSON.stringify(f.tree.toJSON())).not.toContain(f.props.entry.recipient)
+  expect(asPeerPayRows(await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
+  expect(JSON.stringify(f.tree.toJSON())).not.toContain(f.entry.recipient)
 })
 
 test('inconsistent imported amount is neither displayed nor approved', async () => {
   const f = await fixture()
   act(() => {
     f.tree.update(
-      <ImportedOutboxApproval
-        {...f.props}
-        entry={{ ...f.props.entry, token: { ...f.props.entry.token, amount: 999 } }}
-      />
+      <ImportedOutboxApproval {...f.props} entry={{ ...f.entry, token: { ...f.entry.token, amount: 999 } }} />
     )
   })
   await f.review()
   expect(f.props.onError).toHaveBeenCalledTimes(1)
   expect(f.props.onApproved).not.toHaveBeenCalled()
-  expect(JSON.stringify(f.tree.toJSON())).not.toContain(f.props.entry.recipient)
-  expect((await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
+  expect(JSON.stringify(f.tree.toJSON())).not.toContain(f.entry.recipient)
+  expect(asPeerPayRows(await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
   expect(TaskDrainOutbox.hasPending).toBe(false)
 })
 
 test('a changed stored snapshot is refused when Send is pressed', async () => {
   const f = await fixture()
   await f.review()
-  await f.storage.setKeyValue(
-    OUTBOX_KEY,
-    JSON.stringify([{ ...f.props.entry, recipientHost: 'https://changed.example' }])
-  )
+  await f.storage.setKeyValue(OUTBOX_KEY, JSON.stringify([{ ...f.entry, recipientHost: 'https://changed.example' }]))
   await f.review()
   expect(f.props.onError).toHaveBeenCalledTimes(1)
   expect(f.props.onApproved).not.toHaveBeenCalled()
-  expect((await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
+  expect(asPeerPayRows(await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
 })
 
 test.each([{ disabled: true }, { wallet: null }, { storage: null }])(
@@ -149,7 +143,7 @@ test('suppresses duplicate presses and hides terms while wallet derivation is pe
   const actual = await sender.getPublicKey({
     protocolID: [2, '3241645161d8'],
     keyID: 'cHJlZml4 c3VmZml4',
-    counterparty: f.props.entry.recipient
+    counterparty: f.entry.recipient
   })
   ;(f.props.wallet!.getPublicKey as jest.Mock).mockImplementationOnce(
     () =>
@@ -165,11 +159,11 @@ test('suppresses duplicate presses and hides terms while wallet derivation is pe
   expect(f.props.wallet!.getPublicKey).toHaveBeenCalledTimes(1)
   expect(f.props.onCancel).not.toHaveBeenCalled()
   expect(f.tree.root.findAllByType('ActivityIndicator' as never)).toHaveLength(1)
-  expect(JSON.stringify(f.tree.toJSON())).not.toContain(f.props.entry.recipient)
+  expect(JSON.stringify(f.tree.toJSON())).not.toContain(f.entry.recipient)
   await act(async () => {
     release(actual)
   })
-  expect(JSON.stringify(f.tree.toJSON())).toContain(f.props.entry.recipient)
+  expect(JSON.stringify(f.tree.toJSON())).toContain(f.entry.recipient)
 })
 
 test('unmount while validating prevents stale display, approval and error callbacks', async () => {
@@ -201,7 +195,7 @@ test('changing wallet authority while validating discards the stale continuation
   const actual = await sender.getPublicKey({
     protocolID: [2, '3241645161d8'],
     keyID: 'cHJlZml4 c3VmZml4',
-    counterparty: f.props.entry.recipient
+    counterparty: f.entry.recipient
   })
   ;(f.props.wallet!.getPublicKey as jest.Mock).mockImplementationOnce(
     () =>
@@ -218,7 +212,7 @@ test('changing wallet authority while validating discards the stale continuation
   await act(async () => {
     release(actual)
   })
-  expect(JSON.stringify(f.tree.toJSON())).not.toContain(f.props.entry.recipient)
+  expect(JSON.stringify(f.tree.toJSON())).not.toContain(f.entry.recipient)
   expect(f.props.onApproved).not.toHaveBeenCalled()
 })
 
@@ -229,7 +223,7 @@ test('retiring authority while confirmed release is being revalidated prevents d
   const actual = await sender.getPublicKey({
     protocolID: [2, '3241645161d8'],
     keyID: 'cHJlZml4 c3VmZml4',
-    counterparty: f.props.entry.recipient
+    counterparty: f.entry.recipient
   })
   ;(f.props.wallet!.getPublicKey as jest.Mock).mockImplementationOnce(
     () =>
@@ -250,7 +244,7 @@ test('retiring authority while confirmed release is being revalidated prevents d
   })
   expect(f.props.onApproved).not.toHaveBeenCalled()
   expect(f.props.onError).not.toHaveBeenCalled()
-  expect((await getOutboxEntries(f.storage))[0].status).toBe('unsent')
+  expect(asPeerPayRows(await getOutboxEntries(f.storage))[0].status).toBe('unsent')
   expect(TaskDrainOutbox.hasPending).toBe(true)
 })
 
@@ -267,11 +261,11 @@ test('re-arms an idle drain after an approved payment has a transient first-atte
   const task = await idleDrain()
   await f.review()
   expect(task.trigger(Date.now()).run).toBe(false)
-  expect((await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
+  expect(asPeerPayRows(await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
   await f.review()
   expect(f.props.onApproved).toHaveBeenCalledTimes(1)
   expect(f.props.onError).toHaveBeenCalledTimes(1)
-  expect((await getOutboxEntries(f.storage))[0].status).toBe('unsent')
+  expect(asPeerPayRows(await getOutboxEntries(f.storage))[0].status).toBe('unsent')
   expect(task.trigger(Date.now()).run).toBe(true)
 })
 
@@ -297,4 +291,71 @@ test('waits for the immediate approved attempt to settle before waking the idle 
     finish()
   })
   expect(task.trigger(Date.now()).run).toBe(true)
+})
+
+describe('a paymail row', () => {
+  async function paymailFixture() {
+    const values = new Map<string, string>()
+    const storage = {
+      getKeyValue: async (key: string) => values.get(key),
+      setKeyValue: async (key: string, value: string) => void values.set(key, value)
+    }
+    const tx = new Transaction()
+    tx.addOutput({ lockingScript: new P2PKH().lock(new PrivateKey(21).toAddress()), satoshis: 500 })
+    await savePaymailOutboxEntry(storage, {
+      paymail: 'alice@hc.example',
+      endpoint: 'https://hc.example/api/receive-beef/alice',
+      paymailReference: 'ref-1',
+      beefHex: tx.toHexBEEF(),
+      satoshis: 500,
+      txid: tx.id('hex')
+    } as Parameters<typeof savePaymailOutboxEntry>[1])
+    await quarantineImportedOutbox(storage)
+    const [entry] = await getOutboxEntries(storage)
+    let tree!: ReactTestRenderer
+    act(() => {
+      tree = create(
+        <ImportedOutboxApproval
+          entry={entry}
+          storage={storage}
+          wallet={{ getPublicKey: jest.fn() } as never}
+          adminOriginator={ADMIN}
+          colors={colors}
+          t={t}
+          disabled={false}
+          onApproved={jest.fn()}
+          onCancel={jest.fn()}
+          onError={jest.fn()}
+        />
+      )
+    })
+    trees.push(tree)
+    await act(async () => {
+      tree.root.findAllByType('Pressable' as never)[1].props.onPress()
+    })
+    return tree
+  }
+
+  test('the review text uses the paymail wording, not the verified-terms wording', async () => {
+    const tree = await paymailFixture()
+    const json = JSON.stringify(tree.toJSON())
+    expect(json).toContain('review_imported_paymail_detail')
+    expect(json).not.toContain('review_imported_payment_detail')
+    expect(json).toContain('alice@hc.example')
+  })
+
+  test.each(Object.keys(resources))('%s wording is its own string with both placeholders', code => {
+    const tr = (resources as Record<string, { translation: Record<string, string> }>)[code].translation
+    const text = tr.review_imported_paymail_detail
+    expect(text).toBeTruthy()
+    expect(text).toContain('{{amount}}')
+    expect(text).toContain('{{recipient}}')
+    expect(text).not.toBe(tr.review_imported_payment_detail)
+  })
+
+  test('the English wording says the app cannot check the recipient or amount', () => {
+    const text = resources.en.translation.review_imported_paymail_detail
+    expect(text).toMatch(/cannot (check|verify)/i)
+    expect(text).not.toMatch(/\bverified\b/i)
+  })
 })

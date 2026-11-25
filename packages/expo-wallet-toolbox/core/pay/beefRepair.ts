@@ -24,6 +24,7 @@
  */
 import { Beef, Utils } from '@bsv/sdk'
 import { MAX_HEX_RESPONSE_CHARS, wocRequestInit, type WocConfig } from './rails/address'
+import { wocLimitedFetch } from '../net/wocLimiter'
 
 /** Injectable for tests; production uses global fetch. */
 export type FetchLike = (
@@ -45,7 +46,8 @@ export async function refetchAtomicBeef(args: {
   fetchImpl?: FetchLike
 }): Promise<number[] | undefined> {
   const { woc, txid } = args
-  const doFetch = args.fetchImpl ?? (globalThis.fetch as unknown as FetchLike)
+  // An injected fetch is used as it is; the default goes through the shared WhatsOnChain limiter.
+  const doFetch = args.fetchImpl ?? (wocLimitedFetch as unknown as FetchLike)
 
   let bytes: number[]
   try {

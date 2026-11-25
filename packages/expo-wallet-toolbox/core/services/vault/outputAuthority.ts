@@ -4,7 +4,7 @@
  * to, for this exact output, before any funding action is created. */
 import { Hash, Utils } from '@bsv/sdk'
 import { p256 } from '@noble/curves/nist.js'
-import { requestVaultSigner } from './ceremonyHost'
+import { requestVaultSigner, type VaultSignerSession } from './ceremonyHost'
 import { randomBytes } from './random'
 import { VaultError } from './types'
 import { vaultStore, type VaultMeta, type VaultScopeToken } from './vaultStore'
@@ -19,7 +19,11 @@ export async function requireVaultOutputKeyPossession(
   meta: Pick<VaultMeta, 'vaultId' | 'revision' | 'createdAt' | 'keys' | 'lastUsedSerial'>,
   scope: VaultScopeToken,
   output: VaultOutputAuthorityContext,
-  chosenSerial?: string
+  chosenSerial?: string,
+  /** A spend's own key session: the proof is signed in it and the session
+   * stays open for the input signatures (one PIN, one tap). `reason` is the
+   * spend's, because the first ceremony fixes the NFC alert text. */
+  shared?: { session: VaultSignerSession; reason: string }
 ): Promise<void> {
   vaultStore.assertScopeToken(scope)
   const chosen =
@@ -46,7 +50,7 @@ export async function requireVaultOutputKeyPossession(
       'utf8'
     )
   )
-  await proveKeyPossession(scope, chosen, digest, 'Verify vault key for new funds')
+  await proveKeyPossession(scope, chosen, digest, shared?.reason ?? 'Verify vault key for new funds', shared?.session)
 }
 
 /** Fresh hardware authority to promote a staged key (add-key, late-key) when
@@ -89,9 +93,12 @@ async function proveKeyPossession(
   scope: VaultScopeToken,
   chosen: VaultMeta['keys'][number],
   digest: number[],
-  reason: string
+  reason: string,
+  /** When given, the signer belongs to the caller's session: it is not
+   * released here. The session's owner closes it, also when this throws. */
+  session?: VaultSignerSession
 ): Promise<void> {
-  const signer = await requestVaultSigner(reason, chosen.serial)
+  const signer = session ? await session.acquire(reason, chosen.serial) : await requestVaultSigner(reason, chosen.serial)
   try {
     vaultStore.assertScopeToken(scope)
     if (signer.serial !== chosen.serial || signer.pubkey !== chosen.pubkey) {
@@ -116,6 +123,6 @@ async function proveKeyPossession(
     }
     if (!valid) throw new VaultError('wrong-key', 'Hardware failed the new vault output possession challenge')
   } finally {
-    signer.release()
+    if (!session) signer.release()
   }
 }

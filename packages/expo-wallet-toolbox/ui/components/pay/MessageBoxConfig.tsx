@@ -26,21 +26,16 @@ import { defaultMessageBoxUrlFor, resolveMessageBoxUrl } from '../../../core/pay
 import type { AppChain } from '../../../core/networks'
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Ionicons is loaded lazily, only when actually rendering, same pattern as
- * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, like every other glyph this app draws. Imported at module scope
+ * rather than behind a lazy loader: what had to be deferred is
+ * @expo/vector-icons' index barrel, which re-exports every icon set and so
+ * reaches expo-font -> expo-asset as untransformed ESM; nothing here pulls
+ * that barrel in any more. lucide publishes both module formats and Jest
+ * resolves the ESM one, so the app pins this name to lucide's CJS entry in
+ * jest.moduleNameMapper (package.json), as it already does for its other
+ * ESM-only dependencies.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
+import { RefreshCw } from 'lucide-react-native'
 
 export function useMessageBoxConfig(
   t: ReturnType<typeof import('react-i18next').useTranslation>['t'],
@@ -175,7 +170,6 @@ export function ConfigPanel({
   onReset,
   onNone
 }: ConfigPanelProps) {
-  const Ionicons = loadIonicons()
   const hasUrl = !!urlInput.trim()
   const isNonDefault = urlInput.trim() !== defaultUrl && urlInput !== NO_MESSAGE_BOX
   return (
@@ -220,7 +214,7 @@ export function ConfigPanel({
       <View style={styles.configSecondaryActions}>
         {isNonDefault && (
           <TouchableOpacity onPress={onReset} style={[styles.configResetPill, { borderColor: colors.textSecondary }]}>
-            <Ionicons name="refresh" size={12} color={colors.textSecondary} />
+            <RefreshCw size={12} color={colors.textSecondary} />
             <Text style={[styles.configResetText, { color: colors.textSecondary }]}>Default</Text>
           </TouchableOpacity>
         )}

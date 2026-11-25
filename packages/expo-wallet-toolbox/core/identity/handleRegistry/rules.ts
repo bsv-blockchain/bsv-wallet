@@ -20,6 +20,10 @@ export const PROFILE_CERT_TYPE = 'SbatVXXssDW3AO0J9bxIljkHGbPBGCVAXg94gXFf0cE='
 export const BRFC_LOOKUP = '0ace65da5987'
 /** BRFC id of the `public profile reverse lookup` capability — key → profile. */
 export const BRFC_REVERSE_LOOKUP = '43dcf83ddc5f'
+/** BRFC id of the paymail P2P payment destination capability. */
+export const BRFC_P2P_DESTINATION = '2a40af698840'
+/** BRFC id of the paymail P2P receive-BEEF capability. */
+export const BRFC_P2P_RECEIVE_BEEF = '5c55a7fdb7bb'
 /** There is no on-chain revocation: a profile is replaced or tombstoned. */
 export const ZERO_OUTPOINT = `${'0'.repeat(64)}.0`
 

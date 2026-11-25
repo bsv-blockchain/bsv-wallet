@@ -50,21 +50,16 @@ import Animated, {
 import { useTheme, spacing, typography, durations, easings, springs } from '@bsv/expo-wallet-toolbox'
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Loaded lazily, only when actually rendering, same pattern as this
- * package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, like every other glyph this app draws. Imported at module scope
+ * rather than behind a lazy loader: what had to be deferred is
+ * @expo/vector-icons' index barrel, which re-exports every icon set and so
+ * reaches expo-font -> expo-asset as untransformed ESM; nothing here pulls
+ * that barrel in any more. lucide publishes both module formats and Jest
+ * resolves the ESM one, so the app pins this name to lucide's CJS entry in
+ * jest.moduleNameMapper (package.json), as it already does for its other
+ * ESM-only dependencies.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
+import { BluetoothIcon, CircleCheck, Lock, QrCode, Wifi, type LucideIcon } from 'lucide-react-native'
 
 export type PresenceState =
   /** No live link on this path. The QR hand-off. */
@@ -94,25 +89,22 @@ interface PresenceRowProps {
   medium?: 'wifi' | 'bluetooth'
 }
 
-type IconName = keyof IoniconsComponent['glyphMap']
-
-function iconFor(state: PresenceState, medium: 'wifi' | 'bluetooth'): IconName {
+function iconFor(state: PresenceState, medium: 'wifi' | 'bluetooth'): LucideIcon {
   switch (state) {
     case 'qr':
-      return 'qr-code-outline'
+      return QrCode
     case 'ready':
     case 'waiting':
-      return medium === 'bluetooth' ? 'bluetooth' : 'wifi'
+      return medium === 'bluetooth' ? BluetoothIcon : Wifi
     case 'linked':
-      return 'lock-closed'
+      return Lock
     case 'paid':
-      return 'checkmark-circle'
+      return CircleCheck
   }
 }
 
 export default function PresenceRow({ state, label, peer, medium = 'wifi' }: PresenceRowProps) {
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
   const reducedMotion = useReducedMotion()
 
   // 0 → 1 on every state change. Re-run rather than cross-faded: the row is one
@@ -180,7 +172,7 @@ export default function PresenceRow({ state, label, peer, medium = 'wifi' }: Pre
           reach the one state where naming the radio matters most: the payee
           waiting on a link that may be Bluetooth. */}
       <Animated.View style={dotStyle}>
-        <Ionicons name={iconFor(state, medium)} size={13} color={dotColor} />
+        {React.createElement(iconFor(state, medium), { size: 13, color: dotColor })}
       </Animated.View>
       <Text style={[styles.label, { color: labelColor }, strong && styles.labelStrong]} numberOfLines={1}>
         {label}

@@ -2,6 +2,84 @@
 
 ## Unreleased
 
+## 0.28.0
+
+No native change: hosts do not rebuild.
+
+### Added
+
+- **An incoming PeerPay payment whose token has a valid `paymail` gets the wallet label `paymail:<address>`.** A host sees the field only with `@bsv/message-box-client` 2.8.0 or newer; an older client gives no label. No host action.
+
+## 0.27.0
+
+Paymail send. No native change: hosts do not rebuild.
+
+### Breaking / host action
+
+- **A host that supplies its own `RegistryResolver` must add `discoverCapabilities`.** `createRegistryResolver` already has it.
+- **A host that reads outbox rows must handle the `OutboxEntry` union.** Use `isPaymailEntry` to tell a `paymail` row from a PeerPay row.
+
+### Added
+
+- **`classifyPaymailDomain` and `classifyPaymailDomainDetailed`.** They read a domain's capability map and return `peerpay`, `legacy`, `unsupported` or `failed`.
+- **`sendViaPaymail`.** It pays a `legacy` paymail (for example HandCash) with BSV. It mints with `noSend`, writes an outbox row, posts the plain BEEF, then broadcasts. It throws `PaymailSendError`.
+- **The `paymail` outbox kind**, with retry, cancel and drain.
+- **`RegistryResolver.discoverCapabilities`.** It returns the raw capability map from the same cached and DNSSEC-checked discovery.
+- **`createLegacyPaymailClient`, `statusFnFromStorage` and `abortNosendByTxid`.**
+
+### Changed
+
+- **`abortPeerPayNosend` now calls the new `abortNosendByTxid`.**
+- **`isAbortSafe` also guards `paymail` actions.**
+- **An outgoing `paymail` action reads as sent, not spent.**
+
+### Not added
+
+- **No `@bsv/paymail` dependency.** The toolbox has its own small client on the bounded fetch.
+
+## 0.26.0
+
+The BSV Wallet app's launch changes, upstreamed from its patch of 0.25.1: one key tap for a Vault spend, a key removal that can finish, a monthly limit for group spending grants, and a new icon set. No native change: hosts do not rebuild.
+
+### Breaking / host action
+
+- **`lucide-react-native` ^1.27.0 is a new peer.** The UI draws its glyphs with lucide instead of `@expo/vector-icons`. Install it next to `react-native-svg`. A Jest host maps `^lucide-react-native$` to `lucide-react-native/dist/cjs/lucide-react-native.js`, because Jest resolves its ESM entry otherwise.
+- **The typography tokens name a font family, `Nunito`.** Every ramp in `typography` now sets `fontFamily: 'Nunito'`, so the toolbox screens match a host that embeds Nunito 400, 600 and 700 (for example with the `expo-font` config plugin). A host that does not embed it gets the platform fallback face, and must embed Nunito or override `fontFamily`.
+- **`HandleRegistryClient` has two new required methods, `resolveHandle` and `acceptKey`.** A host with its own client implementation adds them. `createHandleRegistryClient` already has them.
+- **`search()` can return a row with `changedFrom`.** For a complete address (`handle@domain`) whose certificate is valid but whose key is not the one pinned on this device (XR-071), the row comes back flagged with the pinned key instead of being dropped, so the caller can warn. The pin does not move until `acceptKey`. A partial query still drops such a row. A host that shows search rows must check `changedFrom` before it pays. `UniversalSend` drops these rows, as before.
+
+### Added
+
+- **`openVaultSignerSession` and `VaultSignerSession`.** One key session for a spend that also creates a Vault output: a withdrawal with a re-vaulted remainder, or a re-lock. One PIN entry and one tap now cover the new output's possession proof and the input signatures. Before, the person entered the PIN and tapped twice. If the session ends between the two steps (a timeout or a detach), the spend asks for a second tap and does not fail. A cancelled session stays cancelled. A deposit keeps its own ceremony.
+- **`failedVaultSpendBlocksRemoval`.** A failed Vault spend now holds a pending key removal open only when it has a transaction ID and began at or after the removal started. Before, any failed spend in the history blocked the removal for good. A spend with no readable time still blocks.
+- **`groupSpendingLimit` and `clampGroupSpending`.** A site's one-time group grant may spend at most the auto-approve threshold each month. A threshold of 0 removes the spending part of the grant.
+- **`resolveHandle` (`found`, `changed`, `none`, `failed`) and `acceptKey`** on the handle registry client. A one-character handle is now looked up as a complete address (`r@domain`).
+- **`HardwareKeyArtComponent`** type, exported with `EnrollWizard`.
+- **Paid handle claims.** `putCertificate` takes an App Store or Google Play purchase (`StorePurchase`) and a fallback certificate. A refused claim whose reclaim is also refused returns `notRestored` with the handle that did not come back.
+- **15 strings** for the Vault card check and the spending limit, in all 12 locales.
+
+### Changed
+
+- **Add-key copy.** A new key is saved but not active until another key confirms it.
+- **Enrollment.** The PIN is confirmed on a page of its own (4 steps per key). Replace and reset of a card first check the blockchain for a vault the card opens, and need an extra acknowledgement.
+- **E2E builds** start a fresh install on testnet when `globalThis.__BSV_E2E_CHAIN` is `test`.
+
+### Fixed
+
+- **The encrypted database image** no longer crashes the app when written. The crypto helper returned a `Buffer`, which expo-file-system's `writeBytes` does not accept; it now returns a plain `Uint8Array`.
+
+## 0.25.1
+
+WhatsOnChain rate limit. No native change: hosts do not rebuild.
+
+### Fixed
+
+- **WhatsOnChain requests no longer exceed the anonymous rate limit.** WhatsOnChain answers more than 3 requests per second with no API key with HTTP 429. The Vault chain scan sent 3 history requests per index back to back, so an empty gap of 20 indexes was 60 requests in one burst, and indexes failed as `rate-limited`. All WhatsOnChain calls now go through one shared limiter: the Vault lookup, address sweeps, BEEF repair, proof refresh, the merkle-path service, the spendability check, broadcast and the exchange rate. It sends at most 2.5 requests per second per API origin, pauses a lane for 1.5 s after a 429, and sends a GET or HEAD once more after a 429. Requests with a `woc-api-key` header use a lane of their own with the same spacing. An empty Vault scan of 20 indexes now takes about 25 s.
+
+### Added
+
+- **`configureWocLimiter`, `resetWocLimiter` and `wocLimitedFetch`.** A host with a paid WhatsOnChain key can lower `keyedIntervalMs`.
+
 ## 0.25.0
 
 Vault hardening: a planted key, a stale scan or a reset on a new phone can no longer cost funds or add a key. No native change: hosts do not rebuild.

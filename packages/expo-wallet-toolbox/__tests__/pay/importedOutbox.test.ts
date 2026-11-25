@@ -1,5 +1,5 @@
 import { PrivateKey } from '@bsv/sdk'
-import { ADMIN, sender, signedPayment } from '../__helpers__/signedPeerPay'
+import { ADMIN, sender, signedPayment, asPeerPayRows } from '../__helpers__/signedPeerPay'
 import {
   OUTBOX_KEY,
   getOutboxEntries,
@@ -36,9 +36,9 @@ describe('imported PeerPay outgoing authority', () => {
   it('preserves the signed token but quarantines a pre-cancellation unsent entry', async () => {
     const s = storage()
     await saveOutboxEntry(s, payment)
-    const [before] = await getOutboxEntries(s)
+    const [before] = asPeerPayRows(await getOutboxEntries(s))
     expect(await quarantineImportedOutbox(s)).toBe(1)
-    const [held] = await getOutboxEntries(s)
+    const [held] = asPeerPayRows(await getOutboxEntries(s))
     expect(held).toEqual({ ...before, status: 'import_hold' })
     expect(unsentEntries([held])).toEqual([])
     expect(await quarantineImportedOutbox(s)).toBe(0)
@@ -47,7 +47,7 @@ describe('imported PeerPay outgoing authority', () => {
   it('never drains unknown imported statuses, and preserves sent history', async () => {
     const s = storage()
     await saveOutboxEntry(s, payment)
-    const [entry] = await getOutboxEntries(s)
+    const [entry] = asPeerPayRows(await getOutboxEntries(s))
     const records = [
       { ...entry, id: 'unknown', status: 'future_status' },
       { ...entry, id: 'sent', status: 'sent' }
@@ -55,18 +55,18 @@ describe('imported PeerPay outgoing authority', () => {
     expect(unsentEntries(records as never)).toEqual([])
     await s.setKeyValue(OUTBOX_KEY, JSON.stringify(records))
     await quarantineImportedOutbox(s)
-    expect((await getOutboxEntries(s)).map(e => e.status)).toEqual(['import_hold', 'sent'])
+    expect((asPeerPayRows(await getOutboxEntries(s))).map(e => e.status)).toEqual(['import_hold', 'sent'])
   })
 
   it('resumes only the exact held payment explicitly reviewed by its caller', async () => {
     const s = storage()
     await saveOutboxEntry(s, payment)
     await quarantineImportedOutbox(s)
-    const [reviewed] = await getOutboxEntries(s)
+    const [reviewed] = asPeerPayRows(await getOutboxEntries(s))
     const approved = await releaseImportedOutboxEntry(s, reviewed, wallet, ADMIN)
     expect(approved.status).toBe('unsent')
     expect(approved.token).toEqual(payment.token)
-    expect(unsentEntries(await getOutboxEntries(s))).toEqual([approved])
+    expect(unsentEntries(asPeerPayRows(await getOutboxEntries(s)))).toEqual([approved])
   })
 
   it.each(['recipient', 'token', 'txid', 'recipientHost'] as const)(
@@ -75,11 +75,11 @@ describe('imported PeerPay outgoing authority', () => {
       const s = storage()
       await saveOutboxEntry(s, payment)
       await quarantineImportedOutbox(s)
-      const [reviewed] = await getOutboxEntries(s)
+      const [reviewed] = asPeerPayRows(await getOutboxEntries(s))
       const replacement = { ...reviewed, [key]: key === 'token' ? { ...reviewed.token, amount: 999 } : 'changed' }
       await s.setKeyValue(OUTBOX_KEY, JSON.stringify([replacement]))
       await expect(releaseImportedOutboxEntry(s, reviewed, wallet, ADMIN)).rejects.toThrow(/changed|review/i)
-      expect(unsentEntries(await getOutboxEntries(s))).toEqual([])
+      expect(unsentEntries(asPeerPayRows(await getOutboxEntries(s)))).toEqual([])
     }
   )
 
@@ -96,7 +96,7 @@ describe('imported payment terms match the signed output', () => {
     const s = storage()
     await saveOutboxEntry(s, { ...payment, ...overrides })
     await quarantineImportedOutbox(s)
-    const [entry] = await getOutboxEntries(s)
+    const [entry] = asPeerPayRows(await getOutboxEntries(s))
     return { s, entry }
   }
 
@@ -131,7 +131,7 @@ describe('imported payment terms match the signed output', () => {
       const { s, entry } = await held(replacement)
       await expect(validateImportedOutboxEntry(entry, wallet, ADMIN)).rejects.toThrow()
       await expect(releaseImportedOutboxEntry(s, entry, wallet, ADMIN)).rejects.toThrow()
-      expect((await getOutboxEntries(s))[0].status).toBe('import_hold')
+      expect((asPeerPayRows(await getOutboxEntries(s)))[0].status).toBe('import_hold')
     }
   )
 
@@ -171,7 +171,7 @@ describe('imported payment validation rejects unusable review data', () => {
     const s = storage()
     await saveOutboxEntry(s, payment)
     await quarantineImportedOutbox(s)
-    return { s, held: (await getOutboxEntries(s))[0] }
+    return { s, held: (asPeerPayRows(await getOutboxEntries(s)))[0] }
   }
 
   it.each([null, {}, [], { transaction: [] }, { transaction: [256] }, { transaction: [-1] }, { transaction: [0.5] }])(

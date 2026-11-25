@@ -26,21 +26,18 @@ function loadExpoCamera(): ExpoCameraModule {
 }
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Ionicons is loaded lazily, only when actually rendering, same pattern as
- * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, like every other glyph this app draws.
+ *
+ * Imported at module scope rather than behind a lazy loader. What had to be
+ * deferred is @expo/vector-icons' index barrel, which re-exports every icon
+ * set and so reaches expo-font -> expo-asset as untransformed ESM; nothing
+ * here pulls that barrel in any more. lucide publishes both module formats
+ * and Jest resolves the ESM one, so the app pins this name to lucide's CJS
+ * entry in jest.moduleNameMapper (package.json), as it already does for its
+ * other ESM-only dependencies.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
+import { Camera, X } from 'lucide-react-native'
+import { BalancedText } from './ui/BalancedText'
 
 /* -------------------------------------------------------------------------- */
 /*                                   Types                                    */
@@ -97,7 +94,6 @@ export default function QRScanner({
 }: QRScannerProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
   const { CameraView, useCameraPermissions } = loadExpoCamera()
   const [permission, requestPermission] = useCameraPermissions()
 
@@ -144,10 +140,10 @@ export default function QRScanner({
     return (
       <View style={styles.permScreen}>
         <View style={styles.permIconWrap}>
-          <Ionicons name="camera-outline" size={40} color="#fff" />
+          <Camera size={40} color="#fff" />
         </View>
         <Text style={styles.permTitle}>{t('scan_shares_camera_needed')}</Text>
-        <Text style={styles.permBody}>{t('camera_denied_description')}</Text>
+        <BalancedText style={styles.permBody}>{t('camera_denied_description')}</BalancedText>
         <TouchableOpacity style={styles.permBtn} onPress={() => Linking.openSettings()}>
           <Text style={styles.permBtnText}>{t('open_settings')}</Text>
         </TouchableOpacity>
@@ -163,10 +159,10 @@ export default function QRScanner({
     return (
       <View style={styles.permScreen}>
         <View style={styles.permIconWrap}>
-          <Ionicons name="camera-outline" size={40} color="#fff" />
+          <Camera size={40} color="#fff" />
         </View>
         <Text style={styles.permTitle}>{t('scan_shares_camera_needed')}</Text>
-        <Text style={styles.permBody}>{t('scan_shares_camera_description')}</Text>
+        <BalancedText style={styles.permBody}>{t('scan_shares_camera_description')}</BalancedText>
         <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
           <Text style={styles.permBtnText}>{t('continue_action')}</Text>
         </TouchableOpacity>
@@ -188,8 +184,14 @@ export default function QRScanner({
       <View style={styles.overlay}>
         {/* Top bar */}
         <View style={styles.overlayTop}>
-          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Ionicons name="close" size={26} color="#fff" />
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            testID="scanner-close"
+          >
+            <X size={26} color="#fff" />
           </TouchableOpacity>
         </View>
 
@@ -207,7 +209,7 @@ export default function QRScanner({
 
         {/* Bottom info */}
         <View style={styles.overlayBottom}>
-          <Text style={styles.hintText}>{hintText ?? t('scan_qr_default_hint')}</Text>
+          <BalancedText style={styles.hintText}>{hintText ?? t('scan_qr_default_hint')}</BalancedText>
           {renderBottom?.()}
         </View>
       </View>

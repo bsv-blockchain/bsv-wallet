@@ -84,6 +84,11 @@ function scriptedClient(script: {
       reverseLookups.push([identityKey, forDomain])
       return script.reverse ? script.reverse() : null
     },
+    // Registration never resolves a handle or moves a pin.
+    async resolveHandle() {
+      return { kind: 'none' }
+    },
+    async acceptKey() {},
     serverNow() {
       const at = script.serverNow ?? new Date('2026-09-18T10:00:00.000Z')
       return typeof at === 'function' ? at() : at
@@ -978,7 +983,10 @@ describe('resumePending', () => {
     expect(await resumePending({ client: replay.client, signer: SIGNER, storage })).toEqual({
       kind: 'rejected',
       code: 'ERR_HANDLE_COOLDOWN',
-      description: 'cooldown'
+      description: 'cooldown',
+      // The refused reclaim leaves the wallet with no handle: the result names
+      // the one that did not come back.
+      notRestored: `dee@${DOMAIN}`
     })
     expect(replay.puts).toHaveLength(1)
     expect(journalOf(storage)).toBeNull()

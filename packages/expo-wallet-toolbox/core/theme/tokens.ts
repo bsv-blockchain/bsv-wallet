@@ -55,20 +55,34 @@ export const radii = {
  * rounded to 44 to sit on the 4pt grid). It is for a single focal figure on a
  * screen that has one — an amount being handed to another person — and nothing
  * else. Two `display` elements on one view means the view has no focal point.
+ *
+ * Every ramp names the family as well as the metrics. Without it each ramp is
+ * a size and a weight on whatever face the platform happens to default to, so
+ * a screen built from these tokens renders in San Francisco (or Roboto) while
+ * the host app around it renders in its own face -- and the seam shows on any
+ * screen that has both, which is most of them. The host's family is the one
+ * correct answer here, so it is set once, here, rather than overridden per
+ * component: a component that forgets to override is the bug this prevents.
+ *
+ * Nunito ships embedded at build time (app.config.js, expo-font plugin), with
+ * one static file per weight below -- 400/600/700 -- so there is no window
+ * during startup where this family is unregistered and no flash of a fallback
+ * face. A weight with no embedded file falls back to the nearest one, so keep
+ * these three in step with that plugin's list.
  */
 export const typography = {
-  display: { fontSize: 44, fontWeight: '700' as const, lineHeight: 52, letterSpacing: -0.5 },
-  largeTitle: { fontSize: 34, fontWeight: '700' as const, lineHeight: 41 },
-  title1: { fontSize: 28, fontWeight: '700' as const, lineHeight: 34 },
-  title2: { fontSize: 22, fontWeight: '700' as const, lineHeight: 28 },
-  title3: { fontSize: 20, fontWeight: '600' as const, lineHeight: 25 },
-  headline: { fontSize: 17, fontWeight: '600' as const, lineHeight: 22 },
-  body: { fontSize: 17, fontWeight: '400' as const, lineHeight: 22 },
-  callout: { fontSize: 16, fontWeight: '400' as const, lineHeight: 21 },
-  subhead: { fontSize: 15, fontWeight: '400' as const, lineHeight: 20 },
-  footnote: { fontSize: 13, fontWeight: '400' as const, lineHeight: 18 },
-  caption1: { fontSize: 12, fontWeight: '400' as const, lineHeight: 16 },
-  caption2: { fontSize: 11, fontWeight: '400' as const, lineHeight: 13 }
+  display: { fontFamily: 'Nunito', fontSize: 44, fontWeight: '700' as const, lineHeight: 52, letterSpacing: -0.5 },
+  largeTitle: { fontFamily: 'Nunito', fontSize: 34, fontWeight: '700' as const, lineHeight: 41 },
+  title1: { fontFamily: 'Nunito', fontSize: 28, fontWeight: '700' as const, lineHeight: 34 },
+  title2: { fontFamily: 'Nunito', fontSize: 22, fontWeight: '700' as const, lineHeight: 28 },
+  title3: { fontFamily: 'Nunito', fontSize: 20, fontWeight: '600' as const, lineHeight: 25 },
+  headline: { fontFamily: 'Nunito', fontSize: 17, fontWeight: '600' as const, lineHeight: 22 },
+  body: { fontFamily: 'Nunito', fontSize: 17, fontWeight: '400' as const, lineHeight: 22 },
+  callout: { fontFamily: 'Nunito', fontSize: 16, fontWeight: '400' as const, lineHeight: 21 },
+  subhead: { fontFamily: 'Nunito', fontSize: 15, fontWeight: '400' as const, lineHeight: 20 },
+  footnote: { fontFamily: 'Nunito', fontSize: 13, fontWeight: '400' as const, lineHeight: 18 },
+  caption1: { fontFamily: 'Nunito', fontSize: 12, fontWeight: '400' as const, lineHeight: 16 },
+  caption2: { fontFamily: 'Nunito', fontSize: 11, fontWeight: '400' as const, lineHeight: 13 }
 } as const
 
 /* --------------------------------- Colors -------------------------------- */

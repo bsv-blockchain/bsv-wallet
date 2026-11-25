@@ -4,6 +4,7 @@
  */
 import { Utils } from '@bsv/sdk'
 import { wocConfigFor, type WocConfig } from '../../pay/rails/address'
+import { wocLimitedFetch } from '../../net/wocLimiter'
 import type { AppChain } from '../../config'
 import type { MarkerHistory, MarkerUnknownReason, VaultChainLookup } from './markerLookup'
 
@@ -49,9 +50,11 @@ export function wocChainLookup(chain: AppChain, requestInit?: RequestInit): Vaul
 
   // `requestInit` (for example the app's WhatsOnChain key header) is merged
   // into every request. Headers given per call win on a name clash.
+  // Every request goes through the shared WhatsOnChain limiter: a scan sends
+  // several requests per index, back to back.
   const doFetch = (url: string, init?: RequestInit): Promise<Response> => {
-    if (!requestInit) return init ? fetch(url, init) : fetch(url)
-    return fetch(url, {
+    if (!requestInit) return wocLimitedFetch(url, init)
+    return wocLimitedFetch(url, {
       ...requestInit,
       ...init,
       headers: mergeHeaders(requestInit.headers, init?.headers)

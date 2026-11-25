@@ -18,21 +18,16 @@ import ScreenGradient from './ScreenGradient'
 import { onSheetResumed } from './sheetResumeSignal'
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Loaded lazily, only when actually rendering, same pattern as this
- * package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, like every other glyph this app draws. Imported at module scope
+ * rather than behind a lazy loader: what had to be deferred is
+ * @expo/vector-icons' index barrel, which re-exports every icon set and so
+ * reaches expo-font -> expo-asset as untransformed ESM; nothing here pulls
+ * that barrel in any more. lucide publishes both module formats and Jest
+ * resolves the ESM one, so the app pins this name to lucide's CJS entry in
+ * jest.moduleNameMapper (package.json), as it already does for its other
+ * ESM-only dependencies.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
+import { ChevronLeft } from 'lucide-react-native'
 
 interface SheetProps {
   visible: boolean
@@ -78,7 +73,6 @@ const Sheet: React.FC<SheetProps> = ({
   children
 }) => {
   const { colors } = useTheme()
-  const Ionicons = loadIonicons()
   const insets = useSafeAreaInsets()
   const { height: windowHeight } = Dimensions.get('window')
   const maxSheetHeight = fullPage ? windowHeight : Math.max(0, Math.min(1, heightPercent)) * windowHeight
@@ -222,7 +216,7 @@ const Sheet: React.FC<SheetProps> = ({
         <View style={[styles.fullPageHeader, { borderBottomColor: colors.separator }]}>
           {onBack ? (
             <TouchableOpacity style={styles.fullPageBack} onPress={onBack} activeOpacity={0.6}>
-              <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
+              <ChevronLeft size={24} color={colors.textSecondary} />
             </TouchableOpacity>
           ) : (
             <View style={styles.fullPageBack} />
@@ -288,7 +282,7 @@ const Sheet: React.FC<SheetProps> = ({
               <View style={styles.headerRow}>
                 {onBack ? (
                   <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.6}>
-                    <Ionicons name="chevron-back" size={22} color={colors.textSecondary} />
+                    <ChevronLeft size={22} color={colors.textSecondary} />
                   </TouchableOpacity>
                 ) : (
                   <View style={styles.backButton} />

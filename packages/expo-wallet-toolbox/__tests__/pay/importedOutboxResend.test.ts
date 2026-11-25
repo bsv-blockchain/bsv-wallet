@@ -6,7 +6,7 @@ import {
   releaseImportedOutboxEntry,
   saveOutboxEntry
 } from '../../core/peerpay/outbox'
-import { ADMIN, sender, signedPayment } from '../__helpers__/signedPeerPay'
+import { ADMIN, sender, signedPayment, asPeerPayRows } from '../__helpers__/signedPeerPay'
 
 async function fixture() {
   const values = new Map<string, string>()
@@ -19,7 +19,7 @@ async function fixture() {
   const payment = await signedPayment()
   await saveOutboxEntry(storage, payment)
   await quarantineImportedOutbox(storage)
-  const [held] = await getOutboxEntries(storage)
+  const [held] = asPeerPayRows(await getOutboxEntries(storage))
   const client = {
     sendMessage: jest.fn().mockResolvedValue(undefined),
     listMessages: jest.fn().mockResolvedValue([
@@ -46,7 +46,7 @@ test('a held activity resend cannot fetch, fall back to action metadata, or deli
   expect(f.listPeerPayAction).not.toHaveBeenCalled()
   expect(f.refetch).not.toHaveBeenCalled()
   expect(f.client.sendMessage).not.toHaveBeenCalled()
-  expect(await getOutboxEntries(f.storage)).toEqual([f.held])
+  expect(asPeerPayRows(await getOutboxEntries(f.storage))).toEqual([f.held])
 })
 
 test('a pending resend request remains pending while the payment is held', async () => {
@@ -58,7 +58,7 @@ test('a pending resend request remains pending while the payment is held', async
   expect(f.refetch).not.toHaveBeenCalled()
   expect(f.client.sendMessage).not.toHaveBeenCalled()
   expect(f.client.acknowledgeMessage).not.toHaveBeenCalled()
-  expect(await getOutboxEntries(f.storage)).toEqual([f.held])
+  expect(asPeerPayRows(await getOutboxEntries(f.storage))).toEqual([f.held])
 })
 
 test('another historical row for the same transaction cannot hide its import hold', async () => {

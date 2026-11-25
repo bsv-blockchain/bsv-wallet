@@ -16,6 +16,18 @@
  */
 import React, { useEffect, useRef, useState } from 'react'
 import { View, Text, StyleSheet, TextInput, ActivityIndicator, Platform } from 'react-native'
+import type { HardwareKeyArtComponent } from './EnrollWizard'
+import {
+  CircleAlert,
+  Cpu,
+  FingerprintPattern,
+  Grid3x3,
+  Lock,
+  LockOpen,
+  RefreshCw,
+  Send,
+  type LucideIcon
+} from 'lucide-react-native'
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -43,49 +55,40 @@ import {
   type CeremonyPhase,
   type VaultErrorCode
 } from '@bsv/expo-wallet-toolbox'
+import { BalancedText } from '../ui/BalancedText'
 
 const t = (k: string, opts?: Record<string, unknown>) => i18n.t(k, opts) as string
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Ionicons is loaded lazily, only when actually rendering, same pattern as
- * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, the family this app draws every other glyph from (its settings rows,
+ * its headers, its sheets). Imported at module scope, unlike
+ * @expo/vector-icons: lucide-react-native ships a CJS entry for `require`, so
+ * it needs no transform and reaches no native module at import time, which is
+ * what this package's lazy icon loads exist to avoid.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
 
 /** Swallows the sheet's dismiss while work is in flight — `Sheet` requires an
  * onClose, and cancelling mid-operation is the thing we are preventing. */
 const noop = (): void => {}
 
-const PhaseIcon: Record<CeremonyPhase, keyof IoniconsComponent['glyphMap']> = {
-  idle: 'lock-closed',
-  'waiting-for-key': 'hardware-chip-outline',
-  connecting: 'sync-outline',
-  'pin-entry': 'keypad-outline',
-  'awaiting-touch': 'finger-print-outline',
-  preparing: 'lock-open-outline',
-  broadcasting: 'paper-plane-outline',
-  armed: 'lock-open',
-  error: 'alert-circle-outline'
+const PhaseIcon: Record<CeremonyPhase, LucideIcon> = {
+  idle: Lock,
+  'waiting-for-key': Cpu,
+  connecting: RefreshCw,
+  'pin-entry': Grid3x3,
+  'awaiting-touch': FingerprintPattern,
+  preparing: LockOpen,
+  broadcasting: Send,
+  armed: LockOpen,
+  error: CircleAlert
 }
 
-export const VaultCeremonySheet: React.FC = () => {
+export const VaultCeremonySheet: React.FC<{ keyArt?: HardwareKeyArtComponent }> = ({ keyArt: KeyArt }) => {
   const { colors } = useTheme()
   const { state, submitPin, cancel, retry } = useVault()
   const reducedMotion = useReducedMotion()
   const [pin, setPin] = useState('')
   const [keyNames, setKeyNames] = useState('')
-  const Ionicons = loadIonicons()
 
   const phase = state.phase
   // 'armed' stays hidden: it persists for the whole retention window, so
@@ -204,6 +207,9 @@ export const VaultCeremonySheet: React.FC = () => {
   })()
 
   const iconColor = phase === 'error' ? colors.error : colors.accent
+  const PhaseGlyph = PhaseIcon[phase]
+  // The two phases that ask for the key itself. `awaiting-touch` is the blink.
+  const showKey = KeyArt && (phase === 'waiting-for-key' || phase === 'awaiting-touch')
 
   return (
     <Sheet
@@ -220,13 +226,15 @@ export const VaultCeremonySheet: React.FC = () => {
       }}
     >
       <View style={styles.body}>
-        {reason ? <Text style={[styles.reason, { color: colors.textSecondary }]}>{reason}</Text> : null}
+        {reason ? <BalancedText style={[styles.reason, { color: colors.textSecondary }]}>{reason}</BalancedText> : null}
 
         <Animated.View style={[styles.iconWrap, { backgroundColor: colors.backgroundSecondary }, pulseStyle]}>
           {phase === 'connecting' || busy ? (
             <ActivityIndicator color={iconColor} />
+          ) : showKey && KeyArt ? (
+            <KeyArt waiting={phase === 'awaiting-touch'} size={104} />
           ) : (
-            <Ionicons name={PhaseIcon[phase]} size={40} color={iconColor} />
+            <PhaseGlyph size={36} color={iconColor} />
           )}
         </Animated.View>
 
@@ -237,9 +245,9 @@ export const VaultCeremonySheet: React.FC = () => {
             this is what the user sees as it dismisses and before the next tap. */}
         {betweenBatches && progress && (
           <>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            <BalancedText style={[styles.subtitle, { color: colors.textSecondary }]}>
               {t('vault_nfc_sign_batch', { b: batchIndex, n: batches })}
-            </Text>
+            </BalancedText>
             <Text style={[styles.hint, { color: colors.textSecondary }]}>
               {t('vault_sign_progress', { signed: progress.signed, total: progress.total })}
             </Text>
@@ -249,22 +257,22 @@ export const VaultCeremonySheet: React.FC = () => {
         {/* The whole point of the busy phases: say the work is real and say
             not to leave. While signatures are being gathered, say how many. */}
         {busy && (
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+          <BalancedText style={[styles.subtitle, { color: colors.textSecondary }]}>
             {phase === 'broadcasting'
               ? t('vault_sending_sub')
               : progress
                 ? t('vault_sign_progress', { signed: progress.signed, total: progress.total })
                 : t('vault_unlocking_sub')}
-          </Text>
+          </BalancedText>
         )}
 
         {phase === 'awaiting-touch' && <TouchCountdown color={colors.accent} trackColor={colors.backgroundSecondary} />}
 
         {phase === 'pin-entry' && (
           <>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            <BalancedText style={[styles.subtitle, { color: colors.textSecondary }]}>
               {nfc ? t('vault_pin_sub_nfc') : t('vault_pin_sub_usb')}
-            </Text>
+            </BalancedText>
             <TextInput
               ref={pinInputRef}
               style={[styles.pin, { color: colors.textPrimary, backgroundColor: colors.backgroundSecondary }]}
@@ -303,11 +311,11 @@ export const VaultCeremonySheet: React.FC = () => {
         )}
 
         {phase === 'error' && errCode === 'pin-invalid' && (
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+          <BalancedText style={[styles.subtitle, { color: colors.textSecondary }]}>
             {typeof state.error?.retriesLeft === 'number'
               ? t('vault_pin_invalid_retry', { count: state.error.retriesLeft })
               : t('vault_pin_invalid_retry_generic')}
-          </Text>
+          </BalancedText>
         )}
 
         {phase === 'error' && (

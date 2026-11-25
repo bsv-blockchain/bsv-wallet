@@ -124,7 +124,7 @@ export {
 // app-shell level (app/_layout.tsx) alongside PermissionSheet/ToastHost above.
 // The 1-of-N YubiKey vault has no phrase path: PassphraseField,
 // PhraseBackupSheet and VaultRecoverScreen are gone (spec §3.5).
-export { EnrollWizard } from './components/vault/EnrollWizard'
+export { EnrollWizard, type HardwareKeyArtComponent } from './components/vault/EnrollWizard'
 export { KeyChooser, vaultKeyLabel } from './components/vault/KeyChooser'
 export { vaultErrorCopy, RETRYABLE_VAULT_ERRORS, type VaultErrorParams } from './components/vault/vaultErrorCopy'
 export { BackupReminderSheet } from './components/wallet/BackupReminderSheet'

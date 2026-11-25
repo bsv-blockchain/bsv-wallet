@@ -2,6 +2,21 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, ActivityIndicator } from 'react-native'
 import type { StyleProp, ViewStyle } from 'react-native'
 import { SvgUri } from 'react-native-svg'
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Globe,
+  Image as ImageGlyph,
+  KeyRound,
+  Plus,
+  Search,
+  ShieldCheck,
+  Tag,
+  UserRound,
+  X
+} from 'lucide-react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
 // Same deep path WalletContext uses: the package root does not re-export the
@@ -15,21 +30,12 @@ import { showAlert } from '../components/ui/AlertCard'
 import { haptics, useTheme, spacing, radii, typography, useWallet } from '@bsv/expo-wallet-toolbox'
 
 /**
- * @expo/vector-icons' index barrel re-exports every icon set (AntDesign,
- * etc.), one of which reaches expo-font -> expo-asset -- untransformed ESM
- * that Jest cannot parse when eagerly pulled in via the `ui` package barrel.
- * Ionicons is loaded lazily, only when actually rendering, same pattern as
- * this package's other native-module-boundary fixes (expo-router, expo-blur).
+ * lucide, the family this app draws every other glyph from (its settings rows,
+ * its headers, its sheets). Imported at module scope, unlike
+ * @expo/vector-icons: lucide-react-native ships a CJS entry for `require`, so
+ * it needs no transform and reaches no native module at import time, which is
+ * what this package's lazy icon loads exist to avoid.
  */
-type IoniconsComponent = typeof import('@expo/vector-icons').Ionicons
-let ioniconsComponent: IoniconsComponent | undefined
-function loadIonicons(): IoniconsComponent {
-  if (!ioniconsComponent) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ioniconsComponent = require('@expo/vector-icons').Ionicons as IoniconsComponent
-  }
-  return ioniconsComponent
-}
 
 /**
  * expo-image's package entry is raw TypeScript (`main: src/index.ts`), which
@@ -246,7 +252,6 @@ export function TrustScreen() {
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const { router } = loadExpoRouter()
-  const Ionicons = loadIonicons()
 
   const { settings, updateSettings } = useWallet()
 
@@ -340,7 +345,9 @@ export function TrustScreen() {
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.separator }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
+          <View style={[styles.headerBackWell, { backgroundColor: colors.surfaceSunken }]}>
+            <ArrowLeft size={16} color={colors.textPrimary} />
+          </View>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>{t('trust_network')}</Text>
         <View style={styles.backButton} />
@@ -365,7 +372,7 @@ export function TrustScreen() {
               { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator }
             ]}
           >
-            <Ionicons name="search" size={16} color={colors.textSecondary} style={{ marginRight: spacing.sm }} />
+            <Search size={16} color={colors.textSecondary} style={{ marginRight: spacing.sm }} />
             <TextInput
               style={[styles.searchInput, { color: colors.textPrimary }]}
               placeholder={t('search')}
@@ -416,16 +423,16 @@ export function TrustScreen() {
                     <View style={styles.actions}>
                       {!isFirst && !isSearching && (
                         <TouchableOpacity onPress={() => onMoveUp(item.identityKey)} style={styles.actionBtn}>
-                          <Ionicons name="chevron-up" size={18} color={colors.textSecondary} />
+                          <ChevronUp size={16} color={colors.textSecondary} />
                         </TouchableOpacity>
                       )}
                       {!isLast && !isSearching && (
                         <TouchableOpacity onPress={() => onMoveDown(item.identityKey)} style={styles.actionBtn}>
-                          <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+                          <ChevronDown size={16} color={colors.textSecondary} />
                         </TouchableOpacity>
                       )}
                       <TouchableOpacity onPress={() => onRemove(item.identityKey)} style={styles.actionBtn}>
-                        <Ionicons name="close" size={18} color={colors.error} />
+                        <X size={16} color={colors.error} />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -442,7 +449,7 @@ export function TrustScreen() {
             ]}
             onPress={() => setShowAdd(true)}
           >
-            <Ionicons name="add" size={18} color={colors.accent} style={{ marginRight: spacing.sm }} />
+            <Plus size={16} color={colors.accent} style={{ marginRight: spacing.sm }} />
             <Text style={[styles.addProviderText, { color: colors.accent }]}>{t('add_provider')}</Text>
           </TouchableOpacity>
         </GroupedSection>
@@ -510,7 +517,6 @@ function AddProviderModal({
   colors: any
 }) {
   const { t } = useTranslation()
-  const Ionicons = loadIonicons()
   const [advanced, setAdvanced] = useState(false)
   const [domain, setDomain] = useState('')
   const [name, setName] = useState('')
@@ -620,7 +626,7 @@ function AddProviderModal({
           <View style={[styles.modalHeader]}>
             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{t('add_provider')}</Text>
             <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={20} color={colors.textSecondary} />
+              <X size={16} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
@@ -630,12 +636,7 @@ function AddProviderModal({
                 Enter the domain name for the provider you&apos;d like to add.
               </Text>
               <View style={[styles.inputRow, { borderColor: colors.separator, backgroundColor: colors.fillTertiary }]}>
-                <Ionicons
-                  name="globe-outline"
-                  size={16}
-                  color={colors.textSecondary}
-                  style={{ marginRight: spacing.sm }}
-                />
+                <Globe size={16} color={colors.textSecondary} style={{ marginRight: spacing.sm }} />
                 <TextInput
                   placeholder="trustedentity.com"
                   placeholderTextColor={colors.textSecondary}
@@ -658,7 +659,7 @@ function AddProviderModal({
                   onPress={handleDomainSubmit}
                   style={[styles.primaryBtn, { backgroundColor: colors.accent }]}
                 >
-                  <Ionicons name="document-text-outline" size={16} color={colors.background} />
+                  <FileText size={16} color={colors.background} />
                   <Text style={[styles.primaryBtnText, { color: colors.background }]}>{t('get_provider_details')}</Text>
                 </TouchableOpacity>
               )}
@@ -671,12 +672,7 @@ function AddProviderModal({
 
               {/* Name */}
               <View style={[styles.inputRow, { borderColor: colors.separator, backgroundColor: colors.fillTertiary }]}>
-                <Ionicons
-                  name="person-outline"
-                  size={16}
-                  color={colors.textSecondary}
-                  style={{ marginRight: spacing.sm }}
-                />
+                <UserRound size={16} color={colors.textSecondary} style={{ marginRight: spacing.sm }} />
                 <TextInput
                   placeholder="Entity Name"
                   placeholderTextColor={colors.textSecondary}
@@ -693,12 +689,7 @@ function AddProviderModal({
 
               {/* Icon */}
               <View style={[styles.inputRow, { borderColor: colors.separator, backgroundColor: colors.fillTertiary }]}>
-                <Ionicons
-                  name="image-outline"
-                  size={16}
-                  color={colors.textSecondary}
-                  style={{ marginRight: spacing.sm }}
-                />
+                <ImageGlyph size={16} color={colors.textSecondary} style={{ marginRight: spacing.sm }} />
                 <TextInput
                   placeholder="https://trustedentity.com/icon.png"
                   placeholderTextColor={colors.textSecondary}
@@ -717,12 +708,7 @@ function AddProviderModal({
 
               {/* Public key */}
               <View style={[styles.inputRow, { borderColor: colors.separator, backgroundColor: colors.fillTertiary }]}>
-                <Ionicons
-                  name="key-outline"
-                  size={16}
-                  color={colors.textSecondary}
-                  style={{ marginRight: spacing.sm }}
-                />
+                <KeyRound size={16} color={colors.textSecondary} style={{ marginRight: spacing.sm }} />
                 <TextInput
                   placeholder="0295bf1c7842d14b..."
                   placeholderTextColor={colors.textSecondary}
@@ -746,7 +732,7 @@ function AddProviderModal({
                   onPress={handleDirectValidate}
                   style={[styles.primaryBtn, { backgroundColor: colors.accent }]}
                 >
-                  <Ionicons name="shield-checkmark-outline" size={16} color={colors.background} />
+                  <ShieldCheck size={16} color={colors.background} />
                   <Text style={[styles.primaryBtnText, { color: colors.background }]}>{t('validate_details')}</Text>
                 </TouchableOpacity>
               )}
@@ -755,11 +741,11 @@ function AddProviderModal({
 
           {/* Toggle advanced */}
           <TouchableOpacity onPress={() => setAdvanced(v => !v)} style={styles.advancedBtn}>
-            <Ionicons
-              name={advanced ? 'chevron-up-outline' : 'chevron-down-outline'}
-              size={16}
-              color={colors.textPrimary}
-            />
+            {advanced ? (
+              <ChevronUp size={16} color={colors.textPrimary} />
+            ) : (
+              <ChevronDown size={16} color={colors.textPrimary} />
+            )}
             <Text style={{ marginLeft: spacing.xs, color: colors.textPrimary }}>
               {advanced ? t('hide_advanced') : t('show_advanced')}
             </Text>
@@ -788,12 +774,7 @@ function AddProviderModal({
                   { marginTop: spacing.md, borderColor: colors.separator, backgroundColor: colors.fillTertiary }
                 ]}
               >
-                <Ionicons
-                  name="pricetag-outline"
-                  size={16}
-                  color={colors.textSecondary}
-                  style={{ marginRight: spacing.sm }}
-                />
+                <Tag size={16} color={colors.textSecondary} style={{ marginRight: spacing.sm }} />
                 <TextInput
                   placeholder="Description"
                   placeholderTextColor={colors.textSecondary}
@@ -818,7 +799,7 @@ function AddProviderModal({
               onPress={() => onAdd({ name, description, iconUrl: icon, identityKey })}
               style={[styles.saveBtn, { backgroundColor: colors.accent, opacity: ready ? 1 : 0.5, flex: 0 }]}
             >
-              <Ionicons name="shield-checkmark-outline" size={16} color={colors.background} />
+              <ShieldCheck size={16} color={colors.background} />
               <Text style={[styles.saveBtnText, { color: colors.background }]}>Add</Text>
             </TouchableOpacity>
           </View>
@@ -830,6 +811,13 @@ function AddProviderModal({
 
 // -------------------- Styles --------------------
 const styles = StyleSheet.create({
+  headerBackWell: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -67,6 +67,9 @@ function transport(reply: (url: string, init?: RequestInit) => Reply | Promise<R
 /** A resolver that answers for one foreign domain and nothing else. */
 function resolverFor(domain: string, origin: string | null): RegistryResolver {
   return {
+    async discoverCapabilities() {
+      return { kind: 'none' }
+    },
     async resolve(asked) {
       if (asked === PIN.domain) {
         return {
@@ -266,8 +269,16 @@ describe('search', () => {
     // answers 400 ERR_INVALID_LOOKUP, so an ungated `available@deggen.com`
     // would raise the outage banner off an ordinary typed word.
     expect(await client.search(`available@${PIN.domain}`)).toEqual([])
-    expect(await client.search(`d@${PIN.domain}`)).toEqual([])
     expect(calls).toEqual([])
+  })
+
+  it('asks for a one-character handle only as a complete address', async () => {
+    const { fetchImpl, calls } = transport(() => ({ status: 200, body: [] }))
+    const client = createHandleRegistryClient({ pinned: PIN, fetchImpl })
+    expect(await client.search('d@')).toEqual([])
+    expect(calls).toEqual([])
+    expect(await client.search(`d@${PIN.domain}`)).toEqual([])
+    expect(calls.map(c => c.url)).toEqual(['https://registry.example/api/handle/d'])
   })
 
   it('reads an answer that is not an array as no results, rather than as an outage', async () => {
@@ -568,7 +579,21 @@ describe('key pinning (XR-071)', () => {
     })
     const attacking = transport(() => ({ status: 200, body: [attackerCert] }))
     const swapped = await createHandleRegistryClient({ pinned: PIN, fetchImpl: attacking.fetchImpl }).search(paymail)
-    expect(swapped).toEqual([])
+    // For a complete address the row comes back flagged with the pinned key,
+    // so the caller can warn. The pin itself does not move.
+    expect(swapped).toHaveLength(1)
+    expect(swapped[0].identityKey).toBe(attackerCert.subject)
+    expect(swapped[0].changedFrom).toBe(honestCert.subject)
+    const again = transport(() => ({ status: 200, body: [attackerCert] }))
+    expect(
+      await createHandleRegistryClient({ pinned: PIN, fetchImpl: again.fetchImpl }).resolveHandle(paymail)
+    ).toMatchObject({
+      kind: 'changed',
+      pinnedKey: honestCert.subject
+    })
+    // A partial query never surfaces the swapped key.
+    const partial = transport(() => ({ status: 200, body: [attackerCert] }))
+    expect(await createHandleRegistryClient({ pinned: PIN, fetchImpl: partial.fetchImpl }).search('victim')).toEqual([])
   })
 
   it('keeps answering once a key is pinned, for the honest cert that pinned it', async () => {

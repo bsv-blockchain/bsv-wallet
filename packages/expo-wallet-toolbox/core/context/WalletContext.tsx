@@ -284,7 +284,11 @@ import {
   readMessageBoxUrl,
   retryDelivery
 } from '../pay/rails/handle'
-import { getOutboxEntries, pruneExpiredSent, unsentEntries } from '../peerpay/outbox'
+import { getOutboxEntries, isPaymailEntry, isPeerPayEntry, pruneExpiredSent, unsentEntries } from '../peerpay/outbox'
+import { retryPaymailDelivery } from '../pay/rails/paymail'
+import { createLegacyPaymailClient } from '../pay/paymail/client'
+import { statusFnFromStorage } from '../pay/paymail/networkCheck'
+import { createRegistryResolver } from '../identity/handleRegistry/resolver'
 import { MAX_HEX_RESPONSE_CHARS, wocConfigFor } from '../pay/rails/address'
 import { PeerPayClient } from '@bsv/message-box-client'
 import {
@@ -303,8 +307,10 @@ import { HeaderStore } from '../headers/headerStore'
 import { OfflineFirstChaintracks } from '../headers/OfflineFirstChaintracks'
 import { prewarmOwnRoots } from '../headers/prewarm'
 import { syncHeaders } from '../headers/syncHeaders'
+import { groupSpendingLimit, clampGroupSpending } from '../services/groupSpendingLimit'
 import type { HeaderSource } from '../headers/syncHeaders'
 import { startHeaderSyncTriggers } from '../headers/headerSyncTriggers'
+import { wocLimitedFetch } from '../net/wocLimiter'
 
 // Auto-approve accounting (misc-p2-04). Previously a single global cooldown
 // timer let multiple paired origins accidentally throttle each other while
@@ -1396,7 +1402,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     async (args: GroupPermissionRequest, manager?: SigningPolicyPermissionsManager): Promise<void> => {
       const { requestID, originator, permissions } = args ?? ({} as GroupPermissionRequest)
       if (!requestID || !permissions) return
-      groupQueue.enqueue({ requestID, originator, permissions, manager })
+      const limit = await groupSpendingLimit()
+      groupQueue.enqueue({ requestID, originator, permissions: clampGroupSpending(permissions, limit), manager })
     },
     [groupQueue.enqueue]
   )
@@ -1681,7 +1688,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
               try {
                 const headers: Record<string, string> = {}
                 if (wocApiKey) headers['woc-api-key'] = wocApiKey
-                const res = await fetch(`${wocBumpBase}/tx/${txid}/proof/bump`, { headers })
+                const res = await wocLimitedFetch(`${wocBumpBase}/tx/${txid}/proof/bump`, { headers })
                 if (res.status === 404) {
                   r.notes.push({ what: 'getMerklePathNoData', when: new Date().toISOString() })
                   return r
@@ -2419,6 +2426,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             )
             TaskCreditInbox.noteEnqueued()
 
+            // One resolver per wallet build, for the paymail rail's discovery.
+            const paymailResolver = createRegistryResolver({ pinned: getHandleRegistryConfig(chain) })
             monitor.addTask(
               new TaskDrainOutbox(
                 monitor,
@@ -2426,7 +2435,20 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                   const entries = unsentEntries(await getOutboxEntries(phoneStorage!))
                   return drainUnsentEntries({
                     entries,
+                    isolate: isPaymailEntry,
                     retry: async entry => {
+                      if (isPaymailEntry(entry)) {
+                        await retryPaymailDelivery({
+                          wallet: permissionsManager as never,
+                          adminOriginator,
+                          storage: phoneStorage!,
+                          client: createLegacyPaymailClient({ resolver: paymailResolver }),
+                          getStatusForTxids: statusFnFromStorage(phoneStorage!),
+                          entry
+                        })
+                        return
+                      }
+                      if (!isPeerPayEntry(entry)) return
                       const client = bindMessageBoxNetwork(
                         new PeerPayClient({
                           messageBoxHost: entry.messageBoxUrl,
@@ -4248,7 +4270,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       const woc = NETWORKS[selectedNetwork].woc
       if (!woc) return 'pending'
 
-      const res = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/proof/bump`)
+      const res = await wocLimitedFetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/proof/bump`)
 
       if (res.ok) {
         // XR-059 remainder: a compromised/misbehaving configured indexer must
@@ -4288,7 +4310,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
           txid,
           proof,
           fetchRawTx: async () => {
-            const r = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/hex`)
+            const r = await wocLimitedFetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/${txid}/hex`)
             if (!r.ok) throw new Error(`raw tx fetch failed: ${r.status}`)
             // XR-059 remainder: same unbounded-hex-decode gap as the BUMP
             // fetch above, on the raw-tx body this time. Throwing here (like
@@ -4308,7 +4330,7 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
       // unconfirmed but perfectly healthy tx also has no proof.
       let onChain = false
       try {
-        const head = await fetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/hash/${txid}`)
+        const head = await wocLimitedFetch(`${woc.apiBase}/v1/bsv/${woc.segment}/tx/hash/${txid}`)
         onChain = head.ok
         // XR-030: any other non-OK (429/500/401/403/...) is a service
         // problem, not proof of absence — only a 404 is authoritative.
@@ -4448,16 +4470,9 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
     if (!woc) return releasedNote + 'Spendability check needs WhatsOnChain, which this network does not have.'
     const wocBase = `${woc.apiBase}/v1/bsv/${woc.segment}`
 
-    // Rate limit: max 3 requests/sec (WoC limit ~1 per 0.34s)
-    const WOC_INTERVAL = 340
-    let lastRequest = 0
-    const throttledFetch = async (url: string, init?: RequestInit): Promise<Response> => {
-      const now = Date.now()
-      const wait = WOC_INTERVAL - (now - lastRequest)
-      if (wait > 0) await new Promise(r => setTimeout(r, wait))
-      lastRequest = Date.now()
-      return fetch(url, init)
-    }
+    // The shared WhatsOnChain limiter paces these, together with every other
+    // WhatsOnChain request the app sends at the same time.
+    const throttledFetch = wocLimitedFetch
 
     try {
       const outputs = await storage.findOutputs({
