@@ -27,7 +27,7 @@ const PLACEHOLDERS: Record<string, string[]> = {
   bridge_done_n_sites: ['{{n}}']
 }
 const GLYPH = '◀ Safari'
-const LOCALES = ['en', 'es', 'zh', 'hi', 'fr', 'ar', 'pt', 'bn', 'ru', 'id', 'ja', 'pl', 'de']
+const LOCALES = ['en', 'es', 'zh', 'hi', 'fr', 'ar', 'pt', 'bn', 'ru', 'id', 'ja', 'pl', 'de', 'is']
 const tr = (code: string) => (resources as Record<string, { translation: Record<string, string> }>)[code].translation
 
 describe('bridge done screen wording', () => {
