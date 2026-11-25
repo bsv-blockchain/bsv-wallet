@@ -15385,6 +15385,7 @@ const resources = {
       vault_restore_pending:
         '{{count}} Einzahlung(en) gefunden, sie warten auf die erste Bestätigung — versuch es gleich noch einmal.',
       vault_restore_none_found: 'Für dieses Wallet wurden keine Tresor-Einzahlungen in der Blockchain gefunden.',
+      vault_restore_needs_key: 'Tresor gefunden. Tippe einen seiner Schlüssel an, um ihn wiederherzustellen.',
       vault_balance_label: 'Im Tresor',
       vault_key_section: 'Sicherheitsschlüssel ({{count}} von 5)',
       vault_manage_section: 'Verwalten',
@@ -15431,6 +15432,19 @@ const resources = {
       vault_reset_body:
         'Dieser Schlüssel wurde schon benutzt. Zurücksetzen löscht jedes Zertifikat und jeden Schlüssel in seiner PIV-Anwendung, nicht nur den Tresor-Slot. Alles, was auf diesem Schlüssel beruht, funktioniert danach nicht mehr.',
       vault_reset_ack: 'Ich verstehe, dass damit alles auf diesem Schlüssel gelöscht wird',
+      vault_card_checking: 'Die Blockchain wird nach einem Tresor durchsucht, den dieser Schlüssel öffnet…',
+      vault_card_funds_title: 'Dieser Schlüssel öffnet einen Tresor',
+      vault_card_funds_body_one:
+        'Mit diesem Schlüssel lässt sich 1 Einzahlung ({{amount}}) öffnen. Stelle den Tresor wieder her, statt den Schlüssel zurückzusetzen.',
+      vault_card_funds_body_other:
+        'Mit diesem Schlüssel lassen sich {{count}} Einzahlungen ({{amount}}) öffnen. Stelle den Tresor wieder her, statt den Schlüssel zurückzusetzen.',
+      vault_card_restore: 'Diesen Tresor wiederherstellen',
+      vault_card_unknown_title: 'Die Blockchain konnte nicht geprüft werden',
+      vault_card_unknown_body:
+        'Der Schlüssel wurde nicht geändert. Versuche es erneut. Wenn du ihn ohne Prüfung zurücksetzt, ist jeder Tresor, den er öffnet, für immer verloren.',
+      vault_card_retry: 'Erneut versuchen',
+      vault_card_loss_ack:
+        'Wenn du diesen Schlüssel zurücksetzt, ist alles Guthaben in einem Tresor, der ihn verwendet, für immer verloren.',
       vault_reset_unknown_ack:
         'Dieses Gerät kann nicht bestätigen, ob dieser Schlüssel noch den Tresor eines anderen Profils sichert. Ich verstehe, dass das Löschen diesen Schlüssel endgültig zerstören kann.',
       vault_reset_own_draft_ack:
@@ -15477,8 +15491,8 @@ const resources = {
       vault_done_cta: 'Fertig',
       vault_add_key_row: 'Schlüssel hinzufügen',
       vault_add_key_done:
-        '{{nickname}} kann Einzahlungen öffnen, die ab jetzt entstehen. Sperre den Tresor neu, damit er alles öffnen kann.',
-      vault_key_added_toast: 'Schlüssel hinzugefügt',
+        '{{nickname}} ist gespeichert, aber noch nicht aktiv. Er öffnet diesen Tresor erst, wenn du ihn mit einem deiner anderen Schlüssel bestätigst.',
+      vault_key_added_toast: 'Schlüssel gespeichert. Er ist noch nicht aktiv.',
       vault_recovery_verified: 'Wiederhergestellter Schlüssel auf diesem Gerät geprüft',
       vault_relock_row: 'Tresor neu sperren',
       vault_relock_now: 'Jetzt neu sperren',
@@ -15496,7 +15510,7 @@ const resources = {
         'Der Tresor bindet an höchstens fünf Schlüssel. Entferne einen, bevor du einzahlst, neu sperrst oder einen Teil des Guthabens auszahlst.',
       vault_key_section_over_limit: 'Sicherheitsschlüssel ({{count}}, einen entfernen)',
       vault_add_key_done_over_limit:
-        '{{nickname}} ist hinzugefügt. Der Tresor bindet an höchstens fünf Schlüssel, entferne also den Schlüssel, den dieser ersetzt, und sperre danach einmal neu.',
+        '{{nickname}} ist gespeichert, aber noch nicht aktiv. Der Tresor bindet an höchstens fünf Schlüssel, entferne also den Schlüssel, den dieser ersetzt. Dadurch wird {{nickname}} auch aktiv.',
       vault_relock_done: 'Tresor auf deine aktuellen Schlüssel neu gesperrt',
       vault_relock_capped: 'Noch {{count}} Einzahlungen übrig — sperre erneut neu, um sie zu verschieben.',
       vault_relock_unreachable:
@@ -15785,6 +15799,8 @@ const resources = {
       review_imported_payment: 'Importierte Zahlung prüfen',
       review_imported_payment_detail:
         'Diese Zahlung stammt aus einer Sicherung und wurde vielleicht abgebrochen. Jetzt {{amount}} Satoshis an {{recipient}} senden?',
+      review_imported_paymail_detail:
+        'Diese Zahlung stammt aus einer Sicherung und wurde vielleicht abgebrochen. Sie ist als {{amount}} Satoshis an {{recipient}} eingetragen, aber die App kann nicht prüfen, ob die signierte Transaktion diesen Empfänger und diesen Betrag bezahlt. Trotzdem senden?',
       payment_not_delivered: 'Nicht zugestellt',
       payment_delivered: 'Zugestellt',
       retry: 'Erneut versuchen',
@@ -15873,6 +15889,8 @@ const resources = {
       authorize: 'Genehmigen',
       renewal: 'Verlängerung',
       spending_section: 'Ausgeben',
+      spending_up_to: 'Bis zu',
+      spending_each_month: 'pro Monat, bis du es entfernst',
       protocols_section: 'Protokolle',
       baskets_section: 'Körbe',
       certificates_section: 'Zertifikate',
@@ -16430,7 +16448,8 @@ const resources = {
         'die öffentlichen Schlüssel sehen, die aus deinem Identitätsschlüssel abgeleitet sind',
       'bridge.policy.seekPermissionWhenApplyingActionLabels.off': 'deine Transaktionen mit Labels versehen',
       'bridge.policy.seekPermissionWhenApplyingActionLabels.on': 'deine Transaktionen mit Labels versehen',
-      'bridge.policy.seekPermissionWhenListingActionsByLabel.off': 'deinen Transaktionsverlauf und deine Ausgänge lesen',
+      'bridge.policy.seekPermissionWhenListingActionsByLabel.off':
+        'deinen Transaktionsverlauf und deine Ausgänge lesen',
       'bridge.policy.seekPermissionWhenListingActionsByLabel.on': 'deinen Transaktionsverlauf und deine Ausgänge lesen',
       'bridge.policy.seekProtocolPermissionsForEncrypting.off': 'Daten verschlüsseln und entschlüsseln',
       'bridge.policy.seekProtocolPermissionsForEncrypting.on': 'Daten verschlüsseln und entschlüsseln',
@@ -16439,7 +16458,7 @@ const resources = {
       'bridge.policy.seekProtocolPermissionsForSigning.off': 'mit deinen Schlüsseln signieren (außer beim Anmelden)',
       'bridge.policy.seekProtocolPermissionsForSigning.on': 'mit deinen Schlüsseln signieren (außer beim Anmelden)',
       'bridge.policy.seekSpendingPermissions.off': 'aus deinem Guthaben ausgeben',
-      'bridge.policy.seekSpendingPermissions.on': 'aus deinem Guthaben ausgeben',
+      'bridge.policy.seekSpendingPermissions.on': 'aus deinem Guthaben ausgeben'
     }
   },
   is: {
@@ -16636,7 +16655,8 @@ const resources = {
       vault_restore_found: '{{count}} innborgun(ir) í öryggishólf fundust á blokkarkeðjunni.',
       vault_restore_pending:
         '{{count}} innborgun(ir) fundust en bíða fyrstu staðfestingar — reyndu aftur eftir augnablik.',
-      vault_restore_none_found: 'Engar innborgarnir í öryggishólf fundust á blokkarkeðjunni fyrir þetta veski.',
+      vault_restore_none_found: 'Engar innborganir í öryggishólf fundust á blokkarkeðjunni fyrir þetta veski.',
+      vault_restore_needs_key: 'Öryggishólf fannst. Snertu einn af lyklum þess til að endurheimta það.',
       vault_balance_label: 'Í öryggishólfi',
       vault_key_section: 'Öryggislyklar ({{count}} af 5)',
       vault_manage_section: 'Umsjón',
@@ -16649,9 +16669,9 @@ const resources = {
       vault_deposit_done: 'Fært í öryggishólfið',
       vault_reclaim_done: 'Innistæða sótt til baka úr rofinni innborgun í öryggishólf',
       vault_withdraw_done: 'Tekið út úr öryggishólfi',
-      vault_withdraw_partial: '{{count}} innborgarnir eftir — taktu út aftur til að færa þær.',
+      vault_withdraw_partial: '{{count}} innborganir eftir — taktu út aftur til að færa þær.',
       vault_withdraw_reason: 'Haltu YubiKey hér til að skrifa undir — taka út {{amount}} sats',
-      vault_not_released_body: 'Ekki enn í boði — innborgarnir í öryggishólf eru af í þessari útgáfu.',
+      vault_not_released_body: 'Ekki enn í boði — innborganir í öryggishólf eru af í þessari útgáfu.',
       vault_not_on_mainnet_body:
         'Öryggishólfið er aðeins á Mainnet. Skiptu veskinu aftur yfir á Mainnet til að nota það.',
       vault_intro_title: 'Setja upp öryggishólf',
@@ -16682,6 +16702,19 @@ const resources = {
       vault_reset_body:
         'Þessi lykill hefur þegar verið notaður. Endurstilling eyðir hverju skírteini og hverjum lykli í PIV-forritinu, ekki aðeins rými öryggishólfsins. Allt sem byggir á þessum lykli hættir að virka.',
       vault_reset_ack: 'Ég skil að þetta eyðir öllu á þessum lykli',
+      vault_card_checking: 'Leitað á blokkarkeðjunni að öryggishólfi sem þessi lykill opnar…',
+      vault_card_funds_title: 'Þessi lykill opnar öryggishólf',
+      vault_card_funds_body_one:
+        'Hægt er að opna 1 innborgun ({{amount}}) með þessum lykli. Endurheimtu öryggishólfið í stað þess að endurstilla lykilinn.',
+      vault_card_funds_body_other:
+        'Hægt er að opna {{count}} innborganir ({{amount}}) með þessum lykli. Endurheimtu öryggishólfið í stað þess að endurstilla lykilinn.',
+      vault_card_restore: 'Endurheimta þetta öryggishólf',
+      vault_card_unknown_title: 'Ekki tókst að athuga blokkarkeðjuna',
+      vault_card_unknown_body:
+        'Lyklinum var ekki breytt. Reyndu aftur. Ef þú endurstillir hann án þess að athuga glatast öll öryggishólf sem hann opnar fyrir fullt og allt.',
+      vault_card_retry: 'Reyna aftur',
+      vault_card_loss_ack:
+        'Ef þú endurstillir þennan lykil glatast allt fé í öryggishólfi sem notar hann fyrir fullt og allt.',
       vault_reset_unknown_ack:
         'Þetta tæki getur ekki staðfest hvort þessi lykill verndar enn öryggishólf annars sniðs. Ég skil að eyðing getur eyðilagt þennan lykil endanlega.',
       vault_reset_own_draft_ack:
@@ -16727,8 +16760,8 @@ const resources = {
       vault_done_cta: 'Lokið',
       vault_add_key_row: 'Bæta við lykli',
       vault_add_key_done:
-        '{{nickname}} getur opnað innborgarnir sem verða til héðan í frá. Læstu öryggishólfinu aftur svo hann geti opnað allt.',
-      vault_key_added_toast: 'Lykli bætt við',
+        '{{nickname}} er vistaður en ekki virkur enn. Hann opnar þetta öryggishólf aðeins eftir að þú staðfestir hann með einum af hinum lyklunum þínum.',
+      vault_key_added_toast: 'Lykill vistaður. Hann er ekki virkur enn.',
       vault_recovery_verified: 'Endurheimtur lykill staðfestur á þessu tæki',
       vault_relock_row: 'Læsa öryggishólfi aftur',
       vault_relock_now: 'Læsa aftur núna',
@@ -16743,17 +16776,17 @@ const resources = {
         'Öryggishólfið bindst við mest fimm lykla. Fjarlægðu einn áður en þú leggur inn, læsir aftur eða tekur hluta út.',
       vault_key_section_over_limit: 'Öryggislyklar ({{count}}, fjarlægðu einn)',
       vault_add_key_done_over_limit:
-        '{{nickname}} hefur verið bætt við. Öryggishólfið bindst við mest fimm lykla, svo fjarlægðu lykilinn sem þessi kemur í staðinn fyrir og læstu svo einu sinni aftur.',
+        '{{nickname}} er vistaður en ekki virkur enn. Öryggishólfið læsist með mest fimm lyklum, svo fjarlægðu lykilinn sem þessi kemur í staðinn fyrir. Þá verður {{nickname}} líka virkur.',
       vault_relock_done: 'Öryggishólf læst aftur á núverandi lykla',
-      vault_relock_capped: '{{count}} innborgarnir eftir — læstu aftur til að færa þær.',
+      vault_relock_capped: '{{count}} innborganir eftir — læstu aftur til að færa þær.',
       vault_relock_unreachable:
-        '{{count}} innborgarnir er aðeins hægt að opna með {{names}}. Læstu aftur með einum þeirra.',
-      vault_badge_missing: '{{count}} innborgarnir eru ekki enn opnar fyrir {{nickname}}',
-      vault_badge_removed: '{{count}} innborgarnir eru enn opnar fyrir fjarlægðan lykil',
-      vault_badge_unreachable: '{{count}} innborgarnir getur enginn lykill á þessum lista opnað',
+        '{{count}} innborganir er aðeins hægt að opna með {{names}}. Læstu aftur með einum þeirra.',
+      vault_badge_missing: '{{count}} innborganir eru ekki enn opnar fyrir {{nickname}}',
+      vault_badge_removed: '{{count}} innborganir eru enn opnar fyrir fjarlægðan lykil',
+      vault_badge_unreachable: '{{count}} innborganir getur enginn lykill á þessum lista opnað',
       vault_forget_unreachable_title: 'Gleyma innborgunum sem ekki er hægt að opna',
       vault_forget_unreachable_message:
-        '{{count}} innborgarnir eru aðeins bundnar við lykla sem eru ekki á þessum lista, oftast úr eldri uppsetningu YubiKey-lyklanna. Enginn lykill þinn getur eytt þeim. Að gleyma fjarlægir þær úr þessu veski og afriti þess svo þær komi ekki aftur. Myntin verður eftir á blokkarkeðjunni.',
+        '{{count}} innborganir eru aðeins bundnar við lykla sem eru ekki á þessum lista, oftast úr eldri uppsetningu YubiKey-lyklanna. Enginn lykill þinn getur eytt þeim. Að gleyma fjarlægir þær úr þessu veski og afriti þess svo þær komi ekki aftur. Myntin verður eftir á blokkarkeðjunni.',
       vault_forget_unreachable_confirm: 'Gleyma',
       vault_forget_unreachable_done: '{{count}} innborgunum gleymt',
       vault_restore_unreachable:
@@ -16791,7 +16824,7 @@ const resources = {
       vault_remainder_change: 'Breyta upphæð',
       vault_unreachable_title: 'Hluti hólfsins þarf annan lykil',
       vault_unreachable_body:
-        'Hluti hólfsins þarf annan lykil — fært: {{moved}}. {{count}} innborgarnir að upphæð {{amount}} er aðeins hægt að opna með {{names}}. Taktu út aftur með einum þeirra.',
+        'Hluti hólfsins þarf annan lykil — fært: {{moved}}. {{count}} innborganir að upphæð {{amount}} er aðeins hægt að opna með {{names}}. Taktu út aftur með einum þeirra.',
       vault_sign_progress: '{{signed}} af {{total}} undirritað',
       vault_err_pin_locked_enroll:
         'PIN þessa YubiKey er læst. Opnaðu það með PUK í Yubico Authenticator eða settu upp annan YubiKey.',
@@ -16889,13 +16922,13 @@ const resources = {
         'Uppsetning YubiKey stöðvaðist eftir að lyklinum var breytt. Fylgdu leiðbeiningum um að reyna aftur; þessum lykli var ekki bætt við öryggishólfið.',
       vault_restore_with_key: 'Endurheimta með YubiKey',
       vault_restore_with_key_body:
-        'Sláðu inn PIN þessa YubiKey og snertu hann þegar beðið er um það. Veskið finnur innborgarnir öryggishólfsins á blokkarkeðjunni og endurheimtir þær sem þessi lykill getur opnað.',
+        'Sláðu inn PIN þessa YubiKey og snertu hann þegar beðið er um það. Veskið finnur innborganir öryggishólfsins á blokkarkeðjunni og endurheimtir þær sem þessi lykill getur opnað.',
       vault_err_key_opens_nothing:
         'Þessi YubiKey getur ekki opnað neina innborgun í öryggishólf á blokkarkeðjunni. Lykli hans var líklega skipt út í seinni uppsetningu.',
       vault_err_key_not_adopted:
         'Sannaðu eign á þessum endurheimta YubiKey á þessu tæki áður en þú tekur út með honum.',
       vault_err_too_many_inputs:
-        'Of margar innborgarnir til að færa í einu. Taktu fyrst minni upphæð út — hver úttekt safnar hólfinu líka saman, svo sú næsta getur fært meira.',
+        'Of margar innborganir til að færa í einu. Taktu fyrst minni upphæð út — hver úttekt safnar hólfinu líka saman, svo sú næsta getur fært meira.',
       vault_err_requires_online:
         'Færslur í öryggishólfi þurfa tengingu. Tengdu aftur og reyndu — fé í hólfinu er aldrei sett í biðröð.',
       vault_err_user_cancelled: 'Hætt við.',
@@ -17021,6 +17054,8 @@ const resources = {
       review_imported_payment: 'Yfirfara innflutta greiðslu',
       review_imported_payment_detail:
         'Þessi greiðsla kom úr afriti og kann að hafa verið stöðvuð. Senda {{amount}} satoshí á {{recipient}} núna?',
+      review_imported_paymail_detail:
+        'Þessi greiðsla kom úr afriti og kann að hafa verið stöðvuð. Hún er skráð sem {{amount}} satoshí til {{recipient}}, en appið getur ekki athugað hvort undirritaða færslan greiði þessum viðtakanda þessa upphæð. Senda samt?',
       payment_not_delivered: 'Ekki afhent',
       payment_delivered: 'Afhent',
       retry: 'Reyna aftur',
@@ -17108,8 +17143,10 @@ const resources = {
       authorize: 'Heimila',
       renewal: 'Endurnýjun',
       spending_section: 'Eyðsla',
+      spending_up_to: 'Allt að',
+      spending_each_month: 'á mánuði, þar til þú fjarlægir það',
       protocols_section: 'Samskiptareglur',
-      baskets_section: 'Karfar',
+      baskets_section: 'Körfur',
       certificates_section: 'Skírteini',
       requested_fields: 'Umbeðnir reitir',
       color_prompt_send_title: 'Beiðni um að senda tákn',
@@ -17649,7 +17686,7 @@ const resources = {
       'bridge.policy.seekProtocolPermissionsForSigning.off': 'skrifa undir með lyklunum þínum (annað en innskráning)',
       'bridge.policy.seekProtocolPermissionsForSigning.on': 'skrifa undir með lyklunum þínum (annað en innskráning)',
       'bridge.policy.seekSpendingPermissions.off': 'eyða af innistæðunni',
-      'bridge.policy.seekSpendingPermissions.on': 'eyða af innistæðunni',
+      'bridge.policy.seekSpendingPermissions.on': 'eyða af innistæðunni'
     }
   }
 }
