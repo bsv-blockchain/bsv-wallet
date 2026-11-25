@@ -284,7 +284,11 @@ import {
   readMessageBoxUrl,
   retryDelivery
 } from '../pay/rails/handle'
-import { getOutboxEntries, pruneExpiredSent, unsentEntries } from '../peerpay/outbox'
+import { getOutboxEntries, isPaymailEntry, isPeerPayEntry, pruneExpiredSent, unsentEntries } from '../peerpay/outbox'
+import { retryPaymailDelivery } from '../pay/rails/paymail'
+import { createLegacyPaymailClient } from '../pay/paymail/client'
+import { statusFnFromStorage } from '../pay/paymail/networkCheck'
+import { createRegistryResolver } from '../identity/handleRegistry/resolver'
 import { MAX_HEX_RESPONSE_CHARS, wocConfigFor } from '../pay/rails/address'
 import { PeerPayClient } from '@bsv/message-box-client'
 import {
@@ -2422,6 +2426,8 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
             )
             TaskCreditInbox.noteEnqueued()
 
+            // One resolver per wallet build, for the paymail rail's discovery.
+            const paymailResolver = createRegistryResolver({ pinned: getHandleRegistryConfig(chain) })
             monitor.addTask(
               new TaskDrainOutbox(
                 monitor,
@@ -2429,7 +2435,20 @@ export const WalletContextProvider: React.FC<WalletContextProps> = ({ children =
                   const entries = unsentEntries(await getOutboxEntries(phoneStorage!))
                   return drainUnsentEntries({
                     entries,
+                    isolate: isPaymailEntry,
                     retry: async entry => {
+                      if (isPaymailEntry(entry)) {
+                        await retryPaymailDelivery({
+                          wallet: permissionsManager as never,
+                          adminOriginator,
+                          storage: phoneStorage!,
+                          client: createLegacyPaymailClient({ resolver: paymailResolver }),
+                          getStatusForTxids: statusFnFromStorage(phoneStorage!),
+                          entry
+                        })
+                        return
+                      }
+                      if (!isPeerPayEntry(entry)) return
                       const client = bindMessageBoxNetwork(
                         new PeerPayClient({
                           messageBoxHost: entry.messageBoxUrl,

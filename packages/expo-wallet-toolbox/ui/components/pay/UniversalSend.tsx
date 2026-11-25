@@ -50,6 +50,10 @@ import { formatTokenAmount, formatTokenAmountWithUnit, shortAssetId, tokenUnitsF
 import { abbreviateKey } from '../../../core/pay/counterparty'
 import type { ContactRow } from '../../../core/contacts/contactsStore'
 import { createHandleRegistryClient } from '../../../core/identity/handleRegistry/client'
+import { createRegistryResolver } from '../../../core/identity/handleRegistry/resolver'
+import { cancelPaymailPayment, retryPaymailDelivery } from '../../../core/pay/rails/paymail'
+import { createLegacyPaymailClient } from '../../../core/pay/paymail/client'
+import { statusFnFromStorage } from '../../../core/pay/paymail/networkCheck'
 import type { RegistryProfile } from '../../../core/identity/handleRegistry/profileCert'
 import {
   useTheme,
@@ -74,6 +78,7 @@ import {
   sendToAddress,
   getOutboxEntries,
   pruneExpiredSent,
+  isPaymailEntry,
   type OutboxEntry,
   type Session,
   haptics,
@@ -174,7 +179,9 @@ function OutgoingSection({
           const truncated =
             entry.status === 'import_hold'
               ? t('review_imported_payment')
-              : `${entry.recipient.slice(0, 8)}…${entry.recipient.slice(-4)}`
+              : isPaymailEntry(entry)
+                ? entry.paymail
+                : `${entry.recipient.slice(0, 8)}…${entry.recipient.slice(-4)}`
           return (
             <View
               key={entry.id}
@@ -192,7 +199,7 @@ function OutgoingSection({
                   </Text>
                   {entry.status !== 'import_hold' && (
                     <Text style={[styles.outgoingAmount, { color: accentColor }]}>
-                      <AmountDisplay>{entry.token.amount}</AmountDisplay>
+                      <AmountDisplay>{isPaymailEntry(entry) ? entry.satoshis : entry.token.amount}</AmountDisplay>
                     </Text>
                   )}
                 </View>
@@ -366,6 +373,17 @@ function UniversalSendInner(
       registryDomain && registryUrl
         ? createHandleRegistryClient({ pinned: { domain: registryDomain, url: registryUrl } })
         : null,
+    [registryDomain, registryUrl]
+  )
+
+  // The paymail rail's resolver and client, one per screen.
+  const paymailClient = useMemo(
+    () =>
+      createLegacyPaymailClient({
+        resolver: createRegistryResolver({
+          pinned: registryDomain && registryUrl ? { domain: registryDomain, url: registryUrl } : undefined
+        })
+      }),
     [registryDomain, registryUrl]
   )
 
@@ -1184,6 +1202,31 @@ function UniversalSendInner(
     async (entry: OutboxEntry) => {
       // Held rows can become actionable only through the validated inline approval.
       if (entry.status !== 'unsent') return
+      if (isPaymailEntry(entry)) {
+        if (!storage || !wallet) return
+        if (entry.refused === true) {
+          showToast('The receiver refused this payment. Cancel it to free the funds.', { type: 'error' })
+          return
+        }
+        setRetryingId(entry.id)
+        try {
+          await retryPaymailDelivery({
+            wallet: wallet as never,
+            adminOriginator,
+            storage,
+            client: paymailClient,
+            getStatusForTxids: statusFnFromStorage(storage as never),
+            entry
+          })
+        } catch (e: any) {
+          const reason = e?.message || t('unknown_error')
+          showToast(`${t('retry_failed')}: ${reason}`, { type: 'error' })
+        } finally {
+          setRetryingId(null)
+          await loadOutbox()
+        }
+        return
+      }
       // `peerPayClient` is built from the CURRENT setting, so it wins: the
       // configured host may have changed since this entry was minted, and the
       // client re-resolves the recipient's advertised inbox on every send
@@ -1214,12 +1257,40 @@ function UniversalSendInner(
         await loadOutbox()
       }
     },
-    [peerPayClient, storage, loadOutbox, wallet, adminOriginator, t, handleRetryError, selectedNetwork]
+    [peerPayClient, paymailClient, storage, loadOutbox, wallet, adminOriginator, t, handleRetryError, selectedNetwork]
   )
 
   const handleCancel = useCallback(
     async (entry: OutboxEntry) => {
       if (!storage || !wallet) return
+      if (isPaymailEntry(entry)) {
+        // No abandon sheet and no delivered branch: the network decides.
+        const choice = await showAlert({
+          title: t('cancel_this_payment'),
+          buttons: [
+            { text: t('cancel'), style: 'cancel', key: 'cancel' },
+            { text: t('cancel_payment'), style: 'destructive', key: 'cancel_payment' }
+          ]
+        })
+        if (choice !== 'cancel_payment') return
+        setRetryingId(entry.id)
+        try {
+          await cancelPaymailPayment({
+            wallet: wallet as never,
+            adminOriginator,
+            storage,
+            client: paymailClient,
+            getStatusForTxids: statusFnFromStorage(storage as never),
+            entry
+          })
+        } catch (e: any) {
+          showToast(e?.message || t('unknown_error'), { type: 'error' })
+        } finally {
+          setRetryingId(null)
+          await loadOutbox()
+        }
+        return
+      }
       const deliveredOrUncertain = entry.delivered === true || entry.delivering === true
       if (deliveredOrUncertain) {
         const key = await showChoiceSheet({
@@ -1270,7 +1341,7 @@ function UniversalSendInner(
         await loadOutbox()
       }
     },
-    [storage, wallet, adminOriginator, peerPayClient, handleRetry, loadOutbox, t]
+    [storage, wallet, adminOriginator, peerPayClient, paymailClient, handleRetry, loadOutbox, t]
   )
 
   // Token mode: an exact bigint figure (a number would round past 2^53).

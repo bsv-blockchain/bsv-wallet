@@ -62,6 +62,7 @@ import {
   getOnline,
   haptics,
   getOutboxEntries,
+  isPeerPayEntry,
   unsentEntries,
   retryDelivery,
   makePeerPayClient,
@@ -75,6 +76,12 @@ import {
   type PendingResend
 } from '@bsv/expo-wallet-toolbox'
 import { NETWORKS } from '../../core/networks'
+import { isPaymailEntry } from '../../core/peerpay/outbox'
+import { getHandleRegistryConfig } from '../../core/toolboxConfig'
+import { cancelPaymailPayment, resolveOrphanPaymailAction, retryPaymailDelivery } from '../../core/pay/rails/paymail'
+import { createLegacyPaymailClient } from '../../core/pay/paymail/client'
+import { statusFnFromStorage } from '../../core/pay/paymail/networkCheck'
+import { createRegistryResolver } from '../../core/identity/handleRegistry/resolver'
 import { bindMessageBoxNetwork, readMessageBoxUrl } from '../../core/pay/rails/handle'
 import ActivityRow, { type ActivityAction } from '../components/wallet/ActivityRow'
 import { FitAmount } from '../components/wallet/FitAmount'
@@ -1017,6 +1024,11 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     [busyRow, refreshProof, t]
   )
 
+  const paymailClient = useMemo(() => {
+    const registry = getHandleRegistryConfig(selectedNetwork)
+    return createLegacyPaymailClient({ resolver: createRegistryResolver({ pinned: registry }) })
+  }, [selectedNetwork])
+
   /**
    * Abort a still-local transaction, releasing the inputs it reserved.
    *
@@ -1032,10 +1044,66 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       if (!managers.permissionsManager || busyRow) return
       setBusyRow(reference)
       try {
-        if (action?.labels?.includes('peerpay')) {
+        if (action?.labels?.some(l => l === 'peerpay' || l === 'paymail')) {
           const entries = storage ? await getOutboxEntries(storage) : []
+          const isPaymail = action.labels?.includes('paymail') === true
+          const hasRow = action.txid != null && entries.some(e => e.txid === action.txid)
+          if (isPaymail && !hasRow) {
+            // A noSend paymail action with no row (a crash or a restore): the
+            // network decides, and abortAction is never called directly.
+            if (!action.txid || !storage) {
+              showToast(t('tx_abort_maybe_delivered'), { type: 'error' })
+              return
+            }
+            try {
+              const r = await resolveOrphanPaymailAction({
+                wallet: managers.permissionsManager as never,
+                adminOriginator,
+                getStatusForTxids: statusFnFromStorage(storage as never),
+                txid: action.txid
+              })
+              if (r.aborted) {
+                showToast(t('tx_abort_success'), { type: 'success' })
+                await onRefresh()
+              } else {
+                showToast(t('tx_abort_maybe_delivered'), { type: 'error' })
+              }
+            } catch (e) {
+              showToast(e instanceof Error ? e.message : t('tx_abort_failed'), { type: 'error' })
+            }
+            return
+          }
           if (!isAbortSafe(action, entries).aborted) {
             showToast(t('tx_abort_maybe_delivered'), { type: 'error' })
+            return
+          }
+          const paymailRow = isPaymail ? entries.find(e => e.txid === action.txid && isPaymailEntry(e)) : undefined
+          if (paymailRow && isPaymailEntry(paymailRow)) {
+            // A paymail row survives a plain abort and the drain would re-POST
+            // its BEEF over freed inputs. Network decides; abort removes the row.
+            if (!storage) {
+              showToast(t('tx_abort_maybe_delivered'), { type: 'error' })
+              return
+            }
+            try {
+              const r = await cancelPaymailPayment({
+                wallet: managers.permissionsManager as never,
+                adminOriginator,
+                storage,
+                client: paymailClient,
+                getStatusForTxids: statusFnFromStorage(storage as never),
+                entry: paymailRow
+              })
+              if (r.aborted) {
+                showToast(t('tx_abort_success'), { type: 'success' })
+                await onRefresh()
+              } else {
+                showToast(t('tx_abort_maybe_delivered'), { type: 'error' })
+                await onRefresh()
+              }
+            } catch (e) {
+              showToast(e instanceof Error ? e.message : t('tx_abort_failed'), { type: 'error' })
+            }
             return
           }
         }
@@ -1055,7 +1123,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
         setBusyLabel(undefined)
       }
     },
-    [managers.permissionsManager, adminOriginator, busyRow, onRefresh, storage, t]
+    [managers.permissionsManager, adminOriginator, busyRow, onRefresh, storage, t, paymailClient]
   )
 
   const onResendPending = useCallback(async () => {
@@ -1202,11 +1270,43 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
     ]
   )
 
+  // The paymail rail's resolver and client, one per screen.
   const onFailedSendAgain = useCallback(
     async (action: ActivityAction) => {
       if (busyRow) return
       if (action.txid && storage && managers.permissionsManager) {
-        const entry = unsentEntries(await getOutboxEntries(storage)).find(e => e.txid === action.txid)
+        const paymailRow = unsentEntries(await getOutboxEntries(storage))
+          .filter(isPaymailEntry)
+          .find(e => e.txid === action.txid)
+        if (paymailRow?.refused === true) {
+          // The retry is a no-op for a refused row. Say so, do not fake success.
+          showToast(t('paymail_refused_cancel_hint', { defaultValue: 'The receiver refused this payment. Cancel it to free the funds.' }), { type: 'error' })
+          return
+        }
+        if (paymailRow) {
+          // A paymail row has no message box: never build a PeerPay client for it.
+          setBusyRow(action.txid)
+          try {
+            await retryPaymailDelivery({
+              wallet: managers.permissionsManager as never,
+              adminOriginator,
+              storage,
+              client: paymailClient,
+              getStatusForTxids: statusFnFromStorage(storage as never),
+              entry: paymailRow
+            })
+            haptics.success()
+            await onRefresh()
+          } catch (e: unknown) {
+            showToast(e instanceof Error ? e.message : t('unknown_error'), { type: 'error' })
+          } finally {
+            setBusyRow(null)
+          }
+          return
+        }
+        const entry = unsentEntries(await getOutboxEntries(storage))
+          .filter(isPeerPayEntry)
+          .find(e => e.txid === action.txid)
         if (entry) {
           setBusyRow(action.txid)
           try {
@@ -1252,7 +1352,7 @@ export function WalletHomeScreen({ topLeft }: WalletHomeScreenProps = {}) {
       const sats = Math.abs(action.satoshis)
       router.push(sats > 0 ? `/pay?sats=${sats}` : '/pay')
     },
-    [busyRow, storage, managers.permissionsManager, adminOriginator, selectedNetwork, onRefresh, t]
+    [busyRow, storage, managers.permissionsManager, adminOriginator, selectedNetwork, onRefresh, paymailClient, t]
   )
 
   const toggleRow = useCallback((key: string) => {

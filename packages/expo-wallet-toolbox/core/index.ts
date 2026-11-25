@@ -317,6 +317,13 @@ export * from './pay/rails/address'
 export * from './pay/rails/sweep'
 export * from './pay/rails/handle'
 export * from './pay/rails/direct'
+export * from './pay/rails/paymail'
+export * from './pay/paymail/client'
+export * from './pay/paymail/networkCheck'
+export { classifyPaymailDomain, classifyPaymailDomainDetailed } from './identity/handleRegistry/classify'
+export type { PaymailClass, PaymailClassification, UnsupportedReason } from './identity/handleRegistry/classify'
+export { createRegistryResolver } from './identity/handleRegistry/resolver'
+export type { RegistryResolver, CapabilityDiscovery } from './identity/handleRegistry/resolver'
 // nearby.ts is a pure re-export barrel over localpay/* (already exported above)
 // and @bsv/air-gap; only its genuinely new names are re-exported here by hand —
 // a blanket `export *` would collide (TS2308) with the localpay/offline exports

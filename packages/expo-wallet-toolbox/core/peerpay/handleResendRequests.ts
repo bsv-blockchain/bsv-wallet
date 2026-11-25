@@ -1,7 +1,7 @@
 import { Beef } from '@bsv/sdk'
 import { PUBKEY_LABEL } from '../pay/counterparty'
 import { ackControlMessages, isDuplicateMessageError, listControlMessages, parseControlMessage } from './control'
-import { getOutboxEntries, getOutboxEntriesStrict, type OutboxEntry } from './outbox'
+import { getOutboxEntries, getOutboxEntriesStrict, isPeerPayEntry, type PeerPayOutboxEntry } from './outbox'
 import { instructionsFromOutput, rebuildPeerPayToken } from './rebuildToken'
 
 /** The message box outbound payments are delivered into. Same name as handle.ts. */
@@ -204,12 +204,12 @@ function recipientFromLabels(labels: string[] | undefined): string | undefined {
   return labels?.find(l => PUBKEY_LABEL.test(l))
 }
 
-function outboxTxid(entry: OutboxEntry): string | undefined {
+function outboxTxid(entry: PeerPayOutboxEntry): string | undefined {
   if (typeof entry.txid === 'string' && entry.txid.length > 0) return entry.txid
   return outboxTokenTxid(entry)
 }
 
-function outboxTokenTxid(entry: OutboxEntry): string | undefined {
+function outboxTokenTxid(entry: PeerPayOutboxEntry): string | undefined {
   try {
     const txid = Beef.fromBinary(Array.from(entry.token.transaction)).atomicTxid
     return typeof txid === 'string' && txid.length > 0 ? txid : undefined
@@ -218,7 +218,7 @@ function outboxTokenTxid(entry: OutboxEntry): string | undefined {
   }
 }
 
-function actionFromOutbox(entry: OutboxEntry, txid: string): PeerPayActionLike {
+function actionFromOutbox(entry: PeerPayOutboxEntry, txid: string): PeerPayActionLike {
   return {
     txid,
     labels: ['peerpay'],
@@ -285,7 +285,7 @@ async function resolveResendRecipient(
   txid: string,
   listPeerPayAction?: (txid: string) => Promise<PeerPayActionLike | undefined>
 ): Promise<string | undefined> {
-  const entries = await getOutboxEntries(storage)
+  const entries = (await getOutboxEntries(storage)).filter(isPeerPayEntry)
   const entry = entries.find(e => outboxTxid(e) === txid)
   if (entry?.recipient) return entry.recipient
   const listed = listPeerPayAction ? await listPeerPayAction(txid) : undefined
@@ -403,7 +403,7 @@ async function rebuildAndDeliver(args: {
   decryptMetadata?: (value: string) => Promise<string>
 }): Promise<ResendOutcome> {
   // An unreadable queue cannot establish that this transaction is not held.
-  const entries = await getOutboxEntriesStrict(args.storage)
+  const entries = (await getOutboxEntriesStrict(args.storage)).filter(isPeerPayEntry)
   // Resending hands the signed payment to its recipient just like a retry.
   // A held import must pass the reviewed release flow first; neither another
   // history row for this txid nor the action-metadata fallback may bypass it.

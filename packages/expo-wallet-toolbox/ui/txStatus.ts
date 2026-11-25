@@ -32,7 +32,7 @@ export interface TxStatusView {
  * without one was made by a connected app or the wallet itself (an identity
  * certificate, say), so it reads "Spent", not "Sent".
  */
-const PAYMENT_LABELS = new Set(['peerpay', 'localpay', 'legacy', 'mandala'])
+const PAYMENT_LABELS = new Set(['peerpay', 'localpay', 'legacy', 'mandala', 'paymail'])
 
 export function isPaymentAction(labels?: readonly string[]): boolean {
   return Boolean(labels?.some(l => PAYMENT_LABELS.has(l)))

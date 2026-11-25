@@ -1,6 +1,6 @@
 {
   "name": "@bsv/expo-wallet-toolbox",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "private": false,
   "description": "Wallet screens and P2P local-payment backend for Expo/React Native apps, extracted from BSV Wallet.",
   "license": "Apache-2.0",

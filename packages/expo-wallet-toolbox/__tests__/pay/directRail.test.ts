@@ -3,6 +3,7 @@
  * one outbox row per payment, broadcast only after the recipient's ack, and a link that fails
  * after sending left to the outbox drain, which delivers the same token through the message box.
  */
+import { asPeerPayRows } from '../__helpers__/signedPeerPay'
 import { LockingScript, P2PKH, PrivateKey, Transaction } from '@bsv/sdk'
 import { DirectDeliveryUnconfirmedError, sendViaDirect } from '../../core/pay/rails/direct'
 import { retryDelivery } from '../../core/pay/rails/handle'
@@ -92,7 +93,7 @@ describe('sendViaDirect', () => {
     client.sendPayment.mockImplementation(async () => {
       order.push('send')
       // The row exists and is marked delivering before anything goes over the link.
-      const [row] = await getOutboxEntries(storage)
+      const [row] = asPeerPayRows(await getOutboxEntries(storage))
       expect(row).toMatchObject({ via: 'direct', delivering: true, status: 'unsent' })
       expect(row.delivered).toBeUndefined()
       return { status: 'accepted', txid: 'x' }
@@ -100,7 +101,7 @@ describe('sendViaDirect', () => {
     const result = await sendViaDirect(args({ wallet, client, storage, extra: { note: 'coffee' } }))
     expect(order).toEqual(['dial', 'mint', 'send', 'broadcast'])
     expect(result).toMatchObject({ ackStatus: 'accepted', broadcast: 'sent', satoshis: 700 })
-    const [row] = await getOutboxEntries(storage)
+    const [row] = asPeerPayRows(await getOutboxEntries(storage))
     expect(row).toMatchObject({ status: 'sent', delivered: true, via: 'direct', txid: result.txid })
     expect(wallet.createAction.mock.calls[0][0].labels).toEqual(['peerpay', KEY])
     expect(client.sendPayment.mock.calls[0][2]).toEqual({ note: 'coffee' })
@@ -143,7 +144,7 @@ describe('sendViaDirect', () => {
     expect(err).toBeInstanceOf(NotSentError)
     expect(err.failure).toBeUndefined()
     expect(err.detail).toBe('Insufficient funds')
-    expect(await getOutboxEntries(storage)).toEqual([])
+    expect(asPeerPayRows(await getOutboxEntries(storage))).toEqual([])
   })
 
   it('a link that closed before sending aborts the minted payment and leaves no row', async () => {
@@ -158,7 +159,7 @@ describe('sendViaDirect', () => {
     expect(err).toMatchObject({ name: 'NotSentError', failure: 'unknown' })
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
     expect(client.sendPayment).not.toHaveBeenCalled()
-    expect(await getOutboxEntries(storage)).toEqual([])
+    expect(asPeerPayRows(await getOutboxEntries(storage))).toEqual([])
   })
 
   it('a payment over the 1 MB live limit is aborted before anything is spent, and offers the message box', async () => {
@@ -183,7 +184,7 @@ describe('sendViaDirect', () => {
     expect(err).toMatchObject({ name: 'NotSentError', failure: 'too_large' })
     expect(wallet.abortAction).toHaveBeenCalledWith({ reference: 'ref-big' }, 'admin.com')
     expect(client.sendPayment).not.toHaveBeenCalled()
-    expect(await getOutboxEntries(storage)).toEqual([])
+    expect(asPeerPayRows(await getOutboxEntries(storage))).toEqual([])
   })
 
   it('refuses to pay live without a message box to finish through, before dialing', async () => {
@@ -211,7 +212,7 @@ describe('sendViaDirect', () => {
     expect(err.why).toBe(why)
     expect(order).toEqual(['dial', 'mint', 'send'])
     expect(wallet.abortAction).not.toHaveBeenCalled()
-    const [row] = await getOutboxEntries(storage)
+    const [row] = asPeerPayRows(await getOutboxEntries(storage))
     expect(row).toMatchObject({ status: 'unsent', delivering: true, via: 'direct' })
     expect(row.delivered).toBeUndefined()
     expect(TaskDrainOutbox.hasPending).toBe(true)
@@ -232,7 +233,7 @@ describe('sendViaDirect', () => {
     })
     await sendViaDirect(args({ wallet, client, storage })).catch(() => {})
     const box = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    const [row] = unsentEntries(await getOutboxEntries(storage))
+    const [row] = unsentEntries(asPeerPayRows(await getOutboxEntries(storage)))
     await retryDelivery({
       wallet: wallet as never,
       adminOriginator: 'admin.com',
@@ -245,7 +246,7 @@ describe('sendViaDirect', () => {
     expect(body.transaction).toEqual((sentToken as any).transaction)
     expect(order.filter(s => s === 'mint')).toHaveLength(1)
     expect(order.filter(s => s === 'broadcast')).toHaveLength(1)
-    expect((await getOutboxEntries(storage))[0].status).toBe('sent')
+    expect((asPeerPayRows(await getOutboxEntries(storage)))[0].status).toBe('sent')
   })
 
   it('a broadcast that fails after a good ack is left to the drain, and the payment counts as paid', async () => {
@@ -258,7 +259,7 @@ describe('sendViaDirect', () => {
     })
     const result = await sendViaDirect(args({ wallet, storage }))
     expect(result).toMatchObject({ ackStatus: 'accepted', broadcast: 'pending' })
-    const [row] = await getOutboxEntries(storage)
+    const [row] = asPeerPayRows(await getOutboxEntries(storage))
     expect(row).toMatchObject({ status: 'unsent', delivered: true, lastError: 'ARC unreachable' })
     expect(TaskDrainOutbox.hasPending).toBe(true)
   })

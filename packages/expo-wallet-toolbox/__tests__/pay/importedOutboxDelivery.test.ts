@@ -9,8 +9,8 @@ jest.mock('../../core/pay/rails/address', () => ({
 }))
 
 import { retryDelivery } from '../../core/pay/rails/handle'
-import { OUTBOX_KEY, getOutboxEntries, saveOutboxEntry, type OutboxEntry } from '../../core/peerpay/outbox'
-import { ADMIN, signedPayment } from '../__helpers__/signedPeerPay'
+import { OUTBOX_KEY, getOutboxEntries, saveOutboxEntry, type PeerPayOutboxEntry } from '../../core/peerpay/outbox'
+import { ADMIN, signedPayment, asPeerPayRows } from '../__helpers__/signedPeerPay'
 
 async function setup() {
   const values = new Map<string, string>()
@@ -19,7 +19,7 @@ async function setup() {
     setKeyValue: jest.fn(async (key: string, value: string) => { values.set(key, value) })
   }
   await saveOutboxEntry(storage, await signedPayment())
-  const [entry] = await getOutboxEntries(storage)
+  const [entry] = asPeerPayRows(await getOutboxEntries(storage))
   storage.getKeyValue.mockClear()
   storage.setKeyValue.mockClear()
   const wallet = { createAction: jest.fn().mockResolvedValue({ sendWithResults: [{ txid: entry.txid, status: 'sending' }] }) }
@@ -27,13 +27,13 @@ async function setup() {
   return {
     storage, entry, wallet, client,
     replace: (rows: unknown[]) => values.set(OUTBOX_KEY, JSON.stringify(rows)),
-    retry: (reviewed: OutboxEntry = entry) => retryDelivery({ wallet, client, storage, entry: reviewed, adminOriginator: ADMIN })
+    retry: (reviewed: PeerPayOutboxEntry = entry) => retryDelivery({ wallet, client, storage, entry: reviewed, adminOriginator: ADMIN })
   }
 }
 
 it.each(['import_hold', 'sent', 'future_status'])('refuses a %s caller before any storage or delivery side effect', async status => {
   const f = await setup()
-  await f.retry({ ...f.entry, status } as OutboxEntry)
+  await f.retry({ ...f.entry, status } as PeerPayOutboxEntry)
   expect(f.storage.getKeyValue).not.toHaveBeenCalled()
   expect(f.storage.setKeyValue).not.toHaveBeenCalled()
   expect(f.client.sendMessage).not.toHaveBeenCalled()
@@ -46,7 +46,7 @@ it.each(['import_hold', 'sent', 'future_status', 'removed'])('re-reads a row cha
   await f.retry()
   expect(f.client.sendMessage).not.toHaveBeenCalled()
   expect(f.wallet.createAction).not.toHaveBeenCalled()
-  expect(await getOutboxEntries(f.storage)).toEqual(status === 'removed' ? [] : [expect.objectContaining({ status })])
+  expect(asPeerPayRows(await getOutboxEntries(f.storage))).toEqual(status === 'removed' ? [] : [expect.objectContaining({ status })])
 })
 
 it('re-reads status after delivery and stops before broadcasting a newly held row', async () => {
@@ -55,7 +55,7 @@ it('re-reads status after delivery and stops before broadcasting a newly held ro
   await f.retry()
   expect(f.client.sendMessage).toHaveBeenCalledTimes(1)
   expect(f.wallet.createAction).not.toHaveBeenCalled()
-  expect((await getOutboxEntries(f.storage))[0].status).toBe('import_hold')
+  expect((asPeerPayRows(await getOutboxEntries(f.storage)))[0].status).toBe('import_hold')
 })
 
 it('delivers an ordinary unsent signed payment, broadcasts its own txid and marks it sent', async () => {
@@ -65,7 +65,7 @@ it('delivers an ordinary unsent signed payment, broadcasts its own txid and mark
     recipient: f.entry.recipient, messageBox: 'payment_inbox', body: JSON.stringify(f.entry.token)
   }, undefined)
   expect(f.wallet.createAction).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ sendWith: [f.entry.txid] }) }), ADMIN)
-  expect((await getOutboxEntries(f.storage))[0].status).toBe('sent')
+  expect((asPeerPayRows(await getOutboxEntries(f.storage)))[0].status).toBe('sent')
 })
 
 it('preserves legacy already-broadcast delivery without creating another action', async () => {
@@ -75,5 +75,5 @@ it('preserves legacy already-broadcast delivery without creating another action'
   await f.retry(entry)
   expect(f.client.sendMessage).toHaveBeenCalledTimes(1)
   expect(f.wallet.createAction).not.toHaveBeenCalled()
-  expect((await getOutboxEntries(f.storage))[0].status).toBe('sent')
+  expect((asPeerPayRows(await getOutboxEntries(f.storage)))[0].status).toBe('sent')
 })

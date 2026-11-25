@@ -215,4 +215,45 @@ describe('drainUnsentEntries', () => {
     expect(retry).toHaveBeenCalledTimes(2)
     expect(retry.mock.calls.map(c => c[0].id)).toEqual(['a', 'b'])
   })
+
+  it('an isolated row that throws does not stop the rows behind it', async () => {
+    const retry = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('receiver down'))
+      .mockResolvedValueOnce(undefined)
+    const result = await drainUnsentEntries({
+      entries: [entry('pm'), entry('pp')],
+      retry,
+      isolate: e => e.id === 'pm'
+    })
+    expect(retry.mock.calls.map(c => c[0].id)).toEqual(['pm', 'pp'])
+    expect(result).toEqual({ retried: 1, remaining: 1, stopped: false })
+  })
+
+  it('a row that is not isolated still stops the pass', async () => {
+    const retry = jest.fn().mockRejectedValueOnce(new Error('box down'))
+    await expect(
+      drainUnsentEntries({ entries: [entry('pp'), entry('pm')], retry, isolate: e => e.id === 'pm' })
+    ).rejects.toThrow('box down')
+    expect(retry).toHaveBeenCalledTimes(1)
+  })
+
+  it('drainUnsentEntries retries a paymail row through the same retry callback', async () => {
+    const row: OutboxEntry = {
+      kind: 'paymail',
+      id: 'pm1',
+      createdAt: new Date().toISOString(),
+      status: 'unsent',
+      txid: 'ab'.repeat(32),
+      paymail: 'a@b.io',
+      endpoint: 'https://b.io/beef',
+      paymailReference: 'r',
+      beefHex: '00',
+      satoshis: 1
+    }
+    const retry = jest.fn().mockResolvedValue(undefined)
+    await drainUnsentEntries({ entries: [row], retry })
+    expect(retry).toHaveBeenCalledTimes(1)
+    expect(retry.mock.calls[0][0]).toMatchObject({ kind: 'paymail', id: 'pm1' })
+  })
 })

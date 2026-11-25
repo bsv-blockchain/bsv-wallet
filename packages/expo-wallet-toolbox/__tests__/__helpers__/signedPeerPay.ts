@@ -1,5 +1,5 @@
 import { P2PKH, PrivateKey, ProtoWallet, PublicKey, Transaction } from '@bsv/sdk'
-import type { saveOutboxEntry } from '../../core/peerpay/outbox'
+import type { getOutboxEntries, PeerPayOutboxEntry, saveOutboxEntry } from '../../core/peerpay/outbox'
 
 export const ADMIN = 'admin.test'
 export const sender = new ProtoWallet(new PrivateKey(7))
@@ -30,4 +30,9 @@ export async function signedPayment(outputIndex = 0, amount = 17): Promise<Param
     txid: tx.id('hex'),
     token: { customInstructions, transaction: tx.toAtomicBEEF(), amount, ...(outputIndex ? { outputIndex } : {}) }
   }
+}
+
+/** The stored rows of a test that only ever saves PeerPay payments. */
+export function asPeerPayRows(rows: Awaited<ReturnType<typeof getOutboxEntries>>): PeerPayOutboxEntry[] {
+  return rows as PeerPayOutboxEntry[]
 }

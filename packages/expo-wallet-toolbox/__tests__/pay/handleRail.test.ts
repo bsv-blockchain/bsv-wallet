@@ -1,3 +1,4 @@
+import { asPeerPayRows } from '../__helpers__/signedPeerPay'
 import {
   DEFAULT_MESSAGE_BOX_URL,
   MESSAGE_BOX_URL_KEY,
@@ -7,6 +8,8 @@ import {
   internalizeIncoming,
   resetCreditAckQueueForTests,
   cancelOutboxPayment,
+  abortNosendByTxid,
+  abortPeerPayNosend,
   isAbortSafe,
   isMessageBoxNetworkError,
   peerPayLinkFor,
@@ -258,7 +261,7 @@ describe('sendViaHandle', () => {
       sendMessage: jest.fn(async () => {
         // The outbox entry must already exist at this point, or a crash here
         // loses the derivation data and the money with it.
-        expect(await getOutboxEntries(s)).toHaveLength(1)
+        expect(asPeerPayRows(await getOutboxEntries(s))).toHaveLength(1)
       })
     }
     await sendViaHandle(sendArgs(w, client, s))
@@ -279,7 +282,7 @@ describe('sendViaHandle', () => {
     const client = { sendMessage: jest.fn(async () => void order.push('deliver')) }
     await sendViaHandle(sendArgs(w, client, s))
     expect(order).toEqual(['mint', 'deliver', 'broadcast'])
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     expect(entry.status).toBe('sent')
     expect(entry.txid).toBeTruthy()
   })
@@ -289,7 +292,7 @@ describe('sendViaHandle', () => {
     const w = fakeWallet()
     const client = { sendMessage: jest.fn().mockRejectedValue(new Error('offline')) }
     await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow('offline')
-    const entries = await getOutboxEntries(s)
+    const entries = asPeerPayRows(await getOutboxEntries(s))
     expect(entries).toHaveLength(1)
     expect(entries[0].status).toBe('unsent')
     expect(entries[0].delivered).not.toBe(true)
@@ -312,7 +315,7 @@ describe('sendViaHandle', () => {
     }
     await sendViaHandle(sendArgs(w, client, s))
     expect(client.sendMessage).toHaveBeenCalled()
-    expect((await getOutboxEntries(s))[0].status).toBe('sent')
+    expect((asPeerPayRows(await getOutboxEntries(s)))[0].status).toBe('sent')
   })
 
   it('still sends when the recipient advertised a host, even if it matches the sender host', async () => {
@@ -326,7 +329,7 @@ describe('sendViaHandle', () => {
     }
     await sendViaHandle(sendArgs(w, client, s))
     expect(client.sendMessage).toHaveBeenCalled()
-    expect((await getOutboxEntries(s))[0].status).toBe('sent')
+    expect((asPeerPayRows(await getOutboxEntries(s)))[0].status).toBe('sent')
   })
 
   it('aborts the minted action when the outbox write fails', async () => {
@@ -354,7 +357,7 @@ describe('sendViaHandle', () => {
     const w = fakeWallet()
     const client = { sendMessage: jest.fn().mockRejectedValue(new Error('offline')) }
     await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow('offline')
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     expect(entry.lastError).toBe('offline')
     expect(entry.lastAttemptAt).toBeTruthy()
   })
@@ -364,14 +367,14 @@ describe('sendViaHandle', () => {
     const w = fakeWallet()
     const client = {
       sendMessage: jest.fn(async () => {
-        const entry = (await getOutboxEntries(s))[0]
+        const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
         expect(entry.delivering).toBe(true)
         expect(entry.delivered).not.toBe(true)
         throw new Error('lost response')
       })
     }
     await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow('lost response')
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     expect(entry.delivering).toBe(true)
   })
 
@@ -385,7 +388,7 @@ describe('sendViaHandle', () => {
     })
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
     await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow('broadcast failed')
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     expect(entry.status).toBe('unsent')
     expect(entry.delivered).toBe(true)
   })
@@ -402,7 +405,7 @@ describe('sendViaHandle', () => {
     })
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
     await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow(/broadcast_not_confirmed/)
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     expect(entry.status).toBe('unsent')
     expect(entry.delivered).toBe(true)
   })
@@ -436,11 +439,11 @@ describe('sendViaHandle', () => {
     })
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
     await expect(sendViaHandle(sendArgs(w, client, s))).rejects.toThrow(/broadcast_not_confirmed/)
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     // Must stay retryable — an ambiguous release response must never be
     // treated as a successful, terminal broadcast.
     expect(entry.status).toBe('unsent')
-    expect(unsentEntries(await getOutboxEntries(s))).toHaveLength(1)
+    expect(unsentEntries(asPeerPayRows(await getOutboxEntries(s)))).toHaveLength(1)
   })
 
   it('XR-050: retryDelivery also does not mark sent on an ambiguous broadcast response', async () => {
@@ -449,14 +452,14 @@ describe('sendViaHandle', () => {
     const entry = await (async () => {
       const failing = { sendMessage: jest.fn().mockRejectedValueOnce(new Error('offline')) }
       await expect(sendViaHandle(sendArgs(w, failing, s, 5))).rejects.toThrow()
-      return (await getOutboxEntries(s))[0]
+      return (asPeerPayRows(await getOutboxEntries(s)))[0]
     })()
     w.createAction.mockResolvedValue({ sendWithResults: [] })
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
     await expect(
       retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
     ).rejects.toThrow(/broadcast_not_confirmed/)
-    expect(unsentEntries(await getOutboxEntries(s))).toHaveLength(1)
+    expect(unsentEntries(asPeerPayRows(await getOutboxEntries(s)))).toHaveLength(1)
   })
 
   it('sends to the payment_inbox message box as JSON', async () => {
@@ -525,7 +528,7 @@ describe('sendViaHandle', () => {
     expect(result.satoshis).toBe(4990)
     const delivered = JSON.parse((client.sendMessage.mock.calls[0][0] as { body: string }).body)
     expect(delivered.amount).toBe(4990)
-    expect((await getOutboxEntries(s))[0].token.amount).toBe(4990)
+    expect((asPeerPayRows(await getOutboxEntries(s)))[0].token.amount).toBe(4990)
   })
 
   it('passes recipientHost to sendMessage and persists it on the entry', async () => {
@@ -534,7 +537,7 @@ describe('sendViaHandle', () => {
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
     await sendViaHandle({ ...sendArgs(w, client, s), recipientHost: 'https://their.box' })
     expect(client.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ recipient: KEY }), 'https://their.box')
-    expect((await getOutboxEntries(s))[0].recipientHost).toBe('https://their.box')
+    expect((asPeerPayRows(await getOutboxEntries(s)))[0].recipientHost).toBe('https://their.box')
   })
 
   it('sends with no host override and stores no recipientHost when none was given', async () => {
@@ -543,7 +546,7 @@ describe('sendViaHandle', () => {
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
     await sendViaHandle(sendArgs(w, client, s))
     expect(client.sendMessage.mock.calls[0][1]).toBeUndefined()
-    expect((await getOutboxEntries(s))[0]).not.toHaveProperty('recipientHost')
+    expect((asPeerPayRows(await getOutboxEntries(s)))[0]).not.toHaveProperty('recipientHost')
   })
 })
 
@@ -578,7 +581,7 @@ describe('retryDelivery', () => {
   const stuckEntry = async (s: ReturnType<typeof fakeStorage>, w: ReturnType<typeof fakeWallet>) => {
     const client = { sendMessage: jest.fn().mockRejectedValueOnce(new Error('offline')) }
     await expect(sendViaHandle(sendArgs(w, client, s, 5))).rejects.toThrow()
-    return (await getOutboxEntries(s))[0]
+    return (asPeerPayRows(await getOutboxEntries(s)))[0]
   }
 
   it('resumes from delivery, broadcasts, and marks sent', async () => {
@@ -593,7 +596,7 @@ describe('retryDelivery', () => {
       storage: s,
       entry
     })
-    expect((await getOutboxEntries(s))[0].status).toBe('sent')
+    expect((asPeerPayRows(await getOutboxEntries(s)))[0].status).toBe('sent')
     expect(client.sendMessage).toHaveBeenCalledTimes(1)
     const sendWithCalls = w.createAction.mock.calls.filter((c: any[]) => c[0]?.options?.sendWith)
     expect(sendWithCalls).toHaveLength(1)
@@ -613,7 +616,7 @@ describe('retryDelivery', () => {
       entry
     })
     expect(client.sendMessage).not.toHaveBeenCalled()
-    expect((await getOutboxEntries(s))[0].status).toBe('sent')
+    expect((asPeerPayRows(await getOutboxEntries(s)))[0].status).toBe('sent')
   })
 
   it("XR-048: refuses to broadcast when the persisted txid does not match the entry's own token", async () => {
@@ -630,7 +633,7 @@ describe('retryDelivery', () => {
     // Must never hand the tampered, unrelated txid to sendWith.
     const sendWithCalls = w.createAction.mock.calls.filter((c: any[]) => c[0]?.options?.sendWith)
     expect(sendWithCalls).toHaveLength(0)
-    expect((await getOutboxEntries(s))[0].status).toBe('unsent')
+    expect((asPeerPayRows(await getOutboxEntries(s)))[0].status).toBe('unsent')
   })
 
   it('only re-delivers a legacy entry (no txid) — its transaction was broadcast at creation', async () => {
@@ -648,7 +651,7 @@ describe('retryDelivery', () => {
     })
     const sendWithCalls = w.createAction.mock.calls.filter((c: any[]) => c[0]?.options?.sendWith)
     expect(sendWithCalls).toHaveLength(0)
-    expect((await getOutboxEntries(s))[0].status).toBe('sent')
+    expect((asPeerPayRows(await getOutboxEntries(s)))[0].status).toBe('sent')
   })
 
   it('records the error and rethrows on a failed retry', async () => {
@@ -659,7 +662,7 @@ describe('retryDelivery', () => {
     await expect(
       retryDelivery({ wallet: w as never, adminOriginator: 'admin.com', client: client as never, storage: s, entry })
     ).rejects.toThrow('still offline')
-    const after = (await getOutboxEntries(s))[0]
+    const after = (asPeerPayRows(await getOutboxEntries(s)))[0]
     expect(after.status).toBe('unsent')
     expect(after.lastError).toBe('still offline')
     expect(after.lastAttemptAt).toBeTruthy()
@@ -697,7 +700,7 @@ describe('retryDelivery', () => {
     // The row is now `delivering` — cancelOutboxPayment's default
     // ('undelivered') mode refuses to touch it, exactly as an explicit
     // 'Abandon payment' UI action would be reached in this state.
-    expect((await getOutboxEntries(s))[0].delivering).toBe(true)
+    expect((asPeerPayRows(await getOutboxEntries(s)))[0].delivering).toBe(true)
     w.listActions.mockResolvedValue({ actions: [{ txid: entry.txid, reference: 'ref-1' }] })
     const abandonClient = { sendMessage: jest.fn().mockResolvedValue(undefined) }
     const cancelResult = await cancelOutboxPayment({
@@ -713,14 +716,14 @@ describe('retryDelivery', () => {
     // still dropped — the retry-stops guarantee below comes from the row's
     // disappearance, not from any abort outcome.
     expect(cancelResult.aborted).toBe(false)
-    expect(await getOutboxEntries(s)).toHaveLength(0)
+    expect(asPeerPayRows(await getOutboxEntries(s))).toHaveLength(0)
     // Only now does the retry's blocked sendMessage resolve.
     resolveSend()
     await retryPromise
     // The retry must not have gone on to broadcast, nor to re-create the row.
     const sendWithCalls = w.createAction.mock.calls.filter((c: any[]) => c[0]?.options?.sendWith)
     expect(sendWithCalls).toHaveLength(0)
-    expect(await getOutboxEntries(s)).toHaveLength(0)
+    expect(asPeerPayRows(await getOutboxEntries(s))).toHaveLength(0)
   })
 })
 
@@ -732,7 +735,7 @@ describe('retryDelivery — recipient host', () => {
     await expect(sendViaHandle({ ...sendArgs(w, failing, s), recipientHost: 'https://their.box' })).rejects.toThrow(
       'down'
     )
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     expect(entry.status).toBe('unsent')
 
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
@@ -751,7 +754,7 @@ describe('retryDelivery — recipient host', () => {
     const w = fakeWallet()
     const failing = { sendMessage: jest.fn().mockRejectedValue(new Error('down')) }
     await expect(sendViaHandle(sendArgs(w, failing, s))).rejects.toThrow('down')
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     const client = { sendMessage: jest.fn().mockResolvedValue(undefined) }
     await retryDelivery({
       wallet: w as never,
@@ -772,7 +775,7 @@ describe('cancelOutboxPayment', () => {
       messageBoxUrl: 'https://mb',
       txid: 'aa'
     })
-    return (await getOutboxEntries(s)).find(e => e.id === id)!
+    return (asPeerPayRows(await getOutboxEntries(s))).find(e => e.id === id)!
   }
 
   it('aborts the noSend action for an undelivered entry and removes it', async () => {
@@ -783,7 +786,7 @@ describe('cancelOutboxPayment', () => {
     const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry })
     expect(result.aborted).toBe(true)
     expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref-1' }, 'admin.com')
-    expect(await getOutboxEntries(s)).toHaveLength(0)
+    expect(asPeerPayRows(await getOutboxEntries(s))).toHaveLength(0)
   })
 
   it('never aborts once the token was delivered — the recipient holds it', async () => {
@@ -791,12 +794,12 @@ describe('cancelOutboxPayment', () => {
     const w = fakeWallet()
     const id = (await undeliveredEntry(s)).id
     await updateOutboxEntry(s, id, { delivered: true })
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry })
     expect(result.aborted).toBe(false)
     expect(result.needsAbandon).toBe(true)
     expect(w.abortAction).not.toHaveBeenCalled()
-    expect(await getOutboxEntries(s)).toHaveLength(1)
+    expect(asPeerPayRows(await getOutboxEntries(s))).toHaveLength(1)
   })
 
   it('re-reads storage and does not abort if the row became delivered after the snapshot', async () => {
@@ -838,12 +841,12 @@ describe('cancelOutboxPayment', () => {
       txid: 'aa'
     })
     await updateOutboxEntry(s, id, { delivering: true })
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry })
     expect(result.aborted).toBe(false)
     expect(result.needsAbandon).toBe(true)
     expect(w.abortAction).not.toHaveBeenCalled()
-    expect(await getOutboxEntries(s)).toHaveLength(1)
+    expect(asPeerPayRows(await getOutboxEntries(s))).toHaveLength(1)
   })
 
   it('still removes the entry when the abort itself fails', async () => {
@@ -853,7 +856,7 @@ describe('cancelOutboxPayment', () => {
     w.listActions.mockRejectedValue(new Error('storage busy'))
     const result = await cancelOutboxPayment({ wallet: w as never, adminOriginator: 'admin.com', storage: s, entry })
     expect(result.aborted).toBe(false)
-    expect(await getOutboxEntries(s)).toHaveLength(0)
+    expect(asPeerPayRows(await getOutboxEntries(s))).toHaveLength(0)
   })
 
   it('abandon of a delivered entry sends payment_cancelled', async () => {
@@ -869,7 +872,7 @@ describe('cancelOutboxPayment', () => {
       txid: 'aa'
     })
     await updateOutboxEntry(s, id, { delivered: true })
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     await cancelOutboxPayment({
       wallet: w as never,
       adminOriginator: 'admin.com',
@@ -905,7 +908,7 @@ describe('cancelOutboxPayment', () => {
       txid: 'aa'
     })
     await updateOutboxEntry(s, id, { delivered: true })
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     const result = await cancelOutboxPayment({
       wallet: w as never,
       adminOriginator: 'admin.com',
@@ -919,7 +922,7 @@ describe('cancelOutboxPayment', () => {
     expect(result.aborted).toBe(false)
     // Local tracking still stops once the recipient has been notified — only
     // the wallet-side reservation must survive, and nothing above touches it.
-    expect(await getOutboxEntries(s)).toHaveLength(0)
+    expect(asPeerPayRows(await getOutboxEntries(s))).toHaveLength(0)
   })
 
   it('abandon cancels in the box the token was delivered to', async () => {
@@ -929,9 +932,9 @@ describe('cancelOutboxPayment', () => {
     await expect(sendViaHandle({ ...sendArgs(w, failing, s), recipientHost: 'https://their.box' })).rejects.toThrow(
       'down'
     )
-    const seeded = (await getOutboxEntries(s))[0]
+    const seeded = (asPeerPayRows(await getOutboxEntries(s)))[0]
     await updateOutboxEntry(s, seeded.id, { delivered: true })
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     expect(entry.recipientHost).toBe('https://their.box')
 
     const sendMessage = jest.fn().mockResolvedValue(undefined)
@@ -974,7 +977,7 @@ describe('cancelOutboxPayment', () => {
     expect(result.aborted).toBe(false)
     // Nothing else holds this payment, so the local tracking row is still
     // dropped regardless — only the reported `aborted` value is at stake here.
-    expect(await getOutboxEntries(s)).toHaveLength(0)
+    expect(asPeerPayRows(await getOutboxEntries(s))).toHaveLength(0)
   })
 
   it('abandon does not remove the entry when payment_cancelled cannot be sent', async () => {
@@ -989,7 +992,7 @@ describe('cancelOutboxPayment', () => {
       txid: 'aa'
     })
     await updateOutboxEntry(s, id, { delivering: true })
-    const entry = (await getOutboxEntries(s))[0]
+    const entry = (asPeerPayRows(await getOutboxEntries(s)))[0]
     await expect(
       cancelOutboxPayment({
         wallet: w as never,
@@ -1001,7 +1004,7 @@ describe('cancelOutboxPayment', () => {
       })
     ).rejects.toThrow('offline')
     expect(w.abortAction).not.toHaveBeenCalled()
-    expect(await getOutboxEntries(s)).toHaveLength(1)
+    expect(asPeerPayRows(await getOutboxEntries(s))).toHaveLength(1)
   })
 })
 
@@ -1030,6 +1033,20 @@ describe('isAbortSafe', () => {
     expect(result.needsAbandon).toBeUndefined()
   })
 
+  it('isAbortSafe refuses a paymail-labelled action with no row', () => {
+    expect(isAbortSafe({ labels: ['paymail'], txid: 'aa' }, [])).toEqual({ aborted: false, needsAbandon: true })
+  })
+
+  it('isAbortSafe refuses a paymail row that is delivering', () => {
+    expect(isAbortSafe({ labels: ['paymail'], txid: 'aa' }, [{ txid: 'aa', delivering: true }]).aborted).toBe(false)
+    expect(isAbortSafe({ labels: ['paymail'], txid: 'aa' }, [{ txid: 'aa', delivered: true }]).aborted).toBe(false)
+  })
+
+  it('isAbortSafe allows a paymail row that is neither delivering nor delivered', () => {
+    const r = isAbortSafe({ labels: ['paymail'], txid: 'aa' }, [{ txid: 'aa', delivered: false, delivering: false }])
+    expect(r).toEqual({ aborted: true })
+  })
+
   it('leaves every non-peerpay action alone', () => {
     const action = { labels: ['someOtherRail'], txid: 'zz' }
     expect(isAbortSafe(action, [])).toEqual({ aborted: true })
@@ -1045,13 +1062,38 @@ describe('isAbortSafe', () => {
     const outbox = JSON.stringify([{ id: 'o1', txid: 'aa', status: 'sent', delivered: true }])
 
     await applyAppData(s, { peerpayOutbox: outbox })
-    const entries = await getOutboxEntries(s)
+    const entries = asPeerPayRows(await getOutboxEntries(s))
 
     const action = { labels: ['peerpay', 'someone'], txid: 'aa', status: 'nosend' }
     const result = isAbortSafe(action, entries)
 
     expect(entries).toHaveLength(1)
     expect(result).toEqual({ aborted: false, needsAbandon: true })
+  })
+})
+
+describe('abortNosendByTxid', () => {
+  const mk = (aborted?: boolean) => ({
+    listActions: jest.fn().mockResolvedValue({ actions: [{ txid: 'aa', reference: 'ref1' }] }),
+    abortAction: jest.fn().mockResolvedValue(aborted === undefined ? {} : { aborted })
+  })
+
+  it('abortNosendByTxid lists by the label it is given', async () => {
+    const w = mk(true)
+    await expect(abortNosendByTxid(w as never, 'admin', 'aa', 'paymail')).resolves.toBe(true)
+    expect(w.listActions).toHaveBeenCalledWith({ labels: ['paymail'], limit: 1000 }, 'admin')
+    expect(w.abortAction).toHaveBeenCalledWith({ reference: 'ref1' }, 'admin')
+  })
+
+  it('abortNosendByTxid returns false for { aborted: false }', async () => {
+    const w = mk(false)
+    await expect(abortNosendByTxid(w as never, 'admin', 'aa', 'paymail')).resolves.toBe(false)
+  })
+
+  it('abortPeerPayNosend still lists label peerpay', async () => {
+    const w = mk(true)
+    await abortPeerPayNosend(w as never, 'admin', 'aa')
+    expect(w.listActions).toHaveBeenCalledWith({ labels: ['peerpay'], limit: 1000 }, 'admin')
   })
 })
 

@@ -67,6 +67,9 @@ function transport(reply: (url: string, init?: RequestInit) => Reply | Promise<R
 /** A resolver that answers for one foreign domain and nothing else. */
 function resolverFor(domain: string, origin: string | null): RegistryResolver {
   return {
+    async discoverCapabilities() {
+      return { kind: 'none' }
+    },
     async resolve(asked) {
       if (asked === PIN.domain) {
         return {
