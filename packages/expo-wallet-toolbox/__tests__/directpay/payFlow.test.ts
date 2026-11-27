@@ -235,22 +235,22 @@ describe('fallbackPrompt', () => {
   it('asks the offline question, naming the recipient', () => {
     const prompt = fallbackPrompt('offline', 'Alice')
     expect(prompt).toEqual({ key: 'direct_pay_fallback_offline', params: { name: 'Alice' } })
-    expect(say(prompt)).toBe(
-      "Alice isn't taking live payments right now. Send it to their message box instead? It reaches their wallet when they next open it."
-    )
+    expect(say(prompt)).toBe('Alice isn’t online. It will arrive when they next open their wallet. Nothing spent yet.')
   })
 
   it('asks the link-failed question, naming the recipient', () => {
     const prompt = fallbackPrompt('link_failed', 'Alice')
     expect(prompt).toEqual({ key: 'direct_pay_fallback_link_failed', params: { name: 'Alice' } })
-    expect(say(prompt)).toBe("Couldn't connect to Alice directly. Send it to their message box instead?")
+    expect(say(prompt)).toBe(
+      'Couldn’t reach Alice directly. It will arrive when they next open their wallet. Nothing spent yet.'
+    )
   })
 
   it('asks the too-large question, naming the recipient', () => {
     const prompt = fallbackPrompt('too_large', 'Alice')
     expect(prompt).toEqual({ key: 'direct_pay_fallback_too_large', params: { name: 'Alice' } })
     expect(say(prompt)).toBe(
-      "This payment is too large to send live (over 1 MB). Send it to Alice's message box instead? Nothing has been spent yet."
+      'This payment is too big to hand over live. It will arrive when Alice next opens their wallet. Nothing spent yet.'
     )
   })
 
@@ -262,7 +262,7 @@ describe('fallbackPrompt', () => {
   it('is what the failures without a message box say, in English', async () => {
     const offline = await payIdentity({ direct: stopsBeforePaying('offline'), name: 'Alice' })
     expect(say(offline as DirectPayMessage)).toBe(
-      "Alice isn't taking live payments right now. Nothing was spent. Connect a message box in Settings to pay them anyway."
+      'Alice isn’t online. Nothing was spent. To reach them anyway, finish setup in Settings › Advanced.'
     )
   })
 })
