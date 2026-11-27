@@ -109,7 +109,7 @@ import {
 import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTranslation } from 'react-i18next'
-import { Beef, createNonce, type ChainTracker, type WalletInterface } from '@bsv/sdk'
+import { Beef, WERR_INSUFFICIENT_FUNDS, createNonce, type ChainTracker, type WalletInterface } from '@bsv/sdk'
 import { finalizeDelivery } from '../../../core/localpay/build'
 import { queuePendingAbort, queueDeclinedAbortWatch } from '../../../core/localpay/pendingAborts'
 import type { PendingAbortTagWallet } from '../../../core/localpay/pendingAbortAuthority'
@@ -323,6 +323,10 @@ type Phase =
   | 'failed'
 
 interface Failure {
+  /** The cause as a stable code, named where the failure is created (never read off `detail`). */
+  cause: NearbyFailureCause
+  /** The payee's own decline code, when the cause is a decline. */
+  declineReason?: string
   /** Human-readable cause, shown under the generic failure title. */
   detail: string
   /** Local Network access is off — offer a route to Settings. */
@@ -380,6 +384,21 @@ const DECLINE_KEYS: Record<DeclineReason, string> = {
 }
 
 /**
+ * Decline codes as a failure cause. Only `root_unverified` has a remedy of its
+ * own (the payee goes online, the same code works again), so it alone gets its
+ * own cause. Every other code is a plain refusal; the code itself goes out as
+ * `NearbyFailed.declineReason` for a host that wants finer copy.
+ */
+const DECLINE_CAUSES: Record<DeclineReason, NearbyFailureCause> = {
+  session_mismatch: 'declined',
+  already_paid: 'declined',
+  save_failed: 'declined',
+  decode_failed: 'declined',
+  not_covered: 'declined',
+  root_unverified: 'unverified'
+}
+
+/**
  * Why the payer is on the fountain, as one sentence they can act on. Only ever
  * rendered when selectTransport() chose QR (spec §5) — this is what the hint
  * bits in the payee's code buy: the person paying is told what to switch on
@@ -405,6 +424,18 @@ function messageOf(e: unknown): string {
   if (e instanceof Error && e.message) return e.message
   const text = String(e)
   return text === '[object Object]' ? '' : text
+}
+
+/**
+ * A wallet's refusal for a short balance, by class, name or code, never by its
+ * sentence. The toolbox's own errors expose `code` as the `WERR_*` name; the
+ * SDK class uses the number 7 (see core/bridge/protocol/errorCodec.ts).
+ */
+function isInsufficientFunds(e: unknown): boolean {
+  if (e instanceof WERR_INSUFFICIENT_FUNDS) return true
+  if (typeof e !== 'object' || e === null) return false
+  const { name, code } = e as { name?: unknown; code?: unknown }
+  return name === 'WERR_INSUFFICIENT_FUNDS' || code === 'WERR_INSUFFICIENT_FUNDS' || code === 7
 }
 
 /**
@@ -645,6 +676,33 @@ export interface NearbyReceived {
 }
 
 /**
+ * Why a nearby payment did not go through, as a code a host can switch on.
+ *
+ * - `insufficient-funds`: the payer's wallet refused the build for a short BSV
+ *   balance (`WERR_INSUFFICIENT_FUNDS`).
+ * - `network-permission`: Local Network access is off on this device.
+ * - `wrong-network`: the two wallets are on different networks.
+ * - `declined`: the payee's device refused the payment. `declineReason` on
+ *   NearbyFailed says which refusal.
+ * - `unverified`: the payee's device could not check the payment against the
+ *   chain, usually because it is offline and its headers are behind. The
+ *   request stays live, so the same code works when the payee is online.
+ * - `unsaved`: a payment reached this device (the payee) and was not saved.
+ * - `too-large`: the payment's data is too large to hand over as a code.
+ * - `unknown`: none of the above, or a site that cannot name its cause
+ *   without a guess. `detail` still carries the sentence.
+ */
+export type NearbyFailureCause =
+  | 'insufficient-funds'
+  | 'network-permission'
+  | 'wrong-network'
+  | 'declined'
+  | 'unverified'
+  | 'unsaved'
+  | 'too-large'
+  | 'unknown'
+
+/**
  * Either side's dead end: the payment did not go through.
  *
  * `detail` is the core's own sentence for the cause, handed over raw so a host
@@ -653,6 +711,19 @@ export interface NearbyReceived {
  * set is what the cause allows, so a host shows exactly the ones it is given.
  */
 export interface NearbyFailed {
+  /**
+   * The cause as a stable code. It is set where the failure is created, so it
+   * does not change when `detail` is translated or reworded: a host that writes
+   * its own copy switches on this, not on the sentence.
+   */
+  cause: NearbyFailureCause
+  /**
+   * The payee's own decline code, on a failure that is a decline (`cause` is
+   * `declined` or `unverified`). The known codes are `session_mismatch`,
+   * `already_paid`, `save_failed`, `decode_failed`, `not_covered` and
+   * `root_unverified`; a payee on another build can send one not listed here.
+   */
+  declineReason?: string
   /** The core's own sentence for the cause. */
   detail: string
   /** Which side of the exchange this device is on: the causes differ. */
@@ -1179,14 +1250,21 @@ function NearbyFlow({
   }, [])
 
   const fail = useCallback(
-    (kind: 'network' | 'generic', detail?: string, offerWalletCheck = false) => {
+    (
+      cause: NearbyFailureCause,
+      detail?: string,
+      { offerWalletCheck = false, declineReason }: { offerWalletCheck?: boolean; declineReason?: string } = {}
+    ) => {
       setFailure(
-        kind === 'network'
-          ? { detail: t('local_pay_network_denied'), settings: true }
+        // The one cause whose sentence and Settings route are fixed.
+        cause === 'network-permission'
+          ? { cause, detail: t('local_pay_network_denied'), settings: true }
           : {
+              cause,
               detail: detail && detail.length > 0 ? detail : t('local_pay_failed'),
               settings: false,
-              offerWalletCheck
+              offerWalletCheck,
+              ...(declineReason ? { declineReason } : {})
             }
       )
       setPhase('failed')
@@ -1441,7 +1519,7 @@ function NearbyFlow({
         void confirm?.(false, 'save_failed')
         settlingRef.current = false
         setUnsettled(confirm ? null : { frame, session })
-        fail('generic', t('wallet_not_ready'))
+        fail('unsaved', t('wallet_not_ready'))
         return
       }
 
@@ -1489,7 +1567,7 @@ function NearbyFlow({
         void confirm?.(false, 'save_failed')
         settlingRef.current = false
         setUnsettled(confirm ? null : { frame, session })
-        fail('generic', messageOf(e))
+        fail('unsaved', messageOf(e))
         return
       }
 
@@ -1717,7 +1795,7 @@ function NearbyFlow({
       // means a payer can deliver a frame the payee then cannot persist, after the
       // transport has already acked it as accepted.
       if (!wallet || !storage) {
-        fail('generic', t('wallet_not_ready'))
+        fail('unknown', t('wallet_not_ready'))
         return
       }
       setPhase('receive_minting')
@@ -1780,7 +1858,7 @@ function NearbyFlow({
         setHostedSession(session)
         setPhase('receive_wait')
       } catch (e) {
-        fail('generic', messageOf(e))
+        fail('unknown', messageOf(e))
       }
     },
     [wallet, storage, adminOriginator, supportsAwdl, nearbyReady, blePermitted, walletNetwork, fail, t]
@@ -1844,7 +1922,7 @@ function NearbyFlow({
       const mismatch = walletNetwork === undefined ? null : sessionNetworkMismatch(session, walletNetwork)
       if (mismatch) {
         fail(
-          'generic',
+          'wrong-network',
           t('local_pay_wrong_network', {
             theirs: networkName(mismatch.theirs, t),
             mine: networkName(mismatch.mine, t)
@@ -1874,14 +1952,14 @@ function NearbyFlow({
       if (data.startsWith(POS_PREFIX)) {
         void decodePaymentRequest(data)
           .then(adoptSession)
-          .catch(() => fail('generic', t('invalid_qr_code')))
+          .catch(() => fail('unknown', t('invalid_qr_code')))
         return
       }
       let session: Session
       try {
         session = decodeSession(data)
       } catch {
-        fail('generic', t('invalid_qr_code'))
+        fail('unknown', t('invalid_qr_code'))
         return
       }
       adoptSession(session)
@@ -2164,7 +2242,7 @@ function NearbyFlow({
     // and buildPaymentFrame would refuse it anyway.
     if (session.asset ? payUnits <= 0n : payAmount <= 0) return
     if (!wallet) {
-      fail('generic', t('wallet_not_ready'))
+      fail('unknown', t('wallet_not_ready'))
       return
     }
     if (session.merchantChain) {
@@ -2172,11 +2250,15 @@ function NearbyFlow({
         const network = await wallet.getNetwork({})
         const expected = session.merchantChain === 'main' ? 'mainnet' : 'testnet'
         if (network.network !== expected || !session.merchantExpires || session.merchantExpires <= Date.now()) {
-          fail('generic', 'Merchant request expired or uses a different network.')
+          // One sentence for two causes; the code says which one it was.
+          fail(
+            network.network !== expected ? 'wrong-network' : 'unknown',
+            'Merchant request expired or uses a different network.'
+          )
           return
         }
       } catch {
-        fail('generic', 'Could not verify the merchant payment network.')
+        fail('unknown', 'Could not verify the merchant payment network.')
         return
       }
     }
@@ -2221,7 +2303,7 @@ function NearbyFlow({
       const runtime = mandala.runtime
       const known = (mandala.balances ?? []).find(b => b.asset.assetId === session.asset?.id)
       if (!runtime || !known) {
-        fail('generic', t('pay_asset_nearby_wrong_overlay'))
+        fail('unknown', t('pay_asset_nearby_wrong_overlay'))
         return
       }
     }
@@ -2268,7 +2350,11 @@ function NearbyFlow({
         // built, so there is nothing to abort.
         if (!controller.signal.aborted) {
           const facing = userFacingPayError(e)
-          fail('generic', facing.offerWalletCheck ? t(facing.key) : messageOf(e), facing.offerWalletCheck)
+          fail(
+            isInsufficientFunds(e) ? 'insufficient-funds' : 'unknown',
+            facing.offerWalletCheck ? t(facing.key) : messageOf(e),
+            { offerWalletCheck: facing.offerWalletCheck }
+          )
         }
         return
       }
@@ -2289,7 +2375,7 @@ function NearbyFlow({
         if (sealed.length > MAX_MESSAGE_BYTES) {
           abortBuild(built.reference, session.asset ? built.txid : undefined)
           setPaymentQr(null)
-          fail('generic', t('local_pay_too_large'))
+          fail('too-large', t('local_pay_too_large'))
           return
         }
         builtRef.current = built
@@ -2356,7 +2442,7 @@ function NearbyFlow({
           // than left as an untracked orphan reachable only by the
           // unrestricted generic Abort action.
           await parkUncertainDelivery(built, sealedToQr(sealed))
-          fail(looksLikeLocalNetworkDenial(message) ? 'network' : 'generic', t('local_pay_too_large'))
+          fail(looksLikeLocalNetworkDenial(message) ? 'network-permission' : 'too-large', t('local_pay_too_large'))
           return
         }
         builtRef.current = built
@@ -2468,7 +2554,12 @@ function NearbyFlow({
         // considers free invites a double-spend. Clearing paymentQr also drops
         // any stale QR left by an earlier attempt.
         setPaymentQr(null)
-        fail('generic', declineMessage(outcome.reason))
+        fail(
+          // A code this build does not know is still a refusal by the payee.
+          outcome.reason && isDeclineReason(outcome.reason) ? DECLINE_CAUSES[outcome.reason] : 'declined',
+          declineMessage(outcome.reason),
+          { declineReason: outcome.reason }
+        )
         return
       }
 
@@ -2726,7 +2817,7 @@ function NearbyFlow({
   const onPaymentQrError = useCallback(() => {
     void Promise.resolve().then(() => {
       setPaymentQr(null)
-      fail('generic', t('local_pay_too_large'))
+      fail('too-large', t('local_pay_too_large'))
     })
   }, [fail, t])
 
@@ -3424,70 +3515,9 @@ function NearbyFlow({
           </Text>
           <View style={styles.gapXl} />
 
-          {/* Every button below is one entry of failedActions, the same value
-                a host's renderFailed is handed. */}
-
-          {/* A frame reached this device but never reached storage. Retry the
-                SAME session — reset() would mint one that can never receive it. */}
-          {failedActions.retrySave && (
-            <>
-              <PrimaryButton
-                styles={styles}
-                colors={colors}
-                icon="refresh"
-                label={t('local_pay_retry_save')}
-                onPress={failedActions.retrySave}
-              />
-              <View style={styles.gapMd} />
-            </>
-          )}
-
-          {failedActions.openSettings && (
-            <>
-              <SecondaryButton
-                styles={styles}
-                colors={colors}
-                icon="settings-outline"
-                label={t('open_settings')}
-                onPress={failedActions.openSettings}
-              />
-              <View style={styles.gapMd} />
-            </>
-          )}
-
-          {failedActions.checkWallet && (
-            <>
-              <SecondaryButton
-                styles={styles}
-                colors={colors}
-                label={t('check_wallet')}
-                onPress={failedActions.checkWallet}
-              />
-              <View style={styles.gapMd} />
-            </>
-          )}
-
-          {failedActions.showCode && (
-            <>
-              <SecondaryButton
-                styles={styles}
-                colors={colors}
-                icon="qr-code-outline"
-                label={t('local_pay_show_qr_instead')}
-                onPress={failedActions.showCode}
-              />
-              <View style={styles.gapMd} />
-            </>
-          )}
-
-          {/* With a frame in hand there is no `retry`, and reset() means
-                abandoning the frame — it lives only in memory — so the way out
-                is the demoted Cancel. */}
-          {failedActions.retry ? (
-            <PrimaryButton styles={styles} colors={colors} label={t('retry')} onPress={failedActions.retry} />
-          ) : (
-            <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={failedActions.cancel} />
-          )}
+          {/* The buttons are drawn from failedActions, the same value a host's
+                renderFailed is handed. */}
+          <FailedActionButtons styles={styles} colors={colors} actions={failedActions} />
         </Animated.View>
       )}
     </ScrollView>
@@ -3649,6 +3679,8 @@ function NearbyFlow({
             <Hosted
               render={renderFailed}
               value={{
+                cause: failure.cause,
+                ...(failure.declineReason ? { declineReason: failure.declineReason } : {}),
                 detail: failure.detail,
                 role,
                 amount: payAmount,
@@ -3914,6 +3946,83 @@ function PrimaryButton({
         React.createElement(LUCIDE[icon], { size: 20, color: disabled ? colors.textTertiary : colors.textOnAccent })}
       <Text style={[styles.buttonText, { color: disabled ? colors.textTertiary : colors.textOnAccent }]}>{label}</Text>
     </PressableScale>
+  )
+}
+
+/**
+ * The built-in failure screen's buttons, one per entry of the actions it is
+ * given. It decides nothing: which actions exist is NearbyFlow's
+ * `failedActions`, the value a host's `renderFailed` also receives.
+ */
+function FailedActionButtons({
+  styles,
+  colors,
+  actions
+}: {
+  styles: Styles
+  colors: Colors
+  actions: NearbyFailedActions
+}) {
+  const { t } = useTranslation()
+  return (
+    <>
+      {/* A frame reached this device but never reached storage. Retry the
+            SAME session — reset() would mint one that can never receive it. */}
+      {actions.retrySave && (
+        <>
+          <PrimaryButton
+            styles={styles}
+            colors={colors}
+            icon="refresh"
+            label={t('local_pay_retry_save')}
+            onPress={actions.retrySave}
+          />
+          <View style={styles.gapMd} />
+        </>
+      )}
+
+      {actions.openSettings && (
+        <>
+          <SecondaryButton
+            styles={styles}
+            colors={colors}
+            icon="settings-outline"
+            label={t('open_settings')}
+            onPress={actions.openSettings}
+          />
+          <View style={styles.gapMd} />
+        </>
+      )}
+
+      {actions.checkWallet && (
+        <>
+          <SecondaryButton styles={styles} colors={colors} label={t('check_wallet')} onPress={actions.checkWallet} />
+          <View style={styles.gapMd} />
+        </>
+      )}
+
+      {actions.showCode && (
+        <>
+          <SecondaryButton
+            styles={styles}
+            colors={colors}
+            icon="qr-code-outline"
+            label={t('local_pay_show_qr_instead')}
+            onPress={actions.showCode}
+          />
+          <View style={styles.gapMd} />
+        </>
+      )}
+
+      {/* With a frame in hand there is no `retry`, and reset() means
+            abandoning the frame — it lives only in memory — so the way out
+            is the demoted Cancel. */}
+      {actions.retry ? (
+        <PrimaryButton styles={styles} colors={colors} label={t('retry')} onPress={actions.retry} />
+      ) : (
+        <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={actions.cancel} />
+      )}
+    </>
   )
 }
 
