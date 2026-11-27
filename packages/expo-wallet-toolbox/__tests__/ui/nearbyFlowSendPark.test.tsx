@@ -86,8 +86,11 @@ const mockAwdlSend = jest.fn()
 const mockBleSend = jest.fn()
 const mockFallbackRadio = jest.fn((..._args: unknown[]): string | null => null)
 
+/** The network the payer's wallet reports; only a merchant request asks for it. */
+let mockWalletNetwork = 'mainnet'
 function mockWallet() {
   return {
+    getNetwork: jest.fn(async () => ({ network: mockWalletNetwork })),
     getPublicKey: jest.fn(async () => ({ publicKey: PAYEE_IDENTITY })),
     createHmac: jest.fn(async () => ({ hmac: new Array(32).fill(7) }))
   }
@@ -138,6 +141,7 @@ import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
 import { ThemeProvider, mintSession, type Session } from '@bsv/expo-wallet-toolbox'
 import NearbyFlow from '../../ui/components/pay/NearbyFlow'
+import PaymentQrDisplay from '../../ui/components/pay/PaymentQrDisplay'
 import { MandalaProvider } from '../../ui/hooks/useMandala'
 import { makeFakeMandala } from '../__mocks__/fakeMandalaRuntime'
 
@@ -477,6 +481,7 @@ describe('renderFailed (payer)', () => {
     mockAwdlSend.mockReset()
     barrel.selectTransport.mockReturnValue('awdl')
     mockStorageChain = undefined
+    mockWalletNetwork = 'mainnet'
   })
 
   it('replaces the built-in failure screen and offers the ordinary actions', async () => {
@@ -627,6 +632,47 @@ describe('renderFailed (payer)', () => {
     await settle()
     expect(last()).toMatchObject({ cause: 'wrong-network', detail: 'local_pay_wrong_network:testnet|mainnet' })
     expect(mockBuildPaymentFrame).not.toHaveBeenCalled()
+  })
+
+  // One sentence covers both merchant refusals; the code tells them apart.
+  const MERCHANT_DETAIL = 'Merchant request expired or uses a different network.'
+  const merchantSession = (expires: number): Session => ({
+    ...session(),
+    merchantChain: 'main',
+    merchantExpires: expires
+  })
+
+  it('a merchant request for another network has cause wrong-network', async () => {
+    mockWalletNetwork = 'testnet'
+    const { s, last } = mount(merchantSession(Date.now() + 60_000))
+    await settle()
+    await pressSend(s)
+    expect(last()).toMatchObject({ cause: 'wrong-network', detail: MERCHANT_DETAIL })
+    expect(mockBuildPaymentFrame).not.toHaveBeenCalled()
+  })
+
+  it('an expired merchant request on the right network has cause unknown', async () => {
+    const { s, last } = mount(merchantSession(Date.now() - 1))
+    await settle()
+    await pressSend(s)
+    expect(last()).toMatchObject({ cause: 'unknown', detail: MERCHANT_DETAIL })
+    expect(mockBuildPaymentFrame).not.toHaveBeenCalled()
+  })
+
+  it('a payment code that cannot be drawn has cause too-large', async () => {
+    // The radio fails, so the payment is shown as a code; then the encoder
+    // reports that it cannot draw it.
+    mockAwdlSend.mockRejectedValue(new Error('connect timeout: no route to peer'))
+    const { s, last } = mount()
+    await settle()
+    await pressSend(s)
+    expect(last()).toBeUndefined()
+    await act(async () => {
+      s.UNSAFE_getByType(PaymentQrDisplay).props.onError()
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(last()).toMatchObject({ cause: 'too-large', detail: 'local_pay_too_large' })
+    expect(last()?.showCode).toBeUndefined()
   })
 })
 
