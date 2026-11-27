@@ -557,7 +557,13 @@ export interface NearbyConfirm {
   holding?: bigint
   note: string
   setNote: (note: string) => void
-  recipient: { name: string; detail?: string }
+  /**
+   * Who is being paid. `identityKey` is their wallet identity, for a host
+   * that draws a face from it: it is the same key the payment is addressed
+   * to, so the person on screen is provably the person being paid, and a
+   * host showing one elsewhere (an activity row, a contact) shows the same.
+   */
+  recipient: { name: string; detail?: string; identityKey?: string }
   /** A merchant's sale + tip breakdown, as a sentence. */
   tipText?: string
   /** The nearby link's state, as the presence row would say it. */
@@ -580,7 +586,7 @@ export interface NearbySending {
   /** Token session: `units` formatted in `asset`. */
   amountText?: string
   asset?: { ticker: string; decimals: number }
-  recipient: { name: string; detail?: string }
+  recipient: { name: string; detail?: string; identityKey?: string }
   presence: { state: PresenceState; label: string } | null
 }
 
@@ -597,7 +603,7 @@ export interface NearbyShowCode {
   /** Token session: `units` formatted in `asset`. */
   amountText?: string
   asset?: { ticker: string; decimals: number }
-  recipient: { name: string; detail?: string }
+  recipient: { name: string; detail?: string; identityKey?: string }
   presence: { state: PresenceState; label: string } | null
   /** Why it fell back to a code, when a radio was tried first. */
   notice?: { text: string; tone: 'success' | 'info' | 'warning' }
@@ -614,6 +620,8 @@ export interface NearbyDone {
   amountText?: string
   statusNote?: string
   recipientName?: string
+  /** Who was paid, as a wallet identity: the face on this screen is theirs. */
+  recipientKey?: string
   /** Back to the wallet; ends the flow. */
   dismiss: () => void
 }
@@ -630,9 +638,55 @@ export interface NearbyReceived {
   verification: 'pending' | 'verified' | 'not-credited'
   /** Who paid, when their name is known. */
   payerName?: string
+  /** Who paid, as a wallet identity: it is read off the payment frame they sent. */
+  payerKey?: string
   /** Back to the wallet; ends the flow. */
   dismiss: () => void
 }
+
+/**
+ * Either side's dead end: the payment did not go through.
+ *
+ * `detail` is the core's own sentence for the cause, handed over raw so a host
+ * can write its own copy from it (and keep this as the fallback for a cause it
+ * does not recognise). Every action is optional except `cancel`: which ones are
+ * set is what the cause allows, so a host shows exactly the ones it is given.
+ */
+export interface NearbyFailed {
+  /** The core's own sentence for the cause. */
+  detail: string
+  /** Which side of the exchange this device is on: the causes differ. */
+  role: 'payer' | 'payee'
+  /** Satoshis the payer was sending; 0 on a token payment, where `amountText` is the figure. */
+  amount: number
+  amountText?: string
+  /** The token being sent, where it isn't BSV. */
+  asset?: { ticker: string; decimals: number }
+  /** Who was being paid, when their name is known. */
+  recipientName?: string
+  /** Set when the fix is in Settings (Local Network access is off). */
+  openSettings?: () => void
+  /** Set when this cause is one the core's wallet check can look into. */
+  checkWallet?: () => void
+  /** Set when a payment reached this device but never reached storage: retries the SAME session. */
+  retrySave?: () => void
+  /** Set when the payment can still be handed over as a code. */
+  showCode?: () => void
+  /** Start again from the top. Unset while a frame is still in hand, where `retrySave` is the way on. */
+  retry?: () => void
+  /** Give up: ends this payment (with a frame in hand, abandons it). */
+  cancel: () => void
+}
+
+/**
+ * The ways on from a failure, and nothing else. Derived once per render
+ * (`failedActions` in NearbyFlow) and read by both the built-in failure screen
+ * and `renderFailed`, so the two cannot offer different actions for one cause.
+ */
+type NearbyFailedActions = Pick<
+  NearbyFailed,
+  'openSettings' | 'checkWallet' | 'retrySave' | 'showCode' | 'retry' | 'cancel'
+>
 
 export interface NearbyFlowProps {
   /** Which side of the exchange this device is on. Set by the cell that mounted it. */
@@ -688,6 +742,24 @@ export interface NearbyFlowProps {
    * presents it full screen (a Modal) and plays its own sound.
    */
   renderReceived?: (received: NearbyReceived) => React.ReactNode
+  /**
+   * Either role: draw the failure yourself instead of the built-in screen. It
+   * is handed what went wrong and only the actions that cause allows
+   * (NearbyFailed). When `embedded`, the host presents it full screen itself (a
+   * Modal), exactly as `renderReceived` is presented.
+   */
+  renderFailed?: (failed: NearbyFailed) => React.ReactNode
+  /**
+   * A radio gave up and the payee is being told so. Given, each of those
+   * notices carries an (i) that calls `onPress` with the radio that stopped,
+   * so the host can say why in its own words; without it the notice is only
+   * the notice, exactly as before. `label` is what a screen reader announces
+   * for that button, and is the host's because the explanation behind it is:
+   * no wording for a sheet this component never draws belongs in its own
+   * translations. The flow is unaffected either way — a radio is an optional
+   * fast path, and the pairing code carries the payment whatever they do.
+   */
+  explainRadio?: { label: string; onPress: (kind: RadioKind) => void }
 }
 
 function NearbyFlow({
@@ -698,7 +770,9 @@ function NearbyFlow({
   dismissTo = '/',
   embedded,
   renderPayer,
-  renderReceived
+  renderReceived,
+  renderFailed,
+  explainRadio
 }: NearbyFlowProps) {
   const { t } = useTranslation()
   const { colors } = useTheme()
@@ -2658,6 +2732,27 @@ function NearbyFlow({
 
   // ── Derived ──
 
+  // What the failure allows. The one place these rules live: the built-in
+  // failure screen and a host's `renderFailed` both read this value.
+  const failedActions: NearbyFailedActions = {
+    ...(failure?.settings ? { openSettings: () => void Linking.openSettings() } : {}),
+    ...(failure?.offerWalletCheck ? { checkWallet: () => router.push('/wallet-check' as never) } : {}),
+    // A frame reached this device but never reached storage. Retry the SAME
+    // session: reset() would mint one that can never receive it, and with the
+    // frame only in memory, starting again is abandoning it — so there is no
+    // `retry` while it is in hand.
+    ...(unsettled ? { retrySave: retrySettle } : { retry }),
+    ...(paymentQr
+      ? {
+          showCode: () => {
+            setFailure(null)
+            setPhase('send_qr')
+          }
+        }
+      : {}),
+    cancel: reset
+  }
+
   // Source blocks in the payment code. One block renders as a still QR, so the
   // "hold steady while it animates" hint would be wrong copy for it.
   const paymentQrBlocks = useMemo(() => {
@@ -3046,18 +3141,20 @@ function NearbyFlow({
           {radioFailures.map(([kind, err]) => (
             <React.Fragment key={kind}>
               <View style={styles.gapLg} />
-              <Animated.View
-                entering={fadeIn}
-                style={[styles.notice, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}
-              >
-                <Info size={16} color={colors.textSecondary} />
-                <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
-                  {err.networkDenied
-                    ? t('local_pay_network_denied')
-                    : kind === 'ble'
-                      ? t('local_pay_ble_unavailable')
-                      : t('local_pay_nearby_unavailable')}
-                </Text>
+              <Animated.View entering={fadeIn} style={styles.stretch}>
+                <RadioNotice
+                  styles={styles}
+                  colors={colors}
+                  label={
+                    err.networkDenied
+                      ? t('local_pay_network_denied')
+                      : kind === 'ble'
+                        ? t('local_pay_ble_unavailable')
+                        : t('local_pay_nearby_unavailable')
+                  }
+                  explainLabel={explainRadio?.label ?? ''}
+                  {...(explainRadio && !err.networkDenied ? { onExplain: () => explainRadio.onPress(kind) } : {})}
+                />
               </Animated.View>
             </React.Fragment>
           ))}
@@ -3327,68 +3424,69 @@ function NearbyFlow({
           </Text>
           <View style={styles.gapXl} />
 
+          {/* Every button below is one entry of failedActions, the same value
+                a host's renderFailed is handed. */}
+
           {/* A frame reached this device but never reached storage. Retry the
                 SAME session — reset() would mint one that can never receive it. */}
-          {unsettled && (
+          {failedActions.retrySave && (
             <>
               <PrimaryButton
                 styles={styles}
                 colors={colors}
                 icon="refresh"
                 label={t('local_pay_retry_save')}
-                onPress={retrySettle}
+                onPress={failedActions.retrySave}
               />
               <View style={styles.gapMd} />
             </>
           )}
 
-          {failure?.settings && (
+          {failedActions.openSettings && (
             <>
               <SecondaryButton
                 styles={styles}
                 colors={colors}
                 icon="settings-outline"
                 label={t('open_settings')}
-                onPress={() => void Linking.openSettings()}
+                onPress={failedActions.openSettings}
               />
               <View style={styles.gapMd} />
             </>
           )}
 
-          {failure?.offerWalletCheck && (
+          {failedActions.checkWallet && (
             <>
               <SecondaryButton
                 styles={styles}
                 colors={colors}
                 label={t('check_wallet')}
-                onPress={() => router.push('/wallet-check' as never)}
+                onPress={failedActions.checkWallet}
               />
               <View style={styles.gapMd} />
             </>
           )}
 
-          {paymentQr && (
+          {failedActions.showCode && (
             <>
               <SecondaryButton
                 styles={styles}
                 colors={colors}
                 icon="qr-code-outline"
                 label={t('local_pay_show_qr_instead')}
-                onPress={() => {
-                  setFailure(null)
-                  setPhase('send_qr')
-                }}
+                onPress={failedActions.showCode}
               />
               <View style={styles.gapMd} />
             </>
           )}
 
-          {/* With a frame in hand, reset() means abandoning it — the frame lives
-                only in memory — so it is demoted to the secondary action. */}
-          {unsettled ? (
-            <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={reset} />
+          {/* With a frame in hand there is no `retry`, and reset() means
+                abandoning the frame — it lives only in memory — so the way out
+                is the demoted Cancel. */}
+          {failedActions.retry ? (
+            <PrimaryButton styles={styles} colors={colors} label={t('retry')} onPress={failedActions.retry} />
           ) : (
-            <PrimaryButton styles={styles} colors={colors} label={t('retry')} onPress={retry} />
+            <CancelButton styles={styles} colors={colors} label={t('cancel')} onPress={failedActions.cancel} />
           )}
         </Animated.View>
       )}
@@ -3487,16 +3585,19 @@ function NearbyFlow({
         radioFailures.map(([kind, err]) => (
           <React.Fragment key={kind}>
             <View style={styles.gapMd} />
-            <View style={[styles.notice, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
-              <Info size={16} color={colors.textSecondary} />
-              <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
-                {err.networkDenied
+            <RadioNotice
+              styles={styles}
+              colors={colors}
+              label={
+                err.networkDenied
                   ? t('local_pay_network_denied')
                   : kind === 'ble'
                     ? t('local_pay_ble_unavailable')
-                    : t('local_pay_nearby_unavailable')}
-              </Text>
-            </View>
+                    : t('local_pay_nearby_unavailable')
+              }
+              explainLabel={explainRadio?.label ?? ''}
+              {...(explainRadio && !err.networkDenied ? { onExplain: () => explainRadio.onPress(kind) } : {})}
+            />
           </React.Fragment>
         ))}
       {phase === 'receive_wait' && radioFailures.some(([, err]) => err.networkDenied) && (
@@ -3511,22 +3612,19 @@ function NearbyFlow({
           />
         </>
       )}
-      {/* the payer's radios failed and it shows its own code instead */}
+      {/* the payer's radios failed and it shows its own code instead: the one
+          thing left to do on this step, so it is the step's button, the same
+          one the full-screen flow gives it rather than a line of small text */}
       {phase === 'receive_wait' && (
         <>
-          <View style={styles.gapMd} />
-          <PressableScale
+          <View style={styles.gapLg} />
+          <SecondaryButton
+            styles={styles}
+            colors={colors}
+            icon="scan-outline"
+            label={t('local_pay_scan_payer_qr')}
             onPress={() => openScanner('receive_scan')}
-            haptic="tap"
-            style={styles.embeddedScan}
-            accessibilityRole="button"
-            accessibilityLabel={t('local_pay_scan_payer_qr')}
-          >
-            <ScanLine size={16} color={colors.textSecondary} />
-            <Text style={[styles.embeddedScanText, { color: colors.textSecondary }]}>
-              {t('local_pay_scan_payer_qr')}
-            </Text>
-          </PressableScale>
+          />
         </>
       )}
     </View>
@@ -3539,116 +3637,135 @@ function NearbyFlow({
           ? `Merchant · ${abbreviateKey(scannedSession.identityKey)}`
           : peerName
             ? abbreviateKey(scannedSession.identityKey)
-            : undefined
+            : undefined,
+        identityKey: scannedSession.identityKey
       }
     : { name: '' }
   // wrapped, so a host that renders nothing still replaces the built-in step
   const hosted: { node: React.ReactNode } | null =
-    role !== 'payer' || !renderPayer
-      ? null
-      : phase === 'send_confirm' && scannedSession && renderPayer.confirm
-        ? {
-            node: (
-              <Hosted
-                render={renderPayer.confirm}
-                value={{
-                  session: scannedSession,
-                  fixedAmount,
-                  amount: payAmount,
-                  ...(scannedSession.asset ? { fixedUnits, units: payUnits, amountText: payAmountText } : {}),
-                  setAmount: amount =>
-                    setSendAmount(
-                      typeof amount === 'bigint'
-                        ? amount > 0n
-                          ? amount.toString()
-                          : ''
-                        : amount !== undefined && amount > 0
-                          ? String(Math.round(amount))
-                          : ''
-                    ),
-                  asset: scannedAssetUnits,
-                  holding: scannedHolding && !unitsUnknown ? scannedHolding.units : undefined,
-                  note,
-                  setNote,
-                  recipient: payerRecipient,
-                  tipText: scannedSession.merchantTip
-                    ? t('merchant_tip_breakdown', {
-                        defaultValue: '{{subtotal}} sats sale + {{tip}} sats tip',
-                        subtotal: scannedSession.merchantSubtotal?.toLocaleString(),
-                        tip: scannedSession.merchantTip.toLocaleString()
-                      })
-                    : undefined,
-                  presence,
-                  advisories: [
-                    ...(floorReason !== 'none' ? [t(FLOOR_KEYS[floorReason])] : []),
-                    ...(overHolding && scannedAssetUnits && !unitsUnknown
-                      ? [t('pay_asset_over_balance', { ticker: scannedAssetUnits.ticker })]
-                      : []),
-                    ...(unitsUnknown ? [t('pay_asset_unidentified')] : [])
-                  ],
-                  openSettings: floorReason === 'local_ble_denied' ? () => void Linking.openSettings() : undefined,
-                  canSend,
-                  send: () => void executeSend(),
-                  cancel: reset
-                }}
-              />
-            )
-          }
-        : phase === 'send_working' && renderPayer.sending
+    phase === 'failed' && failure && role && renderFailed
+      ? {
+          node: (
+            <Hosted
+              render={renderFailed}
+              value={{
+                detail: failure.detail,
+                role,
+                amount: payAmount,
+                ...(scannedSession?.asset ? { amountText: payAmountText } : {}),
+                asset: scannedAssetUnits,
+                recipientName: payerRecipient.name || undefined,
+                ...failedActions
+              }}
+            />
+          )
+        }
+      : role !== 'payer' || !renderPayer
+        ? null
+        : phase === 'send_confirm' && scannedSession && renderPayer.confirm
           ? {
               node: (
                 <Hosted
-                  render={renderPayer.sending}
+                  render={renderPayer.confirm}
                   value={{
+                    session: scannedSession,
+                    fixedAmount,
                     amount: payAmount,
-                    ...(scannedSession?.asset ? { units: payUnits, amountText: payAmountText } : {}),
+                    ...(scannedSession.asset ? { fixedUnits, units: payUnits, amountText: payAmountText } : {}),
+                    setAmount: amount =>
+                      setSendAmount(
+                        typeof amount === 'bigint'
+                          ? amount > 0n
+                            ? amount.toString()
+                            : ''
+                          : amount !== undefined && amount > 0
+                            ? String(Math.round(amount))
+                            : ''
+                      ),
                     asset: scannedAssetUnits,
+                    holding: scannedHolding && !unitsUnknown ? scannedHolding.units : undefined,
+                    note,
+                    setNote,
                     recipient: payerRecipient,
-                    presence
+                    tipText: scannedSession.merchantTip
+                      ? t('merchant_tip_breakdown', {
+                          defaultValue: '{{subtotal}} sats sale + {{tip}} sats tip',
+                          subtotal: scannedSession.merchantSubtotal?.toLocaleString(),
+                          tip: scannedSession.merchantTip.toLocaleString()
+                        })
+                      : undefined,
+                    presence,
+                    advisories: [
+                      ...(floorReason !== 'none' ? [t(FLOOR_KEYS[floorReason])] : []),
+                      ...(overHolding && scannedAssetUnits && !unitsUnknown
+                        ? [t('pay_asset_over_balance', { ticker: scannedAssetUnits.ticker })]
+                        : []),
+                      ...(unitsUnknown ? [t('pay_asset_unidentified')] : [])
+                    ],
+                    openSettings: floorReason === 'local_ble_denied' ? () => void Linking.openSettings() : undefined,
+                    canSend,
+                    send: () => void executeSend(),
+                    cancel: reset
                   }}
                 />
               )
             }
-          : phase === 'send_qr' && paymentQr && renderPayer.showCode
+          : phase === 'send_working' && renderPayer.sending
             ? {
                 node: (
                   <Hosted
-                    render={renderPayer.showCode}
+                    render={renderPayer.sending}
                     value={{
-                      code: size => <PaymentQrDisplay frameQr={paymentQr} size={size} onError={onPaymentQrError} />,
-                      animated: paymentQrBlocks > 1,
                       amount: payAmount,
                       ...(scannedSession?.asset ? { units: payUnits, amountText: payAmountText } : {}),
                       asset: scannedAssetUnits,
                       recipient: payerRecipient,
-                      presence,
-                      notice: notice ?? undefined,
-                      done: () => void completeQrDelivery(),
-                      back: () => void handleSendQrExit(false)
+                      presence
                     }}
                   />
                 )
               }
-            : phase === 'done' && renderPayer.done
+            : phase === 'send_qr' && paymentQr && renderPayer.showCode
               ? {
                   node: (
                     <Hosted
-                      render={renderPayer.done}
+                      render={renderPayer.showCode}
                       value={{
-                        amount: settledAmount,
-                        amountText: settledTokenText ?? undefined,
-                        statusNote: settledStatusNote ?? undefined,
-                        recipientName:
-                          peerName ?? (scannedSession ? abbreviateKey(scannedSession.identityKey) : undefined),
-                        dismiss: () => {
-                          goBack()
-                          router.dismissTo(dismissTo)
-                        }
+                        code: size => <PaymentQrDisplay frameQr={paymentQr} size={size} onError={onPaymentQrError} />,
+                        animated: paymentQrBlocks > 1,
+                        amount: payAmount,
+                        ...(scannedSession?.asset ? { units: payUnits, amountText: payAmountText } : {}),
+                        asset: scannedAssetUnits,
+                        recipient: payerRecipient,
+                        presence,
+                        notice: notice ?? undefined,
+                        done: () => void completeQrDelivery(),
+                        back: () => void handleSendQrExit(false)
                       }}
                     />
                   )
                 }
-              : null
+              : phase === 'done' && renderPayer.done
+                ? {
+                    node: (
+                      <Hosted
+                        render={renderPayer.done}
+                        value={{
+                          amount: settledAmount,
+                          amountText: settledTokenText ?? undefined,
+                          statusNote: settledStatusNote ?? undefined,
+                          recipientName:
+                            peerName ?? (scannedSession ? abbreviateKey(scannedSession.identityKey) : undefined),
+                          recipientKey: scannedSession?.identityKey,
+                          dismiss: () => {
+                            goBack()
+                            router.dismissTo(dismissTo)
+                          }
+                        }}
+                      />
+                    )
+                  }
+                : null
 
   return (
     <View
@@ -3713,6 +3830,7 @@ function NearbyFlow({
             broadcast: settledTokenText ? undefined : receivedBroadcast,
             verification: receivedVerification,
             payerName: peerName ?? undefined,
+            payerKey: peerKey ?? undefined,
             dismiss: () => {
               goBack()
               router.dismissTo(dismissTo)
@@ -3799,6 +3917,43 @@ function PrimaryButton({
   )
 }
 
+/**
+ * A radio that gave up: what stopped, and an (i) for why when the host offers
+ * one. The text takes the width (noticeText is flex: 1), so the button sits
+ * against the right edge without a spacer.
+ */
+function RadioNotice({
+  styles,
+  colors,
+  label,
+  explainLabel,
+  onExplain
+}: {
+  styles: Styles
+  colors: Colors
+  label: string
+  explainLabel: string
+  onExplain?: () => void
+}) {
+  return (
+    <View style={[styles.notice, { backgroundColor: colors.fillTertiary, borderColor: colors.separator }]}>
+      <Info size={16} color={colors.textSecondary} />
+      <Text style={[styles.noticeText, { color: colors.textSecondary }]}>{label}</Text>
+      {!!onExplain && (
+        <PressableScale
+          onPress={onExplain}
+          haptic="tap"
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={explainLabel}
+        >
+          <Info size={18} color={colors.accent} />
+        </PressableScale>
+      )}
+    </View>
+  )
+}
+
 function SecondaryButton({
   styles,
   colors,
@@ -3875,8 +4030,6 @@ function makeStyles() {
     container: { flex: 1 },
     embedded: { alignItems: 'center', alignSelf: 'stretch' },
     embeddedPending: { alignItems: 'center', justifyContent: 'center' },
-    embeddedScan: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12 },
-    embeddedScanText: { fontFamily: 'Nunito', fontSize: 13, lineHeight: 18 },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -3987,6 +4140,7 @@ function makeStyles() {
       paddingVertical: spacing.md
     },
 
+    stretch: { alignSelf: 'stretch' },
     notice: {
       flexDirection: 'row',
       alignItems: 'center',

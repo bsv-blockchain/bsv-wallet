@@ -61,6 +61,7 @@ export {
   default as NearbyFlow,
   type NearbyConfirm,
   type NearbyDone,
+  type NearbyFailed,
   type NearbyFlowProps,
   type NearbyReceived,
   type NearbySending,
