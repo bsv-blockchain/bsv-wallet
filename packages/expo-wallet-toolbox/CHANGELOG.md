@@ -4,7 +4,7 @@
 
 ## 0.29.0
 
-The BSV Wallet app's nearby-payment changes, upstreamed from its patch of 0.27.0: a host can draw the failure screen and explain a stopped radio, a failure names its cause as a code, and 16 payment strings are reworded. No native change: hosts do not rebuild. Every new prop and field is optional, so no host action is necessary.
+The BSV Wallet app's nearby-payment changes, upstreamed from its patch of 0.27.0: a host can draw the failure screen and explain a stopped radio, a failure names its cause as a code, and 16 payment strings are reworded. No native change: hosts do not rebuild. Every new prop is optional, and the new fields are on values that the toolbox gives to the host, so no host action is necessary.
 
 ### Added
 
