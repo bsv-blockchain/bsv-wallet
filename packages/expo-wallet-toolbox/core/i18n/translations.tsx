@@ -723,7 +723,7 @@ const resources = {
       message_box_saved: 'Message Box server saved',
       message_box_removed: 'Message Box server removed',
       message_box_off: 'Off',
-      message_box_off_hint: 'Message box server is off. Turn it on in Settings › Advanced.',
+      message_box_off_hint: 'Nothing was sent. To pay someone who isn’t online, finish setup in Settings › Advanced.',
       enter_valid_url: 'Please enter a valid URL',
       checking_connection: 'Checking connection...',
       connection_failed: 'Connection failed',
@@ -818,7 +818,7 @@ const resources = {
 
       // Amount input
       send_max: 'Send Max',
-      message_box_unreachable: 'Could not reach the payment server. Check the message box URL in your settings.',
+      message_box_unreachable: 'Couldn’t reach the payment server. Check Settings › Advanced.',
       available: 'available',
       note: 'Note',
       note_placeholder: "What's it for? (optional)",
@@ -1068,16 +1068,16 @@ const resources = {
         'This code is for a wallet on {{theirs}}. Your wallet is on {{mine}}, so this payment cannot go through. Switch networks, or ask them to.',
       local_pay_network_denied: 'Local Network access is off. Enable it in Settings to pay nearby devices.',
       local_pay_radio_fallback: 'Wireless link unavailable — show this code to the other device instead.',
-      local_pay_floor_peer_bt_off: 'Their Bluetooth is off, so this payment will go by code.',
+      local_pay_floor_peer_bt_off: 'Their Bluetooth is off. Paying by code.',
       local_pay_floor_local_bt_off: 'Your Bluetooth is off. Turn it on for a faster nearby link.',
       local_pay_floor_local_ble_denied:
         'Bluetooth access is off for BSV Wallet. Allow it in Settings for a faster nearby link.',
       local_pay_floor_cross_os: 'The other device cannot use Bluetooth right now, so this payment will go by code.',
       local_pay_floor_peer_no_radio:
         'The other device is not listening for a wireless link, so this payment will go by code.',
-      local_pay_ble_unavailable: 'Bluetooth is unavailable. The code above still works.',
+      local_pay_ble_unavailable: 'Bluetooth unavailable. The code still works.',
       local_pay_too_large: 'This payment’s data is too large to hand over with QR codes.',
-      local_pay_nearby_unavailable: 'Nearby Wi-Fi is unavailable. The code above still works.',
+      local_pay_nearby_unavailable: 'Wi-Fi unavailable. The code still works.',
       local_pay_retry_save: 'Try saving again',
       local_pay_wrong_session:
         'That payment doesn’t match this request and was not accepted. Ask the payer to scan the code again.',
@@ -1089,9 +1089,9 @@ const resources = {
       local_pay_declined_not_covered:
         'The recipient couldn’t verify this payment against the issuer’s records. Nothing was sent.',
       local_pay_declined_root_unverified:
-        'The recipient’s device couldn’t check this payment against the blockchain. Nothing was sent. If they’re offline, they need to connect briefly, then try again.',
+        'Their device needs internet to verify your payment, so nothing was sent. Once they are online, scan their code again.',
       local_pay_root_unverified:
-        'This device couldn’t check the payment against the blockchain, so it wasn’t accepted. Connect to the internet briefly, then ask the payer to try again.',
+        'Not accepted: this phone needs internet to verify a payment. Go online, then have them scan your code again.',
       local_pay_broadcast_pending: 'Sent. This device couldn’t get it processed yet — the recipient will.',
       local_pay_any_amount: 'Any amount',
       local_pay_choose_amount: 'Choose an amount',
@@ -1132,9 +1132,9 @@ const resources = {
       pay_parked_cancel: 'Cancel payment',
       pay_parked_already_sent: 'This payment was already sent',
       token_cancel_already_sent: "This payment already went through and can't be cancelled.",
-      tx_status_parked: 'Not handed over',
+      tx_status_parked: 'Undelivered',
       tx_status_import_hold: 'Held (imported)',
-      resend_sending: 'Sending via message box',
+      resend_sending: 'Sending it again',
       cancelling_payment: 'Cancelling the payment',
 
       // Contacts
@@ -1266,17 +1266,17 @@ const resources = {
       direct_pay_status_connecting_body: 'Getting ready to take live payments.',
       direct_pay_status_off_title: 'Live payments are off',
       direct_pay_status_off_body: 'Turn them on in Settings so people can pay you directly while this screen is open.',
-      direct_pay_status_not_set_up_body:
-        'Live payments reach other wallets through the message box. Connect a message box in Settings, or use a relay server.',
+      direct_pay_status_not_set_up_body: 'Finish setup in Settings › Advanced to get paid while this screen is open.',
       direct_pay_status_error_title: "Live payments aren't working right now",
       direct_pay_status_error_body: 'Live payments cannot be received right now.',
       direct_pay_fallback_offline:
-        "{{name}} isn't taking live payments right now. Send it to their message box instead? It reaches their wallet when they next open it.",
-      direct_pay_fallback_link_failed: "Couldn't connect to {{name}} directly. Send it to their message box instead?",
+        '{{name}} isn’t online. It will arrive when they next open their wallet. Nothing spent yet.',
+      direct_pay_fallback_link_failed:
+        'Couldn’t reach {{name}} directly. It will arrive when they next open their wallet. Nothing spent yet.',
       direct_pay_fallback_too_large:
-        "This payment is too large to send live (over 1 MB). Send it to {{name}}'s message box instead? Nothing has been spent yet.",
+        'This payment is too big to hand over live. It will arrive when {{name}} next opens their wallet. Nothing spent yet.',
       direct_pay_failed_offline:
-        "{{name}} isn't taking live payments right now. Nothing was spent. Connect a message box in Settings to pay them anyway.",
+        '{{name}} isn’t online. Nothing was spent. To reach them anyway, finish setup in Settings › Advanced.',
       direct_pay_failed_link: "Couldn't connect to {{name}} directly. Nothing was spent.",
       direct_pay_failed_network: "Couldn't reach the payment network — check your connection.",
       direct_pay_failed_wrong_network: '{{name}} is on a different network. Nothing was spent.',
@@ -1284,8 +1284,8 @@ const resources = {
       direct_pay_failed_maybe_sent:
         'Your payment to {{name}} may already have been sent. Check Activity before paying again.',
       direct_pay_failed_not_sent: 'The payment could not be sent. Nothing was spent.',
-      direct_pay_failed_no_message_box: 'Connect your message box in Settings to pay a wallet identity.',
-      direct_pay_fallback_title: "Can't pay live right now",
+      direct_pay_failed_no_message_box: 'To pay a wallet ID, finish setup in Settings › Advanced.',
+      direct_pay_fallback_title: 'Send it anyway?',
       direct_pay_fallback_send: 'Send to message box',
       direct_pay_fallback_host: 'Their message box: {{host}}',
       direct_pay_sent_live: "Paid live: it's already in their wallet.",
@@ -1931,7 +1931,7 @@ const resources = {
       message_box_saved: '消息箱服务器已保存',
       message_box_removed: '消息箱服务器已删除',
       message_box_off: '关闭',
-      message_box_off_hint: '消息箱服务器已关闭。请在“设置 › 高级”中开启。',
+      message_box_off_hint: '未发送任何款项。要向不在线的人付款，请在“设置 › 高级”中完成设置。',
       enter_valid_url: '请输入有效的网址',
       checking_connection: '正在检查连接...',
       connection_failed: '连接失败',
@@ -2019,7 +2019,7 @@ const resources = {
       color_prompt_relinquish_title: '移除代币持仓',
 
       send_max: '发送最大值',
-      message_box_unreachable: '无法连接支付服务器。请在设置中检查消息盒 URL。',
+      message_box_unreachable: '无法连接支付服务器。请查看“设置 › 高级”。',
       available: '可用',
       note: '备注',
       note_placeholder: '用途？（可选）',
@@ -2255,14 +2255,14 @@ const resources = {
         '此付款码属于{{theirs}}上的钱包。您的钱包在{{mine}}上，因此无法完成此付款。请切换网络，或请对方切换。',
       local_pay_network_denied: '本地网络访问已关闭。请在“设置”中开启，才能向附近的设备付款。',
       local_pay_radio_fallback: '无线连接不可用——请改为向对方出示此码。',
-      local_pay_floor_peer_bt_off: '对方的蓝牙已关闭，此付款将通过二维码完成。',
+      local_pay_floor_peer_bt_off: '对方的蓝牙已关闭。将通过二维码付款。',
       local_pay_floor_local_bt_off: '你的蓝牙已关闭。开启后可获得更快的近距离连接。',
       local_pay_floor_local_ble_denied: 'BSV Wallet 的蓝牙访问权限已关闭。请在“设置”中允许，以获得更快的近距离连接。',
       local_pay_floor_cross_os: '对方设备目前无法使用蓝牙，此付款将通过二维码完成。',
       local_pay_floor_peer_no_radio: '对方设备未在监听无线连接，此付款将通过二维码完成。',
-      local_pay_ble_unavailable: '蓝牙不可用。上方的二维码仍然有效。',
+      local_pay_ble_unavailable: '蓝牙不可用。二维码仍然有效。',
       local_pay_too_large: '此付款数据过大，无法通过二维码传输。',
-      local_pay_nearby_unavailable: '附近 Wi-Fi 不可用。上方的二维码仍然有效。',
+      local_pay_nearby_unavailable: 'Wi-Fi 不可用。二维码仍然有效。',
       local_pay_retry_save: '重新尝试保存',
       local_pay_wrong_session: '该付款与此请求不匹配，未被接受。请让付款方重新扫描上方的二维码。',
       local_pay_declined_mismatch: '收款方未接受这笔付款 — 它与对方的请求不匹配。请重新扫描对方的二维码。',
@@ -2271,8 +2271,8 @@ const resources = {
       local_pay_declined_decode: '收款方无法读取这笔付款。本次未发送任何款项 — 请重试。',
       local_pay_declined_not_covered: '收款方无法根据发行方的记录核验这笔付款。本次未发送任何款项。',
       local_pay_declined_root_unverified:
-        '收款方的设备无法在区块链上核验这笔付款。本次未发送任何款项。如果对方处于离线状态，请让其短暂联网后再试一次。',
-      local_pay_root_unverified: '本设备无法在区块链上核验这笔付款，因此未接受。请短暂连接互联网，然后让付款方重试。',
+        '对方的设备需要联网才能核验您的付款，因此未发送任何款项。等对方联网后，请再次扫描对方的二维码。',
+      local_pay_root_unverified: '未接受：本机需要联网才能核验付款。请先联网，然后让对方再次扫描您的二维码。',
       local_pay_broadcast_pending: '已发送。本设备暂时无法完成处理 — 收款方会完成。',
       local_pay_any_amount: '任意金额',
       local_pay_choose_amount: '选择金额',
@@ -2313,7 +2313,7 @@ const resources = {
       token_cancel_already_sent: '此付款已经完成，无法取消。',
       tx_status_parked: '尚未交付',
       tx_status_import_hold: '已导入并暂扣',
-      resend_sending: '正在通过消息盒发送',
+      resend_sending: '正在重新发送',
       cancelling_payment: '正在取消付款',
 
       contacts: '联系人',
@@ -2435,24 +2435,22 @@ const resources = {
       direct_pay_status_connecting_body: '正在准备接收实时付款。',
       direct_pay_status_off_title: '实时付款已关闭',
       direct_pay_status_off_body: '请在设置中开启，这样此页面打开时别人就可以直接向你付款。',
-      direct_pay_status_not_set_up_body: '实时付款通过消息箱送达其他钱包。请在设置中连接消息箱，或使用中继服务器。',
+      direct_pay_status_not_set_up_body: '请在“设置 › 高级”中完成设置，以便在此屏幕打开时收款。',
       direct_pay_status_error_title: '实时付款暂时无法使用',
       direct_pay_status_error_body: '目前无法接收实时付款。',
-      direct_pay_fallback_offline:
-        '{{name}} 目前没有接收实时付款。要改为发送到对方的消息箱吗？对方下次打开钱包时就会收到。',
-      direct_pay_fallback_link_failed: '无法直接连接 {{name}}。改为发送到对方的消息箱吗？',
+      direct_pay_fallback_offline: '{{name}} 不在线。对方下次打开钱包时就会收到。目前尚未花费任何资金。',
+      direct_pay_fallback_link_failed: '无法直接连接 {{name}}。对方下次打开钱包时就会收到。目前尚未花费任何资金。',
       direct_pay_fallback_too_large:
-        '这笔付款太大，无法实时发送（超过 1 MB）。改为发送到 {{name}} 的消息箱吗？目前尚未花费任何资金。',
-      direct_pay_failed_offline:
-        '{{name}} 目前没有接收实时付款。未花费任何款项。请在设置中连接消息箱，以便照常向对方付款。',
+        '这笔付款太大，无法实时交付。{{name}} 下次打开钱包时就会收到。目前尚未花费任何资金。',
+      direct_pay_failed_offline: '{{name}} 不在线。未花费任何款项。若仍要向对方付款，请在“设置 › 高级”中完成设置。',
       direct_pay_failed_link: '无法直接连接 {{name}}。未花费任何款项。',
       direct_pay_failed_network: '无法连接支付网络，请检查网络连接。',
       direct_pay_failed_wrong_network: '{{name}} 在另一个网络上。未花费任何款项。',
       direct_pay_failed_cancelled: '已取消。未花费任何款项。',
       direct_pay_failed_maybe_sent: '你向 {{name}} 的付款可能已经发出。再次付款前，请先查看“活动”。',
       direct_pay_failed_not_sent: '无法发送付款。未花费任何款项。',
-      direct_pay_failed_no_message_box: '请在设置中连接消息箱，以便向钱包身份付款。',
-      direct_pay_fallback_title: '暂时无法实时付款',
+      direct_pay_failed_no_message_box: '要向钱包身份付款，请在“设置 › 高级”中完成设置。',
+      direct_pay_fallback_title: '仍要发送吗？',
       direct_pay_fallback_send: '发送到消息箱',
       direct_pay_fallback_host: '对方的消息箱：{{host}}',
       direct_pay_sent_live: '已实时付款：款项已到对方钱包。',
@@ -3151,7 +3149,8 @@ const resources = {
       message_box_saved: 'मैसेज बॉक्स सर्वर सहेजा गया',
       message_box_removed: 'मैसेज बॉक्स सर्वर हटाया गया',
       message_box_off: 'बंद',
-      message_box_off_hint: 'मैसेज बॉक्स सर्वर बंद है। इसे सेटिंग्स › एडवांस्ड में चालू करें।',
+      message_box_off_hint:
+        'कुछ भी नहीं भेजा गया। जो ऑनलाइन नहीं है उसे भुगतान करने के लिए सेटिंग्स › एडवांस्ड में सेटअप पूरा करें।',
       enter_valid_url: 'कृपया एक वैध URL दर्ज करें',
       checking_connection: 'कनेक्शन जाँच रहे हैं...',
       connection_failed: 'कनेक्शन विफल',
@@ -3242,7 +3241,7 @@ const resources = {
       color_prompt_relinquish_title: 'टोकन होल्डिंग हटाएँ',
 
       send_max: 'अधिकतम भेजें',
-      message_box_unreachable: 'भुगतान सर्वर से संपर्क नहीं हो सका। सेटिंग्स में message box URL जांचें।',
+      message_box_unreachable: 'भुगतान सर्वर से संपर्क नहीं हो सका। सेटिंग्स › एडवांस्ड जांचें।',
       available: 'उपलब्ध',
       note: 'नोट',
       note_placeholder: 'किसलिए? (वैकल्पिक)',
@@ -3489,15 +3488,15 @@ const resources = {
       local_pay_network_denied:
         'लोकल नेटवर्क एक्सेस बंद है। नज़दीकी डिवाइस को भुगतान करने के लिए इसे सेटिंग्स में चालू करें।',
       local_pay_radio_fallback: 'वायरलेस लिंक उपलब्ध नहीं — इसके बजाय यह कोड दूसरे डिवाइस को दिखाएँ।',
-      local_pay_floor_peer_bt_off: 'उनका ब्लूटूथ बंद है, इसलिए यह भुगतान कोड से होगा।',
+      local_pay_floor_peer_bt_off: 'उनका ब्लूटूथ बंद है। कोड से भुगतान हो रहा है।',
       local_pay_floor_local_bt_off: 'आपका ब्लूटूथ बंद है। तेज़ नज़दीकी लिंक के लिए इसे चालू करें।',
       local_pay_floor_local_ble_denied:
         'BSV Wallet के लिए ब्लूटूथ एक्सेस बंद है। तेज़ नज़दीकी लिंक के लिए इसे सेटिंग्स में अनुमति दें।',
       local_pay_floor_cross_os: 'दूसरा डिवाइस अभी ब्लूटूथ का उपयोग नहीं कर सकता, इसलिए यह भुगतान कोड से होगा।',
       local_pay_floor_peer_no_radio: 'दूसरा डिवाइस वायरलेस लिंक के लिए सुन नहीं रहा है, इसलिए यह भुगतान कोड से होगा।',
-      local_pay_ble_unavailable: 'ब्लूटूथ उपलब्ध नहीं है। ऊपर दिया गया कोड अब भी काम करता है।',
+      local_pay_ble_unavailable: 'ब्लूटूथ उपलब्ध नहीं है। कोड अब भी काम करता है।',
       local_pay_too_large: 'इस भुगतान का डेटा QR कोड से देने के लिए बहुत बड़ा है।',
-      local_pay_nearby_unavailable: 'नज़दीकी Wi-Fi उपलब्ध नहीं है। ऊपर दिया गया कोड अब भी काम करता है।',
+      local_pay_nearby_unavailable: 'Wi-Fi उपलब्ध नहीं है। कोड अब भी काम करता है।',
       local_pay_retry_save: 'फिर से सहेजने की कोशिश करें',
       local_pay_wrong_session:
         'वह भुगतान इस अनुरोध से मेल नहीं खाता, इसलिए स्वीकार नहीं किया गया। भुगतानकर्ता से कोड दोबारा स्कैन करने को कहें।',
@@ -3509,9 +3508,9 @@ const resources = {
       local_pay_declined_not_covered:
         'प्राप्तकर्ता इस भुगतान को जारीकर्ता के रिकॉर्ड से सत्यापित नहीं कर सका। कुछ भी नहीं भेजा गया।',
       local_pay_declined_root_unverified:
-        'प्राप्तकर्ता का डिवाइस ब्लॉकचेन से इस भुगतान की जाँच नहीं कर सका। कुछ भी नहीं भेजा गया। अगर वे ऑफ़लाइन हैं, तो उन्हें थोड़ी देर के लिए कनेक्ट होना होगा, फिर दोबारा कोशिश करें।',
+        'आपके भुगतान की जाँच के लिए उनके डिवाइस को इंटरनेट चाहिए, इसलिए कुछ भी नहीं भेजा गया। जब वे ऑनलाइन हों, तो उनका कोड दोबारा स्कैन करें।',
       local_pay_root_unverified:
-        'यह डिवाइस ब्लॉकचेन से भुगतान की जाँच नहीं कर सका, इसलिए इसे स्वीकार नहीं किया गया। थोड़ी देर के लिए इंटरनेट से कनेक्ट करें, फिर भुगतानकर्ता से दोबारा कोशिश करने को कहें।',
+        'स्वीकार नहीं हुआ: भुगतान की जाँच के लिए इस फ़ोन को इंटरनेट चाहिए। ऑनलाइन हों, फिर उनसे अपना कोड दोबारा स्कैन करवाएँ।',
       local_pay_broadcast_pending: 'भेज दिया गया। यह डिवाइस इसे अभी प्रोसेस नहीं करा सका — प्राप्तकर्ता करा देगा।',
       local_pay_any_amount: 'कोई भी राशि',
       local_pay_choose_amount: 'राशि चुनें',
@@ -3553,9 +3552,9 @@ const resources = {
       pay_parked_cancel: 'भुगतान रद्द करें',
       pay_parked_already_sent: 'यह भुगतान पहले ही भेज दिया गया है',
       token_cancel_already_sent: 'यह भुगतान पहले ही पूरा हो चुका है और इसे रद्द नहीं किया जा सकता।',
-      tx_status_parked: 'सौंपा नहीं गया',
+      tx_status_parked: 'डिलीवर नहीं हुआ',
       tx_status_import_hold: 'आयात के बाद रोका गया',
-      resend_sending: 'मैसेज बॉक्स से भेजा जा रहा है',
+      resend_sending: 'दोबारा भेजा जा रहा है',
       cancelling_payment: 'भुगतान रद्द किया जा रहा है',
 
       contacts: 'संपर्क',
@@ -3686,16 +3685,17 @@ const resources = {
       direct_pay_status_off_body:
         'इन्हें सेटिंग्स में चालू करें ताकि यह स्क्रीन खुली होने पर लोग आपको सीधे भुगतान कर सकें।',
       direct_pay_status_not_set_up_body:
-        'लाइव भुगतान मैसेज बॉक्स के ज़रिए दूसरे वॉलेट तक पहुँचते हैं। सेटिंग्स में मैसेज बॉक्स जोड़ें, या रिले सर्वर इस्तेमाल करें।',
+        'इस स्क्रीन के खुले रहते भुगतान पाने के लिए सेटिंग्स › एडवांस्ड में सेटअप पूरा करें।',
       direct_pay_status_error_title: 'लाइव भुगतान अभी काम नहीं कर रहे',
       direct_pay_status_error_body: 'अभी लाइव भुगतान प्राप्त नहीं किए जा सकते।',
       direct_pay_fallback_offline:
-        '{{name}} अभी लाइव भुगतान नहीं ले रहे हैं। इसके बजाय इसे उनके मैसेज बॉक्स में भेजें? अगली बार वॉलेट खोलने पर उन्हें यह मिल जाएगा।',
-      direct_pay_fallback_link_failed: '{{name}} से सीधे कनेक्ट नहीं हो सका। इसके बजाय उनके मैसेज बॉक्स में भेजें?',
+        '{{name}} ऑनलाइन नहीं हैं। अगली बार वॉलेट खोलने पर उन्हें यह मिल जाएगा। अभी तक कुछ भी खर्च नहीं हुआ है।',
+      direct_pay_fallback_link_failed:
+        '{{name}} से सीधे संपर्क नहीं हो सका। अगली बार वॉलेट खोलने पर उन्हें यह मिल जाएगा। अभी तक कुछ भी खर्च नहीं हुआ है।',
       direct_pay_fallback_too_large:
-        'यह भुगतान लाइव भेजने के लिए बहुत बड़ा है (1 MB से अधिक)। इसके बजाय {{name}} के मैसेज बॉक्स में भेजें? अभी तक कुछ भी खर्च नहीं हुआ है।',
+        'यह भुगतान लाइव सौंपने के लिए बहुत बड़ा है। {{name}} के अगली बार वॉलेट खोलने पर यह पहुँच जाएगा। अभी तक कुछ भी खर्च नहीं हुआ है।',
       direct_pay_failed_offline:
-        '{{name}} अभी लाइव भुगतान नहीं ले रहे हैं। कुछ भी खर्च नहीं हुआ। फिर भी उन्हें भुगतान करने के लिए सेटिंग्स में मैसेज बॉक्स जोड़ें।',
+        '{{name}} ऑनलाइन नहीं हैं। कुछ भी खर्च नहीं हुआ। फिर भी उन तक पहुँचने के लिए सेटिंग्स › एडवांस्ड में सेटअप पूरा करें।',
       direct_pay_failed_link: '{{name}} से सीधे कनेक्ट नहीं हो सका। कुछ भी खर्च नहीं हुआ।',
       direct_pay_failed_network: 'भुगतान नेटवर्क तक नहीं पहुँच सके — अपना कनेक्शन जाँचें।',
       direct_pay_failed_wrong_network: '{{name}} किसी दूसरे नेटवर्क पर हैं। कुछ भी खर्च नहीं हुआ।',
@@ -3704,8 +3704,8 @@ const resources = {
         '{{name}} को आपका भुगतान शायद पहले ही भेजा जा चुका है। दोबारा भुगतान करने से पहले गतिविधि देखें।',
       direct_pay_failed_not_sent: 'भुगतान भेजा नहीं जा सका। कुछ भी खर्च नहीं हुआ।',
       direct_pay_failed_no_message_box:
-        'किसी वॉलेट आइडेंटिटी को भुगतान करने के लिए सेटिंग्स में अपना मैसेज बॉक्स जोड़ें।',
-      direct_pay_fallback_title: 'अभी लाइव भुगतान नहीं हो सकता',
+        'किसी वॉलेट आइडेंटिटी को भुगतान करने के लिए सेटिंग्स › एडवांस्ड में सेटअप पूरा करें।',
+      direct_pay_fallback_title: 'फिर भी भेजें?',
       direct_pay_fallback_send: 'मैसेज बॉक्स में भेजें',
       direct_pay_fallback_host: 'उनका मैसेज बॉक्स: {{host}}',
       direct_pay_sent_live: 'लाइव भुगतान हो गया: यह पहले से उनके वॉलेट में है।',
@@ -4415,7 +4415,8 @@ const resources = {
       message_box_saved: 'Servidor de buzón guardado',
       message_box_removed: 'Servidor de buzón eliminado',
       message_box_off: 'Desactivado',
-      message_box_off_hint: 'El servidor de buzón está desactivado. Actívalo en Ajustes › Avanzado.',
+      message_box_off_hint:
+        'No se envió nada. Para pagar a alguien que no está en línea, termina la configuración en Ajustes › Avanzado.',
       enter_valid_url: 'Por favor ingresa una URL válida',
       checking_connection: 'Verificando conexión...',
       connection_failed: 'Conexión fallida',
@@ -4506,8 +4507,7 @@ const resources = {
       color_prompt_relinquish_title: 'Eliminar tenencia de tokens',
 
       send_max: 'Enviar máximo',
-      message_box_unreachable:
-        'No se pudo conectar con el servidor de pagos. Revisa la URL del message box en los ajustes.',
+      message_box_unreachable: 'No se pudo conectar con el servidor de pagos. Revisa Ajustes › Avanzado.',
       available: 'disponible',
       note: 'Nota',
       note_placeholder: '¿Para qué es? (opcional)',
@@ -4756,7 +4756,7 @@ const resources = {
       local_pay_network_denied:
         'El acceso a la red local está desactivado. Actívalo en Configuración para pagar a dispositivos cercanos.',
       local_pay_radio_fallback: 'Enlace inalámbrico no disponible: muestra este código al otro dispositivo.',
-      local_pay_floor_peer_bt_off: 'Su Bluetooth está apagado, así que este pago se hará por código.',
+      local_pay_floor_peer_bt_off: 'Su Bluetooth está apagado. Se paga por código.',
       local_pay_floor_local_bt_off: 'Tu Bluetooth está apagado. Actívalo para un enlace cercano más rápido.',
       local_pay_floor_local_ble_denied:
         'El acceso a Bluetooth está desactivado para BSV Wallet. Permítelo en Configuración para un enlace cercano más rápido.',
@@ -4764,9 +4764,9 @@ const resources = {
         'El otro dispositivo no puede usar Bluetooth ahora mismo, así que este pago se hará por código.',
       local_pay_floor_peer_no_radio:
         'El otro dispositivo no está a la escucha de un enlace inalámbrico, así que este pago se hará por código.',
-      local_pay_ble_unavailable: 'Bluetooth no está disponible. El código de arriba sigue funcionando.',
+      local_pay_ble_unavailable: 'Bluetooth no disponible. El código sigue funcionando.',
       local_pay_too_large: 'Los datos de este pago son demasiado grandes para entregarlos con códigos QR.',
-      local_pay_nearby_unavailable: 'El Wi-Fi cercano no está disponible. El código de arriba sigue funcionando.',
+      local_pay_nearby_unavailable: 'Wi-Fi no disponible. El código sigue funcionando.',
       local_pay_retry_save: 'Intentar guardar de nuevo',
       local_pay_wrong_session:
         'Ese pago no coincide con esta solicitud y no se aceptó. Pide a quien paga que vuelva a escanear el código.',
@@ -4778,9 +4778,9 @@ const resources = {
       local_pay_declined_not_covered:
         'Quien recibe no pudo verificar este pago con los registros del emisor. No se envió nada.',
       local_pay_declined_root_unverified:
-        'El dispositivo del destinatario no pudo comprobar este pago en la blockchain. No se envió nada. Si no tiene conexión, debe conectarse un momento y volver a intentarlo.',
+        'Su dispositivo necesita internet para verificar tu pago, así que no se envió nada. Cuando esté en línea, vuelve a escanear su código.',
       local_pay_root_unverified:
-        'Este dispositivo no pudo comprobar el pago en la blockchain, así que no se aceptó. Conéctate a internet un momento y pide al pagador que lo intente de nuevo.',
+        'No aceptado: este teléfono necesita internet para verificar un pago. Conéctate y luego pide que vuelvan a escanear tu código.',
       local_pay_broadcast_pending: 'Enviado. Este dispositivo aún no pudo procesarlo; quien recibe lo hará.',
       local_pay_any_amount: 'Cualquier importe',
       local_pay_choose_amount: 'Elige un importe',
@@ -4825,7 +4825,7 @@ const resources = {
       token_cancel_already_sent: 'Este pago ya se completó y no se puede cancelar.',
       tx_status_parked: 'No entregado',
       tx_status_import_hold: 'Retenido (importado)',
-      resend_sending: 'Enviando por el buzón de mensajes',
+      resend_sending: 'Enviándolo de nuevo',
       cancelling_payment: 'Cancelando el pago',
 
       contacts: 'Contactos',
@@ -4958,17 +4958,17 @@ const resources = {
       direct_pay_status_off_body:
         'Actívalos en Ajustes para que las personas puedan pagarte directamente mientras esta pantalla esté abierta.',
       direct_pay_status_not_set_up_body:
-        'Los pagos en vivo llegan a otras billeteras a través del buzón de mensajes. Conecta un buzón de mensajes en Ajustes o usa un servidor de relé.',
+        'Termina la configuración en Ajustes › Avanzado para recibir pagos mientras esta pantalla esté abierta.',
       direct_pay_status_error_title: 'Los pagos en vivo no funcionan ahora mismo',
       direct_pay_status_error_body: 'Ahora mismo no se pueden recibir pagos en vivo.',
       direct_pay_fallback_offline:
-        '{{name}} no está recibiendo pagos en vivo ahora. ¿Enviarlo a su buzón de mensajes? Lo recibirá la próxima vez que abra su billetera.',
+        '{{name}} no está en línea. Llegará la próxima vez que abra su billetera. Todavía no se ha gastado nada.',
       direct_pay_fallback_link_failed:
-        'No se pudo conectar directamente con {{name}}. ¿Enviarlo a su buzón de mensajes?',
+        'No se pudo conectar directamente con {{name}}. Llegará la próxima vez que abra su billetera. Todavía no se ha gastado nada.',
       direct_pay_fallback_too_large:
-        'Este pago es demasiado grande para enviarlo en vivo (más de 1 MB). ¿Enviarlo al buzón de mensajes de {{name}}? Todavía no se ha gastado nada.',
+        'Este pago es demasiado grande para entregarlo en vivo. Llegará la próxima vez que {{name}} abra su billetera. Todavía no se ha gastado nada.',
       direct_pay_failed_offline:
-        '{{name}} no está recibiendo pagos en vivo ahora. No se gastó nada. Conecta un buzón de mensajes en Ajustes para pagarle de todos modos.',
+        '{{name}} no está en línea. No se gastó nada. Para que le llegue de todos modos, termina la configuración en Ajustes › Avanzado.',
       direct_pay_failed_link: 'No se pudo conectar directamente con {{name}}. No se gastó nada.',
       direct_pay_failed_network: 'No se pudo llegar a la red de pagos. Revisa tu conexión.',
       direct_pay_failed_wrong_network: '{{name}} está en otra red. No se gastó nada.',
@@ -4977,8 +4977,8 @@ const resources = {
         'Es posible que tu pago a {{name}} ya se haya enviado. Revisa Actividad antes de volver a pagar.',
       direct_pay_failed_not_sent: 'No se pudo enviar el pago. No se gastó nada.',
       direct_pay_failed_no_message_box:
-        'Conecta tu buzón de mensajes en Ajustes para pagar a una identidad de billetera.',
-      direct_pay_fallback_title: 'No se puede pagar en vivo ahora',
+        'Para pagar a una identidad de billetera, termina la configuración en Ajustes › Avanzado.',
+      direct_pay_fallback_title: '¿Enviarlo de todos modos?',
       direct_pay_fallback_send: 'Enviar al buzón de mensajes',
       direct_pay_fallback_host: 'Su buzón de mensajes: {{host}}',
       direct_pay_sent_live: 'Pagado en vivo: ya está en su billetera.',
@@ -5698,7 +5698,8 @@ const resources = {
       message_box_saved: 'Serveur de boîte aux lettres enregistré',
       message_box_removed: 'Serveur de boîte aux lettres supprimé',
       message_box_off: 'Désactivé',
-      message_box_off_hint: 'Le serveur de boîte aux lettres est désactivé. Activez-le dans Réglages › Avancé.',
+      message_box_off_hint:
+        'Rien n’a été envoyé. Pour payer quelqu’un qui n’est pas en ligne, terminez la configuration dans Réglages › Avancé.',
       enter_valid_url: 'Veuillez saisir une URL valide',
       checking_connection: 'Vérification de la connexion...',
       connection_failed: 'Échec de la connexion',
@@ -5789,8 +5790,7 @@ const resources = {
       color_prompt_relinquish_title: 'Retirer une détention de jetons',
 
       send_max: 'Envoyer le maximum',
-      message_box_unreachable:
-        "Impossible de joindre le serveur de paiement. Vérifiez l'URL de la message box dans les réglages.",
+      message_box_unreachable: 'Impossible de joindre le serveur de paiement. Vérifiez Réglages › Avancé.',
       available: 'disponible',
       note: 'Note',
       note_placeholder: "C'est pour quoi ? (facultatif)",
@@ -6042,7 +6042,7 @@ const resources = {
       local_pay_network_denied:
         'L’accès au réseau local est désactivé. Activez-le dans Réglages pour payer les appareils à proximité.',
       local_pay_radio_fallback: 'Liaison sans fil indisponible — présentez plutôt ce code à l’autre appareil.',
-      local_pay_floor_peer_bt_off: 'Leur Bluetooth est désactivé, ce paiement passera donc par le code.',
+      local_pay_floor_peer_bt_off: 'Leur Bluetooth est désactivé. Paiement par code.',
       local_pay_floor_local_bt_off:
         'Votre Bluetooth est désactivé. Activez-le pour une liaison de proximité plus rapide.',
       local_pay_floor_local_ble_denied:
@@ -6051,9 +6051,9 @@ const resources = {
         'L’autre appareil ne peut pas utiliser le Bluetooth pour le moment, ce paiement passera donc par le code.',
       local_pay_floor_peer_no_radio:
         'L’autre appareil n’attend pas de liaison sans fil, ce paiement passera donc par le code.',
-      local_pay_ble_unavailable: 'Le Bluetooth est indisponible. Le code ci-dessus fonctionne toujours.',
+      local_pay_ble_unavailable: 'Bluetooth indisponible. Le code fonctionne toujours.',
       local_pay_too_large: 'Les données de ce paiement sont trop volumineuses pour être transmises par code QR.',
-      local_pay_nearby_unavailable: 'Le Wi-Fi à proximité est indisponible. Le code ci-dessus fonctionne toujours.',
+      local_pay_nearby_unavailable: 'Wi-Fi indisponible. Le code fonctionne toujours.',
       local_pay_retry_save: 'Réessayer d’enregistrer',
       local_pay_wrong_session:
         'Ce paiement ne correspond pas à cette demande et n’a pas été accepté. Demandez au payeur de scanner le code à nouveau.',
@@ -6065,9 +6065,9 @@ const resources = {
       local_pay_declined_not_covered:
         'Le bénéficiaire n’a pas pu vérifier ce paiement auprès des registres de l’émetteur. Rien n’a été envoyé.',
       local_pay_declined_root_unverified:
-        'L’appareil du destinataire n’a pas pu vérifier ce paiement sur la blockchain. Rien n’a été envoyé. S’il est hors ligne, il doit se connecter un instant, puis réessayer.',
+        'Leur appareil a besoin d’Internet pour vérifier votre paiement, rien n’a donc été envoyé. Une fois qu’il est en ligne, scannez de nouveau son code.',
       local_pay_root_unverified:
-        'Cet appareil n’a pas pu vérifier le paiement sur la blockchain, il n’a donc pas été accepté. Connectez-vous brièvement à Internet, puis demandez au payeur de réessayer.',
+        'Non accepté : ce téléphone a besoin d’Internet pour vérifier un paiement. Connectez-vous, puis demandez-lui de scanner de nouveau votre code.',
       local_pay_broadcast_pending:
         'Envoyé. Cet appareil n’a pas encore pu le faire traiter — le bénéficiaire s’en chargera.',
       local_pay_any_amount: 'Montant libre',
@@ -6114,7 +6114,7 @@ const resources = {
       token_cancel_already_sent: 'Ce paiement est déjà passé et ne peut pas être annulé.',
       tx_status_parked: 'Non remis',
       tx_status_import_hold: 'Suspendu (importé)',
-      resend_sending: 'Envoi via la boîte à messages',
+      resend_sending: 'Nouvel envoi en cours',
       cancelling_payment: 'Annulation du paiement',
 
       contacts: 'Contacts',
@@ -6248,17 +6248,17 @@ const resources = {
       direct_pay_status_off_body:
         'Activez-les dans les réglages pour que les gens puissent vous payer directement tant que cet écran est ouvert.',
       direct_pay_status_not_set_up_body:
-        'Les paiements en direct atteignent les autres portefeuilles via la boîte aux lettres. Connectez une boîte aux lettres dans les réglages, ou utilisez un serveur relais.',
+        'Terminez la configuration dans Réglages › Avancé pour être payé pendant que cet écran est ouvert.',
       direct_pay_status_error_title: 'Les paiements en direct ne fonctionnent pas pour le moment',
       direct_pay_status_error_body: 'Impossible de recevoir des paiements en direct pour le moment.',
       direct_pay_fallback_offline:
-        "{{name}} n'accepte pas de paiements en direct pour le moment. L'envoyer plutôt dans sa boîte aux lettres ? Le paiement lui parviendra à la prochaine ouverture de son portefeuille.",
+        '{{name}} n’est pas en ligne. Le paiement arrivera à la prochaine ouverture de son portefeuille. Rien n’a encore été dépensé.',
       direct_pay_fallback_link_failed:
-        "Impossible de se connecter directement à {{name}}. L'envoyer plutôt dans sa boîte aux lettres ?",
+        'Impossible de joindre {{name}} directement. Le paiement arrivera à la prochaine ouverture de son portefeuille. Rien n’a encore été dépensé.',
       direct_pay_fallback_too_large:
-        "Ce paiement est trop volumineux pour être envoyé en direct (plus de 1 Mo). L'envoyer plutôt dans la boîte aux lettres de {{name}} ? Rien n'a encore été dépensé.",
+        'Ce paiement est trop volumineux pour être remis en direct. Il arrivera quand {{name}} ouvrira son portefeuille. Rien n’a encore été dépensé.',
       direct_pay_failed_offline:
-        "{{name}} n'accepte pas de paiements en direct pour le moment. Rien n'a été dépensé. Connectez une boîte aux lettres dans les réglages pour le payer quand même.",
+        '{{name}} n’est pas en ligne. Rien n’a été dépensé. Pour le joindre quand même, terminez la configuration dans Réglages › Avancé.',
       direct_pay_failed_link: "Impossible de se connecter directement à {{name}}. Rien n'a été dépensé.",
       direct_pay_failed_network: 'Impossible de joindre le réseau de paiement — vérifiez votre connexion.',
       direct_pay_failed_wrong_network: "{{name}} est sur un autre réseau. Rien n'a été dépensé.",
@@ -6267,8 +6267,8 @@ const resources = {
         'Votre paiement à {{name}} a peut-être déjà été envoyé. Consultez Activité avant de payer à nouveau.',
       direct_pay_failed_not_sent: "Le paiement n'a pas pu être envoyé. Rien n'a été dépensé.",
       direct_pay_failed_no_message_box:
-        'Connectez votre boîte aux lettres dans les réglages pour payer une identité de portefeuille.',
-      direct_pay_fallback_title: 'Paiement en direct impossible pour le moment',
+        'Pour payer une identité de portefeuille, terminez la configuration dans Réglages › Avancé.',
+      direct_pay_fallback_title: 'L’envoyer quand même ?',
       direct_pay_fallback_send: 'Envoyer à la boîte aux lettres',
       direct_pay_fallback_host: 'Sa boîte aux lettres : {{host}}',
       direct_pay_sent_live: "Payé en direct : c'est déjà dans son portefeuille.",
@@ -6943,7 +6943,7 @@ const resources = {
       message_box_saved: 'تم حفظ خادم صندوق الرسائل',
       message_box_removed: 'تم إزالة خادم صندوق الرسائل',
       message_box_off: 'متوقف',
-      message_box_off_hint: 'خادم صندوق الرسائل متوقف. فعّله من الإعدادات › متقدم.',
+      message_box_off_hint: 'لم يتم إرسال أي شيء. للدفع لشخص غير متصل، أكمل الإعداد من الإعدادات › متقدم.',
       enter_valid_url: 'يرجى إدخال عنوان URL صالح',
       checking_connection: 'جارٍ التحقق من الاتصال...',
       connection_failed: 'فشل الاتصال',
@@ -7033,7 +7033,7 @@ const resources = {
       color_prompt_relinquish_title: 'إزالة حيازة رموز',
 
       send_max: 'إرسال الحد الأقصى',
-      message_box_unreachable: 'تعذر الوصول إلى خادم الدفع. تحقق من عنوان URL لصندوق الرسائل في الإعدادات.',
+      message_box_unreachable: 'تعذر الوصول إلى خادم الدفع. تحقق من الإعدادات › متقدم.',
       available: 'متاح',
       note: 'ملاحظة',
       note_placeholder: 'ما الغرض؟ (اختياري)',
@@ -7273,15 +7273,15 @@ const resources = {
         'هذا الرمز لمحفظة على {{theirs}}. محفظتك على {{mine}}، لذا لا يمكن إتمام هذه الدفعة. غيّر الشبكة، أو اطلب منهم ذلك.',
       local_pay_network_denied: 'الوصول إلى الشبكة المحلية مُعطَّل. فعّله من الإعدادات للدفع إلى الأجهزة القريبة.',
       local_pay_radio_fallback: 'الاتصال اللاسلكي غير متاح — اعرض هذا الرمز على الجهاز الآخر بدلاً من ذلك.',
-      local_pay_floor_peer_bt_off: 'بلوتوث الجهاز الآخر مُغلق، لذا ستتم هذه الدفعة عبر الرمز.',
+      local_pay_floor_peer_bt_off: 'بلوتوث الجهاز الآخر مُغلق. يتم الدفع عبر الرمز.',
       local_pay_floor_local_bt_off: 'بلوتوث جهازك مُغلق. شغّله للحصول على اتصال قريب أسرع.',
       local_pay_floor_local_ble_denied:
         'الوصول إلى البلوتوث مُعطَّل لتطبيق BSV Wallet. اسمح به من الإعدادات للحصول على اتصال قريب أسرع.',
       local_pay_floor_cross_os: 'لا يمكن للجهاز الآخر استخدام البلوتوث الآن، لذا ستتم هذه الدفعة عبر الرمز.',
       local_pay_floor_peer_no_radio: 'الجهاز الآخر لا يستمع لاتصال لاسلكي، لذا ستتم هذه الدفعة عبر الرمز.',
-      local_pay_ble_unavailable: 'البلوتوث غير متاح. الرمز أعلاه ما زال يعمل.',
+      local_pay_ble_unavailable: 'البلوتوث غير متاح. الرمز ما زال يعمل.',
       local_pay_too_large: 'بيانات هذه الدفعة أكبر من أن تُنقل عبر رموز QR.',
-      local_pay_nearby_unavailable: 'شبكة Wi-Fi القريبة غير متاحة. الرمز أعلاه ما زال يعمل.',
+      local_pay_nearby_unavailable: 'شبكة Wi-Fi غير متاحة. الرمز ما زال يعمل.',
       local_pay_retry_save: 'حاول الحفظ مرة أخرى',
       local_pay_wrong_session: 'هذه الدفعة لا تطابق هذا الطلب ولم يتم قبولها. اطلب من الدافع مسح الرمز مرة أخرى.',
       local_pay_declined_mismatch: 'لم يقبل المستلم هذه الدفعة لأنها لا تطابق طلبه. امسح رمزه مرة أخرى.',
@@ -7291,9 +7291,9 @@ const resources = {
       local_pay_declined_not_covered:
         'تعذّر على المستلم التحقق من هذه الدفعة مقابل سجلات جهة الإصدار. لم يُرسل أي شيء.',
       local_pay_declined_root_unverified:
-        'لم يتمكن جهاز المستلم من التحقق من هذه الدفعة على البلوكشين. لم يتم إرسال أي شيء. إذا كان غير متصل، فعليه الاتصال بالإنترنت لفترة قصيرة ثم المحاولة مرة أخرى.',
+        'يحتاج جهازه إلى الإنترنت للتحقق من دفعتك، لذا لم يتم إرسال أي شيء. عندما يصبح متصلًا، امسح رمزه مرة أخرى.',
       local_pay_root_unverified:
-        'لم يتمكن هذا الجهاز من التحقق من الدفعة على البلوكشين، لذا لم يتم قبولها. اتصل بالإنترنت لفترة قصيرة، ثم اطلب من الدافع المحاولة مرة أخرى.',
+        'لم تُقبل: يحتاج هذا الهاتف إلى الإنترنت للتحقق من الدفعة. اتصل بالإنترنت، ثم اطلب منه مسح رمزك مرة أخرى.',
       local_pay_broadcast_pending: 'تم الإرسال. لم يتمكن هذا الجهاز من معالجتها بعد — سيقوم المستلم بذلك.',
       local_pay_any_amount: 'أي مبلغ',
       local_pay_choose_amount: 'اختر المبلغ',
@@ -7334,7 +7334,7 @@ const resources = {
       token_cancel_already_sent: 'تم تنفيذ هذه الدفعة بالفعل ولا يمكن إلغاؤها.',
       tx_status_parked: 'لم يُسلَّم',
       tx_status_import_hold: 'موقوف (مستورد)',
-      resend_sending: 'جارٍ الإرسال عبر صندوق الرسائل',
+      resend_sending: 'جارٍ الإرسال مرة أخرى',
       cancelling_payment: 'جارٍ إلغاء الدفعة',
 
       contacts: 'جهات الاتصال',
@@ -7462,26 +7462,24 @@ const resources = {
       direct_pay_status_connecting_body: 'جارٍ التحضير لاستقبال المدفوعات المباشرة.',
       direct_pay_status_off_title: 'المدفوعات المباشرة متوقفة',
       direct_pay_status_off_body: 'فعّلها من الإعدادات ليتمكن الآخرون من الدفع لك مباشرة طالما أن هذه الشاشة مفتوحة.',
-      direct_pay_status_not_set_up_body:
-        'تصل المدفوعات المباشرة إلى المحافظ الأخرى عبر صندوق الرسائل. اربط صندوق رسائل من الإعدادات، أو استخدم خادم مرحّل.',
+      direct_pay_status_not_set_up_body: 'أكمل الإعداد من الإعدادات › متقدم لتستلم المدفوعات أثناء فتح هذه الشاشة.',
       direct_pay_status_error_title: 'المدفوعات المباشرة لا تعمل حاليًا',
       direct_pay_status_error_body: 'تعذّر استقبال المدفوعات المباشرة حاليًا.',
-      direct_pay_fallback_offline:
-        '{{name}} لا يستقبل المدفوعات المباشرة الآن. هل تريد إرسالها إلى صندوق رسائله بدلًا من ذلك؟ سيستلمها عند فتح محفظته في المرة القادمة.',
+      direct_pay_fallback_offline: '{{name}} غير متصل. ستصله عند فتح محفظته في المرة القادمة. لم يُنفق أي شيء بعد.',
       direct_pay_fallback_link_failed:
-        'تعذّر الاتصال مباشرة بـ {{name}}. هل تريد إرسالها إلى صندوق رسائله بدلًا من ذلك؟',
+        'تعذّر الوصول مباشرة إلى {{name}}. ستصله عند فتح محفظته في المرة القادمة. لم يُنفق أي شيء بعد.',
       direct_pay_fallback_too_large:
-        'هذه الدفعة أكبر من أن تُرسل مباشرة (أكثر من 1 ميغابايت). هل تريد إرسالها إلى صندوق رسائل {{name}} بدلًا من ذلك؟ لم يُنفق أي شيء بعد.',
+        'هذه الدفعة أكبر من أن تُسلَّم مباشرة. ستصل عندما يفتح {{name}} محفظته في المرة القادمة. لم يُنفق أي شيء بعد.',
       direct_pay_failed_offline:
-        '{{name}} لا يستقبل المدفوعات المباشرة الآن. لم يتم إنفاق أي مبلغ. اربط صندوق رسائل من الإعدادات للدفع له على أي حال.',
+        '{{name}} غير متصل. لم يتم إنفاق أي مبلغ. للوصول إليه على أي حال، أكمل الإعداد من الإعدادات › متقدم.',
       direct_pay_failed_link: 'تعذّر الاتصال مباشرة بـ {{name}}. لم يتم إنفاق أي مبلغ.',
       direct_pay_failed_network: 'تعذّر الوصول إلى شبكة الدفع — تحقق من اتصالك.',
       direct_pay_failed_wrong_network: '{{name}} على شبكة مختلفة. لم يتم إنفاق أي مبلغ.',
       direct_pay_failed_cancelled: 'تم الإلغاء. لم يتم إنفاق أي مبلغ.',
       direct_pay_failed_maybe_sent: 'ربما تم إرسال دفعتك إلى {{name}} بالفعل. تحقق من النشاط قبل الدفع مرة أخرى.',
       direct_pay_failed_not_sent: 'تعذّر إرسال الدفعة. لم يتم إنفاق أي مبلغ.',
-      direct_pay_failed_no_message_box: 'اربط صندوق رسائلك من الإعدادات للدفع إلى هوية محفظة.',
-      direct_pay_fallback_title: 'لا يمكن الدفع المباشر الآن',
+      direct_pay_failed_no_message_box: 'للدفع إلى هوية محفظة، أكمل الإعداد من الإعدادات › متقدم.',
+      direct_pay_fallback_title: 'إرسالها على أي حال؟',
       direct_pay_fallback_send: 'أرسل إلى صندوق الرسائل',
       direct_pay_fallback_host: 'صندوق رسائله: {{host}}',
       direct_pay_sent_live: 'تم الدفع مباشرة: المبلغ في محفظته بالفعل.',
@@ -8187,7 +8185,8 @@ const resources = {
       message_box_saved: 'Servidor de caixa de mensagens salvo',
       message_box_removed: 'Servidor de caixa de mensagens removido',
       message_box_off: 'Desligado',
-      message_box_off_hint: 'O servidor de caixa de mensagens está desligado. Ative-o em Configurações › Avançado.',
+      message_box_off_hint:
+        'Nada foi enviado. Para pagar alguém que não está online, conclua a configuração em Configurações › Avançado.',
       enter_valid_url: 'Por favor, insira uma URL válida',
       checking_connection: 'Verificando conexão...',
       connection_failed: 'Falha na conexão',
@@ -8279,7 +8278,7 @@ const resources = {
 
       send_max: 'Enviar máximo',
       message_box_unreachable:
-        'Não foi possível conectar ao servidor de pagamentos. Verifique o URL da message box nas configurações.',
+        'Não foi possível conectar ao servidor de pagamentos. Verifique Configurações › Avançado.',
       available: 'disponível',
       note: 'Nota',
       note_placeholder: 'Para que é? (opcional)',
@@ -8528,7 +8527,7 @@ const resources = {
       local_pay_network_denied:
         'O acesso à rede local está desativado. Ative-o em Ajustes para pagar dispositivos por perto.',
       local_pay_radio_fallback: 'Link sem fio indisponível — mostre este código ao outro aparelho.',
-      local_pay_floor_peer_bt_off: 'O Bluetooth deles está desligado, então este pagamento será feito por código.',
+      local_pay_floor_peer_bt_off: 'O Bluetooth deles está desligado. Pagando por código.',
       local_pay_floor_local_bt_off: 'Seu Bluetooth está desligado. Ligue-o para um link por perto mais rápido.',
       local_pay_floor_local_ble_denied:
         'O acesso ao Bluetooth está desativado para o BSV Wallet. Permita-o em Ajustes para um link por perto mais rápido.',
@@ -8536,9 +8535,9 @@ const resources = {
         'O outro aparelho não pode usar Bluetooth agora, então este pagamento será feito por código.',
       local_pay_floor_peer_no_radio:
         'O outro aparelho não está aguardando um link sem fio, então este pagamento será feito por código.',
-      local_pay_ble_unavailable: 'O Bluetooth está indisponível. O código acima continua funcionando.',
+      local_pay_ble_unavailable: 'Bluetooth indisponível. O código continua funcionando.',
       local_pay_too_large: 'Os dados deste pagamento são grandes demais para serem transmitidos por códigos QR.',
-      local_pay_nearby_unavailable: 'O Wi-Fi por perto está indisponível. O código acima continua funcionando.',
+      local_pay_nearby_unavailable: 'Wi-Fi indisponível. O código continua funcionando.',
       local_pay_retry_save: 'Tentar salvar de novo',
       local_pay_wrong_session:
         'Esse pagamento não corresponde a esta solicitação e não foi aceito. Peça a quem vai pagar para escanear o código de novo.',
@@ -8550,9 +8549,9 @@ const resources = {
       local_pay_declined_not_covered:
         'Quem recebe não conseguiu verificar este pagamento nos registros do emissor. Nada foi enviado.',
       local_pay_declined_root_unverified:
-        'O dispositivo do destinatário não conseguiu verificar este pagamento na blockchain. Nada foi enviado. Se estiver offline, tem de se ligar à internet por instantes e tentar novamente.',
+        'O dispositivo deles precisa de internet para verificar seu pagamento, então nada foi enviado. Quando estiverem online, escaneie o código deles novamente.',
       local_pay_root_unverified:
-        'Este dispositivo não conseguiu verificar o pagamento na blockchain, por isso não foi aceite. Ligue-se à internet por instantes e peça ao pagador para tentar novamente.',
+        'Não aceito: este telefone precisa de internet para verificar um pagamento. Fique online e peça para escanearem seu código novamente.',
       local_pay_broadcast_pending:
         'Enviado. Este aparelho ainda não conseguiu processá-lo — quem recebe vai fazer isso.',
       local_pay_any_amount: 'Qualquer valor',
@@ -8596,7 +8595,7 @@ const resources = {
       token_cancel_already_sent: 'Este pagamento já foi concluído e não pode ser cancelado.',
       tx_status_parked: 'Não entregue',
       tx_status_import_hold: 'Retido (importado)',
-      resend_sending: 'Enviando pela caixa de mensagens',
+      resend_sending: 'Enviando novamente',
       cancelling_payment: 'Cancelando o pagamento',
 
       contacts: 'Contatos',
@@ -8730,17 +8729,17 @@ const resources = {
       direct_pay_status_off_body:
         'Ative-os em Configurações para que as pessoas possam pagar você diretamente enquanto esta tela estiver aberta.',
       direct_pay_status_not_set_up_body:
-        'Os pagamentos ao vivo chegam a outras carteiras pela caixa de mensagens. Conecte uma caixa de mensagens em Configurações ou use um servidor de relé.',
+        'Conclua a configuração em Configurações › Avançado para receber pagamentos enquanto esta tela estiver aberta.',
       direct_pay_status_error_title: 'Os pagamentos ao vivo não estão funcionando agora',
       direct_pay_status_error_body: 'Não é possível receber pagamentos ao vivo agora.',
       direct_pay_fallback_offline:
-        '{{name}} não está recebendo pagamentos ao vivo agora. Enviar para a caixa de mensagens da pessoa? O pagamento chegará quando ela abrir a carteira da próxima vez.',
+        '{{name}} não está online. O pagamento chegará quando a pessoa abrir a carteira da próxima vez. Nada foi gasto ainda.',
       direct_pay_fallback_link_failed:
-        'Não foi possível conectar diretamente com {{name}}. Enviar para a caixa de mensagens da pessoa?',
+        'Não foi possível conectar diretamente com {{name}}. O pagamento chegará quando a pessoa abrir a carteira da próxima vez. Nada foi gasto ainda.',
       direct_pay_fallback_too_large:
-        'Este pagamento é grande demais para ser enviado ao vivo (mais de 1 MB). Enviar para a caixa de mensagens de {{name}}? Nada foi gasto ainda.',
+        'Este pagamento é grande demais para ser entregue ao vivo. Ele chegará quando {{name}} abrir a carteira da próxima vez. Nada foi gasto ainda.',
       direct_pay_failed_offline:
-        '{{name}} não está recebendo pagamentos ao vivo agora. Nada foi gasto. Conecte uma caixa de mensagens em Configurações para pagar mesmo assim.',
+        '{{name}} não está online. Nada foi gasto. Para alcançar a pessoa mesmo assim, conclua a configuração em Configurações › Avançado.',
       direct_pay_failed_link: 'Não foi possível conectar diretamente com {{name}}. Nada foi gasto.',
       direct_pay_failed_network: 'Não foi possível alcançar a rede de pagamentos — verifique sua conexão.',
       direct_pay_failed_wrong_network: '{{name}} está em outra rede. Nada foi gasto.',
@@ -8749,8 +8748,8 @@ const resources = {
         'Seu pagamento para {{name}} pode já ter sido enviado. Confira Atividade antes de pagar novamente.',
       direct_pay_failed_not_sent: 'Não foi possível enviar o pagamento. Nada foi gasto.',
       direct_pay_failed_no_message_box:
-        'Conecte sua caixa de mensagens em Configurações para pagar uma identidade de carteira.',
-      direct_pay_fallback_title: 'Não é possível pagar ao vivo agora',
+        'Para pagar uma identidade de carteira, conclua a configuração em Configurações › Avançado.',
+      direct_pay_fallback_title: 'Enviar mesmo assim?',
       direct_pay_fallback_send: 'Enviar para a caixa de mensagens',
       direct_pay_fallback_host: 'Caixa de mensagens da pessoa: {{host}}',
       direct_pay_sent_live: 'Pago ao vivo: já está na carteira da pessoa.',
@@ -9444,7 +9443,8 @@ const resources = {
       message_box_saved: 'মেসেজ বক্স সার্ভার সংরক্ষিত হয়েছে',
       message_box_removed: 'মেসেজ বক্স সার্ভার সরানো হয়েছে',
       message_box_off: 'বন্ধ',
-      message_box_off_hint: 'মেসেজ বক্স সার্ভার বন্ধ আছে। সেটিংস › অ্যাডভান্সড থেকে চালু করুন।',
+      message_box_off_hint:
+        'কিছুই পাঠানো হয়নি। অনলাইনে নেই এমন কাউকে পেমেন্ট করতে সেটিংস › অ্যাডভান্সড থেকে সেটআপ শেষ করুন।',
       enter_valid_url: 'একটি বৈধ URL প্রবেশ করুন',
       checking_connection: 'সংযোগ পরীক্ষা করা হচ্ছে...',
       connection_failed: 'সংযোগ ব্যর্থ',
@@ -9535,7 +9535,7 @@ const resources = {
       color_prompt_relinquish_title: 'টোকেন হোল্ডিং সরান',
 
       send_max: 'সর্বোচ্চ পাঠান',
-      message_box_unreachable: 'পেমেন্ট সার্ভারে পৌঁছানো যায়নি। সেটিংসে message box URL যাচাই করুন।',
+      message_box_unreachable: 'পেমেন্ট সার্ভারে পৌঁছানো যায়নি। সেটিংস › অ্যাডভান্সড দেখুন।',
       available: 'উপলব্ধ',
       note: 'নোট',
       note_placeholder: 'কীসের জন্য? (ঐচ্ছিক)',
@@ -9781,16 +9781,16 @@ const resources = {
       local_pay_network_denied:
         'লোকাল নেটওয়ার্ক অ্যাক্সেস বন্ধ আছে। কাছের ডিভাইসে পেমেন্ট করতে সেটিংসে এটি চালু করুন।',
       local_pay_radio_fallback: 'ওয়্যারলেস লিঙ্ক অনুপলব্ধ — এর পরিবর্তে অন্য ডিভাইসে এই কোডটি দেখান।',
-      local_pay_floor_peer_bt_off: 'তাদের ব্লুটুথ বন্ধ, তাই এই পেমেন্ট কোডের মাধ্যমে হবে।',
+      local_pay_floor_peer_bt_off: 'তাদের ব্লুটুথ বন্ধ। কোডের মাধ্যমে পেমেন্ট হচ্ছে।',
       local_pay_floor_local_bt_off: 'আপনার ব্লুটুথ বন্ধ। দ্রুততর কাছাকাছি লিঙ্কের জন্য এটি চালু করুন।',
       local_pay_floor_local_ble_denied:
         'BSV Wallet-এর জন্য ব্লুটুথ অ্যাক্সেস বন্ধ। দ্রুততর কাছাকাছি লিঙ্কের জন্য সেটিংসে এটি অনুমোদন করুন।',
       local_pay_floor_cross_os: 'অন্য ডিভাইসটি এখন ব্লুটুথ ব্যবহার করতে পারছে না, তাই এই পেমেন্ট কোডের মাধ্যমে হবে।',
       local_pay_floor_peer_no_radio:
         'অন্য ডিভাইসটি ওয়্যারলেস লিঙ্কের জন্য শুনছে না, তাই এই পেমেন্ট কোডের মাধ্যমে হবে।',
-      local_pay_ble_unavailable: 'ব্লুটুথ পাওয়া যাচ্ছে না। উপরের কোডটি এখনও কাজ করে।',
+      local_pay_ble_unavailable: 'ব্লুটুথ পাওয়া যাচ্ছে না। কোডটি এখনও কাজ করে।',
       local_pay_too_large: 'এই পেমেন্টের ডেটা QR কোডের মাধ্যমে হস্তান্তর করার জন্য অনেক বড়।',
-      local_pay_nearby_unavailable: 'কাছাকাছি Wi-Fi পাওয়া যাচ্ছে না। উপরের কোডটি এখনও কাজ করে।',
+      local_pay_nearby_unavailable: 'Wi-Fi পাওয়া যাচ্ছে না। কোডটি এখনও কাজ করে।',
       local_pay_retry_save: 'আবার সংরক্ষণের চেষ্টা করুন',
       local_pay_wrong_session:
         'সেই পেমেন্টটি এই অনুরোধের সঙ্গে মেলে না, তাই গ্রহণ করা হয়নি। পেমেন্টকারীকে কোডটি আবার স্ক্যান করতে বলুন।',
@@ -9802,9 +9802,9 @@ const resources = {
       local_pay_declined_not_covered:
         'প্রাপক ইস্যুকারীর রেকর্ডের সঙ্গে এই পেমেন্টটি যাচাই করতে পারেননি। কিছুই পাঠানো হয়নি।',
       local_pay_declined_root_unverified:
-        'প্রাপকের ডিভাইস ব্লকচেইনে এই পেমেন্ট যাচাই করতে পারেনি। কিছুই পাঠানো হয়নি। তারা অফলাইনে থাকলে কিছুক্ষণের জন্য সংযোগ করে আবার চেষ্টা করতে হবে।',
+        'আপনার পেমেন্ট যাচাই করতে তাদের ডিভাইসের ইন্টারনেট দরকার, তাই কিছুই পাঠানো হয়নি। তারা অনলাইনে এলে তাদের কোড আবার স্ক্যান করুন।',
       local_pay_root_unverified:
-        'এই ডিভাইস ব্লকচেইনে পেমেন্টটি যাচাই করতে পারেনি, তাই এটি গ্রহণ করা হয়নি। কিছুক্ষণের জন্য ইন্টারনেটে সংযোগ করুন, তারপর প্রেরককে আবার চেষ্টা করতে বলুন।',
+        'গ্রহণ করা হয়নি: পেমেন্ট যাচাই করতে এই ফোনের ইন্টারনেট দরকার। অনলাইনে যান, তারপর তাদের আপনার কোড আবার স্ক্যান করতে বলুন।',
       local_pay_broadcast_pending: 'পাঠানো হয়েছে। এই ডিভাইসটি এখনও প্রসেস করাতে পারেনি — প্রাপক সেটি করবেন।',
       local_pay_any_amount: 'যেকোনো পরিমাণ',
       local_pay_choose_amount: 'পরিমাণ বেছে নিন',
@@ -9846,9 +9846,9 @@ const resources = {
       pay_parked_cancel: 'পেমেন্ট বাতিল করুন',
       pay_parked_already_sent: 'এই পেমেন্ট ইতিমধ্যে পাঠানো হয়েছে',
       token_cancel_already_sent: 'এই পেমেন্টটি ইতিমধ্যে সম্পন্ন হয়েছে এবং এটি বাতিল করা যাবে না।',
-      tx_status_parked: 'হস্তান্তর হয়নি',
+      tx_status_parked: 'ডেলিভার হয়নি',
       tx_status_import_hold: 'আমদানির পর স্থগিত',
-      resend_sending: 'মেসেজ বক্সের মাধ্যমে পাঠানো হচ্ছে',
+      resend_sending: 'আবার পাঠানো হচ্ছে',
       cancelling_payment: 'পেমেন্ট বাতিল করা হচ্ছে',
 
       contacts: 'পরিচিতি',
@@ -9980,16 +9980,16 @@ const resources = {
       direct_pay_status_off_body:
         'সেটিংসে এগুলো চালু করুন, যাতে এই স্ক্রিন খোলা থাকলে মানুষ আপনাকে সরাসরি পেমেন্ট করতে পারে।',
       direct_pay_status_not_set_up_body:
-        'লাইভ পেমেন্ট মেসেজ বক্সের মাধ্যমে অন্য ওয়ালেটে পৌঁছায়। সেটিংসে একটি মেসেজ বক্স যুক্ত করুন, অথবা রিলে সার্ভার ব্যবহার করুন।',
+        'এই স্ক্রিন খোলা থাকা অবস্থায় পেমেন্ট পেতে সেটিংস › অ্যাডভান্সড থেকে সেটআপ শেষ করুন।',
       direct_pay_status_error_title: 'লাইভ পেমেন্ট এখন কাজ করছে না',
       direct_pay_status_error_body: 'এই মুহূর্তে লাইভ পেমেন্ট গ্রহণ করা যাচ্ছে না।',
-      direct_pay_fallback_offline:
-        '{{name}} এখন লাইভ পেমেন্ট নিচ্ছেন না। এর বদলে তাদের মেসেজ বক্সে পাঠাবেন? পরের বার ওয়ালেট খুললে তারা এটি পাবেন।',
-      direct_pay_fallback_link_failed: '{{name}}-এর সাথে সরাসরি সংযোগ করা যায়নি। তার বদলে তাদের মেসেজ বক্সে পাঠাবেন?',
+      direct_pay_fallback_offline: '{{name}} অনলাইনে নেই। পরের বার ওয়ালেট খুললে তারা এটি পাবেন। এখনও কিছু খরচ হয়নি।',
+      direct_pay_fallback_link_failed:
+        '{{name}}-এর কাছে সরাসরি পৌঁছানো যায়নি। পরের বার ওয়ালেট খুললে তারা এটি পাবেন। এখনও কিছু খরচ হয়নি।',
       direct_pay_fallback_too_large:
-        'এই পেমেন্টটি লাইভ পাঠানোর জন্য খুব বড় (1 MB-এর বেশি)। তার বদলে {{name}}-এর মেসেজ বক্সে পাঠাবেন? এখনও কিছু খরচ হয়নি।',
+        'এই পেমেন্টটি লাইভ হস্তান্তরের জন্য খুব বড়। {{name}} পরের বার ওয়ালেট খুললে এটি পৌঁছাবে। এখনও কিছু খরচ হয়নি।',
       direct_pay_failed_offline:
-        '{{name}} এখন লাইভ পেমেন্ট নিচ্ছেন না। কিছুই খরচ হয়নি। তবুও পেমেন্ট করতে সেটিংসে একটি মেসেজ বক্স যুক্ত করুন।',
+        '{{name}} অনলাইনে নেই। কিছুই খরচ হয়নি। তবুও তাদের কাছে পৌঁছাতে সেটিংস › অ্যাডভান্সড থেকে সেটআপ শেষ করুন।',
       direct_pay_failed_link: '{{name}}-এর সাথে সরাসরি সংযোগ করা যায়নি। কিছুই খরচ হয়নি।',
       direct_pay_failed_network: 'পেমেন্ট নেটওয়ার্কে পৌঁছানো যায়নি — আপনার সংযোগ পরীক্ষা করুন।',
       direct_pay_failed_wrong_network: '{{name}} অন্য একটি নেটওয়ার্কে আছেন। কিছুই খরচ হয়নি।',
@@ -9997,8 +9997,8 @@ const resources = {
       direct_pay_failed_maybe_sent:
         '{{name}}-এর কাছে আপনার পেমেন্ট হয়তো ইতিমধ্যে পাঠানো হয়ে গেছে। আবার পেমেন্ট করার আগে কার্যকলাপ দেখুন।',
       direct_pay_failed_not_sent: 'পেমেন্ট পাঠানো যায়নি। কিছুই খরচ হয়নি।',
-      direct_pay_failed_no_message_box: 'ওয়ালেট আইডেন্টিটিকে পেমেন্ট করতে সেটিংসে আপনার মেসেজ বক্স যুক্ত করুন।',
-      direct_pay_fallback_title: 'এখন লাইভ পেমেন্ট করা যাচ্ছে না',
+      direct_pay_failed_no_message_box: 'ওয়ালেট আইডেন্টিটিকে পেমেন্ট করতে সেটিংস › অ্যাডভান্সড থেকে সেটআপ শেষ করুন।',
+      direct_pay_fallback_title: 'তবুও পাঠাবেন?',
       direct_pay_fallback_send: 'মেসেজ বক্সে পাঠান',
       direct_pay_fallback_host: 'তাদের মেসেজ বক্স: {{host}}',
       direct_pay_sent_live: 'সরাসরি পেমেন্ট হয়েছে: এটি ইতিমধ্যে তাদের ওয়ালেটে আছে।',
@@ -10703,7 +10703,8 @@ const resources = {
       message_box_saved: 'Сервер почтового ящика сохранён',
       message_box_removed: 'Сервер почтового ящика удалён',
       message_box_off: 'Выкл.',
-      message_box_off_hint: 'Сервер почтового ящика выключен. Включите его в Настройки › Дополнительно.',
+      message_box_off_hint:
+        'Ничего не отправлено. Чтобы заплатить тому, кто не в сети, завершите настройку в Настройки › Дополнительно.',
       enter_valid_url: 'Введите действительный URL',
       checking_connection: 'Проверка соединения...',
       connection_failed: 'Ошибка соединения',
@@ -10794,7 +10795,7 @@ const resources = {
       color_prompt_relinquish_title: 'Удалить токены из кошелька',
 
       send_max: 'Отправить максимум',
-      message_box_unreachable: 'Не удалось связаться с платёжным сервером. Проверьте URL message box в настройках.',
+      message_box_unreachable: 'Не удалось связаться с платёжным сервером. Проверьте Настройки › Дополнительно.',
       available: 'доступно',
       note: 'Заметка',
       note_placeholder: 'За что? (необязательно)',
@@ -11042,7 +11043,7 @@ const resources = {
       local_pay_network_denied:
         'Доступ к локальной сети выключен. Включите его в «Настройках», чтобы платить устройствам поблизости.',
       local_pay_radio_fallback: 'Беспроводное соединение недоступно — покажите этот код другому устройству.',
-      local_pay_floor_peer_bt_off: 'У них выключен Bluetooth, поэтому этот платёж пройдёт по коду.',
+      local_pay_floor_peer_bt_off: 'У них выключен Bluetooth. Оплата по коду.',
       local_pay_floor_local_bt_off: 'У вас выключен Bluetooth. Включите его для более быстрой связи поблизости.',
       local_pay_floor_local_ble_denied:
         'Доступ к Bluetooth для BSV Wallet выключен. Разрешите его в «Настройках» для более быстрой связи поблизости.',
@@ -11050,9 +11051,9 @@ const resources = {
         'Другое устройство сейчас не может использовать Bluetooth, поэтому этот платёж пройдёт по коду.',
       local_pay_floor_peer_no_radio:
         'Другое устройство не ожидает беспроводного соединения, поэтому этот платёж пройдёт по коду.',
-      local_pay_ble_unavailable: 'Bluetooth недоступен. Код выше всё ещё работает.',
+      local_pay_ble_unavailable: 'Bluetooth недоступен. Код всё ещё работает.',
       local_pay_too_large: 'Данные этого платежа слишком велики, чтобы передать их через QR-коды.',
-      local_pay_nearby_unavailable: 'Wi-Fi поблизости недоступен. Код выше всё ещё работает.',
+      local_pay_nearby_unavailable: 'Wi-Fi недоступен. Код всё ещё работает.',
       local_pay_retry_save: 'Попробовать сохранить снова',
       local_pay_wrong_session:
         'Этот платёж не соответствует запросу и не был принят. Попросите плательщика отсканировать код ещё раз.',
@@ -11064,9 +11065,9 @@ const resources = {
       local_pay_declined_not_covered:
         'Получатель не смог сверить этот платёж с записями эмитента. Ничего не отправлено.',
       local_pay_declined_root_unverified:
-        'Устройство получателя не смогло проверить этот платёж по блокчейну. Ничего не отправлено. Если получатель офлайн, ему нужно ненадолго подключиться к интернету и повторить попытку.',
+        'Их устройству нужен интернет, чтобы проверить ваш платёж, поэтому ничего не отправлено. Когда они будут в сети, отсканируйте их код ещё раз.',
       local_pay_root_unverified:
-        'Это устройство не смогло проверить платёж по блокчейну, поэтому он не принят. Ненадолго подключитесь к интернету и попросите плательщика повторить попытку.',
+        'Не принято: этому телефону нужен интернет, чтобы проверить платёж. Подключитесь к сети, затем попросите отсканировать ваш код ещё раз.',
       local_pay_broadcast_pending:
         'Отправлено. Это устройство пока не смогло провести обработку — это сделает получатель.',
       local_pay_any_amount: 'Любая сумма',
@@ -11109,9 +11110,9 @@ const resources = {
       pay_parked_cancel: 'Отменить платёж',
       pay_parked_already_sent: 'Этот платёж уже отправлен',
       token_cancel_already_sent: 'Этот платёж уже прошёл, и его нельзя отменить.',
-      tx_status_parked: 'Не передан',
+      tx_status_parked: 'Не доставлен',
       tx_status_import_hold: 'Удержано (импортировано)',
-      resend_sending: 'Отправка через почтовый ящик',
+      resend_sending: 'Повторная отправка',
       cancelling_payment: 'Отмена платежа',
 
       contacts: 'Контакты',
@@ -11244,17 +11245,17 @@ const resources = {
       direct_pay_status_off_body:
         'Включите их в настройках, чтобы люди могли платить вам напрямую, пока этот экран открыт.',
       direct_pay_status_not_set_up_body:
-        'Платежи в реальном времени доходят до других кошельков через почтовый ящик. Подключите почтовый ящик в настройках или используйте сервер-ретранслятор.',
+        'Завершите настройку в Настройки › Дополнительно, чтобы получать платежи, пока этот экран открыт.',
       direct_pay_status_error_title: 'Платежи в реальном времени сейчас не работают',
       direct_pay_status_error_body: 'Сейчас невозможно принимать платежи в реальном времени.',
       direct_pay_fallback_offline:
-        '{{name}} сейчас не принимает прямые платежи. Отправить в почтовый ящик получателя? Платёж придёт, когда получатель в следующий раз откроет кошелёк.',
+        '{{name}} не в сети. Платёж придёт, когда получатель в следующий раз откроет кошелёк. Пока ничего не потрачено.',
       direct_pay_fallback_link_failed:
-        'Не удалось напрямую подключиться к {{name}}. Отправить в почтовый ящик получателя?',
+        'Не удалось напрямую связаться с {{name}}. Платёж придёт, когда получатель в следующий раз откроет кошелёк. Пока ничего не потрачено.',
       direct_pay_fallback_too_large:
-        'Этот платёж слишком велик для отправки напрямую (больше 1 МБ). Отправить в почтовый ящик {{name}}? Пока ничего не потрачено.',
+        'Этот платёж слишком велик для передачи напрямую. Он придёт, когда {{name}} в следующий раз откроет кошелёк. Пока ничего не потрачено.',
       direct_pay_failed_offline:
-        '{{name}} сейчас не принимает прямые платежи. Ничего не потрачено. Подключите почтовый ящик в настройках, чтобы всё равно заплатить.',
+        '{{name}} не в сети. Ничего не потрачено. Чтобы платёж всё равно дошёл, завершите настройку в Настройки › Дополнительно.',
       direct_pay_failed_link: 'Не удалось напрямую подключиться к {{name}}. Ничего не потрачено.',
       direct_pay_failed_network: 'Не удалось связаться с платёжной сетью — проверьте подключение.',
       direct_pay_failed_wrong_network: '{{name}} находится в другой сети. Ничего не потрачено.',
@@ -11263,8 +11264,8 @@ const resources = {
         'Ваш платёж для {{name}}, возможно, уже отправлен. Проверьте «Активность», прежде чем платить снова.',
       direct_pay_failed_not_sent: 'Не удалось отправить платёж. Ничего не потрачено.',
       direct_pay_failed_no_message_box:
-        'Подключите почтовый ящик в настройках, чтобы платить по идентификатору кошелька.',
-      direct_pay_fallback_title: 'Сейчас нельзя заплатить напрямую',
+        'Чтобы платить по идентификатору кошелька, завершите настройку в Настройки › Дополнительно.',
+      direct_pay_fallback_title: 'Всё равно отправить?',
       direct_pay_fallback_send: 'Отправить в почтовый ящик',
       direct_pay_fallback_host: 'Почтовый ящик получателя: {{host}}',
       direct_pay_sent_live: 'Оплачено напрямую: деньги уже в кошельке получателя.',
@@ -11968,7 +11969,8 @@ const resources = {
       message_box_saved: 'Server kotak pesan disimpan',
       message_box_removed: 'Server kotak pesan dihapus',
       message_box_off: 'Mati',
-      message_box_off_hint: 'Server kotak pesan mati. Nyalakan di Pengaturan › Lanjutan.',
+      message_box_off_hint:
+        'Tidak ada yang dikirim. Untuk membayar orang yang sedang tidak online, selesaikan penyiapan di Pengaturan › Lanjutan.',
       enter_valid_url: 'Masukkan URL yang valid',
       checking_connection: 'Memeriksa koneksi...',
       connection_failed: 'Koneksi gagal',
@@ -12059,7 +12061,7 @@ const resources = {
       color_prompt_relinquish_title: 'Hapus kepemilikan token',
 
       send_max: 'Kirim Maksimal',
-      message_box_unreachable: 'Tidak dapat menghubungi server pembayaran. Periksa URL message box di pengaturan.',
+      message_box_unreachable: 'Tidak dapat menghubungi server pembayaran. Periksa Pengaturan › Lanjutan.',
       available: 'tersedia',
       note: 'Catatan',
       note_placeholder: 'Untuk apa? (opsional)',
@@ -12310,7 +12312,7 @@ const resources = {
         'Akses Jaringan Lokal nonaktif. Aktifkan di Pengaturan untuk membayar perangkat di dekat Anda.',
       local_pay_radio_fallback:
         'Tautan nirkabel tidak tersedia — tunjukkan kode ini ke perangkat lain sebagai gantinya.',
-      local_pay_floor_peer_bt_off: 'Bluetooth mereka mati, jadi pembayaran ini akan dilakukan lewat kode.',
+      local_pay_floor_peer_bt_off: 'Bluetooth mereka mati. Membayar lewat kode.',
       local_pay_floor_local_bt_off: 'Bluetooth Anda mati. Nyalakan untuk tautan terdekat yang lebih cepat.',
       local_pay_floor_local_ble_denied:
         'Akses Bluetooth untuk BSV Wallet nonaktif. Izinkan di Pengaturan untuk tautan terdekat yang lebih cepat.',
@@ -12318,9 +12320,9 @@ const resources = {
         'Perangkat lain tidak dapat menggunakan Bluetooth saat ini, jadi pembayaran ini akan dilakukan lewat kode.',
       local_pay_floor_peer_no_radio:
         'Perangkat lain tidak menunggu tautan nirkabel, jadi pembayaran ini akan dilakukan lewat kode.',
-      local_pay_ble_unavailable: 'Bluetooth tidak tersedia. Kode di atas tetap berfungsi.',
+      local_pay_ble_unavailable: 'Bluetooth tidak tersedia. Kode tetap berfungsi.',
       local_pay_too_large: 'Data pembayaran ini terlalu besar untuk dikirim melalui kode QR.',
-      local_pay_nearby_unavailable: 'Wi-Fi terdekat tidak tersedia. Kode di atas tetap berfungsi.',
+      local_pay_nearby_unavailable: 'Wi-Fi tidak tersedia. Kode tetap berfungsi.',
       local_pay_retry_save: 'Coba simpan lagi',
       local_pay_wrong_session:
         'Pembayaran itu tidak cocok dengan permintaan ini dan tidak diterima. Minta pembayar memindai kodenya lagi.',
@@ -12332,9 +12334,9 @@ const resources = {
       local_pay_declined_not_covered:
         'Penerima tidak dapat memverifikasi pembayaran ini dengan catatan penerbit. Tidak ada yang dikirim.',
       local_pay_declined_root_unverified:
-        'Perangkat penerima tidak dapat memeriksa pembayaran ini di blockchain. Tidak ada yang dikirim. Jika penerima sedang offline, mereka perlu tersambung sebentar, lalu coba lagi.',
+        'Perangkat mereka perlu internet untuk memverifikasi pembayaran Anda, jadi tidak ada yang dikirim. Setelah mereka online, pindai lagi kode mereka.',
       local_pay_root_unverified:
-        'Perangkat ini tidak dapat memeriksa pembayaran di blockchain, jadi pembayaran tidak diterima. Sambungkan ke internet sebentar, lalu minta pembayar mencoba lagi.',
+        'Tidak diterima: ponsel ini perlu internet untuk memverifikasi pembayaran. Sambungkan ke internet, lalu minta mereka memindai lagi kode Anda.',
       local_pay_broadcast_pending: 'Terkirim. Perangkat ini belum bisa memprosesnya — penerima yang akan melakukannya.',
       local_pay_any_amount: 'Jumlah bebas',
       local_pay_choose_amount: 'Pilih jumlah',
@@ -12377,9 +12379,9 @@ const resources = {
       pay_parked_cancel: 'Batalkan pembayaran',
       pay_parked_already_sent: 'Pembayaran ini sudah terkirim',
       token_cancel_already_sent: 'Pembayaran ini sudah berhasil dan tidak dapat dibatalkan.',
-      tx_status_parked: 'Belum diserahkan',
+      tx_status_parked: 'Belum terkirim',
       tx_status_import_hold: 'Ditahan (diimpor)',
-      resend_sending: 'Mengirim lewat kotak pesan',
+      resend_sending: 'Mengirim ulang',
       cancelling_payment: 'Membatalkan pembayaran',
 
       contacts: 'Kontak',
@@ -12512,16 +12514,17 @@ const resources = {
       direct_pay_status_off_body:
         'Aktifkan di Pengaturan agar orang dapat membayar Anda secara langsung selama layar ini terbuka.',
       direct_pay_status_not_set_up_body:
-        'Pembayaran langsung sampai ke dompet lain melalui kotak pesan. Hubungkan kotak pesan di Pengaturan, atau gunakan server relai.',
+        'Selesaikan penyiapan di Pengaturan › Lanjutan agar bisa dibayar selama layar ini terbuka.',
       direct_pay_status_error_title: 'Pembayaran langsung sedang tidak berfungsi',
       direct_pay_status_error_body: 'Pembayaran langsung tidak dapat diterima saat ini.',
       direct_pay_fallback_offline:
-        '{{name}} sedang tidak menerima pembayaran langsung. Kirim ke kotak pesannya saja? Pembayaran akan diterima saat dompetnya dibuka lagi.',
-      direct_pay_fallback_link_failed: 'Tidak dapat terhubung langsung ke {{name}}. Kirim ke kotak pesannya saja?',
+        '{{name}} sedang tidak online. Pembayaran akan sampai saat dompetnya dibuka lagi. Belum ada yang dibelanjakan.',
+      direct_pay_fallback_link_failed:
+        'Tidak dapat menghubungi {{name}} secara langsung. Pembayaran akan sampai saat dompetnya dibuka lagi. Belum ada yang dibelanjakan.',
       direct_pay_fallback_too_large:
-        'Pembayaran ini terlalu besar untuk dikirim langsung (lebih dari 1 MB). Kirim ke kotak pesan {{name}} saja? Belum ada yang dibelanjakan.',
+        'Pembayaran ini terlalu besar untuk diserahkan langsung. Pembayaran akan sampai saat {{name}} membuka dompetnya lagi. Belum ada yang dibelanjakan.',
       direct_pay_failed_offline:
-        '{{name}} sedang tidak menerima pembayaran langsung. Tidak ada dana yang terpakai. Hubungkan kotak pesan di Pengaturan untuk tetap membayarnya.',
+        '{{name}} sedang tidak online. Tidak ada dana yang terpakai. Agar tetap sampai, selesaikan penyiapan di Pengaturan › Lanjutan.',
       direct_pay_failed_link: 'Tidak dapat terhubung langsung ke {{name}}. Tidak ada dana yang terpakai.',
       direct_pay_failed_network: 'Tidak dapat menjangkau jaringan pembayaran — periksa koneksi Anda.',
       direct_pay_failed_wrong_network: '{{name}} berada di jaringan lain. Tidak ada dana yang terpakai.',
@@ -12529,8 +12532,9 @@ const resources = {
       direct_pay_failed_maybe_sent:
         'Pembayaran Anda ke {{name}} mungkin sudah terkirim. Periksa Aktivitas sebelum membayar lagi.',
       direct_pay_failed_not_sent: 'Pembayaran tidak dapat dikirim. Tidak ada dana yang terpakai.',
-      direct_pay_failed_no_message_box: 'Hubungkan kotak pesan Anda di Pengaturan untuk membayar identitas dompet.',
-      direct_pay_fallback_title: 'Tidak bisa membayar langsung sekarang',
+      direct_pay_failed_no_message_box:
+        'Untuk membayar identitas dompet, selesaikan penyiapan di Pengaturan › Lanjutan.',
+      direct_pay_fallback_title: 'Tetap kirim?',
       direct_pay_fallback_send: 'Kirim ke kotak pesan',
       direct_pay_fallback_host: 'Kotak pesannya: {{host}}',
       direct_pay_sent_live: 'Dibayar langsung: sudah masuk ke dompet mereka.',
@@ -13236,7 +13240,8 @@ const resources = {
       message_box_saved: 'メッセージボックスサーバーを保存しました',
       message_box_removed: 'メッセージボックスサーバーを削除しました',
       message_box_off: 'オフ',
-      message_box_off_hint: 'メッセージボックスサーバーがオフです。設定 › 詳細でオンにしてください。',
+      message_box_off_hint:
+        '何も送信されていません。オンラインでない相手に支払うには、設定 › 詳細でセットアップを完了してください。',
       enter_valid_url: '有効なURLを入力してください',
       checking_connection: '接続を確認中...',
       connection_failed: '接続に失敗しました',
@@ -13333,7 +13338,7 @@ const resources = {
 
       // Amount input
       send_max: '最大額を送金',
-      message_box_unreachable: '決済サーバーに接続できませんでした。設定でメッセージボックスのURLを確認してください。',
+      message_box_unreachable: '決済サーバーに接続できませんでした。設定 › 詳細を確認してください。',
       available: '利用可能',
       note: 'メモ',
       note_placeholder: '何のため？（任意）',
@@ -13584,15 +13589,15 @@ const resources = {
       local_pay_network_denied:
         'ローカルネットワークへのアクセスがオフです。近くの端末に支払うには「設定」でオンにしてください。',
       local_pay_radio_fallback: '無線リンクが利用できません — 代わりにこのコードを相手の端末に表示してください。',
-      local_pay_floor_peer_bt_off: '相手のBluetoothがオフのため、この支払いはコードで行います。',
+      local_pay_floor_peer_bt_off: '相手のBluetoothがオフです。コードで支払います。',
       local_pay_floor_local_bt_off: 'Bluetoothがオフです。オンにすると、より速い近距離リンクが使えます。',
       local_pay_floor_local_ble_denied:
         'BSV WalletのBluetoothアクセスがオフです。「設定」で許可すると、より速い近距離リンクが使えます。',
       local_pay_floor_cross_os: '相手の端末は現在Bluetoothを使えないため、この支払いはコードで行います。',
       local_pay_floor_peer_no_radio: '相手の端末は無線リンクを待ち受けていないため、この支払いはコードで行います。',
-      local_pay_ble_unavailable: 'Bluetoothを利用できません。上のコードは引き続き使えます。',
+      local_pay_ble_unavailable: 'Bluetoothを利用できません。コードは引き続き使えます。',
       local_pay_too_large: 'この支払いのデータはQRコードで受け渡すには大きすぎます。',
-      local_pay_nearby_unavailable: '近くのWi-Fiを利用できません。上のコードは引き続き使えます。',
+      local_pay_nearby_unavailable: 'Wi-Fiを利用できません。コードは引き続き使えます。',
       local_pay_retry_save: 'もう一度保存する',
       local_pay_wrong_session:
         'その支払いはこのリクエストと一致しないため、受け取りませんでした。支払う方にコードをもう一度スキャンしてもらってください。',
@@ -13606,9 +13611,9 @@ const resources = {
       local_pay_declined_not_covered:
         '受取人がこの支払いを発行者の記録と照合できませんでした。何も送金されていません。',
       local_pay_declined_root_unverified:
-        '受取人の端末がブロックチェーンでこの支払いを確認できませんでした。何も送信されていません。受取人がオフラインの場合は、少しの間インターネットに接続してから、もう一度お試しください。',
+        '相手の端末が支払いを確認するにはインターネットが必要なため、何も送信されていません。相手がオンラインになったら、相手のコードをもう一度スキャンしてください。',
       local_pay_root_unverified:
-        'この端末はブロックチェーンで支払いを確認できなかったため、受け付けませんでした。少しの間インターネットに接続してから、支払者にもう一度試してもらってください。',
+        '受け付けませんでした：この端末が支払いを確認するにはインターネットが必要です。オンラインにしてから、相手にこちらのコードをもう一度スキャンしてもらってください。',
       local_pay_broadcast_pending: '送金しました。この端末ではまだ処理できていません — 受取人が処理します。',
       local_pay_any_amount: '金額は任意',
       local_pay_choose_amount: '金額を選択',
@@ -13650,7 +13655,7 @@ const resources = {
       token_cancel_already_sent: 'この支払いはすでに完了しており、キャンセルできません。',
       tx_status_parked: '未受け渡し',
       tx_status_import_hold: 'インポートで保留中',
-      resend_sending: 'メッセージボックス経由で送信中',
+      resend_sending: '再送信中',
       cancelling_payment: '支払いをキャンセル中',
 
       contacts: '連絡先',
@@ -13781,17 +13786,17 @@ const resources = {
       direct_pay_status_off_title: 'ライブ決済はオフです',
       direct_pay_status_off_body: '設定でオンにすると、この画面を開いている間、相手があなたに直接支払えます。',
       direct_pay_status_not_set_up_body:
-        'ライブ決済はメッセージボックスを通じて他のウォレットに届きます。設定でメッセージボックスを接続するか、リレーサーバーを使用してください。',
+        'この画面を開いている間に支払いを受け取るには、設定 › 詳細でセットアップを完了してください。',
       direct_pay_status_error_title: '現在ライブ決済を利用できません',
       direct_pay_status_error_body: '現在、ライブ決済を受け取れません。',
       direct_pay_fallback_offline:
-        '{{name}}は現在ライブ支払いを受け付けていません。代わりに相手のメッセージボックスに送りますか？次にウォレットを開いたときに受け取れます。',
+        '{{name}}はオンラインではありません。次にウォレットを開いたときに届きます。まだ何も支払われていません。',
       direct_pay_fallback_link_failed:
-        '{{name}}に直接接続できませんでした。代わりに相手のメッセージボックスに送りますか？',
+        '{{name}}に直接接続できませんでした。次にウォレットを開いたときに届きます。まだ何も支払われていません。',
       direct_pay_fallback_too_large:
-        'この支払いは大きすぎるため、ライブでは送れません（1 MB超）。代わりに{{name}}のメッセージボックスに送りますか？まだ何も支払われていません。',
+        'この支払いは大きすぎるため、ライブでは渡せません。{{name}}が次にウォレットを開いたときに届きます。まだ何も支払われていません。',
       direct_pay_failed_offline:
-        '{{name}}は現在ライブ支払いを受け付けていません。何も使われていません。それでも支払うには、設定でメッセージボックスを接続してください。',
+        '{{name}}はオンラインではありません。何も使われていません。それでも届けるには、設定 › 詳細でセットアップを完了してください。',
       direct_pay_failed_link: '{{name}}に直接接続できませんでした。何も使われていません。',
       direct_pay_failed_network: '支払いネットワークに接続できませんでした。接続を確認してください。',
       direct_pay_failed_wrong_network: '{{name}}は別のネットワークにいます。何も使われていません。',
@@ -13799,8 +13804,8 @@ const resources = {
       direct_pay_failed_maybe_sent:
         '{{name}}への支払いはすでに送信されている可能性があります。もう一度支払う前に、アクティビティを確認してください。',
       direct_pay_failed_not_sent: '支払いを送信できませんでした。何も使われていません。',
-      direct_pay_failed_no_message_box: 'ウォレットIDに支払うには、設定でメッセージボックスを接続してください。',
-      direct_pay_fallback_title: '現在ライブで支払えません',
+      direct_pay_failed_no_message_box: 'ウォレットIDに支払うには、設定 › 詳細でセットアップを完了してください。',
+      direct_pay_fallback_title: 'それでも送信しますか？',
       direct_pay_fallback_send: 'メッセージボックスに送る',
       direct_pay_fallback_host: '相手のメッセージボックス：{{host}}',
       direct_pay_sent_live: 'ライブで支払い済み：すでに相手のウォレットに入っています。',
@@ -14510,7 +14515,8 @@ const resources = {
       message_box_saved: 'Serwer skrzynki wiadomości zapisany',
       message_box_removed: 'Serwer skrzynki wiadomości usunięty',
       message_box_off: 'Wył.',
-      message_box_off_hint: 'Serwer skrzynki wiadomości jest wyłączony. Włącz go w Ustawienia › Zaawansowane.',
+      message_box_off_hint:
+        'Nic nie zostało wysłane. Aby zapłacić komuś, kto nie jest online, dokończ konfigurację w Ustawienia › Zaawansowane.',
       enter_valid_url: 'Wprowadź prawidłowy adres URL',
       checking_connection: 'Sprawdzanie połączenia...',
       connection_failed: 'Połączenie nie powiodło się',
@@ -14608,8 +14614,7 @@ const resources = {
 
       // Amount input
       send_max: 'Wyślij maksimum',
-      message_box_unreachable:
-        'Nie można połączyć się z serwerem płatności. Sprawdź adres URL message box w ustawieniach.',
+      message_box_unreachable: 'Nie można połączyć się z serwerem płatności. Sprawdź Ustawienia › Zaawansowane.',
       available: 'dostępne',
       note: 'Notatka',
       note_placeholder: 'Za co? (opcjonalnie)',
@@ -14864,7 +14869,7 @@ const resources = {
       local_pay_network_denied:
         'Dostęp do sieci lokalnej jest wyłączony. Włącz go w Ustawieniach, aby płacić urządzeniom w pobliżu.',
       local_pay_radio_fallback: 'Połączenie bezprzewodowe niedostępne — pokaż ten kod drugiemu urządzeniu.',
-      local_pay_floor_peer_bt_off: 'Ich Bluetooth jest wyłączony, więc ta płatność przejdzie przez kod.',
+      local_pay_floor_peer_bt_off: 'Ich Bluetooth jest wyłączony. Płatność kodem.',
       local_pay_floor_local_bt_off:
         'Twój Bluetooth jest wyłączony. Włącz go, aby uzyskać szybsze połączenie w pobliżu.',
       local_pay_floor_local_ble_denied:
@@ -14873,9 +14878,9 @@ const resources = {
         'Drugie urządzenie nie może teraz używać Bluetooth, więc ta płatność przejdzie przez kod.',
       local_pay_floor_peer_no_radio:
         'Drugie urządzenie nie oczekuje połączenia bezprzewodowego, więc ta płatność przejdzie przez kod.',
-      local_pay_ble_unavailable: 'Bluetooth jest niedostępny. Kod powyżej nadal działa.',
+      local_pay_ble_unavailable: 'Bluetooth niedostępny. Kod nadal działa.',
       local_pay_too_large: 'Dane tej płatności są zbyt duże, aby przekazać je za pomocą kodów QR.',
-      local_pay_nearby_unavailable: 'Wi-Fi w pobliżu jest niedostępne. Kod powyżej nadal działa.',
+      local_pay_nearby_unavailable: 'Wi-Fi niedostępne. Kod nadal działa.',
       local_pay_retry_save: 'Spróbuj zapisać ponownie',
       local_pay_wrong_session:
         'Ta płatność nie pasuje do tego żądania i nie została przyjęta. Poproś płatnika o ponowne zeskanowanie kodu.',
@@ -14887,9 +14892,9 @@ const resources = {
       local_pay_declined_not_covered:
         'Odbiorca nie mógł zweryfikować tej płatności w rejestrach emitenta. Nic nie wysłano.',
       local_pay_declined_root_unverified:
-        'Urządzenie odbiorcy nie mogło sprawdzić tej płatności w blockchainie. Nic nie zostało wysłane. Jeśli odbiorca jest offline, musi na chwilę połączyć się z internetem, a potem spróbować ponownie.',
+        'Ich urządzenie potrzebuje internetu, aby zweryfikować twoją płatność, więc nic nie zostało wysłane. Gdy będą online, zeskanuj ich kod ponownie.',
       local_pay_root_unverified:
-        'To urządzenie nie mogło sprawdzić płatności w blockchainie, więc jej nie przyjęło. Połącz się na chwilę z internetem, a potem poproś płacącego o ponowną próbę.',
+        'Nie przyjęto: ten telefon potrzebuje internetu, aby zweryfikować płatność. Połącz się z internetem, a potem poproś o ponowne zeskanowanie twojego kodu.',
       local_pay_broadcast_pending: 'Wysłano. To urządzenie nie zdołało jeszcze tego przetworzyć — zrobi to odbiorca.',
       local_pay_any_amount: 'Dowolna kwota',
       local_pay_choose_amount: 'Wybierz kwotę',
@@ -14932,9 +14937,9 @@ const resources = {
       pay_parked_cancel: 'Anuluj płatność',
       pay_parked_already_sent: 'Ta płatność została już wysłana',
       token_cancel_already_sent: 'Ta płatność już przeszła i nie można jej anulować.',
-      tx_status_parked: 'Nie przekazano',
+      tx_status_parked: 'Nie dostarczono',
       tx_status_import_hold: 'Wstrzymane (zaimportowane)',
-      resend_sending: 'Wysyłanie przez skrzynkę wiadomości',
+      resend_sending: 'Ponowne wysyłanie',
       cancelling_payment: 'Anulowanie płatności',
 
       contacts: 'Kontakty',
@@ -15068,17 +15073,17 @@ const resources = {
       direct_pay_status_off_body:
         'Włącz je w ustawieniach, aby ludzie mogli płacić Ci bezpośrednio, gdy ten ekran jest otwarty.',
       direct_pay_status_not_set_up_body:
-        'Płatności na żywo docierają do innych portfeli przez skrzynkę wiadomości. Połącz skrzynkę wiadomości w ustawieniach lub użyj serwera przekaźnikowego.',
+        'Dokończ konfigurację w Ustawienia › Zaawansowane, aby otrzymywać płatności, gdy ten ekran jest otwarty.',
       direct_pay_status_error_title: 'Płatności na żywo chwilowo nie działają',
       direct_pay_status_error_body: 'W tej chwili nie można odbierać płatności na żywo.',
       direct_pay_fallback_offline:
-        '{{name}} nie przyjmuje teraz płatności na żywo. Wysłać płatność do skrzynki wiadomości odbiorcy? Dotrze, gdy odbiorca następnym razem otworzy portfel.',
+        '{{name}} nie jest online. Płatność dotrze, gdy odbiorca następnym razem otworzy portfel. Nic jeszcze nie zostało wydane.',
       direct_pay_fallback_link_failed:
-        'Nie udało się połączyć bezpośrednio z {{name}}. Wysłać zamiast tego do skrzynki wiadomości odbiorcy?',
+        'Nie udało się połączyć bezpośrednio z {{name}}. Płatność dotrze, gdy odbiorca następnym razem otworzy portfel. Nic jeszcze nie zostało wydane.',
       direct_pay_fallback_too_large:
-        'Ta płatność jest zbyt duża, by wysłać ją na żywo (ponad 1 MB). Wysłać ją zamiast tego do skrzynki wiadomości {{name}}? Nic jeszcze nie zostało wydane.',
+        'Ta płatność jest zbyt duża, by przekazać ją na żywo. Dotrze, gdy {{name}} następnym razem otworzy portfel. Nic jeszcze nie zostało wydane.',
       direct_pay_failed_offline:
-        '{{name}} nie przyjmuje teraz płatności na żywo. Nic nie wydano. Połącz skrzynkę wiadomości w ustawieniach, aby mimo to zapłacić.',
+        '{{name}} nie jest online. Nic nie wydano. Aby płatność mimo to dotarła, dokończ konfigurację w Ustawienia › Zaawansowane.',
       direct_pay_failed_link: 'Nie udało się połączyć bezpośrednio z {{name}}. Nic nie wydano.',
       direct_pay_failed_network: 'Nie udało się połączyć z siecią płatności — sprawdź połączenie.',
       direct_pay_failed_wrong_network: '{{name}} jest w innej sieci. Nic nie wydano.',
@@ -15087,8 +15092,8 @@ const resources = {
         'Twoja płatność dla {{name}} mogła już zostać wysłana. Sprawdź Aktywność, zanim zapłacisz ponownie.',
       direct_pay_failed_not_sent: 'Nie udało się wysłać płatności. Nic nie wydano.',
       direct_pay_failed_no_message_box:
-        'Połącz swoją skrzynkę wiadomości w ustawieniach, aby płacić tożsamości portfela.',
-      direct_pay_fallback_title: 'Nie można teraz zapłacić na żywo',
+        'Aby płacić tożsamości portfela, dokończ konfigurację w Ustawienia › Zaawansowane.',
+      direct_pay_fallback_title: 'Wysłać mimo to?',
       direct_pay_fallback_send: 'Wyślij do skrzynki wiadomości',
       direct_pay_fallback_host: 'Skrzynka wiadomości odbiorcy: {{host}}',
       direct_pay_sent_live: 'Zapłacono na żywo: środki są już w jego portfelu.',
@@ -15798,7 +15803,8 @@ const resources = {
       message_box_saved: 'Nachrichtenbox-Server gespeichert',
       message_box_removed: 'Nachrichtenbox-Server entfernt',
       message_box_off: 'Aus',
-      message_box_off_hint: 'Der Nachrichtenbox-Server ist aus. Schalte ihn unter Einstellungen › Erweitert ein.',
+      message_box_off_hint:
+        'Nichts wurde gesendet. Um jemanden zu bezahlen, der nicht online ist, schließe die Einrichtung unter Einstellungen › Erweitert ab.',
       enter_valid_url: 'Bitte gib eine gültige URL ein',
       checking_connection: 'Verbindung wird geprüft…',
       connection_failed: 'Verbindung fehlgeschlagen',
@@ -15882,8 +15888,7 @@ const resources = {
       color_prompt_access_title: 'Anfrage auf Token-Zugriff',
       color_prompt_relinquish_title: 'Token-Bestand entfernen',
       send_max: 'Maximum senden',
-      message_box_unreachable:
-        'Der Zahlungsserver war nicht erreichbar. Prüfe die Nachrichtenbox-URL in deinen Einstellungen.',
+      message_box_unreachable: 'Der Zahlungsserver war nicht erreichbar. Prüfe Einstellungen › Erweitert.',
       available: 'verfügbar',
       note: 'Notiz',
       note_placeholder: 'Wofür ist das? (optional)',
@@ -16132,7 +16137,7 @@ const resources = {
       local_pay_network_denied:
         'Der Zugriff auf das lokale Netzwerk ist aus. Aktiviere ihn in den Einstellungen, um Geräte in der Nähe zu bezahlen.',
       local_pay_radio_fallback: 'Funkverbindung nicht verfügbar — zeig diesen Code stattdessen dem anderen Gerät.',
-      local_pay_floor_peer_bt_off: 'Deren Bluetooth ist aus, deshalb läuft diese Zahlung über den Code.',
+      local_pay_floor_peer_bt_off: 'Deren Bluetooth ist aus. Zahlung per Code.',
       local_pay_floor_local_bt_off:
         'Dein Bluetooth ist aus. Schalte es ein für eine schnellere Verbindung in der Nähe.',
       local_pay_floor_local_ble_denied:
@@ -16141,9 +16146,9 @@ const resources = {
         'Das andere Gerät kann Bluetooth gerade nicht nutzen, deshalb läuft diese Zahlung über den Code.',
       local_pay_floor_peer_no_radio:
         'Das andere Gerät hört nicht auf eine Funkverbindung, deshalb läuft diese Zahlung über den Code.',
-      local_pay_ble_unavailable: 'Bluetooth ist nicht verfügbar. Der Code oben funktioniert trotzdem.',
+      local_pay_ble_unavailable: 'Bluetooth nicht verfügbar. Der Code funktioniert trotzdem.',
       local_pay_too_large: 'Die Daten dieser Zahlung sind zu groß, um sie mit QR-Codes zu übergeben.',
-      local_pay_nearby_unavailable: 'WLAN in der Nähe ist nicht verfügbar. Der Code oben funktioniert trotzdem.',
+      local_pay_nearby_unavailable: 'WLAN nicht verfügbar. Der Code funktioniert trotzdem.',
       local_pay_retry_save: 'Erneut speichern versuchen',
       local_pay_wrong_session:
         'Diese Zahlung passt nicht zu dieser Anfrage und wurde nicht angenommen. Bitte den Zahlenden, den Code erneut zu scannen.',
@@ -16157,9 +16162,9 @@ const resources = {
       local_pay_declined_not_covered:
         'Der Empfänger konnte diese Zahlung nicht gegen die Aufzeichnungen des Emittenten prüfen. Nichts wurde gesendet.',
       local_pay_declined_root_unverified:
-        'Das Gerät des Empfängers konnte diese Zahlung nicht gegen die Blockchain prüfen. Nichts wurde gesendet. Ist die Person offline, muss sie sich kurz verbinden und es dann erneut versuchen.',
+        'Deren Gerät braucht Internet, um deine Zahlung zu prüfen, deshalb wurde nichts gesendet. Sobald die Person online ist, scanne ihren Code erneut.',
       local_pay_root_unverified:
-        'Dieses Gerät konnte die Zahlung nicht gegen die Blockchain prüfen, deshalb wurde sie nicht angenommen. Verbinde dich kurz mit dem Internet und bitte den Zahlenden dann, es erneut zu versuchen.',
+        'Nicht angenommen: Dieses Telefon braucht Internet, um eine Zahlung zu prüfen. Geh online und lass dann deinen Code erneut scannen.',
       local_pay_broadcast_pending:
         'Gesendet. Dieses Gerät konnte sie noch nicht verarbeiten lassen — der Empfänger wird das tun.',
       local_pay_any_amount: 'Beliebiger Betrag',
@@ -16204,9 +16209,9 @@ const resources = {
       pay_parked_cancel: 'Zahlung abbrechen',
       pay_parked_already_sent: 'Diese Zahlung wurde schon gesendet',
       token_cancel_already_sent: 'Diese Zahlung ist schon durchgegangen und kann nicht abgebrochen werden.',
-      tx_status_parked: 'Nicht übergeben',
+      tx_status_parked: 'Nicht zugestellt',
       tx_status_import_hold: 'Gehalten (importiert)',
-      resend_sending: 'Wird über die Nachrichtenbox gesendet',
+      resend_sending: 'Wird erneut gesendet',
       cancelling_payment: 'Zahlung wird abgebrochen',
       contacts: 'Kontakte',
       contacts_search_placeholder: 'Nach Name oder Alias suchen',
@@ -16339,17 +16344,17 @@ const resources = {
       direct_pay_status_off_body:
         'Schalte sie in den Einstellungen ein, damit Personen dich direkt bezahlen können, solange dieser Bildschirm offen ist.',
       direct_pay_status_not_set_up_body:
-        'Live-Zahlungen erreichen andere Wallets über die Nachrichtenbox. Verbinde in den Einstellungen eine Nachrichtenbox, oder nutze einen Relay-Server.',
+        'Schließe die Einrichtung unter Einstellungen › Erweitert ab, um bezahlt zu werden, während dieser Bildschirm geöffnet ist.',
       direct_pay_status_error_title: 'Live-Zahlungen funktionieren gerade nicht',
       direct_pay_status_error_body: 'Live-Zahlungen können gerade nicht empfangen werden.',
       direct_pay_fallback_offline:
-        '{{name}} nimmt gerade keine Live-Zahlungen an. Stattdessen an die Nachrichtenbox senden? Sie erreicht das Wallet, wenn es das nächste Mal geöffnet wird.',
+        '{{name}} ist nicht online. Die Zahlung kommt an, wenn das Wallet das nächste Mal geöffnet wird. Noch nichts ausgegeben.',
       direct_pay_fallback_link_failed:
-        'Direkte Verbindung zu {{name}} nicht möglich. Stattdessen an die Nachrichtenbox senden?',
+        '{{name}} war nicht direkt erreichbar. Die Zahlung kommt an, wenn das Wallet das nächste Mal geöffnet wird. Noch nichts ausgegeben.',
       direct_pay_fallback_too_large:
-        'Diese Zahlung ist zu groß für Live-Versand (über 1 MB). Stattdessen an die Nachrichtenbox von {{name}} senden? Es wurde noch nichts ausgegeben.',
+        'Diese Zahlung ist zu groß für eine Live-Übergabe. Sie kommt an, wenn {{name}} das Wallet das nächste Mal öffnet. Noch nichts ausgegeben.',
       direct_pay_failed_offline:
-        '{{name}} nimmt gerade keine Live-Zahlungen an. Nichts wurde ausgegeben. Verbinde in den Einstellungen eine Nachrichtenbox, um trotzdem zu zahlen.',
+        '{{name}} ist nicht online. Nichts wurde ausgegeben. Um die Person trotzdem zu erreichen, schließe die Einrichtung unter Einstellungen › Erweitert ab.',
       direct_pay_failed_link: 'Direkte Verbindung zu {{name}} nicht möglich. Nichts wurde ausgegeben.',
       direct_pay_failed_network: 'Das Zahlungsnetzwerk war nicht erreichbar — prüfe deine Verbindung.',
       direct_pay_failed_wrong_network: '{{name}} ist in einem anderen Netzwerk. Nichts wurde ausgegeben.',
@@ -16358,8 +16363,8 @@ const resources = {
         'Deine Zahlung an {{name}} wurde vielleicht schon gesendet. Sieh in Aktivität nach, bevor du noch einmal zahlst.',
       direct_pay_failed_not_sent: 'Die Zahlung konnte nicht gesendet werden. Nichts wurde ausgegeben.',
       direct_pay_failed_no_message_box:
-        'Verbinde deine Nachrichtenbox in den Einstellungen, um eine Wallet-Identität zu bezahlen.',
-      direct_pay_fallback_title: 'Live-Zahlung gerade nicht möglich',
+        'Um eine Wallet-Identität zu bezahlen, schließe die Einrichtung unter Einstellungen › Erweitert ab.',
+      direct_pay_fallback_title: 'Trotzdem senden?',
       direct_pay_fallback_send: 'An die Nachrichtenbox senden',
       direct_pay_fallback_host: 'Deren Nachrichtenbox: {{host}}',
       direct_pay_sent_live: 'Live bezahlt: es ist schon in deren Wallet.',
@@ -16430,7 +16435,8 @@ const resources = {
         'die öffentlichen Schlüssel sehen, die aus deinem Identitätsschlüssel abgeleitet sind',
       'bridge.policy.seekPermissionWhenApplyingActionLabels.off': 'deine Transaktionen mit Labels versehen',
       'bridge.policy.seekPermissionWhenApplyingActionLabels.on': 'deine Transaktionen mit Labels versehen',
-      'bridge.policy.seekPermissionWhenListingActionsByLabel.off': 'deinen Transaktionsverlauf und deine Ausgänge lesen',
+      'bridge.policy.seekPermissionWhenListingActionsByLabel.off':
+        'deinen Transaktionsverlauf und deine Ausgänge lesen',
       'bridge.policy.seekPermissionWhenListingActionsByLabel.on': 'deinen Transaktionsverlauf und deine Ausgänge lesen',
       'bridge.policy.seekProtocolPermissionsForEncrypting.off': 'Daten verschlüsseln und entschlüsseln',
       'bridge.policy.seekProtocolPermissionsForEncrypting.on': 'Daten verschlüsseln und entschlüsseln',
@@ -16439,7 +16445,7 @@ const resources = {
       'bridge.policy.seekProtocolPermissionsForSigning.off': 'mit deinen Schlüsseln signieren (außer beim Anmelden)',
       'bridge.policy.seekProtocolPermissionsForSigning.on': 'mit deinen Schlüsseln signieren (außer beim Anmelden)',
       'bridge.policy.seekSpendingPermissions.off': 'aus deinem Guthaben ausgeben',
-      'bridge.policy.seekSpendingPermissions.on': 'aus deinem Guthaben ausgeben',
+      'bridge.policy.seekSpendingPermissions.on': 'aus deinem Guthaben ausgeben'
     }
   }
 }
