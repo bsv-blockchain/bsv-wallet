@@ -15390,6 +15390,7 @@ const resources = {
       vault_restore_pending:
         '{{count}} Einzahlung(en) gefunden, sie warten auf die erste Bestätigung — versuch es gleich noch einmal.',
       vault_restore_none_found: 'Für dieses Wallet wurden keine Tresor-Einzahlungen in der Blockchain gefunden.',
+      vault_restore_needs_key: 'Tresor gefunden. Tippe einen seiner Schlüssel an, um ihn wiederherzustellen.',
       vault_balance_label: 'Im Tresor',
       vault_key_section: 'Sicherheitsschlüssel ({{count}} von 5)',
       vault_manage_section: 'Verwalten',
@@ -15436,6 +15437,19 @@ const resources = {
       vault_reset_body:
         'Dieser Schlüssel wurde schon benutzt. Zurücksetzen löscht jedes Zertifikat und jeden Schlüssel in seiner PIV-Anwendung, nicht nur den Tresor-Slot. Alles, was auf diesem Schlüssel beruht, funktioniert danach nicht mehr.',
       vault_reset_ack: 'Ich verstehe, dass damit alles auf diesem Schlüssel gelöscht wird',
+      vault_card_checking: 'Die Blockchain wird nach einem Tresor durchsucht, den dieser Schlüssel öffnet…',
+      vault_card_funds_title: 'Dieser Schlüssel öffnet einen Tresor',
+      vault_card_funds_body_one:
+        '1 Einzahlung ({{amount}}) lässt sich mit diesem Schlüssel öffnen. Stelle den Tresor wieder her, statt den Schlüssel zurückzusetzen.',
+      vault_card_funds_body_other:
+        '{{count}} Einzahlungen ({{amount}}) lassen sich mit diesem Schlüssel öffnen. Stelle den Tresor wieder her, statt den Schlüssel zurückzusetzen.',
+      vault_card_restore: 'Diesen Tresor wiederherstellen',
+      vault_card_unknown_title: 'Die Blockchain konnte nicht geprüft werden',
+      vault_card_unknown_body:
+        'Der Schlüssel wurde nicht verändert. Versuch es erneut. Wenn du ihn ohne Prüfung zurücksetzt, ist jeder Tresor, den er öffnet, endgültig verloren.',
+      vault_card_retry: 'Erneut versuchen',
+      vault_card_loss_ack:
+        'Alle Guthaben in einem Tresor, der diesen Schlüssel nutzt, sind endgültig verloren, wenn du ihn zurücksetzt.',
       vault_reset_unknown_ack:
         'Dieses Gerät kann nicht bestätigen, ob dieser Schlüssel noch den Tresor eines anderen Profils sichert. Ich verstehe, dass das Löschen diesen Schlüssel endgültig zerstören kann.',
       vault_reset_own_draft_ack:
@@ -15501,7 +15515,7 @@ const resources = {
         'Der Tresor bindet an höchstens fünf Schlüssel. Entferne einen, bevor du einzahlst, neu sperrst oder einen Teil des Guthabens auszahlst.',
       vault_key_section_over_limit: 'Sicherheitsschlüssel ({{count}}, einen entfernen)',
       vault_add_key_done_over_limit:
-        '{{nickname}} ist hinzugefügt. Der Tresor bindet an höchstens fünf Schlüssel, entferne also den Schlüssel, den dieser ersetzt, und sperre danach einmal neu.',
+        '{{nickname}} ist gespeichert, aber noch nicht aktiv. Der Tresor bindet an höchstens fünf Schlüssel, entferne also den Schlüssel, den dieser ersetzt. Das Entfernen macht auch {{nickname}} aktiv.',
       vault_relock_done: 'Tresor auf deine aktuellen Schlüssel neu gesperrt',
       vault_relock_capped: 'Noch {{count}} Einzahlungen übrig — sperre erneut neu, um sie zu verschieben.',
       vault_relock_unreachable:
@@ -15790,6 +15804,8 @@ const resources = {
       review_imported_payment: 'Importierte Zahlung prüfen',
       review_imported_payment_detail:
         'Diese Zahlung stammt aus einer Sicherung und wurde vielleicht abgebrochen. Jetzt {{amount}} Satoshis an {{recipient}} senden?',
+      review_imported_paymail_detail:
+        'Diese Zahlung stammt aus einer Sicherung und wurde vielleicht abgebrochen. Sie ist mit {{amount}} Satoshis an {{recipient}} aufgeführt, aber die App kann nicht prüfen, ob die signierte Transaktion diesen Empfänger oder diesen Betrag bezahlt. Trotzdem senden?',
       payment_not_delivered: 'Nicht zugestellt',
       payment_delivered: 'Zugestellt',
       retry: 'Erneut versuchen',
@@ -15879,6 +15895,8 @@ const resources = {
       authorize: 'Genehmigen',
       renewal: 'Verlängerung',
       spending_section: 'Ausgeben',
+      spending_up_to: 'Bis zu',
+      spending_each_month: 'jeden Monat, bis du es entfernst',
       protocols_section: 'Protokolle',
       baskets_section: 'Körbe',
       certificates_section: 'Zertifikate',
