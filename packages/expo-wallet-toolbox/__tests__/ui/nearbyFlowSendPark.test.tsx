@@ -86,8 +86,11 @@ const mockAwdlSend = jest.fn()
 const mockBleSend = jest.fn()
 const mockFallbackRadio = jest.fn((..._args: unknown[]): string | null => null)
 
+/** The network the payer's wallet reports; only a merchant request asks for it. */
+let mockWalletNetwork = 'mainnet'
 function mockWallet() {
   return {
+    getNetwork: jest.fn(async () => ({ network: mockWalletNetwork })),
     getPublicKey: jest.fn(async () => ({ publicKey: PAYEE_IDENTITY })),
     createHmac: jest.fn(async () => ({ hmac: new Array(32).fill(7) }))
   }
@@ -138,6 +141,7 @@ import React from 'react'
 import { act, fireEvent, render } from '@testing-library/react-native'
 import { ThemeProvider, mintSession, type Session } from '@bsv/expo-wallet-toolbox'
 import NearbyFlow from '../../ui/components/pay/NearbyFlow'
+import PaymentQrDisplay from '../../ui/components/pay/PaymentQrDisplay'
 import { MandalaProvider } from '../../ui/hooks/useMandala'
 import { makeFakeMandala } from '../__mocks__/fakeMandalaRuntime'
 
@@ -430,5 +434,304 @@ describe('payer network check', () => {
     const { confirm } = mountPayer(sessionOn('test'))
     await settle()
     expect(confirm).toHaveBeenCalled()
+  })
+})
+
+// A host drawing the failure itself (Bitcoin SV Wallet). It is handed the
+// cause as a code, set where the failure is created, and only the actions that
+// cause allows. The built-in screen reads the same actions.
+describe('renderFailed (payer)', () => {
+  type Failed = import('../../ui/components/pay/NearbyFlow').NearbyFailed
+  const barrel = jest.requireMock('@bsv/expo-wallet-toolbox') as { selectTransport: jest.Mock }
+  const { router } = jest.requireMock('expo-router') as { router: { push: jest.Mock } }
+  const { WERR_INSUFFICIENT_FUNDS } = jest.requireActual('@bsv/sdk') as typeof import('@bsv/sdk')
+  const TOO_LARGE = 5_000_000
+
+  const mount = (initialSession: Session = session()) => {
+    const seen: Failed[] = []
+    const s = wrap(
+      <NearbyFlow
+        role="payer"
+        initialSession={initialSession}
+        onExit={jest.fn()}
+        renderFailed={f => {
+          seen.push(f)
+          return null
+        }}
+      />
+    )
+    return { s, last: () => seen[seen.length - 1] as Failed | undefined }
+  }
+  const pressSend = async (s: ReturnType<typeof wrap>) => {
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('local_pay_send'))
+      for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve))
+    })
+  }
+  const failWith = async (arrange: () => void) => {
+    arrange()
+    const { s, last } = mount()
+    await settle()
+    await pressSend(s)
+    return { s, failed: last() }
+  }
+
+  afterEach(() => {
+    mockFinalizeDelivery.mockResolvedValue({ kind: 'sent', broadcast: 'ok' })
+    mockAwdlSend.mockReset()
+    barrel.selectTransport.mockReturnValue('awdl')
+    mockStorageChain = undefined
+    mockWalletNetwork = 'mainnet'
+  })
+
+  it('replaces the built-in failure screen and offers the ordinary actions', async () => {
+    const { s, failed } = await failWith(() => mockBuildPaymentFrame.mockRejectedValue(new Error('signer went away')))
+    expect(failed).toMatchObject({ cause: 'unknown', detail: 'signer went away', role: 'payer', amount: 2500 })
+    expect(failed?.recipientName).toBeTruthy()
+    // No frame is in hand on this device: start again, or give up.
+    expect(failed?.retry).toEqual(expect.any(Function))
+    expect(failed?.cancel).toEqual(expect.any(Function))
+    expect(failed?.retrySave).toBeUndefined()
+    expect(failed?.openSettings).toBeUndefined()
+    expect(failed?.checkWallet).toBeUndefined()
+    expect(failed?.showCode).toBeUndefined()
+    expect(failed?.declineReason).toBeUndefined()
+    // The host's screen is the only one drawn.
+    expect(s.queryByText('local_pay_failed')).toBeNull()
+    expect(s.queryByText('retry')).toBeNull()
+  })
+
+  it('draws the built-in screen for the same failure when the host gives no renderFailed', async () => {
+    mockBuildPaymentFrame.mockRejectedValue(new Error('signer went away'))
+    const s = wrap(<NearbyFlow role="payer" initialSession={session()} onExit={jest.fn()} />)
+    await settle()
+    await pressSend(s)
+    expect(s.getByText('local_pay_failed')).toBeTruthy()
+    expect(s.getByText('signer went away')).toBeTruthy()
+    expect(s.getByText('retry')).toBeTruthy()
+    expect(s.queryByText('cancel')).toBeNull()
+    expect(s.queryByText('local_pay_retry_save')).toBeNull()
+    expect(s.queryByText('open_settings')).toBeNull()
+    expect(s.queryByText('check_wallet')).toBeNull()
+  })
+
+  it('retry starts the payment again from the confirm step', async () => {
+    const { s, failed } = await failWith(() => mockBuildPaymentFrame.mockRejectedValue(new Error('signer went away')))
+    await act(async () => {
+      failed!.retry!()
+    })
+    await settle()
+    expect(s.getByLabelText('local_pay_send')).toBeTruthy()
+  })
+
+  it('names insufficient funds by the SDK error class, and keeps the sentence in detail', async () => {
+    const error = new WERR_INSUFFICIENT_FUNDS(3000, 500)
+    const { failed } = await failWith(() => mockBuildPaymentFrame.mockRejectedValue(error))
+    expect(failed?.cause).toBe('insufficient-funds')
+    expect(failed?.detail).toBe(error.message)
+    expect(failed?.retry).toEqual(expect.any(Function))
+  })
+
+  it('names insufficient funds by the wallet error name, whatever the sentence says', async () => {
+    // A toolbox error: `name` and `code` are the WERR_* string, and the
+    // sentence has none of the words a text match would look for.
+    const error = Object.assign(new Error('Guthaben reicht nicht'), {
+      name: 'WERR_INSUFFICIENT_FUNDS',
+      code: 'WERR_INSUFFICIENT_FUNDS'
+    })
+    const { failed } = await failWith(() => mockBuildPaymentFrame.mockRejectedValue(error))
+    expect(failed).toMatchObject({ cause: 'insufficient-funds', detail: 'Guthaben reicht nicht' })
+  })
+
+  it('does not read insufficient funds off the sentence of an untyped error', async () => {
+    const { failed } = await failWith(() => mockBuildPaymentFrame.mockRejectedValue(new Error('Insufficient funds')))
+    expect(failed?.cause).toBe('unknown')
+  })
+
+  it('offers Check Wallet for a stuck payment, with cause unknown', async () => {
+    const { failed } = await failWith(() => mockBuildPaymentFrame.mockRejectedValue(new Error('WERR_REVIEW_ACTIONS')))
+    expect(failed).toMatchObject({ cause: 'unknown', detail: 'error_review_actions' })
+    failed!.checkWallet!()
+    expect(router.push).toHaveBeenCalledWith('/wallet-check')
+  })
+
+  it.each([
+    ['session_mismatch', 'declined', 'local_pay_declined_mismatch'],
+    ['already_paid', 'declined', 'local_pay_declined_already_paid'],
+    ['save_failed', 'declined', 'local_pay_declined_save'],
+    ['decode_failed', 'declined', 'local_pay_declined_decode'],
+    ['not_covered', 'declined', 'local_pay_declined_not_covered'],
+    ['root_unverified', 'unverified', 'local_pay_declined_root_unverified']
+  ])('a %s decline has cause %s and carries the code', async (reason, cause, detail) => {
+    const { failed } = await failWith(() => {
+      mockAwdlSend.mockResolvedValue({ ok: false, error: reason })
+      mockFinalizeDelivery.mockResolvedValue({ kind: 'declined', reason })
+    })
+    expect(failed).toMatchObject({ cause, declineReason: reason, detail, role: 'payer' })
+    // The payee refused it and the inputs are released: never offered as a code.
+    expect(failed?.showCode).toBeUndefined()
+    expect(failed?.retry).toEqual(expect.any(Function))
+  })
+
+  it('a decline code this build does not know is still a decline, echoed as the detail', async () => {
+    const { failed } = await failWith(() => {
+      mockAwdlSend.mockResolvedValue({ ok: false, error: 'quota_exceeded' })
+      mockFinalizeDelivery.mockResolvedValue({ kind: 'declined', reason: 'quota_exceeded' })
+    })
+    expect(failed).toMatchObject({ cause: 'declined', declineReason: 'quota_exceeded', detail: 'quota_exceeded' })
+  })
+
+  it('a decline with no code is a decline with no declineReason', async () => {
+    const { failed } = await failWith(() => {
+      mockAwdlSend.mockResolvedValue({ ok: false })
+      mockFinalizeDelivery.mockResolvedValue({ kind: 'declined' })
+    })
+    expect(failed).toMatchObject({ cause: 'declined', detail: 'local_pay_failed' })
+    expect(failed?.declineReason).toBeUndefined()
+  })
+
+  it('a code too large to show has cause too-large (code path)', async () => {
+    const { failed } = await failWith(() => {
+      barrel.selectTransport.mockReturnValue('qr')
+      mockSealFrame.mockReturnValue(new Uint8Array(TOO_LARGE))
+    })
+    expect(failed).toMatchObject({ cause: 'too-large', detail: 'local_pay_too_large' })
+    expect(failed?.openSettings).toBeUndefined()
+  })
+
+  it('a failed radio with a code too large to show has cause too-large (radio path)', async () => {
+    const { failed } = await failWith(() => {
+      mockAwdlSend.mockRejectedValue(new Error('connect timeout'))
+      mockSealFrame.mockReturnValue(new Uint8Array(TOO_LARGE))
+    })
+    expect(failed).toMatchObject({ cause: 'too-large', detail: 'local_pay_too_large' })
+    expect(failed?.openSettings).toBeUndefined()
+  })
+
+  it('Local Network access off has cause network-permission and a way to Settings', async () => {
+    const { failed } = await failWith(() => {
+      mockAwdlSend.mockRejectedValue(new Error('Operation not permitted'))
+      mockSealFrame.mockReturnValue(new Uint8Array(TOO_LARGE))
+    })
+    expect(failed).toMatchObject({ cause: 'network-permission', detail: 'local_pay_network_denied' })
+    expect(failed?.openSettings).toEqual(expect.any(Function))
+  })
+
+  it('a code from another network has cause wrong-network', async () => {
+    mockStorageChain = 'main'
+    const { last } = mount(
+      mintSession({
+        identityKey: PAYEE_IDENTITY,
+        amount: 2500,
+        derivationPrefix: 'cHJlZml4',
+        derivationSuffix: 'c3VmZml4',
+        supportsAwdl: false,
+        network: 'test'
+      })
+    )
+    await settle()
+    expect(last()).toMatchObject({ cause: 'wrong-network', detail: 'local_pay_wrong_network:testnet|mainnet' })
+    expect(mockBuildPaymentFrame).not.toHaveBeenCalled()
+  })
+
+  // One sentence covers both merchant refusals; the code tells them apart.
+  const MERCHANT_DETAIL = 'Merchant request expired or uses a different network.'
+  const merchantSession = (expires: number): Session => ({
+    ...session(),
+    merchantChain: 'main',
+    merchantExpires: expires
+  })
+
+  it('a merchant request for another network has cause wrong-network', async () => {
+    mockWalletNetwork = 'testnet'
+    const { s, last } = mount(merchantSession(Date.now() + 60_000))
+    await settle()
+    await pressSend(s)
+    expect(last()).toMatchObject({ cause: 'wrong-network', detail: MERCHANT_DETAIL })
+    expect(mockBuildPaymentFrame).not.toHaveBeenCalled()
+  })
+
+  it('an expired merchant request on the right network has cause unknown', async () => {
+    const { s, last } = mount(merchantSession(Date.now() - 1))
+    await settle()
+    await pressSend(s)
+    expect(last()).toMatchObject({ cause: 'unknown', detail: MERCHANT_DETAIL })
+    expect(mockBuildPaymentFrame).not.toHaveBeenCalled()
+  })
+
+  it('a payment code that cannot be drawn has cause too-large', async () => {
+    // The radio fails, so the payment is shown as a code; then the encoder
+    // reports that it cannot draw it.
+    mockAwdlSend.mockRejectedValue(new Error('connect timeout: no route to peer'))
+    const { s, last } = mount()
+    await settle()
+    await pressSend(s)
+    expect(last()).toBeUndefined()
+    await act(async () => {
+      s.UNSAFE_getByType(PaymentQrDisplay).props.onError()
+      await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(last()).toMatchObject({ cause: 'too-large', detail: 'local_pay_too_large' })
+    expect(last()?.showCode).toBeUndefined()
+  })
+})
+
+// The host screens draw a face from the wallet identity. The key is the one
+// the payment is addressed to, read from the scanned session.
+describe('identity keys on the payer steps', () => {
+  type Seen = {
+    confirm?: import('../../ui/components/pay/NearbyFlow').NearbyConfirm
+    sending?: import('../../ui/components/pay/NearbyFlow').NearbySending
+    showCode?: import('../../ui/components/pay/NearbyFlow').NearbyShowCode
+    done?: import('../../ui/components/pay/NearbyFlow').NearbyDone
+  }
+  const mount = () => {
+    const seen: Seen = {}
+    wrap(
+      <NearbyFlow
+        role="payer"
+        initialSession={session()}
+        onExit={jest.fn()}
+        renderPayer={{
+          confirm: c => ((seen.confirm = c), null),
+          sending: v => ((seen.sending = v), null),
+          showCode: v => ((seen.showCode = v), null),
+          done: v => ((seen.done = v), null)
+        }}
+      />
+    )
+    return seen
+  }
+  const send = async (seen: Seen) => {
+    await act(async () => {
+      seen.confirm!.send()
+      for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve))
+    })
+  }
+  afterEach(() => mockAwdlSend.mockReset())
+
+  it('confirm, sending and done name the payee by identity key', async () => {
+    let resolveSend!: (ack: unknown) => void
+    mockAwdlSend.mockReturnValue(new Promise(resolve => (resolveSend = resolve)))
+    const seen = mount()
+    await settle()
+    expect(seen.confirm?.recipient.identityKey).toBe(PAYEE_IDENTITY)
+
+    await send(seen)
+    expect(seen.sending?.recipient.identityKey).toBe(PAYEE_IDENTITY)
+
+    await act(async () => {
+      resolveSend({ ok: true })
+      for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve))
+    })
+    expect(seen.done?.recipientKey).toBe(PAYEE_IDENTITY)
+  })
+
+  it('the code step names the payee by identity key', async () => {
+    mockAwdlSend.mockRejectedValue(new Error('connect timeout: no route to peer'))
+    const seen = mount()
+    await settle()
+    await send(seen)
+    expect(seen.showCode?.recipient.identityKey).toBe(PAYEE_IDENTITY)
   })
 })

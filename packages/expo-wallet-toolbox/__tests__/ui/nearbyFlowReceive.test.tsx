@@ -417,3 +417,221 @@ describe('NearbyFlow — payee network tag', () => {
     expect(decodeSession(code).network).toBeUndefined()
   })
 })
+
+// A host drawing the failure itself. With a frame in hand and unsaved, the way
+// on is to save the SAME frame again: starting over would abandon it.
+describe('NearbyFlow — renderFailed (payee)', () => {
+  type Failed = import('../../ui/components/pay/NearbyFlow').NearbyFailed
+  const mount = () => {
+    const seen: Failed[] = []
+    const s = wrap(
+      <NearbyFlow
+        role="payee"
+        initialRequest={{ sats: 5000 }}
+        onExit={jest.fn()}
+        renderFailed={f => {
+          seen.push(f)
+          return null
+        }}
+      />
+    )
+    return { s, last: () => seen[seen.length - 1] as Failed | undefined }
+  }
+
+  it('a frame that reached this device and was not saved: cause unsaved, retrySave and no retry', async () => {
+    mockClaimAndSavePending.mockRejectedValueOnce(new Error('disk full'))
+    const { s, last } = mount()
+    await scanPayerFrame(s)
+    await settle()
+
+    const failed = last()
+    expect(failed).toMatchObject({ cause: 'unsaved', detail: 'disk full', role: 'payee' })
+    expect(failed?.retrySave).toEqual(expect.any(Function))
+    expect(failed?.cancel).toEqual(expect.any(Function))
+    expect(failed?.retry).toBeUndefined()
+    expect(failed?.openSettings).toBeUndefined()
+    expect(failed?.showCode).toBeUndefined()
+    // The host's screen is the only one drawn.
+    expect(s.queryByText('local_pay_failed')).toBeNull()
+    expect(s.queryByText('local_pay_retry_save')).toBeNull()
+
+    // retrySave settles the same frame against the same session.
+    await act(async () => {
+      failed!.retrySave!()
+    })
+    await settle()
+    expect(mockClaimAndSavePending).toHaveBeenCalledTimes(2)
+    // Same session ID and the same frame object: nothing was minted anew.
+    const [first, second] = mockClaimAndSavePending.mock.calls
+    expect(second[1]).toEqual(first[1])
+    expect(second[2]).toBe(first[2])
+    await waitFor(() => expect(s.getByText('local_pay_added')).toBeTruthy())
+  })
+
+  it('the built-in screen offers the same two actions for an unsaved frame', async () => {
+    mockClaimAndSavePending.mockRejectedValueOnce(new Error('disk full'))
+    const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} />)
+    await scanPayerFrame(s)
+    await settle()
+
+    expect(s.getByText('local_pay_failed')).toBeTruthy()
+    expect(s.getByText('disk full')).toBeTruthy()
+    expect(s.getByText('local_pay_retry_save')).toBeTruthy()
+    expect(s.getByText('cancel')).toBeTruthy()
+    expect(s.queryByText('retry')).toBeNull()
+
+    await act(async () => {
+      fireEvent.press(s.getByText('local_pay_retry_save'))
+    })
+    await settle()
+    expect(mockClaimAndSavePending).toHaveBeenCalledTimes(2)
+  })
+
+  it('a request that could not be made is an ordinary failure: cause unknown, retry and no retrySave', async () => {
+    mockCreateNonce.mockReset()
+    mockCreateNonce.mockRejectedValue(new Error('nonce boom'))
+    const { last } = mount()
+    await waitFor(() => expect(last()).toBeDefined())
+    expect(last()).toMatchObject({ cause: 'unknown', detail: 'nonce boom', role: 'payee' })
+    expect(last()?.retry).toEqual(expect.any(Function))
+    expect(last()?.retrySave).toBeUndefined()
+  })
+})
+
+// A radio that gave up is an advisory under the pairing code. A host can add
+// an (i) that explains it; without the hook the notice is the text alone.
+describe('NearbyFlow — explainRadio', () => {
+  const barrel = jest.requireMock('@bsv/expo-wallet-toolbox') as {
+    localSupportsAwdl: jest.Mock
+    localSupportsBle: jest.Mock
+    raceReceivers: jest.Mock
+  }
+  /** Each listed radio reports this error; no frame ever arrives. */
+  const radiosFail = (failures: [string, string][]) => {
+    barrel.raceReceivers.mockImplementation(
+      (_transports: unknown, _session: unknown, _signal: unknown, onError: (kind: string, e: unknown) => void) => {
+        for (const [kind, message] of failures) onError(kind, new Error(message))
+        return new Promise(() => {})
+      }
+    )
+  }
+  const LABEL = 'Why did the wireless link stop?'
+
+  beforeEach(() => {
+    barrel.localSupportsAwdl.mockReturnValue(true)
+  })
+  afterEach(() => {
+    barrel.localSupportsAwdl.mockReturnValue(false)
+    barrel.raceReceivers.mockImplementation(() => {})
+  })
+
+  it('without the hook the notice is only the notice', async () => {
+    radiosFail([['awdl', 'connect timeout']])
+    const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} />)
+    await waitFor(() => expect(s.getByText('local_pay_nearby_unavailable')).toBeTruthy())
+    expect(s.queryByLabelText(LABEL)).toBeNull()
+  })
+
+  it('with the hook the notice has a button that reports the radio that stopped', async () => {
+    radiosFail([['awdl', 'connect timeout']])
+    const onPress = jest.fn()
+    const s = wrap(
+      <NearbyFlow
+        role="payee"
+        initialRequest={{ sats: 5000 }}
+        onExit={jest.fn()}
+        explainRadio={{ label: LABEL, onPress }}
+      />
+    )
+    await waitFor(() => expect(s.getByText('local_pay_nearby_unavailable')).toBeTruthy())
+    fireEvent.press(s.getByLabelText(LABEL))
+    expect(onPress).toHaveBeenCalledTimes(1)
+    expect(onPress).toHaveBeenCalledWith('awdl')
+  })
+
+  it('reports Bluetooth as the radio when Bluetooth stopped', async () => {
+    radiosFail([['ble', 'adapter off']])
+    const onPress = jest.fn()
+    const s = wrap(
+      <NearbyFlow
+        role="payee"
+        initialRequest={{ sats: 5000 }}
+        onExit={jest.fn()}
+        explainRadio={{ label: LABEL, onPress }}
+      />
+    )
+    await waitFor(() => expect(s.getByText('local_pay_ble_unavailable')).toBeTruthy())
+    fireEvent.press(s.getByLabelText(LABEL))
+    expect(onPress).toHaveBeenCalledWith('ble')
+  })
+
+  it('has no button when Local Network access is off: that notice has its own Settings route', async () => {
+    radiosFail([['awdl', 'Operation not permitted']])
+    const s = wrap(
+      <NearbyFlow
+        role="payee"
+        initialRequest={{ sats: 5000 }}
+        onExit={jest.fn()}
+        explainRadio={{ label: LABEL, onPress: jest.fn() }}
+      />
+    )
+    await waitFor(() => expect(s.getByText('local_pay_network_denied')).toBeTruthy())
+    expect(s.getByText('open_settings')).toBeTruthy()
+    expect(s.queryByLabelText(LABEL)).toBeNull()
+  })
+
+  it('the embedded notice follows the same rule', async () => {
+    radiosFail([['awdl', 'connect timeout']])
+    const onPress = jest.fn()
+    const without = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} embedded={{}} />)
+    await waitFor(() => expect(without.getByText('local_pay_nearby_unavailable')).toBeTruthy())
+    expect(without.queryByLabelText(LABEL)).toBeNull()
+    without.unmount()
+
+    mockCreateNonce.mockResolvedValueOnce(FIXED_PREFIX).mockResolvedValueOnce(FIXED_SUFFIX)
+    const s = wrap(
+      <NearbyFlow
+        role="payee"
+        initialRequest={{ sats: 5000 }}
+        onExit={jest.fn()}
+        embedded={{}}
+        explainRadio={{ label: LABEL, onPress }}
+      />
+    )
+    await waitFor(() => expect(s.getByText('local_pay_nearby_unavailable')).toBeTruthy())
+    fireEvent.press(s.getByLabelText(LABEL))
+    expect(onPress).toHaveBeenCalledWith('awdl')
+  })
+})
+
+describe('NearbyFlow — embedded scan button', () => {
+  it('offers the payer-code scan as the step button', async () => {
+    const s = wrap(<NearbyFlow role="payee" initialRequest={{ sats: 5000 }} onExit={jest.fn()} embedded={{}} />)
+    await waitFor(() => expect(s.getByRole('button', { name: 'local_pay_scan_payer_qr' })).toBeTruthy())
+    await act(async () => {
+      fireEvent.press(s.getByRole('button', { name: 'local_pay_scan_payer_qr' }))
+    })
+    await waitFor(() => expect(mockScanHandler).toBeTruthy())
+  })
+})
+
+describe('NearbyFlow — payer identity on the received moment', () => {
+  it('hands the host the key read off the payment frame', async () => {
+    const seen: (string | undefined)[] = []
+    const s = wrap(
+      <NearbyFlow
+        role="payee"
+        initialRequest={{ sats: 5000 }}
+        onExit={jest.fn()}
+        renderReceived={r => {
+          seen.push(r.payerKey)
+          return null
+        }}
+      />
+    )
+    await scanPayerFrame(s)
+    await settle()
+    await waitFor(() => expect(seen.length).toBeGreaterThan(0))
+    expect(seen[seen.length - 1]).toBe('02'.padEnd(66, 'a'))
+  })
+})

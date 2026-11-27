@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.29.0
+
+The BSV Wallet app's nearby-payment changes, upstreamed from its patch of 0.27.0: a host can draw the failure screen and explain a stopped radio, a failure names its cause as a code, and 16 payment strings are reworded. No native change: hosts do not rebuild. Every new prop is optional, and the new fields are on values that the toolbox gives to the host, so no host action is necessary.
+
+### Added
+
+- **`NearbyFlowProps.renderFailed` and the `NearbyFailed` type.** A host can draw a nearby payment's failure itself, as `renderPayer` and `renderReceived` let it draw the other steps. The host gets the cause and only the actions that the cause permits: `retrySave` when a payment reached this device and is not saved, `retry` otherwise, and `showCode`, `openSettings` and `checkWallet` when they apply. `cancel` is always there. The built-in screen reads the same actions, and shows the same buttons as before.
+- **`NearbyFailed.cause` and the `NearbyFailureCause` type.** The cause as a code: `insufficient-funds`, `network-permission`, `wrong-network`, `declined`, `unverified`, `unsaved`, `too-large` or `unknown`. The flow sets it where the failure occurs, not from the text. A host that writes its own copy uses `cause`, and does not match the words of `detail`. `detail` is unchanged.
+- **`NearbyFailed.declineReason`.** The payee's own decline code, when the payee refused the payment.
+- **`NearbyFlowProps.explainRadio`, `{ label, onPress(kind) }`.** With it, each "radio stopped" notice has an (i) button that calls `onPress` with the radio that stopped. `label` is the accessibility label of the button. The button is absent when Local Network access is off, because that notice has its own Settings button. Without the prop, the notice is the same as before.
+- **Wallet identity keys on the host values.** `recipient.identityKey` on `NearbyConfirm`, `NearbySending` and `NearbyShowCode`, `recipientKey` on `NearbyDone`, and `payerKey` on `NearbyReceived`. A host can draw the same face for the person that it draws in other screens.
+- **14 German strings.** The German catalog lacked 13 keys, and one more value had old wording.
+
+### Changed
+
+- **The embedded "Scan the payer's code" control is now a button.** In the embedded payee flow it was a 13 px line of grey text. It is now the same `SecondaryButton` as in the full-screen flow. Every host that embeds `NearbyFlow` sees this.
+- **16 payment strings are reworded, in all 13 locales.** No key is added, renamed or dropped. Every host sees the new copy.
+  - Outside Settings › Advanced, the copy does not name the message box. It says what occurred and what to do: `message_box_off_hint`, `message_box_unreachable`, `resend_sending`, `direct_pay_status_not_set_up_body`, `direct_pay_fallback_title`, `direct_pay_fallback_offline`, `direct_pay_fallback_link_failed`, `direct_pay_fallback_too_large`, `direct_pay_failed_offline` and `direct_pay_failed_no_message_box`.
+  - `local_pay_ble_unavailable`, `local_pay_nearby_unavailable` and `local_pay_floor_peer_bt_off` are shorter.
+  - `local_pay_root_unverified` and `local_pay_declined_root_unverified` now say what to do: the payee goes online, then the same code is scanned again.
+  - `tx_status_parked` reads "Undelivered".
+
 ## 0.28.0
 
 No native change: hosts do not rebuild.
